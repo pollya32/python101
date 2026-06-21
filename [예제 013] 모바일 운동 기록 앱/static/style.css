@@ -1,0 +1,491 @@
+/* ===== 기본 초기화 ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0f0f1a;
+  --bg2: #1a1a2e;
+  --bg3: #16213e;
+  --card: #1e1e3a;
+  --card2: #252545;
+  --accent: #7c3aed;
+  --accent2: #9f67ff;
+  --green: #10b981;
+  --red: #ef4444;
+  --gold: #f59e0b;
+  --text: #f0f0ff;
+  --text2: #a0a0c0;
+  --border: #2d2d5a;
+  --radius: 14px;
+  --radius-sm: 8px;
+}
+
+html { font-size: 16px; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  min-height: 100vh;
+  padding-bottom: 40px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ===== 앱 헤더 ===== */
+.app-header {
+  background: var(--bg2);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  border-bottom: 1px solid var(--border);
+}
+.header-left { display: flex; align-items: center; gap: 10px; }
+.app-icon { font-size: 28px; }
+.app-title { font-size: 20px; font-weight: 700; line-height: 1.2; }
+.app-date { font-size: 12px; color: var(--text2); margin-top: 1px; }
+
+/* ===== 탭 네비게이션 ===== */
+.tab-nav {
+  display: flex;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 65px;
+  z-index: 99;
+}
+.tab-btn {
+  flex: 1;
+  padding: 12px;
+  background: none;
+  border: none;
+  color: var(--text2);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+.tab-btn.active {
+  color: var(--accent2);
+  border-bottom-color: var(--accent2);
+}
+
+/* ===== 탭 콘텐츠 ===== */
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* ===== 섹션 ===== */
+.section {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ===== 검색 ===== */
+.search-wrap { margin-bottom: 10px; }
+.search-input {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 15px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.search-input:focus { border-color: var(--accent2); }
+.search-input::placeholder { color: var(--text2); }
+
+/* ===== 카테고리 탭 ===== */
+.category-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  scrollbar-width: none;
+  margin-bottom: 10px;
+}
+.category-tabs::-webkit-scrollbar { display: none; }
+.cat-btn {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text2);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.cat-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+/* ===== 운동 목록 ===== */
+.exercise-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.exercise-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--card);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+.exercise-item:active { transform: scale(0.98); background: var(--card2); }
+.exercise-item.selected {
+  border-color: var(--accent2);
+  background: rgba(124, 58, 237, 0.15);
+}
+.exercise-item-name { font-size: 14px; font-weight: 500; }
+.exercise-item-cat {
+  font-size: 11px;
+  color: var(--text2);
+  background: var(--bg);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.add-exercise-btn {
+  width: 100%;
+  padding: 10px;
+  margin-top: 8px;
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text2);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.add-exercise-btn:hover { border-color: var(--accent2); color: var(--accent2); }
+
+/* ===== 세트 입력 카드 ===== */
+.set-input-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 16px;
+  border: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+.input-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.input-group {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.input-group.full-width { flex: 1 1 100%; }
+.input-group label {
+  font-size: 12px;
+  color: var(--text2);
+  font-weight: 500;
+}
+.input-group input, .input-group select {
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 16px;
+  outline: none;
+  width: 100%;
+  transition: border-color 0.2s;
+}
+.input-group input:focus, .input-group select:focus {
+  border-color: var(--accent2);
+}
+
+/* ===== 버튼 ===== */
+.btn-primary {
+  width: 100%;
+  padding: 13px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 4px;
+}
+.btn-primary:active { transform: scale(0.98); background: #6d28d9; }
+
+.btn-secondary {
+  width: 100%;
+  padding: 12px;
+  background: var(--card2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-secondary:active { transform: scale(0.98); }
+
+.icon-btn {
+  background: none;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 4px;
+}
+
+/* ===== PR 배지 ===== */
+.pr-badge {
+  font-size: 13px;
+  background: var(--gold);
+  color: #000;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-weight: 700;
+}
+.pr-badge.hidden { display: none; }
+
+/* ===== 세트 목록 ===== */
+.sets-list { display: flex; flex-direction: column; gap: 6px; }
+.set-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--card);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  animation: slideIn 0.2s ease;
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.set-num {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.set-info { flex: 1; padding: 0 12px; }
+.set-main { font-size: 14px; font-weight: 600; }
+.set-note { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.set-delete {
+  background: none;
+  border: none;
+  color: var(--text2);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px;
+  transition: color 0.2s;
+}
+.set-delete:hover { color: var(--red); }
+
+/* ===== 요약 그리드 ===== */
+.summary-grid { display: flex; flex-direction: column; gap: 10px; }
+.summary-exercise-card {
+  background: var(--card);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+}
+.summary-exercise-name {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--accent2);
+}
+.summary-sets { display: flex; flex-wrap: wrap; gap: 6px; }
+.summary-set-chip {
+  font-size: 12px;
+  background: var(--bg);
+  border-radius: 20px;
+  padding: 3px 10px;
+  color: var(--text2);
+}
+.summary-set-chip .chip-num {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ===== 히스토리 목록 ===== */
+.history-list { display: flex; flex-direction: column; gap: 10px; }
+.history-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.history-card:active { transform: scale(0.98); background: var(--card2); }
+.history-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.history-date { font-size: 14px; font-weight: 600; }
+.history-stats { display: flex; gap: 10px; }
+.history-stat {
+  font-size: 12px;
+  color: var(--text2);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.history-exercises {
+  font-size: 12px;
+  color: var(--text2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ===== 히스토리 상세 ===== */
+.history-detail-content { display: flex; flex-direction: column; gap: 10px; }
+.detail-exercise-card {
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+}
+.detail-exercise-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent2);
+  margin-bottom: 8px;
+}
+.detail-set-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.detail-set-row:last-child { border-bottom: none; }
+.detail-set-label { color: var(--text2); }
+.detail-set-value { font-weight: 500; }
+
+/* ===== 모달 ===== */
+.modal { position: fixed; inset: 0; z-index: 200; }
+.modal.hidden { display: none; }
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+}
+.modal-sheet {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  background: var(--bg2);
+  border-radius: 20px 20px 0 0;
+  padding: 12px 20px 40px;
+  animation: slideUp 0.3s ease;
+}
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+.modal-handle {
+  width: 40px; height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  margin: 0 auto 16px;
+}
+.modal-title {
+  font-size: 17px;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+.form-group { margin-bottom: 14px; }
+.form-group label {
+  display: block;
+  font-size: 12px;
+  color: var(--text2);
+  margin-bottom: 5px;
+  font-weight: 500;
+}
+.form-group input, .form-group select {
+  width: 100%;
+  padding: 11px 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 15px;
+  outline: none;
+}
+.form-group select option { background: var(--card); }
+.modal-actions { display: flex; gap: 10px; margin-top: 8px; }
+.modal-actions .btn-primary,
+.modal-actions .btn-secondary { margin-top: 0; }
+
+/* ===== 빈 상태 ===== */
+.empty-state {
+  text-align: center;
+  padding: 24px 16px;
+  color: var(--text2);
+}
+.empty-state p { font-size: 15px; }
+.empty-sub { font-size: 13px; margin-top: 5px; }
+.hidden { display: none !important; }
+
+/* ===== 토스트 알림 ===== */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--green);
+  color: white;
+  padding: 10px 20px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 999;
+  animation: toastIn 0.3s ease, toastOut 0.3s ease 1.7s forwards;
+  white-space: nowrap;
+}
+.toast.error { background: var(--red); }
+@keyframes toastIn {
+  from { opacity: 0; transform: translate(-50%, 20px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+@keyframes toastOut {
+  to   { opacity: 0; transform: translate(-50%, 20px); }
+}
