@@ -1,0 +1,25 @@
+{
+  "name": "💪 운동 기록",
+  "short_name": "운동기록",
+  "description": "서버 없이 폰에서 바로 쓰는 운동 트래커",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0f0f1a",
+  "theme_color": "#0f0f1a",
+  "orientation": "portrait-primary",
+  "lang": "ko",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
