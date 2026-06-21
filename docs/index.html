@@ -3,145 +3,253 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<meta name="theme-color" content="#0f0f1a">
+<meta name="theme-color" content="#111827">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="운동기록">
 <title>💪 운동 기록</title>
-<link rel="manifest" href="manifest.json">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#0f0f1a;--bg2:#1a1a2e;--bg3:#16213e;
-  --card:#1e1e3a;--card2:#252545;
-  --accent:#7c3aed;--accent2:#a78bfa;
-  --green:#10b981;--red:#ef4444;--gold:#f59e0b;
-  --text:#f0f0ff;--text2:#8888aa;--border:#2a2a50;
-  --r:14px;--rs:9px;
+  --bg:#111827;--bg2:#1f2937;--card:#1f2937;--card2:#374151;
+  --accent:#6366f1;--accent2:#a5b4fc;
+  --green:#10b981;--red:#f87171;--gold:#fbbf24;
+  --text:#f9fafb;--text2:#9ca3af;--border:#374151;
+  --r:12px;--rs:8px;
 }
-html{font-size:16px;-webkit-tap-highlight-color:transparent}
-body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;padding-bottom:env(safe-area-inset-bottom,24px);-webkit-font-smoothing:antialiased}
+html{-webkit-tap-highlight-color:transparent}
+body{
+  background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,'Noto Sans KR','Malgun Gothic',sans-serif;
+  min-height:100dvh;
+  padding-bottom:max(env(safe-area-inset-bottom),20px);
+  -webkit-font-smoothing:antialiased;
+  overscroll-behavior:none;
+}
 
-/* 헤더 */
-.hdr{background:var(--bg2);padding:14px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;border-bottom:1px solid var(--border);padding-top:calc(14px + env(safe-area-inset-top,0px))}
+/* ─── 헤더 ─── */
+.hdr{
+  background:var(--bg2);
+  padding:max(env(safe-area-inset-top),14px) 16px 14px;
+  display:flex;align-items:center;justify-content:space-between;
+  position:sticky;top:0;z-index:100;
+  border-bottom:1px solid var(--border);
+}
 .hdr-l{display:flex;align-items:center;gap:10px}
-.hdr-icon{font-size:28px;line-height:1}
-.hdr-title{font-size:20px;font-weight:700}
+.hdr-icon{font-size:26px;line-height:1}
+.hdr-title{font-size:19px;font-weight:700;letter-spacing:-.3px}
 .hdr-date{font-size:12px;color:var(--text2);margin-top:2px}
-.icon-btn{background:none;border:none;font-size:22px;cursor:pointer;padding:4px;color:var(--text)}
+.today-badge{
+  background:var(--accent);color:#fff;
+  font-size:11px;font-weight:700;
+  padding:4px 10px;border-radius:20px;
+}
 
-/* 탭 */
-.tabs{display:flex;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:calc(65px + env(safe-area-inset-top,0px));z-index:99}
-.tab{flex:1;padding:12px;background:none;border:none;border-bottom:2.5px solid transparent;color:var(--text2);font-size:14px;font-weight:500;cursor:pointer;transition:all .2s}
-.tab.on{color:var(--accent2);border-bottom-color:var(--accent2)}
+/* ─── 탭 ─── */
+.tabs{
+  display:flex;background:var(--bg2);
+  border-bottom:1px solid var(--border);
+  position:sticky;
+  top:calc(max(env(safe-area-inset-top),14px) + 44px);
+  z-index:99;
+}
+.tab{
+  flex:1;padding:11px 4px;
+  background:none;border:none;border-bottom:2px solid transparent;
+  color:var(--text2);font-size:13px;font-weight:500;
+  cursor:pointer;transition:all .2s;
+}
+.tab.on{color:var(--accent2);border-bottom-color:var(--accent2);font-weight:600}
 .pane{display:none}.pane.on{display:block}
 
-/* 섹션 */
+/* ─── 섹션 ─── */
 .sec{padding:16px;border-bottom:1px solid var(--border)}
 .sec-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
-.sec-title{font-size:15px;font-weight:600}
+.sec-title{font-size:14px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px}
 
-/* 검색 + 카테고리 */
-.search{width:100%;padding:10px 14px;background:var(--card);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);font-size:15px;outline:none;transition:border-color .2s;margin-bottom:10px}
+/* ─── 검색 ─── */
+.search{
+  width:100%;padding:10px 14px;
+  background:var(--card2);border:1px solid var(--border);
+  border-radius:var(--rs);color:var(--text);font-size:15px;outline:none;
+  transition:border-color .2s;margin-bottom:10px;
+}
 .search:focus{border-color:var(--accent2)}
 .search::placeholder{color:var(--text2)}
+
+/* ─── 카테고리 탭 ─── */
 .cats{display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;scrollbar-width:none;margin-bottom:10px}
 .cats::-webkit-scrollbar{display:none}
-.cat{flex-shrink:0;padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:var(--card);color:var(--text2);font-size:13px;cursor:pointer;transition:all .2s;white-space:nowrap}
-.cat.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.cat{
+  flex-shrink:0;padding:5px 13px;border-radius:20px;
+  border:1px solid var(--border);background:var(--card2);
+  color:var(--text2);font-size:13px;cursor:pointer;white-space:nowrap;
+  transition:all .15s;
+}
+.cat.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
 
-/* 운동 목록 */
-.ex-list{display:flex;flex-direction:column;gap:6px;max-height:210px;overflow-y:auto}
-.ex-item{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--card);border-radius:var(--rs);border:1px solid var(--border);cursor:pointer;transition:all .15s;user-select:none}
-.ex-item:active{transform:scale(.98);background:var(--card2)}
-.ex-item.on{border-color:var(--accent2);background:rgba(124,58,237,.18)}
+/* ─── 운동 목록 ─── */
+.ex-list{display:flex;flex-direction:column;gap:5px;max-height:200px;overflow-y:auto}
+.ex-item{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:11px 14px;background:var(--card2);
+  border-radius:var(--rs);border:1.5px solid transparent;
+  cursor:pointer;transition:all .15s;user-select:none;
+}
+.ex-item:active{opacity:.7}
+.ex-item.on{border-color:var(--accent2);background:rgba(99,102,241,.15)}
 .ex-name{font-size:14px;font-weight:500}
-.ex-cat{font-size:11px;color:var(--text2);background:var(--bg);padding:2px 8px;border-radius:10px}
-.add-ex-btn{width:100%;padding:10px;margin-top:8px;background:none;border:1px dashed var(--border);border-radius:var(--rs);color:var(--text2);font-size:14px;cursor:pointer;transition:all .2s}
-.add-ex-btn:hover{border-color:var(--accent2);color:var(--accent2)}
+.ex-cat{font-size:11px;color:var(--text2);background:rgba(255,255,255,.07);padding:2px 8px;border-radius:10px}
+.add-ex-btn{
+  width:100%;padding:10px;margin-top:6px;
+  background:none;border:1px dashed var(--border);
+  border-radius:var(--rs);color:var(--text2);font-size:14px;cursor:pointer;
+}
+.add-ex-btn:active{opacity:.7}
 
-/* 세트 입력 */
-.set-card{background:var(--card);border-radius:var(--r);padding:16px;border:1px solid var(--border);margin-bottom:12px}
-.in-row{display:flex;gap:10px;margin-bottom:10px}
-.in-g{flex:1;display:flex;flex-direction:column;gap:5px}
+/* ─── 세트 입력 ─── */
+.input-card{background:var(--card2);border-radius:var(--r);padding:14px;border:1px solid var(--border);margin-bottom:10px}
+.in-row{display:flex;gap:8px;margin-bottom:8px}
+.in-g{flex:1;display:flex;flex-direction:column;gap:4px}
 .in-g.full{flex:1 1 100%}
-.in-g label{font-size:12px;color:var(--text2);font-weight:500}
-.in-g input{padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);font-size:16px;outline:none;width:100%;transition:border-color .2s}
+.in-g label{font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.3px}
+.in-g input{
+  padding:10px 12px;background:var(--bg);
+  border:1px solid var(--border);border-radius:var(--rs);
+  color:var(--text);font-size:16px;outline:none;width:100%;
+  transition:border-color .2s;
+}
 .in-g input:focus{border-color:var(--accent2)}
 
-/* 버튼 */
-.btn{width:100%;padding:13px;border:none;border-radius:var(--rs);font-size:15px;font-weight:600;cursor:pointer;transition:all .15s;margin-top:4px}
-.btn-p{background:var(--accent);color:#fff}.btn-p:active{background:#6d28d9;transform:scale(.98)}
-.btn-s{background:var(--card2);color:var(--text);border:1px solid var(--border);margin-top:0}.btn-s:active{transform:scale(.98)}
+/* ─── 버튼 ─── */
+.btn-p{
+  width:100%;padding:13px;
+  background:var(--accent);color:#fff;border:none;
+  border-radius:var(--rs);font-size:15px;font-weight:700;
+  cursor:pointer;transition:all .15s;letter-spacing:-.2px;
+}
+.btn-p:active{opacity:.8;transform:scale(.99)}
+.btn-s{
+  width:100%;padding:12px;margin-top:8px;
+  background:var(--card2);color:var(--text);
+  border:1px solid var(--border);border-radius:var(--rs);
+  font-size:15px;font-weight:500;cursor:pointer;
+}
+.btn-s:active{opacity:.8}
 
-/* PR 배지 */
-.pr{font-size:13px;background:var(--gold);color:#000;padding:3px 10px;border-radius:12px;font-weight:700}
+/* ─── PR 배지 ─── */
+.pr-badge{font-size:12px;background:var(--gold);color:#000;padding:3px 10px;border-radius:10px;font-weight:700}
 .hidden{display:none!important}
 
-/* 세트 목록 */
+/* ─── 세트 목록 ─── */
 .sets{display:flex;flex-direction:column;gap:6px}
-.s-card{display:flex;align-items:center;padding:10px 14px;background:var(--card);border-radius:var(--rs);border:1px solid var(--border);gap:12px;animation:sIn .2s ease}
-@keyframes sIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
-.s-num{width:26px;height:26px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.s-info{flex:1}
+.s-card{
+  display:flex;align-items:center;padding:11px 12px;
+  background:var(--card2);border-radius:var(--rs);
+  border:1px solid var(--border);gap:10px;
+  animation:fadeUp .2s ease;
+}
+@keyframes fadeUp{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
+.s-num{
+  width:28px;height:28px;border-radius:50%;
+  background:var(--accent);color:#fff;font-size:13px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.s-info{flex:1;min-width:0}
 .s-main{font-size:14px;font-weight:600}
-.s-note{font-size:12px;color:var(--text2);margin-top:2px}
-.s-del{background:none;border:none;color:var(--text2);font-size:18px;cursor:pointer;padding:4px;transition:color .2s;flex-shrink:0}
-.s-del:hover{color:var(--red)}
+.s-note{font-size:12px;color:var(--text2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.s-del{background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;padding:2px 6px;flex-shrink:0;line-height:1}
+.s-del:active{color:var(--red)}
 
-/* 요약 */
-.sum-grid{display:flex;flex-direction:column;gap:10px}
-.sum-ex{background:var(--card);border-radius:var(--rs);padding:12px 14px;border:1px solid var(--border)}
+/* ─── 오늘 요약 ─── */
+.sum-grid{display:flex;flex-direction:column;gap:8px}
+.sum-ex{background:var(--card2);border-radius:var(--rs);padding:12px 14px;border:1px solid var(--border)}
 .sum-ex-name{font-size:14px;font-weight:600;color:var(--accent2);margin-bottom:6px}
-.sum-chips{display:flex;flex-wrap:wrap;gap:6px}
-.chip{font-size:12px;background:var(--bg);border-radius:20px;padding:3px 10px;color:var(--text2)}
+.sum-chips{display:flex;flex-wrap:wrap;gap:5px}
+.chip{font-size:12px;background:rgba(255,255,255,.06);border-radius:20px;padding:3px 10px;color:var(--text2)}
 .chip b{color:var(--text);font-weight:600}
 
-/* 히스토리 */
-.hist-list{display:flex;flex-direction:column;gap:10px}
-.h-card{background:var(--card);border-radius:var(--r);padding:14px 16px;border:1px solid var(--border);cursor:pointer;transition:all .15s}
-.h-card:active{transform:scale(.98);background:var(--card2)}
-.h-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
-.h-date{font-size:14px;font-weight:600}
-.h-stats{display:flex;gap:10px;font-size:12px;color:var(--text2)}
-.h-exs{font-size:12px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* ─── 히스토리 ─── */
+.hist-list{display:flex;flex-direction:column;gap:8px}
+.h-card{
+  background:var(--card2);border-radius:var(--r);
+  padding:14px 16px;border:1px solid var(--border);
+  cursor:pointer;transition:opacity .15s;
+}
+.h-card:active{opacity:.7}
+.h-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:5px;gap:8px}
+.h-date{font-size:14px;font-weight:600;flex-shrink:0}
+.h-stats{display:flex;gap:8px;font-size:12px;color:var(--text2);flex-shrink:0}
+.h-exs{font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.h-arrow{color:var(--text2);font-size:14px;margin-left:4px}
 
-/* 빈 상태 */
-.empty{text-align:center;padding:28px 16px;color:var(--text2)}
-.empty p{font-size:15px}.empty small{font-size:13px;margin-top:6px;display:block}
+/* ─── 빈 상태 ─── */
+.empty{text-align:center;padding:32px 16px;color:var(--text2)}
+.empty-icon{font-size:40px;margin-bottom:10px}
+.empty p{font-size:15px;font-weight:500}
+.empty small{font-size:13px;margin-top:6px;display:block;color:var(--text2)}
 
-/* 통계 */
-.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.stat-card{background:var(--card);border-radius:var(--r);padding:14px;border:1px solid var(--border);text-align:center}
-.stat-val{font-size:28px;font-weight:700;color:var(--accent2)}
-.stat-label{font-size:12px;color:var(--text2);margin-top:4px}
+/* ─── 통계 ─── */
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:0}
+.stat-card{background:var(--card2);border-radius:var(--r);padding:16px 12px;border:1px solid var(--border);text-align:center}
+.stat-val{font-size:30px;font-weight:700;color:var(--accent2);line-height:1}
+.stat-label{font-size:12px;color:var(--text2);margin-top:5px}
+.pr-row{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:11px 14px;background:var(--card2);border-radius:var(--rs);
+  border:1px solid var(--border);
+}
+.pr-name{font-size:14px;font-weight:500}
+.pr-val{font-size:14px;font-weight:700;color:var(--gold)}
 
-/* 모달 */
+/* ─── 모달 ─── */
 .modal{position:fixed;inset:0;z-index:200;display:flex;align-items:flex-end}
 .modal.hidden{display:none}
-.modal-bg{position:absolute;inset:0;background:rgba(0,0,0,.65)}
-.modal-box{position:relative;width:100%;background:var(--bg2);border-radius:20px 20px 0 0;padding:12px 20px calc(24px + env(safe-area-inset-bottom,0px));animation:mUp .3s ease;max-height:80vh;overflow-y:auto}
-@keyframes mUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
-.modal-handle{width:40px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px}
+.modal-bg{position:absolute;inset:0;background:rgba(0,0,0,.7)}
+.modal-box{
+  position:relative;width:100%;
+  background:var(--bg2);border-radius:20px 20px 0 0;
+  padding:10px 20px max(env(safe-area-inset-bottom),28px);
+  animation:slideUp .28s cubic-bezier(.32,.72,0,1);
+  max-height:88dvh;overflow-y:auto;
+}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.modal-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 14px}
 .modal-title{font-size:17px;font-weight:700;margin-bottom:16px}
-.fg{margin-bottom:14px}
-.fg label{display:block;font-size:12px;color:var(--text2);margin-bottom:5px;font-weight:500}
-.fg input,.fg select{width:100%;padding:11px 12px;background:var(--card);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);font-size:15px;outline:none}
-.fg select option{background:var(--card)}
-.modal-acts{display:flex;gap:10px}
+.fg{margin-bottom:12px}
+.fg label{display:block;font-size:12px;color:var(--text2);margin-bottom:5px;font-weight:600;letter-spacing:.3px}
+.fg input,.fg select{
+  width:100%;padding:11px 12px;
+  background:var(--card2);border:1px solid var(--border);
+  border-radius:var(--rs);color:var(--text);font-size:15px;outline:none;
+}
+.fg input:focus{border-color:var(--accent2)}
+.fg select option{background:var(--bg2)}
+.modal-acts{display:flex;gap:8px;margin-top:4px}
+.modal-acts .btn-p,.modal-acts .btn-s{margin-top:0}
 
-/* 상세 모달 */
-.det-ex{background:var(--bg);border-radius:var(--rs);padding:12px;margin-bottom:10px}
+/* ─── 상세 모달 ─── */
+.det-ex{background:rgba(255,255,255,.04);border-radius:var(--rs);padding:12px;margin-bottom:8px}
 .det-ex-name{font-size:14px;font-weight:600;color:var(--accent2);margin-bottom:8px}
-.det-row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:13px}
+.det-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px}
 .det-row:last-child{border-bottom:none}
 .det-label{color:var(--text2)}
+.det-val{font-weight:500}
 
-/* 토스트 */
-.toast{position:fixed;bottom:calc(24px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);background:var(--green);color:#fff;padding:10px 20px;border-radius:20px;font-size:14px;font-weight:600;z-index:999;animation:tIn .3s ease,tOut .3s 1.8s ease forwards;white-space:nowrap;pointer-events:none}
+/* ─── 토스트 ─── */
+.toast{
+  position:fixed;
+  bottom:max(env(safe-area-inset-bottom),20px);
+  left:50%;transform:translateX(-50%) translateY(0);
+  background:var(--green);color:#fff;
+  padding:10px 20px;border-radius:24px;
+  font-size:14px;font-weight:600;z-index:999;
+  animation:tIn .25s ease,tOut .25s 1.9s ease forwards;
+  white-space:nowrap;pointer-events:none;box-shadow:0 4px 20px rgba(0,0,0,.4);
+}
 .toast.err{background:var(--red)}
-@keyframes tIn{from{opacity:0;transform:translate(-50%,16px)}to{opacity:1;transform:translate(-50%,0)}}
-@keyframes tOut{to{opacity:0;transform:translate(-50%,16px)}}
+@keyframes tIn{from{opacity:0;transform:translateX(-50%) translateY(16px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+@keyframes tOut{to{opacity:0;transform:translateX(-50%) translateY(16px)}}
 </style>
 </head>
 <body>
@@ -155,442 +263,439 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
       <div class="hdr-date" id="hDate"></div>
     </div>
   </div>
-  <button class="icon-btn" id="btnStats" title="통계">📊</button>
+  <div class="today-badge" id="todayBadge">0 세트</div>
 </header>
 
 <!-- 탭 -->
 <nav class="tabs">
   <button class="tab on" data-t="today">오늘 운동</button>
-  <button class="tab" data-t="history">운동 기록</button>
+  <button class="tab" data-t="history">기록</button>
   <button class="tab" data-t="stats">통계</button>
 </nav>
 
-<!-- 오늘 탭 -->
+<!-- ── 오늘 탭 ── -->
 <div id="pane-today" class="pane on">
+
+  <!-- 운동 선택 -->
   <div class="sec">
     <div class="sec-hdr"><span class="sec-title">운동 선택</span></div>
-    <input class="search" id="srch" placeholder="운동 검색..." autocomplete="off">
+    <input class="search" id="srch" placeholder="운동 검색..." autocomplete="off" inputmode="search">
     <div class="cats" id="catTabs"></div>
     <div class="ex-list" id="exList"></div>
   </div>
 
-  <div class="sec hidden" id="activeSection">
+  <!-- 세트 입력 (운동 선택 후 표시) -->
+  <div class="sec hidden" id="inputSection">
     <div class="sec-hdr">
-      <span class="sec-title" id="activeName"></span>
-      <span class="pr hidden" id="prBadge"></span>
+      <span class="sec-title" id="activeName" style="color:var(--text);font-size:15px;font-weight:700;text-transform:none;letter-spacing:0"></span>
+      <span class="pr-badge hidden" id="prBadge"></span>
     </div>
-    <div class="set-card">
+    <div class="input-card">
       <div class="in-row">
-        <div class="in-g"><label>무게 (kg)</label><input type="number" id="iWeight" placeholder="0" min="0" step="0.5" inputmode="decimal"></div>
-        <div class="in-g"><label>횟수</label><input type="number" id="iReps" placeholder="0" min="1" step="1" inputmode="numeric"></div>
+        <div class="in-g">
+          <label>무게 (KG)</label>
+          <input type="number" id="iWeight" placeholder="0" min="0" step="0.5" inputmode="decimal">
+        </div>
+        <div class="in-g">
+          <label>횟수</label>
+          <input type="number" id="iReps" placeholder="0" min="1" step="1" inputmode="numeric">
+        </div>
       </div>
-      <div class="in-row">
-        <div class="in-g full"><label>메모 (선택)</label><input type="text" id="iNote" placeholder="예: 인클라인, 덤벨" maxlength="60"></div>
+      <div class="in-row" style="margin-bottom:0">
+        <div class="in-g full">
+          <label>메모 (선택)</label>
+          <input type="text" id="iNote" placeholder="예: 인클라인, 와이드 그립..." maxlength="50">
+        </div>
       </div>
-      <button class="btn btn-p" id="btnAddSet">+ 세트 추가</button>
     </div>
-    <div class="sets" id="setsList"></div>
+    <button class="btn-p" id="btnAdd">+ 세트 추가</button>
+    <div class="sets" id="setsList" style="margin-top:10px"></div>
   </div>
 
-  <div class="sec" id="sumSection">
-    <div class="sec-title" style="margin-bottom:12px">오늘 요약</div>
+  <!-- 오늘 요약 -->
+  <div class="sec">
+    <div class="sec-hdr"><span class="sec-title">오늘 요약</span></div>
     <div class="sum-grid" id="sumGrid"></div>
-    <div class="empty hidden" id="emptyToday"><p>아직 운동 기록이 없어요</p><small>위에서 운동을 선택해보세요!</small></div>
+    <div class="empty hidden" id="emptyToday">
+      <div class="empty-icon">🏋️</div>
+      <p>아직 운동 기록이 없어요</p>
+      <small>위에서 운동을 선택해보세요</small>
+    </div>
   </div>
 </div>
 
-<!-- 기록 탭 -->
+<!-- ── 기록 탭 ── -->
 <div id="pane-history" class="pane">
   <div class="sec">
-    <div class="sec-title" style="margin-bottom:12px">최근 기록</div>
+    <div class="sec-hdr"><span class="sec-title">운동 기록</span></div>
     <div class="hist-list" id="histList"></div>
-    <div class="empty hidden" id="histEmpty"><p>운동 기록이 없어요</p><small>오늘 첫 운동을 시작해보세요!</small></div>
+    <div class="empty hidden" id="histEmpty">
+      <div class="empty-icon">📅</div>
+      <p>운동 기록이 없어요</p>
+      <small>오늘 첫 운동을 시작해보세요!</small>
+    </div>
   </div>
 </div>
 
-<!-- 통계 탭 -->
+<!-- ── 통계 탭 ── -->
 <div id="pane-stats" class="pane">
   <div class="sec">
-    <div class="sec-title" style="margin-bottom:12px">전체 통계</div>
+    <div class="sec-hdr"><span class="sec-title">전체 통계</span></div>
     <div class="stat-grid" id="statGrid"></div>
   </div>
   <div class="sec">
-    <div class="sec-title" style="margin-bottom:12px">개인 최고 기록 🏆</div>
-    <div id="prList" style="display:flex;flex-direction:column;gap:8px"></div>
+    <div class="sec-hdr"><span class="sec-title">개인 최고 기록 🏆</span></div>
+    <div id="prList" style="display:flex;flex-direction:column;gap:6px"></div>
+    <div class="empty hidden" id="prEmpty">
+      <div class="empty-icon">🏆</div>
+      <p>아직 기록이 없어요</p>
+    </div>
   </div>
 </div>
 
-<!-- 운동 추가 모달 -->
-<div class="modal hidden" id="addExModal">
-  <div class="modal-bg" id="addExBg"></div>
+<!-- ── 운동 추가 모달 ── -->
+<div class="modal hidden" id="addModal">
+  <div class="modal-bg" id="addBg"></div>
   <div class="modal-box">
     <div class="modal-handle"></div>
-    <div class="modal-title">새 운동 추가</div>
-    <div class="fg"><label>운동 이름</label><input type="text" id="newName" placeholder="예: 케이블 크로스오버" maxlength="40"></div>
+    <div class="modal-title">✏️ 새 운동 추가</div>
+    <div class="fg">
+      <label>운동 이름</label>
+      <input type="text" id="newName" placeholder="예: 케이블 크로스오버" maxlength="30">
+    </div>
     <div class="fg">
       <label>카테고리</label>
       <select id="newCat">
-        <option>가슴</option><option>등</option><option>어깨</option><option>하체</option>
-        <option>이두</option><option>삼두</option><option>코어</option><option>유산소</option><option>기타</option>
+        <option value="가슴">가슴</option>
+        <option value="등">등</option>
+        <option value="어깨">어깨</option>
+        <option value="하체">하체</option>
+        <option value="이두">이두</option>
+        <option value="삼두">삼두</option>
+        <option value="코어">코어</option>
+        <option value="유산소">유산소</option>
+        <option value="기타">기타</option>
       </select>
     </div>
     <div class="modal-acts">
-      <button class="btn btn-s" id="cancelAddEx">취소</button>
-      <button class="btn btn-p" id="confirmAddEx">추가</button>
+      <button class="btn-s" id="cancelAdd">취소</button>
+      <button class="btn-p" id="confirmAdd">추가하기</button>
     </div>
   </div>
 </div>
 
-<!-- 날짜 상세 모달 -->
+<!-- ── 날짜 상세 모달 ── -->
 <div class="modal hidden" id="detModal">
   <div class="modal-bg" id="detBg"></div>
   <div class="modal-box">
     <div class="modal-handle"></div>
     <div class="modal-title" id="detTitle"></div>
     <div id="detBody"></div>
-    <button class="btn btn-s" id="closeDet" style="margin-top:10px">닫기</button>
+    <button class="btn-s" id="closeDet">닫기</button>
   </div>
 </div>
 
 <script>
-/* ===== 스토리지 ===== */
-const DB = {
-  KEY_EX: 'wt_exercises',
-  KEY_SETS: 'wt_sets',
-  load(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } },
-  save(k, v) { localStorage.setItem(k, JSON.stringify(v)); },
-  getExercises() { return this.load(this.KEY_EX) || []; },
-  saveExercises(v) { this.save(this.KEY_EX, v); },
-  getSets() { return this.load(this.KEY_SETS) || []; },
-  saveSets(v) { this.save(this.KEY_SETS, v); },
-};
-
-/* ===== 기본 운동 목록 ===== */
-const DEFAULT_EX = [
-  {name:'벤치프레스',cat:'가슴'},{name:'인클라인 벤치프레스',cat:'가슴'},{name:'딥스',cat:'가슴'},
-  {name:'풀업',cat:'등'},{name:'바벨로우',cat:'등'},{name:'렛풀다운',cat:'등'},{name:'데드리프트',cat:'등/하체'},
-  {name:'오버헤드프레스',cat:'어깨'},{name:'사이드 레터럴',cat:'어깨'},
-  {name:'스쿼트',cat:'하체'},{name:'레그프레스',cat:'하체'},{name:'런지',cat:'하체'},
-  {name:'덤벨컬',cat:'이두'},{name:'해머컬',cat:'이두'},
-  {name:'트라이셉스 푸시다운',cat:'삼두'},{name:'오버헤드 익스텐션',cat:'삼두'},
-  {name:'플랭크',cat:'코어'},{name:'크런치',cat:'코어'},
-  {name:'런닝',cat:'유산소'},{name:'사이클',cat:'유산소'},{name:'줄넘기',cat:'유산소'},
+/* ── 기본 운동 목록 ── */
+const DEFAULTS = [
+  {name:'벤치프레스',cat:'가슴'},{name:'인클라인 벤치프레스',cat:'가슴'},{name:'딥스',cat:'가슴'},{name:'체스트플라이',cat:'가슴'},
+  {name:'풀업',cat:'등'},{name:'바벨로우',cat:'등'},{name:'렛풀다운',cat:'등'},{name:'시티드 로우',cat:'등'},{name:'데드리프트',cat:'등'},
+  {name:'오버헤드프레스',cat:'어깨'},{name:'사이드 레터럴 레이즈',cat:'어깨'},{name:'프론트 레이즈',cat:'어깨'},
+  {name:'스쿼트',cat:'하체'},{name:'레그프레스',cat:'하체'},{name:'런지',cat:'하체'},{name:'레그컬',cat:'하체'},{name:'카프레이즈',cat:'하체'},
+  {name:'덤벨컬',cat:'이두'},{name:'해머컬',cat:'이두'},{name:'바벨컬',cat:'이두'},
+  {name:'트라이셉스 푸시다운',cat:'삼두'},{name:'스컬크러셔',cat:'삼두'},{name:'딥스',cat:'삼두'},
+  {name:'플랭크',cat:'코어'},{name:'크런치',cat:'코어'},{name:'레그레이즈',cat:'코어'},
+  {name:'런닝',cat:'유산소'},{name:'사이클',cat:'유산소'},{name:'줄넘기',cat:'유산소'},{name:'수영',cat:'유산소'},
 ];
 
-function initExercises() {
-  if (!DB.getExercises().length) {
-    DB.saveExercises(DEFAULT_EX.map((e, i) => ({ id: i + 1, ...e })));
+/* ── 스토리지 ── */
+const store = {
+  _load(k){try{return JSON.parse(localStorage.getItem(k))}catch{return null}},
+  _save(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}},
+  exs(){return this._load('ex')||[]},
+  saveExs(v){this._save('ex',v)},
+  sets(){return this._load('sets')||[]},
+  saveSets(v){this._save('sets',v)},
+};
+
+function initData(){
+  if(!store.exs().length){
+    store.saveExs(DEFAULTS.map((e,i)=>({id:i+1,...e})));
   }
 }
 
-/* ===== 상태 ===== */
-const S = {
-  today: new Date().toISOString().split('T')[0],
-  selEx: null,
-  curCat: '전체',
-  q: '',
+/* ── 상태 ── */
+const S={
+  today:new Date().toLocaleDateString('sv-SE'),
+  sel:null, cat:'전체', q:'',
 };
 
-/* ===== 유틸 ===== */
-function fmtDate(d) {
-  const dt = new Date(d + 'T00:00:00');
-  const days = ['일','월','화','수','목','금','토'];
-  return `${dt.getFullYear()}년 ${dt.getMonth()+1}월 ${dt.getDate()}일 (${days[dt.getDay()]})`;
+/* ── 유틸 ── */
+function fmtDate(s){
+  const d=new Date(s+'T00:00:00');
+  return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${'일월화수목금토'[d.getDay()]})`;
 }
-function toast(msg, err=false) {
+function nextId(arr){return arr.length?Math.max(...arr.map(x=>x.id))+1:1}
+function toast(msg,err=false){
   document.querySelectorAll('.toast').forEach(t=>t.remove());
-  const t = document.createElement('div');
-  t.className = 'toast' + (err ? ' err' : '');
-  t.textContent = msg;
-  document.body.appendChild(t);
-  setTimeout(()=>t.remove(), 2200);
+  const el=document.createElement('div');
+  el.className='toast'+(err?' err':'');
+  el.textContent=msg;
+  document.body.appendChild(el);
+  setTimeout(()=>el.remove(),2300);
 }
-function nextId(arr) { return arr.length ? Math.max(...arr.map(x=>x.id)) + 1 : 1; }
+function updateBadge(){
+  const n=store.sets().filter(s=>s.date===S.today).length;
+  document.getElementById('todayBadge').textContent=n+' 세트';
+}
 
-/* ===== 헤더 날짜 ===== */
-document.getElementById('hDate').textContent = fmtDate(S.today);
+/* ── 날짜 표시 ── */
+document.getElementById('hDate').textContent=fmtDate(S.today);
 
-/* ===== 탭 ===== */
-document.querySelectorAll('.tab').forEach(btn => {
-  btn.addEventListener('click', () => {
+/* ── 탭 전환 ── */
+document.querySelectorAll('.tab').forEach(btn=>{
+  btn.addEventListener('click',()=>{
     document.querySelectorAll('.tab').forEach(b=>b.classList.remove('on'));
     document.querySelectorAll('.pane').forEach(p=>p.classList.remove('on'));
     btn.classList.add('on');
-    const pane = document.getElementById('pane-' + btn.dataset.t);
-    pane.classList.add('on');
-    if (btn.dataset.t === 'history') renderHistory();
-    if (btn.dataset.t === 'stats') renderStats();
+    document.getElementById('pane-'+btn.dataset.t).classList.add('on');
+    if(btn.dataset.t==='history') renderHistory();
+    if(btn.dataset.t==='stats') renderStats();
   });
 });
 
-/* ===== 운동 목록 렌더 ===== */
-function getCats() {
-  const exs = DB.getExercises();
-  return ['전체', ...[...new Set(exs.map(e=>e.cat))].sort()];
+/* ── 카테고리 렌더 ── */
+function renderCats(){
+  const cats=['전체',...new Set(store.exs().map(e=>e.cat))].sort((a,b)=>a==='전체'?-1:b==='전체'?1:a.localeCompare(b,'ko'));
+  const c=document.getElementById('catTabs');
+  c.innerHTML=cats.map(cat=>`<button class="cat${cat===S.cat?' on':''}" data-c="${cat}">${cat}</button>`).join('');
+  c.querySelectorAll('.cat').forEach(b=>b.addEventListener('click',()=>{S.cat=b.dataset.c;renderCats();renderExList()}));
 }
 
-function renderCats() {
-  const c = document.getElementById('catTabs');
-  c.innerHTML = getCats().map(cat =>
-    `<button class="cat ${cat===S.curCat?'on':''}" data-c="${cat}">${cat}</button>`
-  ).join('');
-  c.querySelectorAll('.cat').forEach(b => b.addEventListener('click', ()=>{
-    S.curCat = b.dataset.c; renderCats(); renderExList();
-  }));
-}
-
-function renderExList() {
-  const q = S.q.toLowerCase();
-  const filtered = DB.getExercises().filter(e =>
-    (S.curCat==='전체' || e.cat===S.curCat) && (!q || e.name.toLowerCase().includes(q))
-  );
-  const c = document.getElementById('exList');
-  c.innerHTML = filtered.map(e =>
-    `<div class="ex-item ${S.selEx?.id===e.id?'on':''}" data-id="${e.id}">
+/* ── 운동 목록 렌더 ── */
+function renderExList(){
+  const q=S.q.toLowerCase();
+  const filtered=store.exs().filter(e=>(S.cat==='전체'||e.cat===S.cat)&&(!q||e.name.includes(q)||e.cat.includes(q)));
+  const c=document.getElementById('exList');
+  c.innerHTML=filtered.map(e=>`
+    <div class="ex-item${S.sel?.id===e.id?' on':''}" data-id="${e.id}">
       <span class="ex-name">${e.name}</span>
       <span class="ex-cat">${e.cat}</span>
-    </div>`
-  ).join('') + `<button class="add-ex-btn" id="openAddEx">+ 운동 직접 추가</button>`;
-
-  c.querySelectorAll('.ex-item').forEach(el =>
-    el.addEventListener('click', ()=>selectEx(+el.dataset.id))
-  );
-  document.getElementById('openAddEx').addEventListener('click', ()=>{
-    document.getElementById('addExModal').classList.remove('hidden');
-    document.getElementById('newName').focus();
+    </div>`).join('')+`<button class="add-ex-btn" id="openAdd">+ 직접 추가</button>`;
+  c.querySelectorAll('.ex-item').forEach(el=>el.addEventListener('click',()=>selectEx(+el.dataset.id)));
+  document.getElementById('openAdd').addEventListener('click',()=>{
+    document.getElementById('addModal').classList.remove('hidden');
+    setTimeout(()=>document.getElementById('newName').focus(),100);
   });
 }
 
-/* ===== 운동 선택 ===== */
-function selectEx(id) {
-  S.selEx = DB.getExercises().find(e => e.id === id);
+/* ── 운동 선택 ── */
+function selectEx(id){
+  S.sel=store.exs().find(e=>e.id===id);
+  if(!S.sel) return;
   renderExList();
-  const sec = document.getElementById('activeSection');
-  sec.classList.remove('hidden');
-  document.getElementById('activeName').textContent = S.selEx.name;
+  document.getElementById('inputSection').classList.remove('hidden');
+  document.getElementById('activeName').textContent=S.sel.name;
   updatePR();
   renderSets();
-  sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  document.getElementById('inputSection').scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 
-function updatePR() {
-  if (!S.selEx) return;
-  const sets = DB.getSets().filter(s => s.exId === S.selEx.id && s.weight);
-  const badge = document.getElementById('prBadge');
-  if (sets.length) {
-    const max = Math.max(...sets.map(s=>s.weight));
-    badge.textContent = `🏆 최고 ${max}kg`;
-    badge.classList.remove('hidden');
-  } else {
-    badge.classList.add('hidden');
-  }
+function updatePR(){
+  if(!S.sel) return;
+  const maxW=Math.max(0,...store.sets().filter(s=>s.exId===S.sel.id&&s.weight).map(s=>s.weight));
+  const badge=document.getElementById('prBadge');
+  if(maxW>0){badge.textContent='🏆 최고 '+maxW+'kg';badge.classList.remove('hidden')}
+  else badge.classList.add('hidden');
 }
 
-/* ===== 세트 렌더 ===== */
-function renderSets() {
-  if (!S.selEx) return;
-  const todaySets = DB.getSets().filter(s => s.exId===S.selEx.id && s.date===S.today);
-  const c = document.getElementById('setsList');
-  if (!todaySets.length) {
-    c.innerHTML = '<p style="color:var(--text2);font-size:13px;text-align:center;padding:10px">아직 세트가 없어요</p>';
-    return;
-  }
-  c.innerHTML = todaySets.map(s => {
-    const detail = s.weight!=null && s.reps!=null ? `${s.weight}kg × ${s.reps}회`
-                 : s.reps!=null ? `${s.reps}회` : '-';
+/* ── 세트 렌더 ── */
+function renderSets(){
+  if(!S.sel) return;
+  const list=store.sets().filter(s=>s.exId===S.sel.id&&s.date===S.today).sort((a,b)=>a.setNum-b.setNum);
+  const c=document.getElementById('setsList');
+  if(!list.length){c.innerHTML='<p style="color:var(--text2);font-size:13px;text-align:center;padding:8px 0">아직 세트가 없어요 — 위에서 추가해보세요</p>';return}
+  c.innerHTML=list.map(s=>{
+    const info=s.weight!=null&&s.reps!=null?`${s.weight}kg × ${s.reps}회`:s.reps!=null?`${s.reps}회`:'-';
     return `<div class="s-card">
       <div class="s-num">${s.setNum}</div>
       <div class="s-info">
-        <div class="s-main">${detail}</div>
-        ${s.note ? `<div class="s-note">${s.note}</div>` : ''}
+        <div class="s-main">${info}</div>
+        ${s.note?`<div class="s-note">${s.note}</div>`:''}
       </div>
-      <button class="s-del" data-id="${s.id}">✕</button>
+      <button class="s-del" data-id="${s.id}" aria-label="삭제">✕</button>
     </div>`;
   }).join('');
-  c.querySelectorAll('.s-del').forEach(btn =>
-    btn.addEventListener('click', ()=>deleteSet(+btn.dataset.id))
-  );
+  c.querySelectorAll('.s-del').forEach(btn=>btn.addEventListener('click',()=>delSet(+btn.dataset.id)));
 }
 
-/* ===== 세트 추가 ===== */
-document.getElementById('btnAddSet').addEventListener('click', ()=>{
-  if (!S.selEx) return;
-  const weight = document.getElementById('iWeight').value;
-  const reps = document.getElementById('iReps').value;
-  const note = document.getElementById('iNote').value.trim();
-  if (!weight && !reps) { toast('무게 또는 횟수를 입력하세요', true); return; }
-
-  const sets = DB.getSets();
-  const todayExSets = sets.filter(s=>s.exId===S.selEx.id && s.date===S.today);
-  const setNum = todayExSets.length + 1;
-  const newSet = {
-    id: nextId(sets),
-    exId: S.selEx.id,
-    exName: S.selEx.name,
-    date: S.today,
-    setNum,
-    weight: weight ? parseFloat(weight) : null,
-    reps: reps ? parseInt(reps) : null,
-    note,
-    ts: Date.now(),
+/* ── 세트 추가 ── */
+document.getElementById('btnAdd').addEventListener('click',()=>{
+  if(!S.sel){toast('먼저 운동을 선택하세요',true);return}
+  const w=document.getElementById('iWeight').value;
+  const r=document.getElementById('iReps').value;
+  const note=document.getElementById('iNote').value.trim();
+  if(!w&&!r){toast('무게 또는 횟수를 입력하세요',true);return}
+  const sets=store.sets();
+  const todayEx=sets.filter(s=>s.exId===S.sel.id&&s.date===S.today);
+  const newSet={
+    id:nextId(sets),exId:S.sel.id,exName:S.sel.name,
+    date:S.today,setNum:todayEx.length+1,
+    weight:w?parseFloat(w):null,
+    reps:r?parseInt(r):null,
+    note,ts:Date.now(),
   };
   sets.push(newSet);
-  DB.saveSets(sets);
-
-  document.getElementById('iWeight').value = '';
-  document.getElementById('iReps').value = '';
-  document.getElementById('iNote').value = '';
+  store.saveSets(sets);
+  document.getElementById('iWeight').value='';
+  document.getElementById('iReps').value='';
+  document.getElementById('iNote').value='';
   renderSets();
   renderSummary();
   updatePR();
-  toast(`세트 ${setNum} 기록 완료!`);
+  updateBadge();
+  toast(`세트 ${newSet.setNum} 완료! 💪`);
 });
 
-/* ===== 세트 삭제 ===== */
-function deleteSet(id) {
-  const sets = DB.getSets().filter(s=>s.id!==id);
-  // setNum 재정렬
-  const byExDate = {};
-  sets.forEach(s => {
-    const k = s.exId + '_' + s.date;
-    if (!byExDate[k]) byExDate[k] = [];
-    byExDate[k].push(s);
-  });
-  Object.values(byExDate).forEach(arr => {
-    arr.sort((a,b)=>a.ts-b.ts).forEach((s,i)=>s.setNum=i+1);
-  });
-  DB.saveSets(sets);
-  renderSets();
-  renderSummary();
-  updatePR();
-  toast('세트 삭제됨');
+/* ── 세트 삭제 ── */
+function delSet(id){
+  let sets=store.sets().filter(s=>s.id!==id);
+  const byKey={};
+  sets.forEach(s=>{const k=s.exId+'_'+s.date;(byKey[k]=byKey[k]||[]).push(s)});
+  Object.values(byKey).forEach(arr=>arr.sort((a,b)=>a.ts-b.ts).forEach((s,i)=>s.setNum=i+1));
+  store.saveSets(sets);
+  renderSets();renderSummary();updatePR();updateBadge();
+  toast('삭제됨');
 }
 
-/* ===== 요약 렌더 ===== */
-function renderSummary() {
-  const todaySets = DB.getSets().filter(s=>s.date===S.today);
-  const grid = document.getElementById('sumGrid');
-  const empty = document.getElementById('emptyToday');
-  if (!todaySets.length) { grid.innerHTML=''; empty.classList.remove('hidden'); return; }
+/* ── 요약 렌더 ── */
+function renderSummary(){
+  const today=store.sets().filter(s=>s.date===S.today);
+  const grid=document.getElementById('sumGrid');
+  const empty=document.getElementById('emptyToday');
+  if(!today.length){grid.innerHTML='';empty.classList.remove('hidden');return}
   empty.classList.add('hidden');
-  const groups = {};
-  todaySets.forEach(s=>{ if(!groups[s.exName]) groups[s.exName]=[]; groups[s.exName].push(s); });
-  grid.innerHTML = Object.entries(groups).map(([name, arr])=>`
+  const groups={};
+  today.forEach(s=>{(groups[s.exName]=groups[s.exName]||[]).push(s)});
+  grid.innerHTML=Object.entries(groups).map(([name,arr])=>`
     <div class="sum-ex">
       <div class="sum-ex-name">${name}</div>
       <div class="sum-chips">${arr.map(s=>{
-        const d = s.weight!=null&&s.reps!=null?`<b>${s.weight}kg×${s.reps}</b>`
-                : s.reps!=null?`<b>${s.reps}회</b>`:'-';
+        const d=s.weight!=null&&s.reps!=null?`<b>${s.weight}kg×${s.reps}</b>`:s.reps!=null?`<b>${s.reps}회</b>`:'-';
         return `<span class="chip">세트${s.setNum} ${d}</span>`;
       }).join('')}</div>
     </div>`).join('');
 }
 
-/* ===== 히스토리 렌더 ===== */
-function renderHistory() {
-  const all = DB.getSets();
-  const byDate = {};
-  all.forEach(s=>{ if(!byDate[s.date]) byDate[s.date]={sets:[],exs:new Set()}; byDate[s.date].sets.push(s); byDate[s.date].exs.add(s.exName); });
-  const dates = Object.keys(byDate).sort().reverse();
-  const c = document.getElementById('histList');
-  const empty = document.getElementById('histEmpty');
-  if (!dates.length) { c.innerHTML=''; empty.classList.remove('hidden'); return; }
+/* ── 히스토리 렌더 ── */
+function renderHistory(){
+  const all=store.sets();
+  const byDate={};
+  all.forEach(s=>{
+    if(!byDate[s.date]) byDate[s.date]={sets:[],exs:new Set()};
+    byDate[s.date].sets.push(s);byDate[s.date].exs.add(s.exName);
+  });
+  const dates=Object.keys(byDate).sort().reverse();
+  const c=document.getElementById('histList');
+  const empty=document.getElementById('histEmpty');
+  if(!dates.length){c.innerHTML='';empty.classList.remove('hidden');return}
   empty.classList.add('hidden');
-  c.innerHTML = dates.slice(0,40).map(d=>`
+  c.innerHTML=dates.slice(0,60).map(d=>`
     <div class="h-card" data-d="${d}">
       <div class="h-top">
         <span class="h-date">${fmtDate(d)}</span>
         <div class="h-stats"><span>🏋️ ${byDate[d].exs.size}종목</span><span>📊 ${byDate[d].sets.length}세트</span></div>
       </div>
-      <div class="h-exs">${[...byDate[d].exs].join(', ')}</div>
+      <div class="h-exs">${[...byDate[d].exs].join(' · ')}</div>
     </div>`).join('');
-  c.querySelectorAll('.h-card').forEach(card=>
-    card.addEventListener('click', ()=>showDetail(card.dataset.d))
-  );
+  c.querySelectorAll('.h-card').forEach(card=>card.addEventListener('click',()=>showDetail(card.dataset.d)));
 }
 
-/* ===== 날짜 상세 ===== */
-function showDetail(date) {
-  const sets = DB.getSets().filter(s=>s.date===date);
-  const groups = {};
-  sets.forEach(s=>{ if(!groups[s.exName]) groups[s.exName]=[]; groups[s.exName].push(s); });
-  document.getElementById('detTitle').textContent = fmtDate(date);
-  document.getElementById('detBody').innerHTML = Object.entries(groups).map(([name,arr])=>`
+/* ── 날짜 상세 ── */
+function showDetail(date){
+  const sets=store.sets().filter(s=>s.date===date);
+  const groups={};
+  sets.forEach(s=>{(groups[s.exName]=groups[s.exName]||[]).push(s)});
+  document.getElementById('detTitle').textContent=fmtDate(date);
+  document.getElementById('detBody').innerHTML=Object.entries(groups).map(([name,arr])=>`
     <div class="det-ex">
       <div class="det-ex-name">${name}</div>
       ${arr.map(s=>{
-        const v = s.weight!=null&&s.reps!=null?`${s.weight}kg × ${s.reps}회`:s.reps!=null?`${s.reps}회`:'-';
-        return `<div class="det-row"><span class="det-label">세트 ${s.setNum}</span><span>${v}${s.note?' · '+s.note:''}</span></div>`;
+        const v=s.weight!=null&&s.reps!=null?`${s.weight}kg × ${s.reps}회`:s.reps!=null?`${s.reps}회`:'-';
+        return `<div class="det-row"><span class="det-label">세트 ${s.setNum}</span><span class="det-val">${v}${s.note?' — '+s.note:''}</span></div>`;
       }).join('')}
     </div>`).join('');
   document.getElementById('detModal').classList.remove('hidden');
 }
-document.getElementById('detBg').addEventListener('click', ()=>document.getElementById('detModal').classList.add('hidden'));
-document.getElementById('closeDet').addEventListener('click', ()=>document.getElementById('detModal').classList.add('hidden'));
+document.getElementById('detBg').addEventListener('click',()=>document.getElementById('detModal').classList.add('hidden'));
+document.getElementById('closeDet').addEventListener('click',()=>document.getElementById('detModal').classList.add('hidden'));
 
-/* ===== 통계 ===== */
-function renderStats() {
-  const sets = DB.getSets();
-  const days = new Set(sets.map(s=>s.date)).size;
-  const exs = new Set(sets.map(s=>s.exId)).size;
-  document.getElementById('statGrid').innerHTML = `
+/* ── 통계 렌더 ── */
+function renderStats(){
+  const sets=store.sets();
+  const days=new Set(sets.map(s=>s.date)).size;
+  const exCnt=new Set(sets.map(s=>s.exId)).size;
+  document.getElementById('statGrid').innerHTML=`
     <div class="stat-card"><div class="stat-val">${days}</div><div class="stat-label">운동한 날</div></div>
     <div class="stat-card"><div class="stat-val">${sets.length}</div><div class="stat-label">총 세트</div></div>
-    <div class="stat-card"><div class="stat-val">${exs}</div><div class="stat-label">종목 수</div></div>
-    <div class="stat-card"><div class="stat-val">${days>0?(sets.length/days).toFixed(1):0}</div><div class="stat-label">평균 세트/일</div></div>
-  `;
-  // PR 목록
-  const prMap = {};
-  sets.filter(s=>s.weight).forEach(s=>{
-    if (!prMap[s.exName] || s.weight > prMap[s.exName]) prMap[s.exName] = s.weight;
-  });
-  const prList = document.getElementById('prList');
-  const entries = Object.entries(prMap).sort((a,b)=>b[1]-a[1]);
-  if (!entries.length) {
-    prList.innerHTML = '<div class="empty"><p>아직 기록이 없어요</p></div>';
-  } else {
-    prList.innerHTML = entries.map(([name,w])=>`
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:var(--card);border-radius:var(--rs);border:1px solid var(--border)">
-        <span style="font-size:14px;font-weight:500">${name}</span>
-        <span style="font-size:14px;font-weight:700;color:var(--gold)">🏆 ${w}kg</span>
-      </div>`).join('');
-  }
+    <div class="stat-card"><div class="stat-val">${exCnt}</div><div class="stat-label">종목 수</div></div>
+    <div class="stat-card"><div class="stat-val">${days?+(sets.length/days).toFixed(1):0}</div><div class="stat-label">평균 세트/일</div></div>`;
+  const prMap={};
+  sets.filter(s=>s.weight).forEach(s=>{if(!prMap[s.exName]||s.weight>prMap[s.exName])prMap[s.exName]=s.weight});
+  const prList=document.getElementById('prList');
+  const prEmpty=document.getElementById('prEmpty');
+  const entries=Object.entries(prMap).sort((a,b)=>b[1]-a[1]);
+  if(!entries.length){prList.innerHTML='';prEmpty.classList.remove('hidden');return}
+  prEmpty.classList.add('hidden');
+  prList.innerHTML=entries.map(([name,w])=>`
+    <div class="pr-row"><span class="pr-name">${name}</span><span class="pr-val">🏆 ${w}kg</span></div>`).join('');
 }
 
-/* ===== 운동 추가 모달 ===== */
-document.getElementById('addExBg').addEventListener('click', ()=>document.getElementById('addExModal').classList.add('hidden'));
-document.getElementById('cancelAddEx').addEventListener('click', ()=>document.getElementById('addExModal').classList.add('hidden'));
-document.getElementById('confirmAddEx').addEventListener('click', ()=>{
-  const name = document.getElementById('newName').value.trim();
-  const cat = document.getElementById('newCat').value;
-  if (!name) { toast('운동 이름을 입력하세요', true); return; }
-  const exs = DB.getExercises();
-  if (exs.find(e=>e.name===name)) { toast('이미 있는 운동이에요', true); return; }
-  const newEx = { id: nextId(exs), name, cat };
-  exs.push(newEx);
-  DB.saveExercises(exs);
-  document.getElementById('addExModal').classList.add('hidden');
-  document.getElementById('newName').value = '';
-  S.curCat = cat;
-  renderCats();
-  renderExList();
-  selectEx(newEx.id);
+/* ── 운동 추가 모달 ── */
+document.getElementById('addBg').addEventListener('click',()=>document.getElementById('addModal').classList.add('hidden'));
+document.getElementById('cancelAdd').addEventListener('click',()=>document.getElementById('addModal').classList.add('hidden'));
+document.getElementById('confirmAdd').addEventListener('click',()=>{
+  const name=document.getElementById('newName').value.trim();
+  const cat=document.getElementById('newCat').value;
+  if(!name){toast('이름을 입력하세요',true);return}
+  const exs=store.exs();
+  if(exs.find(e=>e.name===name)){toast('이미 있는 운동이에요',true);return}
+  const ex={id:nextId(exs),name,cat};
+  exs.push(ex);store.saveExs(exs);
+  document.getElementById('addModal').classList.add('hidden');
+  document.getElementById('newName').value='';
+  S.cat=cat;renderCats();renderExList();selectEx(ex.id);
   toast(`'${name}' 추가됨!`);
 });
 
-/* ===== 검색 ===== */
-document.getElementById('srch').addEventListener('input', e=>{ S.q=e.target.value; renderExList(); });
+/* ── 검색 ── */
+document.getElementById('srch').addEventListener('input',e=>{S.q=e.target.value;renderExList()});
 
-/* ===== 초기화 ===== */
-initExercises();
+/* ── PWA 매니페스트 (인라인) ── */
+(function(){
+  const manifest={
+    name:'💪 운동 기록',short_name:'운동기록',
+    description:'서버 없이 폰에서 바로 쓰는 운동 트래커',
+    start_url:'./',display:'standalone',
+    background_color:'#111827',theme_color:'#111827',
+    orientation:'portrait-primary',lang:'ko',
+    icons:[{
+      src:"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%236366f1'/%3E%3Ctext y='72' x='50' text-anchor='middle' font-size='62'%3E%F0%9F%92%AA%3C/text%3E%3C/svg%3E",
+      sizes:'any',type:'image/svg+xml',purpose:'any maskable'
+    }]
+  };
+  const blob=new Blob([JSON.stringify(manifest)],{type:'application/manifest+json'});
+  const link=document.createElement('link');
+  link.rel='manifest';link.href=URL.createObjectURL(blob);
+  document.head.appendChild(link);
+})();
+
+/* ── 초기화 ── */
+initData();
 renderCats();
 renderExList();
 renderSummary();
-
-/* ===== 서비스 워커 등록 (PWA 오프라인 지원) ===== */
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js').catch(()=>{});
-}
+updateBadge();
 </script>
 </body>
 </html>
