@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#1a1a2e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>운동 기록 앱</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- 헤더 -->
+    <header class="app-header">
+      <div class="header-left">
+        <span class="app-icon">💪</span>
+        <div>
+          <h1 class="app-title">운동 기록</h1>
+          <p class="app-date" id="headerDate"></p>
+        </div>
+      </div>
+      <button class="icon-btn" id="historyBtn" title="기록 보기">📅</button>
+    </header>
+
+    <!-- 탭 네비게이션 -->
+    <nav class="tab-nav">
+      <button class="tab-btn active" data-tab="today">오늘 운동</button>
+      <button class="tab-btn" data-tab="history">운동 기록</button>
+    </nav>
+
+    <!-- 오늘 운동 탭 -->
+    <div id="tab-today" class="tab-content active">
+      <!-- 운동 선택 섹션 -->
+      <section class="section">
+        <div class="section-header">
+          <h2 class="section-title">운동 추가</h2>
+        </div>
+        <div class="exercise-picker">
+          <div class="search-wrap">
+            <input type="text" id="searchExercise" placeholder="운동 검색..." class="search-input" autocomplete="off">
+          </div>
+          <div id="categoryTabs" class="category-tabs"></div>
+          <div id="exerciseList" class="exercise-list"></div>
+        </div>
+      </section>
+
+      <!-- 선택된 운동 / 세트 입력 섹션 -->
+      <div id="activeExerciseSection" class="section hidden">
+        <div class="section-header">
+          <h2 class="section-title" id="activeExerciseName"></h2>
+          <span class="pr-badge hidden" id="prBadge">🏆 PR</span>
+        </div>
+        <div class="set-input-card">
+          <div class="input-row">
+            <div class="input-group">
+              <label>무게 (kg)</label>
+              <input type="number" id="inputWeight" placeholder="0" min="0" step="0.5" inputmode="decimal">
+            </div>
+            <div class="input-group">
+              <label>횟수</label>
+              <input type="number" id="inputReps" placeholder="0" min="0" step="1" inputmode="numeric">
+            </div>
+          </div>
+          <div class="input-row">
+            <div class="input-group full-width">
+              <label>메모 (선택)</label>
+              <input type="text" id="inputNote" placeholder="메모..." maxlength="100">
+            </div>
+          </div>
+          <button class="btn-primary" id="addSetBtn">+ 세트 추가</button>
+        </div>
+
+        <!-- 오늘 세트 목록 -->
+        <div id="todaySetsList" class="sets-list"></div>
+      </div>
+
+      <!-- 오늘 전체 운동 요약 -->
+      <section class="section" id="summarySection">
+        <h2 class="section-title">오늘 운동 요약</h2>
+        <div id="todaySummary" class="summary-grid"></div>
+        <div class="empty-state hidden" id="emptyState">
+          <p>아직 운동 기록이 없어요</p>
+          <p class="empty-sub">위에서 운동을 선택해보세요!</p>
+        </div>
+      </section>
+    </div>
+
+    <!-- 운동 기록 탭 -->
+    <div id="tab-history" class="tab-content">
+      <section class="section">
+        <h2 class="section-title">최근 30일 기록</h2>
+        <div id="historyList" class="history-list"></div>
+        <div class="empty-state hidden" id="historyEmpty">
+          <p>운동 기록이 없어요</p>
+          <p class="empty-sub">오늘 첫 운동을 시작해보세요!</p>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- 운동 추가 모달 -->
+  <div id="addExerciseModal" class="modal hidden">
+    <div class="modal-backdrop" id="modalBackdrop"></div>
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <h3 class="modal-title">새 운동 추가</h3>
+      <div class="form-group">
+        <label>운동 이름</label>
+        <input type="text" id="newExerciseName" placeholder="예: 케이블 크로스오버" maxlength="50">
+      </div>
+      <div class="form-group">
+        <label>카테고리</label>
+        <select id="newExerciseCategory">
+          <option value="가슴">가슴</option>
+          <option value="등">등</option>
+          <option value="어깨">어깨</option>
+          <option value="하체">하체</option>
+          <option value="이두">이두</option>
+          <option value="삼두">삼두</option>
+          <option value="코어">코어</option>
+          <option value="유산소">유산소</option>
+          <option value="기타">기타</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="cancelAddExercise">취소</button>
+        <button class="btn-primary" id="confirmAddExercise">추가</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 날짜 상세 모달 -->
+  <div id="historyDetailModal" class="modal hidden">
+    <div class="modal-backdrop" id="historyModalBackdrop"></div>
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <h3 class="modal-title" id="historyDetailDate"></h3>
+      <div id="historyDetailContent" class="history-detail-content"></div>
+      <button class="btn-secondary" id="closeHistoryDetail" style="margin-top:12px">닫기</button>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
