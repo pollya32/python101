@@ -37,7 +37,7 @@ body{
 .hdr-icon{font-size:26px;line-height:1}
 .hdr-title{font-size:19px;font-weight:700;letter-spacing:-.3px}
 .hdr-date{font-size:12px;color:var(--text2);margin-top:2px}
-.today-badge{background:var(--accent);color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;}
+.today-badge{background:var(--accent);color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px}
 .tabs{
   display:flex;background:var(--bg2);
   border-bottom:1px solid var(--border);
@@ -45,92 +45,44 @@ body{
   top:calc(max(env(safe-area-inset-top),14px) + 44px);
   z-index:99;
 }
-.tab{
-  flex:1;padding:11px 4px;
-  background:none;border:none;border-bottom:2px solid transparent;
-  color:var(--text2);font-size:13px;font-weight:500;
-  cursor:pointer;transition:all .2s;
-}
+.tab{flex:1;padding:11px 2px;background:none;border:none;border-bottom:2px solid transparent;color:var(--text2);font-size:12px;font-weight:500;cursor:pointer;transition:all .2s}
 .tab.on{color:var(--accent2);border-bottom-color:var(--accent2);font-weight:600}
 .pane{display:none}.pane.on{display:block}
 .sec{padding:16px;border-bottom:1px solid var(--border)}
 .sec-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 .sec-title{font-size:14px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px}
-.search{
-  width:100%;padding:10px 14px;
-  background:var(--card2);border:1px solid var(--border);
-  border-radius:var(--rs);color:var(--text);font-size:15px;outline:none;
-  transition:border-color .2s;margin-bottom:10px;
-}
+.search{width:100%;padding:10px 14px;background:var(--card2);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);font-size:15px;outline:none;transition:border-color .2s;margin-bottom:10px}
 .search:focus{border-color:var(--accent2)}
 .search::placeholder{color:var(--text2)}
 .cats{display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;scrollbar-width:none;margin-bottom:10px}
 .cats::-webkit-scrollbar{display:none}
-.cat{
-  flex-shrink:0;padding:5px 13px;border-radius:20px;
-  border:1px solid var(--border);background:var(--card2);
-  color:var(--text2);font-size:13px;cursor:pointer;white-space:nowrap;
-  transition:all .15s;
-}
+.cat{flex-shrink:0;padding:5px 13px;border-radius:20px;border:1px solid var(--border);background:var(--card2);color:var(--text2);font-size:13px;cursor:pointer;white-space:nowrap;transition:all .15s}
 .cat.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
 .ex-list{display:flex;flex-direction:column;gap:5px;max-height:200px;overflow-y:auto}
-.ex-item{
-  display:flex;align-items:center;justify-content:space-between;
-  padding:11px 14px;background:var(--card2);
-  border-radius:var(--rs);border:1.5px solid transparent;
-  cursor:pointer;transition:all .15s;user-select:none;
-}
+.ex-item{display:flex;align-items:center;justify-content:space-between;padding:11px 14px;background:var(--card2);border-radius:var(--rs);border:1.5px solid transparent;cursor:pointer;transition:all .15s;user-select:none}
 .ex-item:active{opacity:.7}
 .ex-item.on{border-color:var(--accent2);background:rgba(99,102,241,.15)}
 .ex-name{font-size:14px;font-weight:500}
 .ex-cat{font-size:11px;color:var(--text2);background:rgba(255,255,255,.07);padding:2px 8px;border-radius:10px}
-.add-ex-btn{
-  width:100%;padding:10px;margin-top:6px;
-  background:none;border:1px dashed var(--border);
-  border-radius:var(--rs);color:var(--text2);font-size:14px;cursor:pointer;
-}
+.add-ex-btn{width:100%;padding:10px;margin-top:6px;background:none;border:1px dashed var(--border);border-radius:var(--rs);color:var(--text2);font-size:14px;cursor:pointer}
 .add-ex-btn:active{opacity:.7}
 .input-card{background:var(--card2);border-radius:var(--r);padding:14px;border:1px solid var(--border);margin-bottom:10px}
 .in-row{display:flex;gap:8px;margin-bottom:8px}
 .in-g{flex:1;display:flex;flex-direction:column;gap:4px}
 .in-g.full{flex:1 1 100%}
 .in-g label{font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.3px}
-.in-g input{
-  padding:10px 12px;background:var(--bg);
-  border:1px solid var(--border);border-radius:var(--rs);
-  color:var(--text);font-size:16px;outline:none;width:100%;
-  transition:border-color .2s;
-}
+.in-g input{padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);font-size:16px;outline:none;width:100%;transition:border-color .2s}
 .in-g input:focus{border-color:var(--accent2)}
-.btn-p{
-  width:100%;padding:13px;
-  background:var(--accent);color:#fff;border:none;
-  border-radius:var(--rs);font-size:15px;font-weight:700;
-  cursor:pointer;transition:all .15s;letter-spacing:-.2px;
-}
+.btn-p{width:100%;padding:13px;background:var(--accent);color:#fff;border:none;border-radius:var(--rs);font-size:15px;font-weight:700;cursor:pointer;transition:all .15s}
 .btn-p:active{opacity:.8;transform:scale(.99)}
-.btn-s{
-  width:100%;padding:12px;margin-top:8px;
-  background:var(--card2);color:var(--text);
-  border:1px solid var(--border);border-radius:var(--rs);
-  font-size:15px;font-weight:500;cursor:pointer;
-}
+.btn-s{width:100%;padding:12px;margin-top:8px;background:var(--card2);color:var(--text);border:1px solid var(--border);border-radius:var(--rs);font-size:15px;font-weight:500;cursor:pointer}
 .btn-s:active{opacity:.8}
 .pr-badge{font-size:12px;background:var(--gold);color:#000;padding:3px 10px;border-radius:10px;font-weight:700}
 .hidden{display:none!important}
 .sets{display:flex;flex-direction:column;gap:6px}
-.s-card{
-  display:flex;align-items:center;padding:11px 12px;
-  background:var(--card2);border-radius:var(--rs);
-  border:1px solid var(--border);gap:10px;
-  animation:fadeUp .2s ease;
-}
+.s-card{display:flex;align-items:center;padding:11px 12px;background:var(--card2);border-radius:var(--rs);border:1px solid var(--border);gap:10px;animation:fadeUp .2s ease}
 @keyframes fadeUp{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
-.s-num{
-  width:28px;height:28px;border-radius:50%;
-  background:var(--accent);color:#fff;font-size:13px;font-weight:700;
-  display:flex;align-items:center;justify-content:center;flex-shrink:0;
-}
+.s-num{width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .s-info{flex:1;min-width:0}
 .s-main{font-size:14px;font-weight:600}
 .s-note{font-size:12px;color:var(--text2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -143,11 +95,7 @@ body{
 .chip{font-size:12px;background:rgba(255,255,255,.06);border-radius:20px;padding:3px 10px;color:var(--text2)}
 .chip b{color:var(--text);font-weight:600}
 .hist-list{display:flex;flex-direction:column;gap:8px}
-.h-card{
-  background:var(--card2);border-radius:var(--r);
-  padding:14px 16px;border:1px solid var(--border);
-  cursor:pointer;transition:opacity .15s;
-}
+.h-card{background:var(--card2);border-radius:var(--r);padding:14px 16px;border:1px solid var(--border);cursor:pointer;transition:opacity .15s}
 .h-card:active{opacity:.7}
 .h-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:5px;gap:8px}
 .h-date{font-size:14px;font-weight:600;flex-shrink:0}
@@ -157,37 +105,43 @@ body{
 .empty-icon{font-size:40px;margin-bottom:10px}
 .empty p{font-size:15px;font-weight:500}
 .empty small{font-size:13px;margin-top:6px;display:block;color:var(--text2)}
-.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:0}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .stat-card{background:var(--card2);border-radius:var(--r);padding:16px 12px;border:1px solid var(--border);text-align:center}
 .stat-val{font-size:30px;font-weight:700;color:var(--accent2);line-height:1}
 .stat-label{font-size:12px;color:var(--text2);margin-top:5px}
-.pr-row{
-  display:flex;justify-content:space-between;align-items:center;
-  padding:11px 14px;background:var(--card2);border-radius:var(--rs);
-  border:1px solid var(--border);
-}
+.pr-row{display:flex;justify-content:space-between;align-items:center;padding:11px 14px;background:var(--card2);border-radius:var(--rs);border:1px solid var(--border)}
 .pr-name{font-size:14px;font-weight:500}
 .pr-val{font-size:14px;font-weight:700;color:var(--gold)}
+/* 체중 탭 */
+.wt-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.wt-sum-card{background:var(--card2);border-radius:var(--r);padding:12px 8px;border:1px solid var(--border);text-align:center}
+.wt-sum-val{font-size:20px;font-weight:700;color:var(--accent2);line-height:1}
+.wt-sum-label{font-size:11px;color:var(--text2);margin-top:4px}
+.wt-chart-wrap{background:var(--card2);border-radius:var(--r);border:1px solid var(--border);padding:14px;overflow:hidden}
+.wt-chart-title{font-size:13px;font-weight:600;color:var(--text2);margin-bottom:10px}
+#wtChart{width:100%;height:160px;display:block}
+.wt-hist-list{display:flex;flex-direction:column;gap:6px}
+.wt-row{display:flex;align-items:center;justify-content:space-between;padding:11px 14px;background:var(--card2);border-radius:var(--rs);border:1px solid var(--border)}
+.wt-row-left{display:flex;flex-direction:column;gap:2px}
+.wt-row-date{font-size:13px;font-weight:600}
+.wt-row-diff{font-size:12px}
+.wt-row-diff.up{color:var(--red)}
+.wt-row-diff.dn{color:var(--green)}
+.wt-row-diff.eq{color:var(--text2)}
+.wt-row-kg{font-size:18px;font-weight:700;color:var(--text)}
+.wt-del{background:none;border:none;color:var(--text2);font-size:18px;cursor:pointer;padding:2px 6px;line-height:1}
+.wt-del:active{color:var(--red)}
+/* 모달 */
 .modal{position:fixed;inset:0;z-index:200;display:flex;align-items:flex-end}
 .modal.hidden{display:none}
 .modal-bg{position:absolute;inset:0;background:rgba(0,0,0,.7)}
-.modal-box{
-  position:relative;width:100%;
-  background:var(--bg2);border-radius:20px 20px 0 0;
-  padding:10px 20px max(env(safe-area-inset-bottom),28px);
-  animation:slideUp .28s cubic-bezier(.32,.72,0,1);
-  max-height:88dvh;overflow-y:auto;
-}
+.modal-box{position:relative;width:100%;background:var(--bg2);border-radius:20px 20px 0 0;padding:10px 20px max(env(safe-area-inset-bottom),28px);animation:slideUp .28s cubic-bezier(.32,.72,0,1);max-height:88dvh;overflow-y:auto}
 @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 .modal-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 14px}
 .modal-title{font-size:17px;font-weight:700;margin-bottom:16px}
 .fg{margin-bottom:12px}
 .fg label{display:block;font-size:12px;color:var(--text2);margin-bottom:5px;font-weight:600;letter-spacing:.3px}
-.fg input,.fg select{
-  width:100%;padding:11px 12px;
-  background:var(--card2);border:1px solid var(--border);
-  border-radius:var(--rs);color:var(--text);font-size:15px;outline:none;
-}
+.fg input,.fg select{width:100%;padding:11px 12px;background:var(--card2);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);font-size:15px;outline:none}
 .fg input:focus{border-color:var(--accent2)}
 .fg select option{background:var(--bg2)}
 .modal-acts{display:flex;gap:8px;margin-top:4px}
@@ -198,16 +152,7 @@ body{
 .det-row:last-child{border-bottom:none}
 .det-label{color:var(--text2)}
 .det-val{font-weight:500}
-.toast{
-  position:fixed;
-  bottom:max(env(safe-area-inset-bottom),20px);
-  left:50%;transform:translateX(-50%) translateY(0);
-  background:var(--green);color:#fff;
-  padding:10px 20px;border-radius:24px;
-  font-size:14px;font-weight:600;z-index:999;
-  animation:tIn .25s ease,tOut .25s 1.9s ease forwards;
-  white-space:nowrap;pointer-events:none;box-shadow:0 4px 20px rgba(0,0,0,.4);
-}
+.toast{position:fixed;bottom:max(env(safe-area-inset-bottom),20px);left:50%;transform:translateX(-50%);background:var(--green);color:#fff;padding:10px 20px;border-radius:24px;font-size:14px;font-weight:600;z-index:999;animation:tIn .25s ease,tOut .25s 1.9s ease forwards;white-space:nowrap;pointer-events:none;box-shadow:0 4px 20px rgba(0,0,0,.4)}
 .toast.err{background:var(--red)}
 @keyframes tIn{from{opacity:0;transform:translateX(-50%) translateY(16px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 @keyframes tOut{to{opacity:0;transform:translateX(-50%) translateY(16px)}}
@@ -217,10 +162,7 @@ body{
 <header class="hdr">
   <div class="hdr-l">
     <span class="hdr-icon">💪</span>
-    <div>
-      <div class="hdr-title">운동 기록</div>
-      <div class="hdr-date" id="hDate"></div>
-    </div>
+    <div><div class="hdr-title">운동 기록</div><div class="hdr-date" id="hDate"></div></div>
   </div>
   <div class="today-badge" id="todayBadge">0 세트</div>
 </header>
@@ -228,7 +170,10 @@ body{
   <button class="tab on" data-t="today">오늘 운동</button>
   <button class="tab" data-t="history">기록</button>
   <button class="tab" data-t="stats">통계</button>
+  <button class="tab" data-t="weight">체중</button>
 </nav>
+
+<!-- 오늘 탭 -->
 <div id="pane-today" class="pane on">
   <div class="sec">
     <div class="sec-hdr"><span class="sec-title">운동 선택</span></div>
@@ -257,23 +202,23 @@ body{
     <div class="sec-hdr"><span class="sec-title">오늘 요약</span></div>
     <div class="sum-grid" id="sumGrid"></div>
     <div class="empty hidden" id="emptyToday">
-      <div class="empty-icon">🏋️</div>
-      <p>아직 운동 기록이 없어요</p>
-      <small>위에서 운동을 선택해보세요</small>
+      <div class="empty-icon">🏋️</div><p>아직 운동 기록이 없어요</p><small>위에서 운동을 선택해보세요</small>
     </div>
   </div>
 </div>
+
+<!-- 기록 탭 -->
 <div id="pane-history" class="pane">
   <div class="sec">
     <div class="sec-hdr"><span class="sec-title">운동 기록</span></div>
     <div class="hist-list" id="histList"></div>
     <div class="empty hidden" id="histEmpty">
-      <div class="empty-icon">📅</div>
-      <p>운동 기록이 없어요</p>
-      <small>오늘 첫 운동을 시작해보세요!</small>
+      <div class="empty-icon">📅</div><p>운동 기록이 없어요</p><small>오늘 첫 운동을 시작해보세요!</small>
     </div>
   </div>
 </div>
+
+<!-- 통계 탭 -->
 <div id="pane-stats" class="pane">
   <div class="sec">
     <div class="sec-hdr"><span class="sec-title">전체 통계</span></div>
@@ -285,6 +230,42 @@ body{
     <div class="empty hidden" id="prEmpty"><div class="empty-icon">🏆</div><p>아직 기록이 없어요</p></div>
   </div>
 </div>
+
+<!-- 체중 탭 -->
+<div id="pane-weight" class="pane">
+  <div class="sec">
+    <div class="sec-hdr"><span class="sec-title">오늘 체중</span></div>
+    <div class="input-card">
+      <div class="in-row" style="margin-bottom:0">
+        <div class="in-g"><label>체중 (KG)</label><input type="number" id="wtInput" placeholder="예: 72.5" min="20" max="300" step="0.1" inputmode="decimal"></div>
+        <div class="in-g"><label>날짜</label><input type="date" id="wtDate"></div>
+      </div>
+    </div>
+    <button class="btn-p" id="btnWt">체중 기록하기</button>
+  </div>
+  <div class="sec">
+    <div class="sec-hdr"><span class="sec-title">통계</span></div>
+    <div class="wt-summary" id="wtSummary"></div>
+  </div>
+  <div class="sec">
+    <div class="wt-chart-wrap">
+      <div class="wt-chart-title">📈 체중 변화 (최근 60일)</div>
+      <canvas id="wtChart"></canvas>
+      <div class="empty hidden" id="wtChartEmpty" style="padding:20px 0">
+        <div class="empty-icon">📊</div><p>아직 데이터가 없어요</p><small>체중을 기록하면 그래프가 나타나요</small>
+      </div>
+    </div>
+  </div>
+  <div class="sec">
+    <div class="sec-hdr"><span class="sec-title">기록 목록</span></div>
+    <div class="wt-hist-list" id="wtHistList"></div>
+    <div class="empty hidden" id="wtHistEmpty">
+      <div class="empty-icon">⚖️</div><p>체중 기록이 없어요</p><small>위에서 오늘 체중을 입력해보세요</small>
+    </div>
+  </div>
+</div>
+
+<!-- 운동 추가 모달 -->
 <div class="modal hidden" id="addModal">
   <div class="modal-bg" id="addBg"></div>
   <div class="modal-box">
@@ -304,6 +285,8 @@ body{
     </div>
   </div>
 </div>
+
+<!-- 날짜 상세 모달 -->
 <div class="modal hidden" id="detModal">
   <div class="modal-bg" id="detBg"></div>
   <div class="modal-box">
@@ -313,6 +296,7 @@ body{
     <button class="btn-s" id="closeDet">닫기</button>
   </div>
 </div>
+
 <script>
 const DEFAULTS=[
   {name:'벤치프레스',cat:'가슴'},{name:'인클라인 벤치프레스',cat:'가슴'},{name:'딥스',cat:'가슴'},{name:'체스트플라이',cat:'가슴'},
@@ -329,6 +313,7 @@ const store={
   _save(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}},
   exs(){return this._load('ex')||[]},saveExs(v){this._save('ex',v)},
   sets(){return this._load('sets')||[]},saveSets(v){this._save('sets',v)},
+  weights(){return this._load('wt')||[]},saveWeights(v){this._save('wt',v)},
 };
 function initData(){if(!store.exs().length)store.saveExs(DEFAULTS.map((e,i)=>({id:i+1,...e})));}
 const S={today:new Date().toLocaleDateString('sv-SE'),sel:null,cat:'전체',q:''};
@@ -348,6 +333,7 @@ document.querySelectorAll('.tab').forEach(btn=>{
     btn.classList.add('on');document.getElementById('pane-'+btn.dataset.t).classList.add('on');
     if(btn.dataset.t==='history')renderHistory();
     if(btn.dataset.t==='stats')renderStats();
+    if(btn.dataset.t==='weight')renderWeightTab();
   });
 });
 function renderCats(){
@@ -383,10 +369,7 @@ function renderSets(){
   const list=store.sets().filter(s=>s.exId===S.sel.id&&s.date===S.today).sort((a,b)=>a.setNum-b.setNum);
   const c=document.getElementById('setsList');
   if(!list.length){c.innerHTML='<p style="color:var(--text2);font-size:13px;text-align:center;padding:8px 0">아직 세트가 없어요</p>';return}
-  c.innerHTML=list.map(s=>{
-    const info=s.weight!=null&&s.reps!=null?`${s.weight}kg × ${s.reps}회`:s.reps!=null?`${s.reps}회`:'-';
-    return `<div class="s-card"><div class="s-num">${s.setNum}</div><div class="s-info"><div class="s-main">${info}</div>${s.note?`<div class="s-note">${s.note}</div>`:''}</div><button class="s-del" data-id="${s.id}">✕</button></div>`;
-  }).join('');
+  c.innerHTML=list.map(s=>{const info=s.weight!=null&&s.reps!=null?`${s.weight}kg × ${s.reps}회`:s.reps!=null?`${s.reps}회`:'-';return `<div class="s-card"><div class="s-num">${s.setNum}</div><div class="s-info"><div class="s-main">${info}</div>${s.note?`<div class="s-note">${s.note}</div>`:''}</div><button class="s-del" data-id="${s.id}">✕</button></div>`;}).join('');
   c.querySelectorAll('.s-del').forEach(btn=>btn.addEventListener('click',()=>delSet(+btn.dataset.id)));
 }
 document.getElementById('btnAdd').addEventListener('click',()=>{
@@ -404,8 +387,7 @@ document.getElementById('btnAdd').addEventListener('click',()=>{
 });
 function delSet(id){
   let sets=store.sets().filter(s=>s.id!==id);
-  const byKey={};
-  sets.forEach(s=>{const k=s.exId+'_'+s.date;(byKey[k]=byKey[k]||[]).push(s)});
+  const byKey={};sets.forEach(s=>{const k=s.exId+'_'+s.date;(byKey[k]=byKey[k]||[]).push(s)});
   Object.values(byKey).forEach(arr=>arr.sort((a,b)=>a.ts-b.ts).forEach((s,i)=>s.setNum=i+1));
   store.saveSets(sets);renderSets();renderSummary();updatePR();updateBadge();toast('삭제됨');
 }
@@ -458,12 +440,87 @@ document.getElementById('confirmAdd').addEventListener('click',()=>{
   S.cat=cat;renderCats();renderExList();selectEx(ex.id);toast(`'${name}' 추가됨!`);
 });
 document.getElementById('srch').addEventListener('input',e=>{S.q=e.target.value;renderExList()});
-(function(){
-  const m={name:'💪 운동 기록',short_name:'운동기록',start_url:'./',display:'standalone',background_color:'#111827',theme_color:'#111827',orientation:'portrait-primary',lang:'ko',icons:[{src:"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%236366f1'/%3E%3Ctext y='72' x='50' text-anchor='middle' font-size='62'%3E%F0%9F%92%AA%3C/text%3E%3C/svg%3E",sizes:'any',type:'image/svg+xml',purpose:'any maskable'}]};
-  const b=new Blob([JSON.stringify(m)],{type:'application/manifest+json'});
-  const l=document.createElement('link');l.rel='manifest';l.href=URL.createObjectURL(b);
-  document.head.appendChild(l);
-})();
+/* 체중 기록 */
+document.getElementById('wtDate').value=S.today;
+document.getElementById('btnWt').addEventListener('click',()=>{
+  const kg=parseFloat(document.getElementById('wtInput').value);
+  const date=document.getElementById('wtDate').value;
+  if(!kg||kg<20||kg>300){toast('체중을 올바르게 입력하세요 (20~300kg)',true);return}
+  if(!date){toast('날짜를 선택하세요',true);return}
+  const weights=store.weights();
+  const idx=weights.findIndex(w=>w.date===date);
+  if(idx>=0){weights[idx].kg=kg;toast('체중 업데이트 완료!');}else{weights.push({date,kg});toast('체중 기록 완료! ⚖️');}
+  weights.sort((a,b)=>a.date.localeCompare(b.date));store.saveWeights(weights);
+  document.getElementById('wtInput').value='';renderWeightTab();
+});
+function delWeight(date){store.saveWeights(store.weights().filter(w=>w.date!==date));renderWeightTab();toast('삭제됨');}
+function renderWeightTab(){const w=store.weights().slice(-60);renderWtSummary(w);renderWtChart(w);renderWtHist(w);}
+function renderWtSummary(weights){
+  const c=document.getElementById('wtSummary');
+  if(!weights.length){c.innerHTML='<p style="color:var(--text2);font-size:13px;grid-column:1/-1;text-align:center;padding:8px 0">데이터 없음</p>';return}
+  const kgs=weights.map(w=>w.kg);
+  const cur=kgs[kgs.length-1],mn=Math.min(...kgs),mx=Math.max(...kgs);
+  const diff=weights.length>1?+(cur-kgs[0]).toFixed(1):null;
+  const ds=diff===null?'-':diff>0?`+${diff}kg`:diff<0?`${diff}kg`:'±0kg';
+  const dc=diff===null?'var(--text2)':diff>0?'var(--red)':diff<0?'var(--green)':'var(--text2)';
+  c.innerHTML=`<div class="wt-sum-card"><div class="wt-sum-val">${cur}</div><div class="wt-sum-label">현재 (kg)</div></div><div class="wt-sum-card"><div class="wt-sum-val" style="color:${dc}">${ds}</div><div class="wt-sum-label">총 변화</div></div><div class="wt-sum-card"><div class="wt-sum-val">${mn}~${mx}</div><div class="wt-sum-label">범위 (kg)</div></div>`;
+}
+function renderWtChart(weights){
+  const canvas=document.getElementById('wtChart');const empty=document.getElementById('wtChartEmpty');
+  if(!weights.length){canvas.classList.add('hidden');empty.classList.remove('hidden');return}
+  canvas.classList.remove('hidden');empty.classList.add('hidden');
+  const dpr=window.devicePixelRatio||1;
+  const W=canvas.parentElement.clientWidth-28,H=160;
+  canvas.width=W*dpr;canvas.height=H*dpr;canvas.style.width=W+'px';canvas.style.height=H+'px';
+  const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);
+  const pad={t:10,r:12,b:28,l:42};
+  const cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
+  const kgs=weights.map(w=>w.kg);
+  const mn=Math.min(...kgs),mx=Math.max(...kgs),range=mx-mn||1;
+  const xOf=i=>pad.l+i*(cw/Math.max(weights.length-1,1));
+  const yOf=kg=>pad.t+ch-(kg-mn)/range*ch;
+  ctx.strokeStyle='rgba(255,255,255,.06)';ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){const y=pad.t+ch/4*i;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(pad.l+cw,y);ctx.stroke();}
+  ctx.fillStyle='rgba(156,163,175,.8)';ctx.font='10px -apple-system,sans-serif';ctx.textAlign='right';
+  [0,1,2].forEach(i=>{const kg=mn+range/2*i;ctx.fillText(kg.toFixed(1),pad.l-4,yOf(kg)+4);});
+  if(weights.length===1){
+    ctx.beginPath();ctx.arc(pad.l+cw/2,yOf(kgs[0]),5,0,Math.PI*2);ctx.fillStyle='#6366f1';ctx.fill();return;
+  }
+  const grad=ctx.createLinearGradient(0,pad.t,0,pad.t+ch);
+  grad.addColorStop(0,'rgba(99,102,241,.35)');grad.addColorStop(1,'rgba(99,102,241,.02)');
+  ctx.beginPath();ctx.moveTo(xOf(0),yOf(kgs[0]));
+  weights.forEach((_,i)=>{if(i>0)ctx.lineTo(xOf(i),yOf(kgs[i]))});
+  ctx.lineTo(xOf(weights.length-1),pad.t+ch);ctx.lineTo(xOf(0),pad.t+ch);ctx.closePath();
+  ctx.fillStyle=grad;ctx.fill();
+  ctx.beginPath();ctx.moveTo(xOf(0),yOf(kgs[0]));
+  weights.forEach((_,i)=>{if(i>0)ctx.lineTo(xOf(i),yOf(kgs[i]))});
+  ctx.strokeStyle='#6366f1';ctx.lineWidth=2.5;ctx.lineJoin='round';ctx.stroke();
+  const step=Math.max(1,Math.floor(weights.length/6));
+  weights.forEach((w,i)=>{
+    const x=xOf(i),y=yOf(w.kg);
+    ctx.beginPath();ctx.arc(x,y,3.5,0,Math.PI*2);ctx.fillStyle='#a5b4fc';ctx.fill();
+    if(i===0||i===weights.length-1||i%step===0){
+      const d=new Date(w.date+'T00:00:00');
+      ctx.fillStyle='rgba(156,163,175,.8)';ctx.textAlign='center';
+      ctx.fillText(`${d.getMonth()+1}/${d.getDate()}`,x,H-8);
+    }
+  });
+}
+function renderWtHist(weights){
+  const list=document.getElementById('wtHistList');const empty=document.getElementById('wtHistEmpty');
+  const sorted=[...weights].reverse();
+  if(!sorted.length){list.innerHTML='';empty.classList.remove('hidden');return}
+  empty.classList.add('hidden');
+  list.innerHTML=sorted.map((w,i)=>{
+    const prev=sorted[i+1];
+    let dh='';
+    if(prev){const d=+(w.kg-prev.kg).toFixed(1);const cls=d>0?'up':d<0?'dn':'eq';const s=d>0?'▲':d<0?'▼':'─';dh=`<span class="wt-row-diff ${cls}">${s} ${Math.abs(d)}kg</span>`;}
+    return `<div class="wt-row"><div class="wt-row-left"><span class="wt-row-date">${fmtDate(w.date)}</span>${dh}</div><div style="display:flex;align-items:center;gap:10px"><span class="wt-row-kg">${w.kg}kg</span><button class="wt-del" data-d="${w.date}">✕</button></div></div>`;
+  }).join('');
+  list.querySelectorAll('.wt-del').forEach(btn=>btn.addEventListener('click',()=>delWeight(btn.dataset.d)));
+}
+/* PWA */
+(function(){const m={name:'💪 운동 기록',short_name:'운동기록',start_url:'./',display:'standalone',background_color:'#111827',theme_color:'#111827',orientation:'portrait-primary',lang:'ko',icons:[{src:"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%236366f1'/%3E%3Ctext y='72' x='50' text-anchor='middle' font-size='62'%3E%F0%9F%92%AA%3C/text%3E%3C/svg%3E",sizes:'any',type:'image/svg+xml',purpose:'any maskable'}]};const b=new Blob([JSON.stringify(m)],{type:'application/manifest+json'});const l=document.createElement('link');l.rel='manifest';l.href=URL.createObjectURL(b);document.head.appendChild(l);})();
 initData();renderCats();renderExList();renderSummary();updateBadge();
 </script>
 </body>
