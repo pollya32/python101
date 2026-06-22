@@ -1,0 +1,140 @@
+{% extends 'base.html' %}
+{% block title %}부품 재고 - 반도체 부품 재고관리{% endblock %}
+{% block page_title %}부품 재고 관리{% endblock %}
+{% block content %}
+
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <form class="row g-2 align-items-center" method="GET">
+      <div class="col-auto flex-grow-1">
+        <div class="input-group">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input type="text" name="q" class="form-control" placeholder="부품명, 코드, 공급업체 검색..." value="{{ q }}">
+        </div>
+      </div>
+      <div class="col-auto">
+        <select name="category" class="form-select">
+          <option value="">전체 카테고리</option>
+          {% for cat in categories %}
+          <option value="{{ cat.category }}" {{ 'selected' if selected_category == cat.category }}>{{ cat.category }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-primary">검색</button>
+        <a href="{{ url_for('parts_list') }}" class="btn btn-outline-secondary ms-1">초기화</a>
+      </div>
+      <div class="col-auto ms-auto">
+        <a href="{{ url_for('parts_add') }}" class="btn btn-success">
+          <i class="bi bi-plus-circle me-1"></i>부품 등록
+        </a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header bg-white d-flex justify-content-between align-items-center">
+    <span class="fw-semibold">부품 목록 <span class="badge bg-secondary">{{ parts|length }}개</span></span>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th>코드</th><th>부품명</th><th>카테고리</th>
+            <th class="text-center">현재 재고</th><th class="text-center">최소 재고</th>
+            <th>위치</th><th>단가</th><th>공급업체</th><th class="text-center">작업</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in parts %}
+          <tr class="{{ 'low-stock' if p.quantity <= p.min_quantity }}">
+            <td><code>{{ p.code }}</code></td>
+            <td>
+              <strong>{{ p.name }}</strong>
+              {% if p.quantity == 0 %}
+                <span class="badge bg-danger ms-1">품절</span>
+              {% elif p.quantity <= p.min_quantity %}
+                <span class="badge bg-warning text-dark ms-1">부족</span>
+              {% endif %}
+            </td>
+            <td><span class="badge bg-light text-dark">{{ p.category or '-' }}</span></td>
+            <td class="text-center fw-bold {{ 'text-danger' if p.quantity <= p.min_quantity }}">
+              {{ p.quantity }} {{ p.unit }}
+            </td>
+            <td class="text-center text-muted">{{ p.min_quantity }} {{ p.unit }}</td>
+            <td>{{ p.location or '-' }}</td>
+            <td>{{ '{:,}'.format(p.unit_price) }}원</td>
+            <td>{{ p.supplier or '-' }}</td>
+            <td class="text-center">
+              <div class="d-flex gap-1 justify-content-center">
+                <!-- 입고 -->
+                <button class="btn btn-sm btn-outline-success" onclick="openAdjust({{ p.id }}, '{{ p.name }}', 'in', {{ p.quantity }}, '{{ p.unit }}')" title="입고">
+                  <i class="bi bi-arrow-down-circle"></i>
+                </button>
+                <!-- 출고 -->
+                <button class="btn btn-sm btn-outline-warning" onclick="openAdjust({{ p.id }}, '{{ p.name }}', 'out', {{ p.quantity }}, '{{ p.unit }}')" title="출고">
+                  <i class="bi bi-arrow-up-circle"></i>
+                </button>
+                <a href="{{ url_for('parts_edit', part_id=p.id) }}" class="btn btn-sm btn-outline-primary" title="수정">
+                  <i class="bi bi-pencil"></i>
+                </a>
+                {% if current_user.role == 'admin' %}
+                <form method="POST" action="{{ url_for('parts_delete', part_id=p.id) }}" onsubmit="return confirm('삭제하시겠습니까?')">
+                  <button type="submit" class="btn btn-sm btn-outline-danger" title="삭제"><i class="bi bi-trash"></i></button>
+                </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="9" class="text-center text-muted py-4">부품이 없습니다.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- 입출고 모달 -->
+<div class="modal fade" id="adjustModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title fw-bold" id="adjustTitle"></h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" id="adjustForm">
+        <div class="modal-body">
+          <input type="hidden" name="action" id="adjustAction">
+          <div class="mb-2">
+            <label class="form-label fw-semibold">수량 <span id="adjustUnit"></span></label>
+            <input type="number" name="amount" id="adjustAmount" class="form-control" min="1" value="1" required>
+          </div>
+          <p class="text-muted mb-0" style="font-size:12px">현재 재고: <strong id="adjustCurrent"></strong></p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button>
+          <button type="submit" class="btn btn-primary btn-sm" id="adjustBtn">확인</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function openAdjust(id, name, action, qty, unit) {
+  document.getElementById('adjustForm').action = `/parts/${id}/adjust`;
+  document.getElementById('adjustAction').value = action;
+  document.getElementById('adjustTitle').textContent = (action === 'in' ? '입고' : '출고') + ': ' + name;
+  document.getElementById('adjustUnit').textContent = unit;
+  document.getElementById('adjustCurrent').textContent = qty + ' ' + unit;
+  document.getElementById('adjustBtn').textContent = action === 'in' ? '입고 처리' : '출고 처리';
+  document.getElementById('adjustBtn').className = `btn btn-sm ${action === 'in' ? 'btn-success' : 'btn-warning'}`;
+  document.getElementById('adjustAmount').max = action === 'out' ? qty : 99999;
+  new bootstrap.Modal(document.getElementById('adjustModal')).show();
+}
+</script>
+{% endblock %}

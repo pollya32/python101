@@ -1,0 +1,152 @@
+{% extends 'base.html' %}
+{% block title %}대시보드 - 반도체 부품 재고관리{% endblock %}
+{% block page_title %}대시보드{% endblock %}
+{% block content %}
+
+<!-- 통계 카드 -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-lg-3">
+    <div class="card stat-card h-100">
+      <div class="card-body d-flex align-items-center gap-3">
+        <div class="icon-box" style="background:#dbeafe"><i class="bi bi-box-seam text-primary fs-4"></i></div>
+        <div>
+          <div class="text-muted" style="font-size:12px">전체 부품 종류</div>
+          <div class="fw-bold fs-4">{{ total_parts }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card stat-card h-100">
+      <div class="card-body d-flex align-items-center gap-3">
+        <div class="icon-box" style="background:#dcfce7"><i class="bi bi-tools text-success fs-4"></i></div>
+        <div>
+          <div class="text-muted" style="font-size:12px">등록 장비 수</div>
+          <div class="fw-bold fs-4">{{ total_equipment }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card stat-card h-100">
+      <div class="card-body d-flex align-items-center gap-3">
+        <div class="icon-box" style="background:#fee2e2"><i class="bi bi-exclamation-triangle text-danger fs-4"></i></div>
+        <div>
+          <div class="text-muted" style="font-size:12px">재고 부족 품목</div>
+          <div class="fw-bold fs-4 text-danger">{{ low_stock }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card stat-card h-100">
+      <div class="card-body d-flex align-items-center gap-3">
+        <div class="icon-box" style="background:#fef3c7"><i class="bi bi-clock-history text-warning fs-4"></i></div>
+        <div>
+          <div class="text-muted" style="font-size:12px">오늘 교체 건수</div>
+          <div class="fw-bold fs-4">{{ today_replacements }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <!-- 최근 교체 이력 -->
+  <div class="col-lg-7">
+    <div class="card stat-card">
+      <div class="card-header bg-white fw-semibold d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-clock-history me-2 text-primary"></i>최근 교체 이력</span>
+        <a href="{{ url_for('history_list') }}" class="btn btn-sm btn-outline-primary">전체보기</a>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0">
+            <thead><tr><th>일시</th><th>장비</th><th>부품</th><th>수량</th><th>작업자</th></tr></thead>
+            <tbody>
+              {% for r in recent %}
+              <tr>
+                <td><small>{{ r.replaced_at[:16] }}</small></td>
+                <td>{{ r.eq_name or '-' }}</td>
+                <td>{{ r.part_name or '-' }}</td>
+                <td>{{ r.quantity }} {{ r.unit }}</td>
+                <td>{{ r.user_name or '-' }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="5" class="text-center text-muted py-3">교체 이력이 없습니다.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 재고 부족 알림 -->
+  <div class="col-lg-5">
+    <div class="card stat-card mb-3">
+      <div class="card-header bg-white fw-semibold">
+        <i class="bi bi-exclamation-triangle-fill text-danger me-2"></i>재고 부족 품목
+      </div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush">
+          {% for p in low_parts %}
+          <li class="list-group-item d-flex justify-content-between align-items-center py-2">
+            <div>
+              <div style="font-size:13px;font-weight:600">{{ p.name }}</div>
+              <small class="text-muted">{{ p.code }}</small>
+            </div>
+            <span class="badge {{ 'bg-danger' if p.quantity == 0 else 'bg-warning text-dark' }}">
+              {{ p.quantity }} / {{ p.min_quantity }} {{ p.unit }}
+            </span>
+          </li>
+          {% else %}
+          <li class="list-group-item text-center text-muted py-3">재고 부족 품목 없음</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+
+    <!-- 장비 상태 -->
+    <div class="card stat-card">
+      <div class="card-header bg-white fw-semibold">
+        <i class="bi bi-tools me-2 text-success"></i>장비 상태 현황
+      </div>
+      <div class="card-body">
+        {% for s in equipment_status %}
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="badge badge-status-{{ s.status }} px-3 py-2" style="font-size:13px">{{ s.status }}</span>
+          <strong>{{ s.cnt }}대</strong>
+        </div>
+        {% else %}
+        <p class="text-muted text-center mb-0">등록된 장비 없음</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 빠른 작업 버튼 -->
+<div class="row g-3 mt-1">
+  <div class="col-12">
+    <div class="card stat-card">
+      <div class="card-body">
+        <div class="d-flex gap-2 flex-wrap">
+          <a href="{{ url_for('history_add') }}" class="btn btn-primary">
+            <i class="bi bi-plus-circle me-1"></i>교체 등록
+          </a>
+          <a href="{{ url_for('parts_add') }}" class="btn btn-outline-primary">
+            <i class="bi bi-box-seam me-1"></i>부품 등록
+          </a>
+          <a href="{{ url_for('equipment_add') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-tools me-1"></i>장비 등록
+          </a>
+          <a href="{{ url_for('parts_list') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-search me-1"></i>부품 검색
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,71 @@
+{% extends 'base.html' %}
+{% block title %}{{ title }} - 반도체 부품 재고관리{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header bg-white fw-semibold">
+        <i class="bi bi-box-seam me-2"></i>{{ title }}
+      </div>
+      <div class="card-body">
+        <form method="POST">
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">부품 코드 <span class="text-danger">*</span></label>
+              <input type="text" name="code" class="form-control" value="{{ part.code if part else '' }}"
+                     {{ 'readonly' if part }} required placeholder="예: PART-001">
+            </div>
+            <div class="col-md-8">
+              <label class="form-label fw-semibold">부품명 <span class="text-danger">*</span></label>
+              <input type="text" name="name" class="form-control" value="{{ part.name if part else '' }}" required placeholder="부품 이름">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">카테고리</label>
+              <input type="text" name="category" class="form-control" value="{{ part.category if part else '' }}" placeholder="예: 펌프, 밸브, 센서">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">단위</label>
+              <select name="unit" class="form-select">
+                {% for u in ['EA', 'SET', 'M', 'L', 'KG', 'BOX'] %}
+                <option value="{{ u }}" {{ 'selected' if part and part.unit == u }}>{{ u }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">단가 (원)</label>
+              <input type="number" name="unit_price" class="form-control" value="{{ part.unit_price if part else 0 }}" min="0">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">현재 재고</label>
+              <input type="number" name="quantity" class="form-control" value="{{ part.quantity if part else 0 }}" min="0">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">최소 재고</label>
+              <input type="number" name="min_quantity" class="form-control" value="{{ part.min_quantity if part else 5 }}" min="0">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">보관 위치</label>
+              <input type="text" name="location" class="form-control" value="{{ part.location if part else '' }}" placeholder="예: A-01-03">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">공급업체</label>
+              <input type="text" name="supplier" class="form-control" value="{{ part.supplier if part else '' }}" placeholder="공급업체명">
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">비고</label>
+              <textarea name="note" class="form-control" rows="2" placeholder="추가 메모">{{ part.note if part else '' }}</textarea>
+            </div>
+          </div>
+          <div class="d-flex gap-2 mt-4">
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-check2 me-1"></i>저장
+            </button>
+            <a href="{{ url_for('parts_list') }}" class="btn btn-outline-secondary">취소</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

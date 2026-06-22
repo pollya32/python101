@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block title %}사용자 관리 - 반도체 부품 재고관리{% endblock %}
+{% block page_title %}사용자 관리{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-end mb-3">
+  <a href="{{ url_for('users_add') }}" class="btn btn-success">
+    <i class="bi bi-person-plus me-1"></i>사용자 등록
+  </a>
+</div>
+<div class="card">
+  <div class="card-header bg-white fw-semibold">
+    사용자 목록 <span class="badge bg-secondary">{{ users|length }}명</span>
+    <small class="text-muted ms-2">최대 12명</small>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead><tr><th>아이디</th><th>이름</th><th>권한</th><th>등록일</th><th>작업</th></tr></thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td><code>{{ u.username }}</code></td>
+          <td>{{ u.name }}</td>
+          <td>
+            {% if u.role == 'admin' %}
+            <span class="badge bg-warning text-dark">관리자</span>
+            {% else %}
+            <span class="badge bg-light text-dark">일반</span>
+            {% endif %}
+          </td>
+          <td><small>{{ u.created_at[:10] }}</small></td>
+          <td>
+            <div class="d-flex gap-1">
+              <a href="{{ url_for('users_edit', user_id=u.id) }}" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-pencil"></i>
+              </a>
+              {% if u.id != current_user.id %}
+              <form method="POST" action="{{ url_for('users_delete', user_id=u.id) }}"
+                    onsubmit="return confirm('{{ u.name }} 사용자를 삭제하시겠습니까?')">
+                <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

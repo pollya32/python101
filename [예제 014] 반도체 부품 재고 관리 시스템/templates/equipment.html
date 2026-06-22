@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+{% block title %}장비 관리 - 반도체 부품 재고관리{% endblock %}
+{% block page_title %}장비 관리{% endblock %}
+{% block content %}
+
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <form class="row g-2 align-items-center" method="GET">
+      <div class="col-auto flex-grow-1">
+        <div class="input-group">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input type="text" name="q" class="form-control" placeholder="장비명, 코드, 위치 검색..." value="{{ q }}">
+        </div>
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-primary">검색</button>
+        <a href="{{ url_for('equipment_list') }}" class="btn btn-outline-secondary ms-1">초기화</a>
+      </div>
+      <div class="col-auto ms-auto">
+        <a href="{{ url_for('equipment_add') }}" class="btn btn-success">
+          <i class="bi bi-plus-circle me-1"></i>장비 등록
+        </a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="row g-3">
+  {% for eq in equipment %}
+  <div class="col-md-6 col-lg-4">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <div>
+            <code class="text-muted" style="font-size:12px">{{ eq.code }}</code>
+            <h6 class="mb-0 mt-1 fw-bold">{{ eq.name }}</h6>
+          </div>
+          <span class="badge badge-status-{{ eq.status }} px-2 py-1">{{ eq.status }}</span>
+        </div>
+        {% if eq.location %}
+        <p class="text-muted mb-1" style="font-size:13px">
+          <i class="bi bi-geo-alt me-1"></i>{{ eq.location }}
+        </p>
+        {% endif %}
+        {% if eq.note %}
+        <p class="text-muted mb-2" style="font-size:12px">{{ eq.note }}</p>
+        {% endif %}
+        <div class="d-flex gap-1 mt-2">
+          <a href="{{ url_for('equipment_edit', eq_id=eq.id) }}" class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-pencil me-1"></i>수정
+          </a>
+          {% if current_user.role == 'admin' %}
+          <form method="POST" action="{{ url_for('equipment_delete', eq_id=eq.id) }}" onsubmit="return confirm('삭제하시겠습니까?')">
+            <button type="submit" class="btn btn-sm btn-outline-danger">
+              <i class="bi bi-trash me-1"></i>삭제
+            </button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="col-12">
+    <div class="alert alert-secondary text-center py-4">
+      <i class="bi bi-tools fs-2 d-block mb-2"></i>
+      등록된 장비가 없습니다.
+      <a href="{{ url_for('equipment_add') }}" class="d-block mt-2">장비 등록하기</a>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

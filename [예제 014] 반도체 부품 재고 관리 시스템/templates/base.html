@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}반도체 부품 재고관리{% endblock %}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <style>
+    :root { --sidebar-width: 240px; --primary: #1a3a5c; --accent: #0d6efd; }
+    body { background: #f0f2f5; font-family: 'Malgun Gothic', sans-serif; }
+    #sidebar {
+      width: var(--sidebar-width); min-height: 100vh; background: var(--primary);
+      position: fixed; top: 0; left: 0; z-index: 100; display: flex; flex-direction: column;
+    }
+    #sidebar .brand {
+      padding: 20px 16px; background: rgba(0,0,0,.2);
+      color: #fff; font-weight: 700; font-size: 14px; line-height: 1.4;
+    }
+    #sidebar .brand .icon { font-size: 28px; color: #7eb8f7; display: block; margin-bottom: 4px; }
+    #sidebar nav a {
+      display: flex; align-items: center; gap: 10px; padding: 12px 20px;
+      color: rgba(255,255,255,.75); text-decoration: none; font-size: 14px; transition: .15s;
+    }
+    #sidebar nav a:hover, #sidebar nav a.active {
+      background: rgba(255,255,255,.12); color: #fff;
+    }
+    #sidebar nav a i { font-size: 18px; width: 20px; text-align: center; }
+    #sidebar .nav-section { padding: 12px 20px 4px; font-size: 11px; color: rgba(255,255,255,.4); text-transform: uppercase; }
+    #sidebar .user-info {
+      margin-top: auto; padding: 14px 16px; background: rgba(0,0,0,.2);
+      color: rgba(255,255,255,.8); font-size: 13px;
+    }
+    #main { margin-left: var(--sidebar-width); padding: 0; }
+    #topbar {
+      background: #fff; border-bottom: 1px solid #dee2e6;
+      padding: 12px 24px; display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 90;
+    }
+    #topbar h1 { font-size: 18px; font-weight: 600; margin: 0; color: #1a3a5c; }
+    .content-area { padding: 24px; }
+    .stat-card { border-radius: 12px; border: none; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+    .stat-card .icon-box {
+      width: 50px; height: 50px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center; font-size: 22px;
+    }
+    .badge-status-가동중 { background: #d1fae5; color: #065f46; }
+    .badge-status-점검중 { background: #fef3c7; color: #92400e; }
+    .badge-status-고장 { background: #fee2e2; color: #991b1b; }
+    .badge-status-대기 { background: #e0e7ff; color: #3730a3; }
+    .low-stock { background: #fff7ed !important; }
+    .table th { background: #f8f9fa; font-size: 13px; }
+    .table td { font-size: 13px; vertical-align: middle; }
+    @media(max-width:768px){
+      #sidebar { width: 60px; }
+      #sidebar .brand span, #sidebar nav a span, #sidebar .nav-section, #sidebar .user-info span { display: none; }
+      #sidebar .brand .icon { margin: 0 auto; }
+      #sidebar nav a { justify-content: center; padding: 14px; }
+      #main { margin-left: 60px; }
+    }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body>
+{% if current_user.is_authenticated %}
+<div id="sidebar">
+  <div class="brand">
+    <i class="bi bi-cpu icon"></i>
+    <span>반도체 부품<br>재고관리 시스템</span>
+  </div>
+  <nav>
+    <div class="nav-section">메인</div>
+    <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint=='dashboard' }}">
+      <i class="bi bi-speedometer2"></i><span>대시보드</span>
+    </a>
+    <div class="nav-section">재고</div>
+    <a href="{{ url_for('parts_list') }}" class="{{ 'active' if 'parts' in request.endpoint }}">
+      <i class="bi bi-box-seam"></i><span>부품 재고</span>
+    </a>
+    <a href="{{ url_for('equipment_list') }}" class="{{ 'active' if 'equipment' in request.endpoint }}">
+      <i class="bi bi-tools"></i><span>장비 관리</span>
+    </a>
+    <a href="{{ url_for('history_list') }}" class="{{ 'active' if 'history' in request.endpoint }}">
+      <i class="bi bi-clock-history"></i><span>교체 이력</span>
+    </a>
+    <a href="{{ url_for('history_add') }}" class="{{ 'active' if request.endpoint=='history_add' }}">
+      <i class="bi bi-plus-circle"></i><span>교체 등록</span>
+    </a>
+    {% if current_user.role == 'admin' %}
+    <div class="nav-section">관리</div>
+    <a href="{{ url_for('users_list') }}" class="{{ 'active' if 'users' in request.endpoint }}">
+      <i class="bi bi-people"></i><span>사용자 관리</span>
+    </a>
+    {% endif %}
+  </nav>
+  <div class="user-info">
+    <i class="bi bi-person-circle me-1"></i>
+    <span>{{ current_user.name }}
+      {% if current_user.role == 'admin' %}<span class="badge bg-warning text-dark ms-1" style="font-size:10px">관리자</span>{% endif %}
+    </span>
+    <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-light d-block mt-2"><span>로그아웃</span></a>
+  </div>
+</div>
+{% endif %}
+
+<div id="main">
+  {% if current_user.is_authenticated %}
+  <div id="topbar">
+    <h1>{% block page_title %}{% endblock %}</h1>
+    <div class="d-flex align-items-center gap-2">
+      <span id="low-stock-badge"></span>
+      <small class="text-muted" id="clock"></small>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="{% if current_user.is_authenticated %}content-area{% endif %}">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for cat, msg in messages %}
+        <div class="alert alert-{{ cat }} alert-dismissible fade show" role="alert">
+          {{ msg }}
+          <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  // 시계
+  function tick() {
+    const el = document.getElementById('clock');
+    if (el) el.textContent = new Date().toLocaleString('ko-KR');
+  }
+  tick(); setInterval(tick, 1000);
+
+  // 재고 부족 알림 배지
+  function checkLowStock() {
+    fetch('/api/low_stock_count').then(r => r.json()).then(d => {
+      const el = document.getElementById('low-stock-badge');
+      if (!el) return;
+      if (d.count > 0) {
+        el.innerHTML = `<a href="/parts?category=" class="badge bg-danger text-decoration-none">
+          <i class="bi bi-exclamation-triangle-fill me-1"></i>재고부족 ${d.count}건</a>`;
+      } else {
+        el.innerHTML = '';
+      }
+    }).catch(()=>{});
+  }
+  {% if current_user.is_authenticated %}
+  checkLowStock(); setInterval(checkLowStock, 30000);
+  {% endif %}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

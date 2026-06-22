@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+{% block title %}교체 등록 - 반도체 부품 재고관리{% endblock %}
+{% block page_title %}부품 교체 등록{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header bg-white fw-semibold">
+        <i class="bi bi-clock-history me-2"></i>교체 이력 등록
+      </div>
+      <div class="card-body">
+        <form method="POST">
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label fw-semibold">장비 <span class="text-danger">*</span></label>
+              <select name="equipment_id" class="form-select" required>
+                <option value="">-- 장비 선택 --</option>
+                {% for eq in equipment %}
+                <option value="{{ eq.id }}">[{{ eq.code }}] {{ eq.name }} ({{ eq.location or '위치미정' }})</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">부품 <span class="text-danger">*</span></label>
+              <select name="part_id" class="form-select" id="partSelect" required onchange="updateStock()">
+                <option value="">-- 부품 선택 --</option>
+                {% for p in parts %}
+                <option value="{{ p.id }}" data-qty="{{ p.quantity }}" data-unit="{{ p.unit }}"
+                        data-min="{{ p.min_quantity }}">
+                  [{{ p.code }}] {{ p.name }} — 재고: {{ p.quantity }} {{ p.unit }}
+                </option>
+                {% endfor %}
+              </select>
+              <div id="stockInfo" class="mt-1"></div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">교체 수량 <span class="text-danger">*</span></label>
+              <input type="number" name="quantity" id="qtyInput" class="form-control" min="1" value="1" required>
+            </div>
+            <div class="col-md-8">
+              <label class="form-label fw-semibold">교체 사유</label>
+              <input type="text" name="reason" class="form-control" placeholder="예: 정기 교체, 마모, 파손 등">
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">비고</label>
+              <textarea name="note" class="form-control" rows="2" placeholder="추가 메모"></textarea>
+            </div>
+          </div>
+          <div class="d-flex gap-2 mt-4">
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-check2 me-1"></i>교체 등록
+            </button>
+            <a href="{{ url_for('history_list') }}" class="btn btn-outline-secondary">취소</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function updateStock() {
+  const sel = document.getElementById('partSelect');
+  const opt = sel.options[sel.selectedIndex];
+  const info = document.getElementById('stockInfo');
+  const qtyInput = document.getElementById('qtyInput');
+  if (!opt.value) { info.innerHTML = ''; return; }
+  const qty = parseInt(opt.dataset.qty);
+  const unit = opt.dataset.unit;
+  const min = parseInt(opt.dataset.min);
+  qtyInput.max = qty;
+  if (qty === 0) {
+    info.innerHTML = `<span class="text-danger"><i class="bi bi-exclamation-circle me-1"></i>재고 없음 (품절)</span>`;
+  } else if (qty <= min) {
+    info.innerHTML = `<span class="text-warning"><i class="bi bi-exclamation-triangle me-1"></i>재고 부족: ${qty} ${unit} (최소: ${min})</span>`;
+  } else {
+    info.innerHTML = `<span class="text-success"><i class="bi bi-check-circle me-1"></i>현재 재고: ${qty} ${unit}</span>`;
+  }
+}
+</script>
+{% endblock %}
