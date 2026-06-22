@@ -7,6 +7,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="운동기록">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="apple-touch-icon" sizes="512x512" href="icon-512.png">
 <title>💪 운동 기록</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -928,10 +930,10 @@ function renderWtHist(weights){
     start_url:'./',display:'standalone',
     background_color:'#111827',theme_color:'#111827',
     orientation:'portrait-primary',lang:'ko',
-    icons:[{
-      src:"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%236366f1'/%3E%3Ctext y='72' x='50' text-anchor='middle' font-size='62'%3E%F0%9F%92%AA%3C/text%3E%3C/svg%3E",
-      sizes:'any',type:'image/svg+xml',purpose:'any maskable'
-    }]
+    icons:[
+      {src:'icon-192.png',sizes:'192x192',type:'image/png',purpose:'any maskable'},
+      {src:'icon-512.png',sizes:'512x512',type:'image/png',purpose:'any maskable'}
+    ]
   };
   const blob=new Blob([JSON.stringify(manifest)],{type:'application/manifest+json'});
   const link=document.createElement('link');
