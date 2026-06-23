@@ -9,6 +9,7 @@
 """
 import os, json, sqlite3, threading
 from flask import Flask, send_file, jsonify
+from flask import request as sock_request
 from flask_socketio import SocketIO, emit
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -136,8 +137,6 @@ def api_state():
     return jsonify(_state or {})
 
 # ── SOCKETIO EVENTS ───────────────────────────────────────────────────────────
-
-from flask_socketio import request as sock_request
 
 @socketio.on('connect')
 def on_connect():
