@@ -1,4 +1,4 @@
-""" 
+"""
 반도체 장비 부품 재고 관리 시스템 — 단일 파일 버전
 =====================================================
 설치: pip install flask flask-login werkzeug
@@ -6,17 +6,31 @@
 접속: http://localhost:5000  (기본 계정: admin / admin1234)
 """
 
-import sqlite3, os
-from flask import Flask, render_template_string, request, redirect, url_for, flash, jsonify
+import sqlite3, os, sys
+from flask import Flask, render_template_string, request, redirect, flash, jsonify
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
-from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.security import generate_password_hash as _gen_hash, check_password_hash
+
+# scrypt 미지원 환경(일부 Windows/Mac) 대비 — pbkdf2:sha256 고정
+def generate_password_hash(pw):
+    try:
+        return _gen_hash(pw, method='pbkdf2:sha256')
+    except Exception:
+        return _gen_hash(pw)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'semi-inv-2024-secret')
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.login_message = '로그인이 필요합니다.'
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'inventory.db')
+
+# Windows/Mac/Linux 모두에서 현재 폴더에 DB 생성
+try:
+    _base = os.path.dirname(os.path.abspath(__file__))
+except NameError:
+    _base = os.getcwd()
+DB_PATH = os.path.join(_base, 'inventory.db')
+
 
 # ── 데이터베이스 ─────────────────────────────────────────────────────────────
 
@@ -26,8 +40,10 @@ def get_db():
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
+
 def init_db():
-    conn = get_db(); c = conn.cursor()
+    conn = get_db()
+    c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL,
         password TEXT NOT NULL, name TEXT NOT NULL, role TEXT DEFAULT 'user',
@@ -53,25 +69,28 @@ def init_db():
     try:
         c.execute("INSERT INTO users (username,password,name,role) VALUES (?,?,?,?)",
                   ('admin', generate_password_hash('admin1234'), '관리자', 'admin'))
-    except sqlite3.IntegrityError: pass
-    conn.commit(); conn.close()
+    except sqlite3.IntegrityError:
+        pass
+    conn.commit()
+    conn.close()
+
 
 class User(UserMixin):
     def __init__(self, id, username, name, role):
-        self.id=id; self.username=username; self.name=name; self.role=role
+        self.id = id; self.username = username; self.name = name; self.role = role
+
 
 @login_manager.user_loader
 def load_user(user_id):
-    conn=get_db(); row=conn.execute("SELECT * FROM users WHERE id=?",(user_id,)).fetchone(); conn.close()
-    return User(row['id'],row['username'],row['name'],row['role']) if row else None
+    conn = get_db()
+    row = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+    conn.close()
+    return User(row['id'], row['username'], row['name'], row['role']) if row else None
 
-# ── HTML 템플릿 ──────────────────────────────────────────────────────────────
 
-BASE = """<!DOCTYPE html><html lang="ko"><head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{% block title %}반도체 부품 재고관리{% endblock %}</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+# ── 공통 HTML 조각 (Jinja2 블록 상속 없이 조립) ──────────────────────────────
+
+_CSS = """
 <style>
 :root{--sw:220px;--pri:#1a3a5c}
 body{background:#f0f2f5;font-family:'Malgun Gothic',sans-serif}
@@ -100,8 +119,9 @@ body{background:#f0f2f5;font-family:'Malgun Gothic',sans-serif}
   #sb nav a{justify-content:center;padding:12px}
   #mn{margin-left:56px}
 }
-</style>{% block head %}{% endblock %}</head><body>
-{% if current_user.is_authenticated %}
+</style>"""
+
+_SIDEBAR = """
 <div id="sb">
   <div class="br"><i class="bi bi-cpu"></i><span>반도체 부품<br>재고관리 시스템</span></div>
   <nav>
@@ -118,28 +138,13 @@ body{background:#f0f2f5;font-family:'Malgun Gothic',sans-serif}
     {% endif %}
   </nav>
   <div class="ui">
-    <i class="bi bi-person-circle me-1"></i><span>{{ current_user.name }}
-    {% if current_user.role=='admin' %}<span class="badge bg-warning text-dark ms-1" style="font-size:9px">관리자</span>{% endif %}</span>
+    <i class="bi bi-person-circle me-1"></i>
+    <span>{{ current_user.name }}{% if current_user.role=='admin' %}<span class="badge bg-warning text-dark ms-1" style="font-size:9px">관리자</span>{% endif %}</span>
     <a href="/logout" class="btn btn-sm btn-outline-light d-block mt-2"><span>로그아웃</span></a>
   </div>
-</div>
-{% endif %}
-<div id="mn">
-  {% if current_user.is_authenticated %}
-  <div id="tb">
-    <h1>{% block pt %}{% endblock %}</h1>
-    <div class="d-flex align-items-center gap-2">
-      <span id="lsb"></span><small class="text-muted" id="clk"></small>
-    </div>
-  </div>
-  {% endif %}
-  <div class="{{ 'ca' if current_user.is_authenticated }}">
-    {% with messages=get_flashed_messages(with_categories=true) %}{% if messages %}
-      {% for c,m in messages %}<div class="alert alert-{{c}} alert-dismissible fade show py-2">{{m}}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>{% endfor %}
-    {% endif %}{% endwith %}
-    {% block content %}{% endblock %}
-  </div>
-</div>
+</div>"""
+
+_JS = """
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 function tick(){var e=document.getElementById('clk');if(e)e.textContent=new Date().toLocaleString('ko-KR');}
@@ -149,7 +154,44 @@ function chkLow(){fetch('/api/low_stock_count').then(r=>r.json()).then(d=>{
   e.innerHTML=d.count>0?`<a href="/parts" class="badge bg-danger text-decoration-none"><i class="bi bi-exclamation-triangle-fill me-1"></i>재고부족 ${d.count}건</a>`:'';
 }).catch(()=>{});}
 {% if current_user.is_authenticated %}chkLow();setInterval(chkLow,30000);{% endif %}
-</script>{% block scripts %}{% endblock %}</body></html>"""
+</script>"""
+
+
+def _page(title, content, scripts=''):
+    """공통 레이아웃으로 완전한 HTML 페이지 조립 (Jinja2 블록 상속 없음)"""
+    return (
+        '<!DOCTYPE html><html lang="ko"><head>'
+        '<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<title>' + title + ' - 반도체 부품 재고관리</title>'
+        '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">'
+        '<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">'
+        + _CSS +
+        '</head><body>'
+        '{% if current_user.is_authenticated %}'
+        + _SIDEBAR +
+        '{% endif %}'
+        '<div id="mn">'
+        '{% if current_user.is_authenticated %}'
+        '<div id="tb">'
+        '<h1>' + title + '</h1>'
+        '<div class="d-flex align-items-center gap-2">'
+        '<span id="lsb"></span><small class="text-muted" id="clk"></small>'
+        '</div></div>'
+        '{% endif %}'
+        '<div class="{% if current_user.is_authenticated %}ca{% endif %}">'
+        '{% with messages=get_flashed_messages(with_categories=true) %}'
+        '{% if messages %}{% for _c,_m in messages %}'
+        '<div class="alert alert-{{_c}} alert-dismissible fade show py-2">{{_m}}'
+        '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>'
+        '{% endfor %}{% endif %}{% endwith %}'
+        + content +
+        '</div></div>'
+        + _JS + scripts +
+        '</body></html>'
+    )
+
+
+# ── 각 페이지 템플릿 ──────────────────────────────────────────────────────────
 
 LOGIN_T = """<!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -168,8 +210,8 @@ body{background:linear-gradient(135deg,#1a3a5c,#0d6efd);min-height:100vh;display
   <h1>반도체 부품 재고관리</h1>
   <p>Semiconductor Parts Inventory System</p>
 </div><div class="lb">
-  {% with messages=get_flashed_messages(with_categories=true) %}{% for c,m in messages %}
-  <div class="alert alert-{{c}} alert-dismissible fade show py-2">{{m}}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+  {% with messages=get_flashed_messages(with_categories=true) %}{% for _c,_m in messages %}
+  <div class="alert alert-{{_c}} alert-dismissible fade show py-2">{{_m}}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
   {% endfor %}{% endwith %}
   <form method="POST">
     <div class="mb-3"><label class="form-label fw-semibold">아이디</label>
@@ -186,7 +228,7 @@ body{background:linear-gradient(135deg,#1a3a5c,#0d6efd);min-height:100vh;display
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body></html>"""
 
-DASH_T = BASE + """{% block pt %}대시보드{% endblock %}{% block content %}
+DASH_T = _page('대시보드', """
 <div class="row g-3 mb-4">
   <div class="col-6 col-lg-3"><div class="card sc h-100"><div class="card-body d-flex align-items-center gap-3">
     <div class="ib" style="background:#dbeafe"><i class="bi bi-box-seam text-primary"></i></div>
@@ -243,9 +285,9 @@ DASH_T = BASE + """{% block pt %}대시보드{% endblock %}{% block content %}
     <a href="/parts" class="btn btn-outline-secondary"><i class="bi bi-search me-1"></i>부품 검색</a>
   </div>
 </div></div></div></div>
-{% endblock %}"""
+""")
 
-PARTS_T = BASE + """{% block pt %}부품 재고 관리{% endblock %}{% block content %}
+PARTS_T = _page('부품 재고 관리', """
 <div class="card mb-3"><div class="card-body py-2">
   <form class="row g-2 align-items-center" method="GET">
     <div class="col-auto flex-grow-1"><div class="input-group">
@@ -282,7 +324,7 @@ PARTS_T = BASE + """{% block pt %}부품 재고 관리{% endblock %}{% block con
       <td class="text-center"><div class="d-flex gap-1 justify-content-center">
         <button class="btn btn-sm btn-outline-success" onclick="openAdj({{p.id}},'{{p.name}}','in',{{p.quantity}},'{{p.unit}}')" title="입고"><i class="bi bi-arrow-down-circle"></i></button>
         <button class="btn btn-sm btn-outline-warning" onclick="openAdj({{p.id}},'{{p.name}}','out',{{p.quantity}},'{{p.unit}}')" title="출고"><i class="bi bi-arrow-up-circle"></i></button>
-        <a href="/parts/{{p.id}}/edit" class="btn btn-sm btn-outline-primary" title="수정"><i class="bi bi-pencil"></i></a>
+        <a href="/parts/{{p.id}}/edit" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i></a>
         {% if current_user.role=='admin' %}
         <form method="POST" action="/parts/{{p.id}}/delete" onsubmit="return confirm('삭제하시겠습니까?')">
           <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
@@ -304,21 +346,21 @@ PARTS_T = BASE + """{% block pt %}부품 재고 관리{% endblock %}{% block con
     <button type="submit" class="btn btn-primary btn-sm" id="adjBtn">확인</button>
   </div></form>
 </div></div></div>
-{% endblock %}{% block scripts %}<script>
+""", scripts="""<script>
 function openAdj(id,name,action,qty,unit){
-  document.getElementById('adjForm').action=`/parts/${id}/adjust`;
+  document.getElementById('adjForm').action='/parts/'+id+'/adjust';
   document.getElementById('adjAct').value=action;
   document.getElementById('adjTitle').textContent=(action==='in'?'입고':'출고')+': '+name;
   document.getElementById('adjUnit').textContent=unit;
   document.getElementById('adjCur').textContent=qty+' '+unit;
   document.getElementById('adjBtn').textContent=action==='in'?'입고 처리':'출고 처리';
-  document.getElementById('adjBtn').className=`btn btn-sm ${action==='in'?'btn-success':'btn-warning'}`;
+  document.getElementById('adjBtn').className='btn btn-sm '+(action==='in'?'btn-success':'btn-warning');
   document.getElementById('adjAmt').max=action==='out'?qty:99999;
   new bootstrap.Modal(document.getElementById('adjModal')).show();
 }
-</script>{% endblock %}"""
+</script>""")
 
-PART_FORM_T = BASE + """{% block pt %}{{title}}{% endblock %}{% block content %}
+PART_FORM_T = _page('{{title}}', """
 <div class="row justify-content-center"><div class="col-lg-7"><div class="card">
   <div class="card-header bg-white fw-semibold"><i class="bi bi-box-seam me-2"></i>{{title}}</div>
   <div class="card-body"><form method="POST"><div class="row g-3">
@@ -348,9 +390,9 @@ PART_FORM_T = BASE + """{% block pt %}{{title}}{% endblock %}{% block content %}
     <button type="submit" class="btn btn-primary"><i class="bi bi-check2 me-1"></i>저장</button>
     <a href="/parts" class="btn btn-outline-secondary">취소</a>
   </div></form></div>
-</div></div></div>{% endblock %}"""
+</div></div></div>""")
 
-EQ_T = BASE + """{% block pt %}장비 관리{% endblock %}{% block content %}
+EQ_T = _page('장비 관리', """
 <div class="card mb-3"><div class="card-body py-2">
   <form class="row g-2 align-items-center" method="GET">
     <div class="col-auto flex-grow-1"><div class="input-group">
@@ -363,29 +405,28 @@ EQ_T = BASE + """{% block pt %}장비 관리{% endblock %}{% block content %}
   </form>
 </div></div>
 <div class="row g-3">
-  {% for eq in equipment %}<div class="col-md-6 col-lg-4"><div class="card h-100">
-    <div class="card-body">
-      <div class="d-flex justify-content-between align-items-start mb-2">
-        <div><code class="text-muted" style="font-size:11px">{{eq.code}}</code><h6 class="mb-0 mt-1 fw-bold">{{eq.name}}</h6></div>
-        <span class="badge bs-{{eq.status}} px-2 py-1">{{eq.status}}</span>
-      </div>
-      {% if eq.location %}<p class="text-muted mb-1" style="font-size:12px"><i class="bi bi-geo-alt me-1"></i>{{eq.location}}</p>{% endif %}
-      {% if eq.note %}<p class="text-muted mb-2" style="font-size:11px">{{eq.note}}</p>{% endif %}
-      <div class="d-flex gap-1 mt-2">
-        <a href="/equipment/{{eq.id}}/edit" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil me-1"></i>수정</a>
-        {% if current_user.role=='admin' %}
-        <form method="POST" action="/equipment/{{eq.id}}/delete" onsubmit="return confirm('삭제하시겠습니까?')">
-          <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>삭제</button>
-        </form>{% endif %}
-      </div>
-    </div></div></div>
+  {% for eq in equipment %}<div class="col-md-6 col-lg-4"><div class="card h-100"><div class="card-body">
+    <div class="d-flex justify-content-between align-items-start mb-2">
+      <div><code class="text-muted" style="font-size:11px">{{eq.code}}</code><h6 class="mb-0 mt-1 fw-bold">{{eq.name}}</h6></div>
+      <span class="badge bs-{{eq.status}} px-2 py-1">{{eq.status}}</span>
+    </div>
+    {% if eq.location %}<p class="text-muted mb-1" style="font-size:12px"><i class="bi bi-geo-alt me-1"></i>{{eq.location}}</p>{% endif %}
+    {% if eq.note %}<p class="text-muted mb-2" style="font-size:11px">{{eq.note}}</p>{% endif %}
+    <div class="d-flex gap-1 mt-2">
+      <a href="/equipment/{{eq.id}}/edit" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil me-1"></i>수정</a>
+      {% if current_user.role=='admin' %}
+      <form method="POST" action="/equipment/{{eq.id}}/delete" onsubmit="return confirm('삭제하시겠습니까?')">
+        <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>삭제</button>
+      </form>{% endif %}
+    </div>
+  </div></div></div>
   {% else %}<div class="col-12"><div class="alert alert-secondary text-center py-4">
     <i class="bi bi-tools fs-2 d-block mb-2"></i>등록된 장비가 없습니다.
     <a href="/equipment/add" class="d-block mt-2">장비 등록하기</a>
   </div></div>{% endfor %}
-</div>{% endblock %}"""
+</div>""")
 
-EQ_FORM_T = BASE + """{% block pt %}{{title}}{% endblock %}{% block content %}
+EQ_FORM_T = _page('{{title}}', """
 <div class="row justify-content-center"><div class="col-lg-6"><div class="card">
   <div class="card-header bg-white fw-semibold"><i class="bi bi-tools me-2"></i>{{title}}</div>
   <div class="card-body"><form method="POST"><div class="row g-3">
@@ -405,9 +446,9 @@ EQ_FORM_T = BASE + """{% block pt %}{{title}}{% endblock %}{% block content %}
     <button type="submit" class="btn btn-primary"><i class="bi bi-check2 me-1"></i>저장</button>
     <a href="/equipment" class="btn btn-outline-secondary">취소</a>
   </div></form></div>
-</div></div></div>{% endblock %}"""
+</div></div></div>""")
 
-HIST_T = BASE + """{% block pt %}교체 이력{% endblock %}{% block content %}
+HIST_T = _page('교체 이력', """
 <div class="card mb-3"><div class="card-body py-2">
   <form class="row g-2 align-items-center" method="GET">
     <div class="col-auto flex-grow-1"><div class="input-group">
@@ -438,12 +479,12 @@ HIST_T = BASE + """{% block pt %}교체 이력{% endblock %}{% block content %}
   </tbody></table>
 </div></div>
 {% if total_pages>1 %}<div class="card-footer bg-white"><nav><ul class="pagination pagination-sm mb-0 justify-content-center">
-  {% for p in range(1,total_pages+1) %}<li class="page-item {{'active' if p==page}}">
-    <a class="page-link" href="?page={{p}}&q={{q}}">{{p}}</a></li>{% endfor %}
+  {% for pg in range(1,total_pages+1) %}<li class="page-item {{'active' if pg==page}}">
+    <a class="page-link" href="?page={{pg}}&q={{q}}">{{pg}}</a></li>{% endfor %}
 </ul></nav></div>{% endif %}
-</div>{% endblock %}"""
+</div>""")
 
-HIST_FORM_T = BASE + """{% block pt %}부품 교체 등록{% endblock %}{% block content %}
+HIST_FORM_T = _page('부품 교체 등록', """
 <div class="row justify-content-center"><div class="col-lg-6"><div class="card">
   <div class="card-header bg-white fw-semibold"><i class="bi bi-clock-history me-2"></i>교체 이력 등록</div>
   <div class="card-body"><form method="POST"><div class="row g-3">
@@ -470,24 +511,24 @@ HIST_FORM_T = BASE + """{% block pt %}부품 교체 등록{% endblock %}{% block
     <a href="/history" class="btn btn-outline-secondary">취소</a>
   </div></form></div>
 </div></div></div>
-{% endblock %}{% block scripts %}<script>
+""", scripts="""<script>
 function updStock(){
   var s=document.getElementById('ps'),o=s.options[s.selectedIndex],i=document.getElementById('si'),q=document.getElementById('qi');
   if(!o.value){i.innerHTML='';return;}
   var qty=parseInt(o.dataset.qty),unit=o.dataset.unit,min=parseInt(o.dataset.min);
   q.max=qty;
-  i.innerHTML=qty===0?'<span class="text-danger"><i class="bi bi-exclamation-circle me-1"></i>재고 없음 (품절)</span>':
-    qty<=min?`<span class="text-warning"><i class="bi bi-exclamation-triangle me-1"></i>재고 부족: ${qty} ${unit} (최소: ${min})</span>`:
-    `<span class="text-success"><i class="bi bi-check-circle me-1"></i>현재 재고: ${qty} ${unit}</span>`;
+  if(qty===0) i.innerHTML='<span class="text-danger"><i class="bi bi-exclamation-circle me-1"></i>재고 없음 (품절)</span>';
+  else if(qty<=min) i.innerHTML='<span class="text-warning"><i class="bi bi-exclamation-triangle me-1"></i>재고 부족: '+qty+' '+unit+' (최소: '+min+')</span>';
+  else i.innerHTML='<span class="text-success"><i class="bi bi-check-circle me-1"></i>현재 재고: '+qty+' '+unit+'</span>';
 }
-</script>{% endblock %}"""
+</script>""")
 
-USERS_T = BASE + """{% block pt %}사용자 관리{% endblock %}{% block content %}
+USERS_T = _page('사용자 관리', """
 <div class="d-flex justify-content-end mb-3">
   <a href="/users/add" class="btn btn-success"><i class="bi bi-person-plus me-1"></i>사용자 등록</a>
 </div>
 <div class="card"><div class="card-header bg-white fw-semibold">
-  사용자 목록 <span class="badge bg-secondary">{{users|length}}명</span> <small class="text-muted ms-2">최대 12명</small>
+  사용자 목록 <span class="badge bg-secondary">{{users|length}}명</span><small class="text-muted ms-2">최대 12명</small>
 </div><div class="card-body p-0"><table class="table table-hover mb-0"><thead>
   <tr><th>아이디</th><th>이름</th><th>권한</th><th>등록일</th><th>작업</th></tr>
 </thead><tbody>
@@ -499,14 +540,14 @@ USERS_T = BASE + """{% block pt %}사용자 관리{% endblock %}{% block content
     <td><div class="d-flex gap-1">
       <a href="/users/{{u.id}}/edit" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i></a>
       {% if u.id!=current_user.id %}
-      <form method="POST" action="/users/{{u.id}}/delete" onsubmit="return confirm('{{u.name}} 사용자를 삭제하시겠습니까?')">
+      <form method="POST" action="/users/{{u.id}}/delete" onsubmit="return confirm('삭제하시겠습니까?')">
         <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
       </form>{% endif %}
     </div></td>
   </tr>{% endfor %}
-</tbody></table></div></div>{% endblock %}"""
+</tbody></table></div></div>""")
 
-USER_FORM_T = BASE + """{% block pt %}{{title}}{% endblock %}{% block content %}
+USER_FORM_T = _page('{{title}}', """
 <div class="row justify-content-center"><div class="col-lg-5"><div class="card">
   <div class="card-header bg-white fw-semibold"><i class="bi bi-person me-2"></i>{{title}}</div>
   <div class="card-body"><form method="POST"><div class="row g-3">
@@ -527,24 +568,33 @@ USER_FORM_T = BASE + """{% block pt %}{{title}}{% endblock %}{% block content %}
     <button type="submit" class="btn btn-primary"><i class="bi bi-check2 me-1"></i>저장</button>
     <a href="/users" class="btn btn-outline-secondary">취소</a>
   </div></form></div>
-</div></div></div>{% endblock %}"""
+</div></div></div>""")
+
 
 # ── 라우트 ───────────────────────────────────────────────────────────────────
 
-@app.route('/login', methods=['GET','POST'])
+@app.route('/login', methods=['GET', 'POST'])
 def login():
-    if current_user.is_authenticated: return redirect('/')
+    if current_user.is_authenticated:
+        return redirect('/')
     if request.method == 'POST':
         u, pw = request.form['username'], request.form['password']
-        conn = get_db(); row = conn.execute("SELECT * FROM users WHERE username=?",(u,)).fetchone(); conn.close()
+        conn = get_db()
+        row = conn.execute("SELECT * FROM users WHERE username=?", (u,)).fetchone()
+        conn.close()
         if row and check_password_hash(row['password'], pw):
-            login_user(User(row['id'],row['username'],row['name'],row['role'])); return redirect('/')
-        flash('아이디 또는 비밀번호가 올바르지 않습니다.','danger')
+            login_user(User(row['id'], row['username'], row['name'], row['role']))
+            return redirect('/')
+        flash('아이디 또는 비밀번호가 올바르지 않습니다.', 'danger')
     return render_template_string(LOGIN_T)
+
 
 @app.route('/logout')
 @login_required
-def logout(): logout_user(); return redirect('/login')
+def logout():
+    logout_user()
+    return redirect('/login')
+
 
 @app.route('/')
 @login_required
@@ -555,201 +605,244 @@ def dashboard():
         total_equipment=conn.execute("SELECT COUNT(*) as c FROM equipment").fetchone()['c'],
         low_stock=conn.execute("SELECT COUNT(*) as c FROM parts WHERE quantity<=min_quantity").fetchone()['c'],
         today_repl=conn.execute("SELECT COUNT(*) as c FROM replacement_history WHERE date(replaced_at)=date('now','localtime')").fetchone()['c'],
-        recent=conn.execute('''SELECT rh.replaced_at,u.name as user_name,e.name as eq_name,p.name as part_name,rh.quantity,p.unit
-            FROM replacement_history rh LEFT JOIN users u ON rh.user_id=u.id LEFT JOIN equipment e ON rh.equipment_id=e.id
+        recent=conn.execute('''SELECT rh.replaced_at,u.name as user_name,e.name as eq_name,
+            p.name as part_name,rh.quantity,p.unit FROM replacement_history rh
+            LEFT JOIN users u ON rh.user_id=u.id LEFT JOIN equipment e ON rh.equipment_id=e.id
             LEFT JOIN parts p ON rh.part_id=p.id ORDER BY rh.replaced_at DESC LIMIT 10''').fetchall(),
         low_parts=conn.execute("SELECT * FROM parts WHERE quantity<=min_quantity ORDER BY quantity ASC LIMIT 10").fetchall(),
         eq_status=conn.execute("SELECT status,COUNT(*) as cnt FROM equipment GROUP BY status").fetchall(),
     )
-    conn.close(); return render_template_string(DASH_T, **d)
+    conn.close()
+    return render_template_string(DASH_T, **d)
+
 
 @app.route('/parts')
 @login_required
 def parts_list():
-    q=request.args.get('q',''); cat=request.args.get('category','')
-    conn=get_db(); sql="SELECT * FROM parts WHERE 1=1"; p=[]
-    if q: sql+=" AND (name LIKE ? OR code LIKE ? OR supplier LIKE ?)"; p+=[f'%{q}%']*3
-    if cat: sql+=" AND category=?"; p.append(cat)
-    parts=conn.execute(sql+" ORDER BY category,name",p).fetchall()
-    cats=conn.execute("SELECT DISTINCT category FROM parts WHERE category!='' ORDER BY category").fetchall()
-    conn.close(); return render_template_string(PARTS_T, parts=parts, categories=cats, q=q, sel_cat=cat)
+    q = request.args.get('q', ''); cat = request.args.get('category', '')
+    conn = get_db(); sql = "SELECT * FROM parts WHERE 1=1"; p = []
+    if q: sql += " AND (name LIKE ? OR code LIKE ? OR supplier LIKE ?)"; p += [f'%{q}%'] * 3
+    if cat: sql += " AND category=?"; p.append(cat)
+    parts = conn.execute(sql + " ORDER BY category,name", p).fetchall()
+    cats = conn.execute("SELECT DISTINCT category FROM parts WHERE category!='' ORDER BY category").fetchall()
+    conn.close()
+    return render_template_string(PARTS_T, parts=parts, categories=cats, q=q, sel_cat=cat)
 
-@app.route('/parts/add', methods=['GET','POST'])
+
+@app.route('/parts/add', methods=['GET', 'POST'])
 @login_required
 def parts_add():
-    if request.method=='POST':
-        f=request.form; conn=get_db()
+    if request.method == 'POST':
+        f = request.form; conn = get_db()
         try:
             conn.execute("INSERT INTO parts (code,name,category,quantity,min_quantity,unit,unit_price,location,supplier,note) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (f['code'].strip(),f['name'].strip(),f.get('category','').strip(),int(f.get('quantity',0)),int(f.get('min_quantity',5)),
-                 f.get('unit','EA'),int(f.get('unit_price',0) or 0),f.get('location','').strip(),f.get('supplier','').strip(),f.get('note','').strip()))
-            conn.commit(); flash('부품이 등록되었습니다.','success'); conn.close(); return redirect('/parts')
-        except sqlite3.IntegrityError: flash('이미 존재하는 부품 코드입니다.','danger')
-        finally: conn.close()
+                (f['code'].strip(), f['name'].strip(), f.get('category', '').strip(),
+                 int(f.get('quantity', 0)), int(f.get('min_quantity', 5)),
+                 f.get('unit', 'EA'), int(f.get('unit_price', 0) or 0),
+                 f.get('location', '').strip(), f.get('supplier', '').strip(), f.get('note', '').strip()))
+            conn.commit(); flash('부품이 등록되었습니다.', 'success'); conn.close(); return redirect('/parts')
+        except sqlite3.IntegrityError:
+            flash('이미 존재하는 부품 코드입니다.', 'danger')
+        finally:
+            conn.close()
     return render_template_string(PART_FORM_T, part=None, title='부품 등록')
 
-@app.route('/parts/<int:pid>/edit', methods=['GET','POST'])
+
+@app.route('/parts/<int:pid>/edit', methods=['GET', 'POST'])
 @login_required
 def parts_edit(pid):
-    conn=get_db(); part=conn.execute("SELECT * FROM parts WHERE id=?",(pid,)).fetchone()
-    if not part: conn.close(); flash('존재하지 않는 부품입니다.','danger'); return redirect('/parts')
-    if request.method=='POST':
-        f=request.form
+    conn = get_db(); part = conn.execute("SELECT * FROM parts WHERE id=?", (pid,)).fetchone()
+    if not part: conn.close(); flash('존재하지 않는 부품입니다.', 'danger'); return redirect('/parts')
+    if request.method == 'POST':
+        f = request.form
         conn.execute("UPDATE parts SET name=?,category=?,quantity=?,min_quantity=?,unit=?,unit_price=?,location=?,supplier=?,note=?,updated_at=datetime('now','localtime') WHERE id=?",
-            (f['name'].strip(),f.get('category','').strip(),int(f.get('quantity',0)),int(f.get('min_quantity',5)),
-             f.get('unit','EA'),int(f.get('unit_price',0) or 0),f.get('location','').strip(),f.get('supplier','').strip(),f.get('note','').strip(),pid))
-        conn.commit(); conn.close(); flash('부품 정보가 수정되었습니다.','success'); return redirect('/parts')
-    conn.close(); return render_template_string(PART_FORM_T, part=part, title='부품 수정')
+            (f['name'].strip(), f.get('category', '').strip(), int(f.get('quantity', 0)),
+             int(f.get('min_quantity', 5)), f.get('unit', 'EA'), int(f.get('unit_price', 0) or 0),
+             f.get('location', '').strip(), f.get('supplier', '').strip(), f.get('note', '').strip(), pid))
+        conn.commit(); conn.close(); flash('부품 정보가 수정되었습니다.', 'success'); return redirect('/parts')
+    conn.close()
+    return render_template_string(PART_FORM_T, part=part, title='부품 수정')
+
 
 @app.route('/parts/<int:pid>/delete', methods=['POST'])
 @login_required
 def parts_delete(pid):
-    if current_user.role!='admin': flash('관리자만 삭제할 수 있습니다.','danger'); return redirect('/parts')
-    conn=get_db(); conn.execute("DELETE FROM parts WHERE id=?",(pid,)); conn.commit(); conn.close()
-    flash('부품이 삭제되었습니다.','success'); return redirect('/parts')
+    if current_user.role != 'admin': flash('관리자만 삭제할 수 있습니다.', 'danger'); return redirect('/parts')
+    conn = get_db(); conn.execute("DELETE FROM parts WHERE id=?", (pid,)); conn.commit(); conn.close()
+    flash('부품이 삭제되었습니다.', 'success'); return redirect('/parts')
+
 
 @app.route('/parts/<int:pid>/adjust', methods=['POST'])
 @login_required
 def parts_adjust(pid):
-    action=request.form.get('action'); amount=int(request.form.get('amount',0))
-    conn=get_db(); part=conn.execute("SELECT * FROM parts WHERE id=?",(pid,)).fetchone()
-    new_qty=part['quantity']+amount if action=='in' else part['quantity']-amount
-    if new_qty<0: conn.close(); flash('재고가 부족합니다.','danger'); return redirect('/parts')
-    conn.execute("UPDATE parts SET quantity=?,updated_at=datetime('now','localtime') WHERE id=?",(new_qty,pid))
+    action = request.form.get('action'); amount = int(request.form.get('amount', 0))
+    conn = get_db(); part = conn.execute("SELECT * FROM parts WHERE id=?", (pid,)).fetchone()
+    new_qty = part['quantity'] + amount if action == 'in' else part['quantity'] - amount
+    if new_qty < 0: conn.close(); flash('재고가 부족합니다.', 'danger'); return redirect('/parts')
+    conn.execute("UPDATE parts SET quantity=?,updated_at=datetime('now','localtime') WHERE id=?", (new_qty, pid))
     conn.commit(); conn.close()
-    flash(f"{'입고' if action=='in' else '출고'} 처리되었습니다. (현재 재고: {new_qty})",'success'); return redirect('/parts')
+    label = '입고' if action == 'in' else '출고'
+    flash(f'{label} 처리되었습니다. (현재 재고: {new_qty})', 'success')
+    return redirect('/parts')
+
 
 @app.route('/equipment')
 @login_required
 def equipment_list():
-    q=request.args.get('q',''); conn=get_db()
-    sql="SELECT * FROM equipment WHERE 1=1"; p=[]
-    if q: sql+=" AND (name LIKE ? OR code LIKE ? OR location LIKE ?)"; p+=[f'%{q}%']*3
-    eqs=conn.execute(sql+" ORDER BY code",p).fetchall(); conn.close()
+    q = request.args.get('q', ''); conn = get_db()
+    sql = "SELECT * FROM equipment WHERE 1=1"; p = []
+    if q: sql += " AND (name LIKE ? OR code LIKE ? OR location LIKE ?)"; p += [f'%{q}%'] * 3
+    eqs = conn.execute(sql + " ORDER BY code", p).fetchall(); conn.close()
     return render_template_string(EQ_T, equipment=eqs, q=q)
 
-@app.route('/equipment/add', methods=['GET','POST'])
+
+@app.route('/equipment/add', methods=['GET', 'POST'])
 @login_required
 def equipment_add():
-    if request.method=='POST':
-        f=request.form; conn=get_db()
+    if request.method == 'POST':
+        f = request.form; conn = get_db()
         try:
             conn.execute("INSERT INTO equipment (code,name,location,status,note) VALUES (?,?,?,?,?)",
-                (f['code'].strip(),f['name'].strip(),f.get('location','').strip(),f.get('status','가동중'),f.get('note','').strip()))
-            conn.commit(); flash('장비가 등록되었습니다.','success'); conn.close(); return redirect('/equipment')
-        except sqlite3.IntegrityError: flash('이미 존재하는 장비 코드입니다.','danger')
-        finally: conn.close()
+                (f['code'].strip(), f['name'].strip(), f.get('location', '').strip(),
+                 f.get('status', '가동중'), f.get('note', '').strip()))
+            conn.commit(); flash('장비가 등록되었습니다.', 'success'); conn.close(); return redirect('/equipment')
+        except sqlite3.IntegrityError:
+            flash('이미 존재하는 장비 코드입니다.', 'danger')
+        finally:
+            conn.close()
     return render_template_string(EQ_FORM_T, eq=None, title='장비 등록')
 
-@app.route('/equipment/<int:eid>/edit', methods=['GET','POST'])
+
+@app.route('/equipment/<int:eid>/edit', methods=['GET', 'POST'])
 @login_required
 def equipment_edit(eid):
-    conn=get_db(); eq=conn.execute("SELECT * FROM equipment WHERE id=?",(eid,)).fetchone()
-    if not eq: conn.close(); flash('존재하지 않는 장비입니다.','danger'); return redirect('/equipment')
-    if request.method=='POST':
-        f=request.form
+    conn = get_db(); eq = conn.execute("SELECT * FROM equipment WHERE id=?", (eid,)).fetchone()
+    if not eq: conn.close(); flash('존재하지 않는 장비입니다.', 'danger'); return redirect('/equipment')
+    if request.method == 'POST':
+        f = request.form
         conn.execute("UPDATE equipment SET name=?,location=?,status=?,note=? WHERE id=?",
-            (f['name'].strip(),f.get('location','').strip(),f.get('status','가동중'),f.get('note','').strip(),eid))
-        conn.commit(); conn.close(); flash('장비 정보가 수정되었습니다.','success'); return redirect('/equipment')
-    conn.close(); return render_template_string(EQ_FORM_T, eq=eq, title='장비 수정')
+            (f['name'].strip(), f.get('location', '').strip(), f.get('status', '가동중'), f.get('note', '').strip(), eid))
+        conn.commit(); conn.close(); flash('장비 정보가 수정되었습니다.', 'success'); return redirect('/equipment')
+    conn.close()
+    return render_template_string(EQ_FORM_T, eq=eq, title='장비 수정')
+
 
 @app.route('/equipment/<int:eid>/delete', methods=['POST'])
 @login_required
 def equipment_delete(eid):
-    if current_user.role!='admin': flash('관리자만 삭제할 수 있습니다.','danger'); return redirect('/equipment')
-    conn=get_db(); conn.execute("DELETE FROM equipment WHERE id=?",(eid,)); conn.commit(); conn.close()
-    flash('장비가 삭제되었습니다.','success'); return redirect('/equipment')
+    if current_user.role != 'admin': flash('관리자만 삭제할 수 있습니다.', 'danger'); return redirect('/equipment')
+    conn = get_db(); conn.execute("DELETE FROM equipment WHERE id=?", (eid,)); conn.commit(); conn.close()
+    flash('장비가 삭제되었습니다.', 'success'); return redirect('/equipment')
+
 
 @app.route('/history')
 @login_required
 def history_list():
-    page=int(request.args.get('page',1)); per=20; offset=(page-1)*per; q=request.args.get('q','')
-    conn=get_db()
-    base='''FROM replacement_history rh LEFT JOIN users u ON rh.user_id=u.id
-            LEFT JOIN equipment e ON rh.equipment_id=e.id LEFT JOIN parts p ON rh.part_id=p.id WHERE 1=1'''
-    params=[]
-    if q: base+=" AND (e.name LIKE ? OR p.name LIKE ? OR u.name LIKE ?)"; params+=[f'%{q}%']*3
-    total=conn.execute(f"SELECT COUNT(*) as c {base}",params).fetchone()['c']
-    rows=conn.execute(f"SELECT rh.*,u.name as user_name,e.name as eq_name,p.name as part_name,p.unit {base} ORDER BY rh.replaced_at DESC LIMIT ? OFFSET ?",
-                      params+[per,offset]).fetchall()
-    conn.close(); return render_template_string(HIST_T, rows=rows, page=page, total_pages=(total+per-1)//per, q=q, total=total)
+    page = int(request.args.get('page', 1)); per = 20; offset = (page - 1) * per
+    q = request.args.get('q', ''); conn = get_db()
+    base = '''FROM replacement_history rh LEFT JOIN users u ON rh.user_id=u.id
+              LEFT JOIN equipment e ON rh.equipment_id=e.id LEFT JOIN parts p ON rh.part_id=p.id WHERE 1=1'''
+    params = []
+    if q: base += " AND (e.name LIKE ? OR p.name LIKE ? OR u.name LIKE ?)"; params += [f'%{q}%'] * 3
+    total = conn.execute(f"SELECT COUNT(*) as c {base}", params).fetchone()['c']
+    rows = conn.execute(f"SELECT rh.*,u.name as user_name,e.name as eq_name,p.name as part_name,p.unit {base} ORDER BY rh.replaced_at DESC LIMIT ? OFFSET ?",
+                        params + [per, offset]).fetchall()
+    conn.close()
+    return render_template_string(HIST_T, rows=rows, page=page, total_pages=(total + per - 1) // per, q=q, total=total)
 
-@app.route('/history/add', methods=['GET','POST'])
+
+@app.route('/history/add', methods=['GET', 'POST'])
 @login_required
 def history_add():
-    conn=get_db()
-    if request.method=='POST':
-        eid,pid,qty=int(request.form['equipment_id']),int(request.form['part_id']),int(request.form['quantity'])
-        part=conn.execute("SELECT * FROM parts WHERE id=?",(pid,)).fetchone()
-        if part['quantity']<qty:
-            flash(f'재고 부족! 현재 재고: {part["quantity"]} {part["unit"]}','danger')
+    conn = get_db()
+    if request.method == 'POST':
+        eid = int(request.form['equipment_id'])
+        pid = int(request.form['part_id'])
+        qty = int(request.form['quantity'])
+        part = conn.execute("SELECT * FROM parts WHERE id=?", (pid,)).fetchone()
+        if part['quantity'] < qty:
+            flash(f'재고 부족! 현재 재고: {part["quantity"]} {part["unit"]}', 'danger')
         else:
             conn.execute("INSERT INTO replacement_history (equipment_id,part_id,quantity,reason,note,user_id) VALUES (?,?,?,?,?,?)",
-                (eid,pid,qty,request.form.get('reason','').strip(),request.form.get('note','').strip(),current_user.id))
-            conn.execute("UPDATE parts SET quantity=quantity-?,updated_at=datetime('now','localtime') WHERE id=?",(qty,pid))
-            conn.commit(); flash('교체 이력이 등록되었습니다.','success'); conn.close(); return redirect('/history')
-    eqs=conn.execute("SELECT * FROM equipment ORDER BY code").fetchall()
-    parts=conn.execute("SELECT * FROM parts ORDER BY category,name").fetchall()
-    conn.close(); return render_template_string(HIST_FORM_T, equipment=eqs, parts=parts)
+                (eid, pid, qty, request.form.get('reason', '').strip(), request.form.get('note', '').strip(), current_user.id))
+            conn.execute("UPDATE parts SET quantity=quantity-?,updated_at=datetime('now','localtime') WHERE id=?", (qty, pid))
+            conn.commit(); flash('교체 이력이 등록되었습니다.', 'success'); conn.close(); return redirect('/history')
+    eqs = conn.execute("SELECT * FROM equipment ORDER BY code").fetchall()
+    parts = conn.execute("SELECT * FROM parts ORDER BY category,name").fetchall()
+    conn.close()
+    return render_template_string(HIST_FORM_T, equipment=eqs, parts=parts)
+
 
 @app.route('/history/<int:hid>/delete', methods=['POST'])
 @login_required
 def history_delete(hid):
-    if current_user.role!='admin': flash('관리자만 삭제할 수 있습니다.','danger'); return redirect('/history')
-    conn=get_db(); row=conn.execute("SELECT * FROM replacement_history WHERE id=?",(hid,)).fetchone()
+    if current_user.role != 'admin': flash('관리자만 삭제할 수 있습니다.', 'danger'); return redirect('/history')
+    conn = get_db(); row = conn.execute("SELECT * FROM replacement_history WHERE id=?", (hid,)).fetchone()
     if row:
-        conn.execute("UPDATE parts SET quantity=quantity+?,updated_at=datetime('now','localtime') WHERE id=?",(row['quantity'],row['part_id']))
-        conn.execute("DELETE FROM replacement_history WHERE id=?",(hid,)); conn.commit()
-        flash('이력이 삭제되었고 재고가 복구되었습니다.','success')
+        conn.execute("UPDATE parts SET quantity=quantity+?,updated_at=datetime('now','localtime') WHERE id=?", (row['quantity'], row['part_id']))
+        conn.execute("DELETE FROM replacement_history WHERE id=?", (hid,)); conn.commit()
+        flash('이력이 삭제되었고 재고가 복구되었습니다.', 'success')
     conn.close(); return redirect('/history')
+
 
 @app.route('/users')
 @login_required
 def users_list():
-    if current_user.role!='admin': flash('관리자만 접근할 수 있습니다.','danger'); return redirect('/')
-    conn=get_db(); users=conn.execute("SELECT * FROM users ORDER BY role DESC,name").fetchall(); conn.close()
+    if current_user.role != 'admin': flash('관리자만 접근할 수 있습니다.', 'danger'); return redirect('/')
+    conn = get_db(); users = conn.execute("SELECT * FROM users ORDER BY role DESC,name").fetchall(); conn.close()
     return render_template_string(USERS_T, users=users)
 
-@app.route('/users/add', methods=['GET','POST'])
+
+@app.route('/users/add', methods=['GET', 'POST'])
 @login_required
 def users_add():
-    if current_user.role!='admin': flash('관리자만 접근할 수 있습니다.','danger'); return redirect('/')
-    if request.method=='POST':
-        f=request.form; conn=get_db()
+    if current_user.role != 'admin': flash('관리자만 접근할 수 있습니다.', 'danger'); return redirect('/')
+    if request.method == 'POST':
+        f = request.form; conn = get_db()
         try:
             conn.execute("INSERT INTO users (username,password,name,role) VALUES (?,?,?,?)",
-                (f['username'].strip(),generate_password_hash(f['password']),f['name'].strip(),f.get('role','user')))
-            conn.commit(); flash('사용자가 등록되었습니다.','success'); conn.close(); return redirect('/users')
-        except sqlite3.IntegrityError: flash('이미 존재하는 아이디입니다.','danger')
-        finally: conn.close()
+                (f['username'].strip(), generate_password_hash(f['password']), f['name'].strip(), f.get('role', 'user')))
+            conn.commit(); flash('사용자가 등록되었습니다.', 'success'); conn.close(); return redirect('/users')
+        except sqlite3.IntegrityError:
+            flash('이미 존재하는 아이디입니다.', 'danger')
+        finally:
+            conn.close()
     return render_template_string(USER_FORM_T, user=None, title='사용자 등록')
 
-@app.route('/users/<int:uid>/edit', methods=['GET','POST'])
+
+@app.route('/users/<int:uid>/edit', methods=['GET', 'POST'])
 @login_required
 def users_edit(uid):
-    if current_user.role!='admin': flash('관리자만 접근할 수 있습니다.','danger'); return redirect('/')
-    conn=get_db(); user=conn.execute("SELECT * FROM users WHERE id=?",(uid,)).fetchone()
-    if not user: conn.close(); flash('존재하지 않는 사용자입니다.','danger'); return redirect('/users')
-    if request.method=='POST':
-        f=request.form; pw=f.get('password','').strip()
-        if pw: conn.execute("UPDATE users SET name=?,role=?,password=? WHERE id=?",(f['name'].strip(),f.get('role','user'),generate_password_hash(pw),uid))
-        else: conn.execute("UPDATE users SET name=?,role=? WHERE id=?",(f['name'].strip(),f.get('role','user'),uid))
-        conn.commit(); conn.close(); flash('사용자 정보가 수정되었습니다.','success'); return redirect('/users')
-    conn.close(); return render_template_string(USER_FORM_T, user=user, title='사용자 수정')
+    if current_user.role != 'admin': flash('관리자만 접근할 수 있습니다.', 'danger'); return redirect('/')
+    conn = get_db(); user = conn.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    if not user: conn.close(); flash('존재하지 않는 사용자입니다.', 'danger'); return redirect('/users')
+    if request.method == 'POST':
+        f = request.form; pw = f.get('password', '').strip()
+        if pw:
+            conn.execute("UPDATE users SET name=?,role=?,password=? WHERE id=?",
+                (f['name'].strip(), f.get('role', 'user'), generate_password_hash(pw), uid))
+        else:
+            conn.execute("UPDATE users SET name=?,role=? WHERE id=?", (f['name'].strip(), f.get('role', 'user'), uid))
+        conn.commit(); conn.close(); flash('사용자 정보가 수정되었습니다.', 'success'); return redirect('/users')
+    conn.close()
+    return render_template_string(USER_FORM_T, user=user, title='사용자 수정')
+
 
 @app.route('/users/<int:uid>/delete', methods=['POST'])
 @login_required
 def users_delete(uid):
-    if current_user.role!='admin': flash('관리자만 삭제할 수 있습니다.','danger'); return redirect('/users')
-    if uid==current_user.id: flash('자기 자신은 삭제할 수 없습니다.','danger'); return redirect('/users')
-    conn=get_db(); conn.execute("DELETE FROM users WHERE id=?",(uid,)); conn.commit(); conn.close()
-    flash('사용자가 삭제되었습니다.','success'); return redirect('/users')
+    if current_user.role != 'admin': flash('관리자만 삭제할 수 있습니다.', 'danger'); return redirect('/users')
+    if uid == current_user.id: flash('자기 자신은 삭제할 수 없습니다.', 'danger'); return redirect('/users')
+    conn = get_db(); conn.execute("DELETE FROM users WHERE id=?", (uid,)); conn.commit(); conn.close()
+    flash('사용자가 삭제되었습니다.', 'success'); return redirect('/users')
+
 
 @app.route('/api/low_stock_count')
 @login_required
 def api_low_stock():
-    conn=get_db(); cnt=conn.execute("SELECT COUNT(*) as c FROM parts WHERE quantity<=min_quantity").fetchone()['c']; conn.close()
-    return jsonify({'count':cnt})
+    conn = get_db(); cnt = conn.execute("SELECT COUNT(*) as c FROM parts WHERE quantity<=min_quantity").fetchone()['c']; conn.close()
+    return jsonify({'count': cnt})
+
 
 # ── 실행 ─────────────────────────────────────────────────────────────────────
 
