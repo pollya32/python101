@@ -3,7 +3,13 @@ import os
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
-from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.security import generate_password_hash as _gen_hash, check_password_hash
+
+def generate_password_hash(pw):
+    try:
+        return _gen_hash(pw, method='pbkdf2:sha256')
+    except Exception:
+        return _gen_hash(pw)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'semiconductor-inventory-secret-2024')
@@ -12,7 +18,11 @@ login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.login_message = '로그인이 필요합니다.'
 
-DB_PATH = os.path.join(os.path.dirname(__file__), 'inventory.db')
+try:
+    _base = os.path.dirname(os.path.abspath(__file__))
+except NameError:
+    _base = os.getcwd()
+DB_PATH = os.path.join(_base, 'inventory.db')
 
 
 def get_db():
