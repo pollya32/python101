@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>부품 사용량 분석 툴</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
   <style>
@@ -18,420 +17,420 @@
       --bg: #f0f4f8;
       --card: #ffffff;
       --text: #202124;
-      --text-sub: #5f6368;
+      --sub: #5f6368;
       --border: #dadce0;
-      --shadow: 0 2px 12px rgba(0,0,0,0.10);
+      --shadow: 0 2px 12px rgba(0,0,0,.10);
+      --header-h: 68px;
+      --chat-w: 360px;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'Segoe UI', 'Noto Sans KR', sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-    }
+    body { font-family: 'Segoe UI','Noto Sans KR',sans-serif; background: var(--bg); color: var(--text); }
 
     /* ── Header ── */
     header {
-      background: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%);
-      color: #fff;
-      padding: 18px 32px;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      box-shadow: 0 2px 8px rgba(0,0,0,.2);
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      height: var(--header-h);
+      background: linear-gradient(135deg,#1a73e8,#0d47a1);
+      color: #fff; padding: 0 24px;
+      display: flex; align-items: center; gap: 14px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.25);
     }
-    header .icon { font-size: 32px; }
-    header h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
-    header p  { font-size: 13px; opacity: .8; margin-top: 2px; }
+    header .icon { font-size: 28px; }
+    header h1 { font-size: 20px; font-weight: 700; }
+    header p  { font-size: 12px; opacity: .75; margin-top: 2px; }
+    .header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    .api-chip {
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.3);
+      border-radius: 20px; padding: 5px 12px; cursor: pointer;
+      font-size: 12px; font-weight: 600; color: #fff;
+      transition: background .2s;
+    }
+    .api-chip:hover { background: rgba(255,255,255,.25); }
+    .api-chip .dot { width: 8px; height: 8px; border-radius: 50%; background: #f44336; }
+    .api-chip .dot.ok { background: #4caf50; }
 
-    /* ── Layout ── */
-    .container { max-width: 1280px; margin: 0 auto; padding: 24px 20px; }
+    /* ── App Layout ── */
+    .app-layout {
+      margin-top: var(--header-h);
+      display: grid;
+      grid-template-columns: 1fr var(--chat-w);
+      min-height: calc(100vh - var(--header-h));
+    }
+
+    /* ── Main Panel ── */
+    .main-panel { padding: 22px 20px; overflow-x: hidden; }
 
     /* ── Card ── */
-    .card {
-      background: var(--card);
-      border-radius: 12px;
-      box-shadow: var(--shadow);
-      padding: 24px;
-      margin-bottom: 24px;
-    }
-    .card-title {
-      font-size: 15px;
-      font-weight: 700;
-      color: var(--primary);
-      margin-bottom: 16px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
+    .card { background: var(--card); border-radius: 12px; box-shadow: var(--shadow); padding: 20px; margin-bottom: 20px; }
+    .card-title { font-size: 14px; font-weight: 700; color: var(--primary); margin-bottom: 14px; display: flex; align-items: center; gap: 7px; }
 
     /* ── Paste Area ── */
     .paste-area {
-      width: 100%;
-      min-height: 160px;
-      border: 2px dashed var(--border);
-      border-radius: 10px;
-      padding: 16px;
-      font-size: 13px;
-      font-family: 'Consolas', 'D2Coding', monospace;
-      resize: vertical;
-      outline: none;
-      color: var(--text);
+      width: 100%; min-height: 130px;
+      border: 2px dashed var(--border); border-radius: 10px;
+      padding: 14px; font-size: 12.5px; font-family: 'Consolas','D2Coding',monospace;
+      resize: vertical; outline: none; background: #fafafa; color: var(--text);
       transition: border-color .2s, background .2s;
-      background: #fafafa;
     }
-    .paste-area:focus  { border-color: var(--primary); background: #fff; }
-    .paste-area.filled { border-color: var(--accent);  border-style: solid; }
+    .paste-area:focus { border-color: var(--primary); background: #fff; }
+    .paste-area.filled { border-color: var(--accent); border-style: solid; }
+    .paste-hint { font-size: 11.5px; color: var(--sub); margin-top: 7px; display: flex; gap: 5px; }
 
-    .paste-hint {
-      font-size: 12px;
-      color: var(--text-sub);
-      margin-top: 8px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    /* ── Column Mapping ── */
-    .col-map-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-      gap: 12px;
-      margin-top: 16px;
-    }
-    .col-map-item { display: flex; flex-direction: column; gap: 4px; }
-    .col-map-item label { font-size: 12px; font-weight: 600; color: var(--text-sub); }
-    .col-map-item select {
-      padding: 7px 10px;
-      border: 1px solid var(--border);
-      border-radius: 7px;
-      font-size: 13px;
-      color: var(--text);
-      background: #fff;
-      outline: none;
-    }
-    .col-map-item select:focus { border-color: var(--primary); }
+    /* ── Col Mapping ── */
+    .col-map-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(190px,1fr)); gap: 10px; margin-top: 14px; }
+    .col-item { display: flex; flex-direction: column; gap: 3px; }
+    .col-item label { font-size: 11px; font-weight: 700; color: var(--sub); }
+    .col-item select { padding: 6px 9px; border: 1px solid var(--border); border-radius: 7px; font-size: 12.5px; outline: none; background: #fff; }
+    .col-item select:focus { border-color: var(--primary); }
 
     /* ── Buttons ── */
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      padding: 10px 22px;
-      border: none;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background .2s, transform .1s, box-shadow .2s;
-    }
+    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 20px; border: none; border-radius: 8px; font-size: 13.5px; font-weight: 600; cursor: pointer; transition: background .18s, transform .1s, box-shadow .18s; }
     .btn:active { transform: scale(.97); }
-    .btn-primary { background: var(--primary); color: #fff; }
-    .btn-primary:hover { background: var(--primary-dark); box-shadow: 0 4px 12px rgba(26,115,232,.35); }
-    .btn-success { background: var(--accent); color: #fff; }
-    .btn-success:hover { background: var(--accent-dark); box-shadow: 0 4px 12px rgba(52,168,83,.35); }
-    .btn-outline {
-      background: #fff;
-      color: var(--primary);
-      border: 1.5px solid var(--primary);
-    }
-    .btn-outline:hover { background: #e8f0fe; }
     .btn:disabled { opacity: .4; cursor: not-allowed; pointer-events: none; }
-
-    .action-bar {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-      align-items: center;
-      margin-top: 20px;
-    }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-dark); box-shadow: 0 4px 12px rgba(26,115,232,.3); }
+    .btn-success { background: var(--accent); color: #fff; }
+    .btn-success:hover { background: var(--accent-dark); box-shadow: 0 4px 12px rgba(52,168,83,.3); }
+    .btn-outline { background: #fff; color: var(--primary); border: 1.5px solid var(--primary); }
+    .btn-outline:hover { background: #e8f0fe; }
+    .btn-sm { padding: 6px 14px; font-size: 12px; }
+    .btn-danger { background: var(--warn); color: #fff; }
+    .action-bar { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
 
     /* ── Status ── */
-    .status-bar {
-      display: none;
-      align-items: center;
-      gap: 10px;
-      padding: 10px 16px;
-      border-radius: 8px;
-      font-size: 13px;
-      font-weight: 600;
-      margin-top: 16px;
-    }
+    .status-bar { display: none; align-items: center; gap: 8px; padding: 9px 14px; border-radius: 8px; font-size: 12.5px; font-weight: 600; margin-top: 12px; }
     .status-bar.show { display: flex; }
     .status-bar.info    { background: #e8f0fe; color: var(--primary); }
     .status-bar.success { background: #e6f4ea; color: var(--accent-dark); }
     .status-bar.error   { background: #fce8e6; color: var(--warn); }
-    .spinner {
-      width: 18px; height: 18px;
-      border: 2px solid currentColor;
-      border-top-color: transparent;
-      border-radius: 50%;
-      animation: spin .7s linear infinite;
-    }
+    .spinner { width: 16px; height: 16px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; flex-shrink: 0; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* ── Results ── */
-    #results-section { display: none; }
+    /* ── Filter Badge ── */
+    .filter-badge { display: none; align-items: center; gap: 10px; padding: 10px 16px; background: #fff3e0; border: 1.5px solid #ffb300; border-radius: 10px; margin-bottom: 16px; font-size: 13px; }
+    .filter-badge.show { display: flex; }
+    .filter-badge-text { flex: 1; color: #e65100; font-weight: 600; }
+    .filter-badge .btn-sm { padding: 4px 10px; font-size: 11.5px; }
 
-    .results-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 24px;
-    }
-    @media (max-width: 860px) { .results-grid { grid-template-columns: 1fr; } }
+    /* ── Summary Cards ── */
+    .summary-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(160px,1fr)); gap: 14px; margin-bottom: 20px; }
+    .s-card { background: var(--card); border-radius: 10px; padding: 16px 18px; box-shadow: var(--shadow); border-left: 4px solid var(--primary); }
+    .s-card.g { border-left-color: #34a853; }
+    .s-card.o { border-left-color: #fa7b17; }
+    .s-card.p { border-left-color: #9334e6; }
+    .s-card.c { border-left-color: #00bcd4; }
+    .s-label { font-size: 11px; color: var(--sub); margin-bottom: 5px; }
+    .s-value { font-size: 20px; font-weight: 700; }
+    .s-sub   { font-size: 11px; color: var(--sub); margin-top: 2px; }
 
-    /* ── Chart Card ── */
-    .chart-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 14px;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    .chart-type-btns {
-      display: flex;
-      gap: 6px;
-    }
-    .chart-type-btn {
-      padding: 5px 12px;
-      border: 1.5px solid var(--border);
-      border-radius: 20px;
-      background: #fff;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      color: var(--text-sub);
-      transition: all .18s;
-    }
-    .chart-type-btn.active {
-      background: var(--primary);
-      border-color: var(--primary);
-      color: #fff;
-    }
-    .chart-wrap { position: relative; height: 300px; }
+    /* ── Insight Card ── */
+    .insight-card { border-left: 4px solid #9334e6; display: none; }
+    .insight-card.show { display: block; }
+    .insight-body { font-size: 13.5px; line-height: 1.7; color: var(--text); }
+    .insight-body strong { color: var(--primary); }
+    .insight-body ul { padding-left: 18px; }
+    .insight-body li { margin-bottom: 4px; }
+
+    /* ── Charts Grid ── */
+    .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
+    .chart-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 7px; }
+    .chart-type-btns { display: flex; gap: 5px; flex-wrap: wrap; }
+    .ct-btn { padding: 4px 10px; border: 1.5px solid var(--border); border-radius: 16px; background: #fff; font-size: 11.5px; font-weight: 600; cursor: pointer; color: var(--sub); transition: all .15s; }
+    .ct-btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .chart-wrap { position: relative; height: 280px; }
+    .copy-ppt-btn { margin-top: 12px; }
 
     /* ── Table ── */
     .table-wrap { overflow-x: auto; }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-    }
-    thead th {
-      background: #f1f3f4;
-      padding: 10px 12px;
-      text-align: center;
-      font-weight: 700;
-      color: var(--text-sub);
-      border-bottom: 2px solid var(--border);
-      white-space: nowrap;
-    }
-    tbody td {
-      padding: 9px 12px;
-      text-align: center;
-      border-bottom: 1px solid #f1f3f4;
-      color: var(--text);
-    }
+    table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    thead th { background: #f1f3f4; padding: 9px 11px; text-align: center; font-weight: 700; color: var(--sub); border-bottom: 2px solid var(--border); white-space: nowrap; }
+    tbody td { padding: 8px 11px; text-align: center; border-bottom: 1px solid #f1f3f4; }
     tbody tr:hover td { background: #f8f9fa; }
-    tbody td.row-header { font-weight: 700; text-align: left; color: var(--primary); }
-    tbody td.money { font-family: 'Consolas', monospace; text-align: right; }
-    .total-row td { background: #e8f0fe; font-weight: 700; }
+    td.row-hd { font-weight: 700; text-align: left; color: var(--primary); }
+    td.money  { font-family: 'Consolas',monospace; text-align: right; }
+    tr.total-row td { background: #e8f0fe; font-weight: 700; }
 
-    /* ── Copy button for PPT ── */
-    .copy-ppt-btn {
-      margin-top: 14px;
+    /* ── Chat Panel ── */
+    .chat-panel {
+      background: #fff;
+      border-left: 1px solid var(--border);
+      height: calc(100vh - var(--header-h));
+      position: sticky; top: var(--header-h);
+      display: flex; flex-direction: column;
+      overflow: hidden;
     }
 
-    /* ── Summary Cards ── */
-    .summary-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-    .summary-card {
-      background: var(--card);
-      border-radius: 10px;
-      padding: 18px 20px;
-      box-shadow: var(--shadow);
-      border-left: 4px solid var(--primary);
-    }
-    .summary-card.green { border-left-color: var(--accent); }
-    .summary-card.orange { border-left-color: #fa7b17; }
-    .summary-card.purple { border-left-color: #9334e6; }
-    .summary-card .s-label { font-size: 12px; color: var(--text-sub); margin-bottom: 6px; }
-    .summary-card .s-value { font-size: 22px; font-weight: 700; color: var(--text); }
-    .summary-card .s-sub   { font-size: 12px; color: var(--text-sub); margin-top: 3px; }
+    /* Chat Header */
+    .chat-header { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; background: #fafafa; flex-shrink: 0; }
+    .chat-title { font-weight: 700; font-size: 14px; flex: 1; }
+    .chat-badge { background: var(--primary); color: #fff; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; }
 
-    /* ── Tooltip copy ── */
-    .copy-toast {
-      position: fixed;
-      bottom: 24px; right: 24px;
-      background: #333;
-      color: #fff;
-      padding: 10px 18px;
-      border-radius: 8px;
-      font-size: 13px;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity .3s;
-      z-index: 9999;
-    }
-    .copy-toast.show { opacity: 1; }
+    /* API Key Section */
+    .api-setup { padding: 14px 16px; border-bottom: 1px solid var(--border); background: #fffde7; flex-shrink: 0; }
+    .api-setup p { font-size: 12px; color: var(--sub); margin-bottom: 8px; }
+    .api-row { display: flex; gap: 7px; }
+    .api-input { flex: 1; padding: 7px 10px; border: 1.5px solid var(--border); border-radius: 7px; font-size: 12.5px; outline: none; }
+    .api-input:focus { border-color: var(--primary); }
+    .api-note { font-size: 10.5px; color: var(--sub); margin-top: 5px; }
+    .api-note a { color: var(--primary); }
+
+    /* Quick commands */
+    .quick-cmds { padding: 10px 12px; border-bottom: 1px solid var(--border); display: flex; gap: 6px; flex-wrap: wrap; flex-shrink: 0; background: #fafafa; }
+    .q-cmd { padding: 4px 10px; border: 1.5px solid var(--border); border-radius: 14px; font-size: 11.5px; cursor: pointer; background: #fff; color: var(--text); transition: all .15s; white-space: nowrap; }
+    .q-cmd:hover { background: #e8f0fe; border-color: var(--primary); color: var(--primary); }
+
+    /* Messages */
+    .chat-messages { flex: 1; overflow-y: auto; padding: 14px 12px; display: flex; flex-direction: column; gap: 10px; }
+    .msg { display: flex; gap: 8px; max-width: 100%; }
+    .msg.user { flex-direction: row-reverse; }
+    .msg-avatar { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
+    .msg.user .msg-avatar { background: var(--primary); color: #fff; }
+    .msg.assistant .msg-avatar { background: #f1f3f4; }
+    .msg.error .msg-avatar { background: #fce8e6; }
+    .msg-bubble { padding: 9px 12px; border-radius: 12px; font-size: 12.5px; line-height: 1.55; max-width: calc(100% - 40px); }
+    .msg.user .msg-bubble { background: var(--primary); color: #fff; border-radius: 12px 2px 12px 12px; }
+    .msg.assistant .msg-bubble { background: #f1f3f4; color: var(--text); border-radius: 2px 12px 12px 12px; }
+    .msg.error .msg-bubble { background: #fce8e6; color: var(--warn); border-radius: 12px; }
+    .msg-bubble strong { font-weight: 700; }
+    .msg-bubble ul { padding-left: 16px; margin-top: 4px; }
+    .msg-bubble li { margin-bottom: 3px; }
+    .msg-time { font-size: 10px; opacity: .55; margin-top: 3px; text-align: right; }
+
+    /* Typing indicator */
+    .typing { display: flex; align-items: center; gap: 4px; padding: 10px 14px; background: #f1f3f4; border-radius: 2px 12px 12px 12px; width: fit-content; }
+    .typing span { width: 6px; height: 6px; background: var(--sub); border-radius: 50%; animation: bounce 1.2s infinite; }
+    .typing span:nth-child(2) { animation-delay: .2s; }
+    .typing span:nth-child(3) { animation-delay: .4s; }
+    @keyframes bounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-6px)} }
+
+    /* Action pill shown in chat */
+    .action-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; background: #e8f0fe; color: var(--primary); border-radius: 12px; font-size: 11px; font-weight: 600; margin: 3px 0; }
+
+    /* Chat Input */
+    .chat-input-area { padding: 12px; border-top: 1px solid var(--border); display: flex; gap: 8px; flex-shrink: 0; background: #fff; }
+    .chat-input { flex: 1; padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 10px; font-size: 13px; resize: none; outline: none; font-family: inherit; line-height: 1.4; }
+    .chat-input:focus { border-color: var(--primary); }
+    #sendBtn { align-self: flex-end; padding: 9px 16px; font-size: 13px; }
+
+    /* Toast */
+    .toast { position: fixed; bottom: 24px; right: calc(var(--chat-w) + 16px); background: #333; color: #fff; padding: 9px 16px; border-radius: 8px; font-size: 12.5px; opacity: 0; pointer-events: none; transition: opacity .3s; z-index: 9999; }
+    .toast.show { opacity: 1; }
+
+    /* API key modal */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 200; display: none; align-items: center; justify-content: center; }
+    .modal-overlay.show { display: flex; }
+    .modal { background: #fff; border-radius: 14px; padding: 28px; max-width: 440px; width: 90%; box-shadow: 0 8px 30px rgba(0,0,0,.25); }
+    .modal h3 { font-size: 17px; font-weight: 700; margin-bottom: 10px; }
+    .modal p  { font-size: 13px; color: var(--sub); margin-bottom: 16px; line-height: 1.6; }
+    .modal input { width: 100%; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 13.5px; outline: none; margin-bottom: 12px; }
+    .modal input:focus { border-color: var(--primary); }
+    .modal-btns { display: flex; gap: 10px; justify-content: flex-end; }
   </style>
 </head>
 <body>
 
+<!-- ─── Header ─── -->
 <header>
   <div class="icon">⚙️</div>
   <div>
     <h1>부품 사용량 분석 툴</h1>
-    <p>CSV 데이터를 붙여넣어 월별·SDWT별 부품 사용 현황을 분석합니다</p>
+    <p>CSV 붙여넣기 → 분석 → AI 채팅으로 실시간 탐색</p>
+  </div>
+  <div class="header-right">
+    <div class="api-chip" id="apiChip" onclick="showApiModal()">
+      <div class="dot" id="apiDot"></div>
+      <span id="apiChipLabel">API 키 설정</span>
+    </div>
   </div>
 </header>
 
-<div class="container">
+<!-- ─── App Layout ─── -->
+<div class="app-layout">
 
-  <!-- ─── Step 1: 데이터 입력 ─── -->
-  <div class="card">
-    <div class="card-title">📋 1단계: CSV 데이터 붙여넣기</div>
+  <!-- ══════════ MAIN PANEL ══════════ -->
+  <div class="main-panel">
 
-    <textarea id="csvInput" class="paste-area"
-      placeholder="엑셀/CSV 파일을 열고 전체 선택(Ctrl+A) → 복사(Ctrl+C) 후 여기에 붙여넣기(Ctrl+V) 하세요.&#10;&#10;첫 번째 행은 헤더(열 이름)이어야 합니다."></textarea>
-    <div class="paste-hint">
-      <span>💡</span>
-      <span>보안 정책상 파일 첨부 없이 클립보드 붙여넣기로 데이터를 입력합니다. 탭 구분 또는 쉼표 구분 형식 모두 지원합니다.</span>
+    <!-- Step 1: CSV 입력 -->
+    <div class="card">
+      <div class="card-title">📋 1단계 — CSV 데이터 붙여넣기</div>
+      <textarea id="csvInput" class="paste-area"
+        placeholder="엑셀/CSV를 열고 전체 선택(Ctrl+A) → 복사(Ctrl+C) 후 여기에 붙여넣기(Ctrl+V)&#10;&#10;첫 행은 헤더(열 이름)이어야 합니다. 탭·쉼표 구분 모두 지원."></textarea>
+      <div class="paste-hint">💡 보안 정책상 파일 첨부 없이 클립보드 붙여넣기로 데이터를 입력합니다.</div>
+
+      <div id="colMapSection" style="display:none">
+        <div class="card-title" style="margin-top:18px">🔗 열 매핑</div>
+        <div class="col-map-grid">
+          <div class="col-item"><label>📅 날짜</label><select id="mapDate"></select></div>
+          <div class="col-item"><label>🏷️ 대분류</label><select id="mapCategory"></select></div>
+          <div class="col-item"><label>👥 SDWT</label><select id="mapSdwt"></select></div>
+          <div class="col-item"><label>🔢 사용건수</label><select id="mapCount"></select></div>
+          <div class="col-item"><label>💰 사용금액</label><select id="mapAmount"></select></div>
+        </div>
+      </div>
+
+      <div class="action-bar">
+        <button class="btn btn-primary" onclick="startAnalysis()">🔍 분석하기</button>
+        <button class="btn btn-outline" onclick="clearAll()">🗑️ 초기화</button>
+      </div>
+      <div id="statusBar" class="status-bar"></div>
     </div>
 
-    <!-- 열 매핑 -->
-    <div id="colMapSection" style="display:none;">
-      <div class="card-title" style="margin-top:20px;">🔗 열 매핑 설정</div>
-      <p style="font-size:13px;color:var(--text-sub);margin-bottom:12px;">분석에 사용할 CSV 열을 각 항목에 매핑해 주세요.</p>
-      <div class="col-map-grid">
-        <div class="col-map-item">
-          <label>📅 날짜 열</label>
-          <select id="mapDate"></select>
+    <!-- Filter Badge -->
+    <div class="filter-badge" id="filterBadge">
+      <span>🔍</span>
+      <span class="filter-badge-text" id="filterBadgeText"></span>
+      <button class="btn btn-outline btn-sm" onclick="resetFilters()">✕ 필터 해제</button>
+    </div>
+
+    <!-- Results -->
+    <div id="resultsSection" style="display:none">
+
+      <!-- Summary -->
+      <div class="summary-grid" id="summaryCards"></div>
+
+      <!-- AI Insight -->
+      <div class="card insight-card" id="insightCard">
+        <div class="chart-header">
+          <div class="card-title" style="margin:0" id="insightTitle">💡 AI 인사이트</div>
+          <button class="btn btn-outline btn-sm" onclick="clearInsight()">✕ 닫기</button>
         </div>
-        <div class="col-map-item">
-          <label>🏷️ 대분류 열</label>
-          <select id="mapCategory"></select>
+        <div class="insight-body" id="insightBody"></div>
+      </div>
+
+      <!-- Charts -->
+      <div class="charts-grid">
+        <div class="card">
+          <div class="chart-header">
+            <div class="card-title" style="margin:0">📊 월별 대분류 사용건수</div>
+            <div class="chart-type-btns" id="monthlyBtns">
+              <button class="ct-btn active" onclick="setChart('monthly','bar',this)">막대</button>
+              <button class="ct-btn" onclick="setChart('monthly','line',this)">꺾은선</button>
+              <button class="ct-btn" onclick="setChart('monthly','radar',this)">레이더</button>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="monthlyChart"></canvas></div>
+          <button class="btn btn-outline btn-sm copy-ppt-btn" onclick="copyChart('monthlyChart','월별 대분류 사용건수')">📎 PPT 복사</button>
         </div>
-        <div class="col-map-item">
-          <label>👥 SDWT 열</label>
-          <select id="mapSdwt"></select>
+        <div class="card">
+          <div class="chart-header">
+            <div class="card-title" style="margin:0">💰 SDWT별 사용금액</div>
+            <div class="chart-type-btns" id="sdwtBtns">
+              <button class="ct-btn active" onclick="setChart('sdwt','doughnut',this)">도넛</button>
+              <button class="ct-btn" onclick="setChart('sdwt','pie',this)">파이</button>
+              <button class="ct-btn" onclick="setChart('sdwt','bar',this)">막대</button>
+              <button class="ct-btn" onclick="setChart('sdwt','polarArea',this)">폴라</button>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="sdwtChart"></canvas></div>
+          <button class="btn btn-outline btn-sm copy-ppt-btn" onclick="copyChart('sdwtChart','SDWT별 사용금액')">📎 PPT 복사</button>
         </div>
-        <div class="col-map-item">
-          <label>🔢 사용건수 열</label>
-          <select id="mapCount"></select>
+      </div>
+
+      <!-- SDWT Table -->
+      <div class="card">
+        <div class="chart-header">
+          <div class="card-title" style="margin:0">📋 SDWT별 대분류 사용현황</div>
+          <button class="btn btn-outline btn-sm" onclick="copyTable('sdwtTableWrap','SDWT별 대분류 사용현황')">📎 PPT 복사</button>
         </div>
-        <div class="col-map-item">
-          <label>💰 사용금액 열</label>
-          <select id="mapAmount"></select>
+        <div class="table-wrap" id="sdwtTableWrap"></div>
+      </div>
+
+      <!-- Monthly Table -->
+      <div class="card">
+        <div class="chart-header">
+          <div class="card-title" style="margin:0">📅 월별 대분류 상세 집계</div>
+          <button class="btn btn-outline btn-sm" onclick="copyTable('monthlyTableWrap','월별 대분류 상세 집계')">📎 PPT 복사</button>
+        </div>
+        <div class="table-wrap" id="monthlyTableWrap"></div>
+      </div>
+
+      <!-- PPT Download -->
+      <div class="card" style="text-align:center;padding:28px">
+        <p style="font-size:13px;color:var(--sub);margin-bottom:16px">모든 분석 결과를 하나의 PPT 파일로 내보냅니다.</p>
+        <button class="btn btn-success" style="font-size:15px;padding:13px 32px" onclick="downloadPPT()">📥 보고서 다운로드 (PPT)</button>
+      </div>
+
+    </div><!-- /resultsSection -->
+  </div><!-- /main-panel -->
+
+  <!-- ══════════ CHAT PANEL ══════════ -->
+  <div class="chat-panel">
+    <div class="chat-header">
+      <span>🤖</span>
+      <div class="chat-title">AI 분석 어시스턴트</div>
+      <span class="chat-badge">Claude</span>
+    </div>
+
+    <!-- Quick Commands -->
+    <div class="quick-cmds">
+      <div class="q-cmd" onclick="quick('전체 데이터 요약해줘')">📊 전체 요약</div>
+      <div class="q-cmd" onclick="quick('SDWT별 금액 순위 알려줘')">🏆 금액 순위</div>
+      <div class="q-cmd" onclick="quick('월별 사용 추이 분석해줘')">📈 월별 추이</div>
+      <div class="q-cmd" onclick="quick('가장 많이 쓴 대분류 알려줘')">🔍 TOP 대분류</div>
+      <div class="q-cmd" onclick="quick('필터 초기화해줘')">🔄 필터 해제</div>
+    </div>
+
+    <!-- Messages -->
+    <div class="chat-messages" id="chatMessages">
+      <div class="msg assistant">
+        <div class="msg-avatar">🤖</div>
+        <div>
+          <div class="msg-bubble">
+            안녕하세요! CSV 데이터를 붙여넣고 <strong>분석하기</strong>를 누른 다음 자연어로 명령해 보세요.<br><br>
+            <strong>예시 명령:</strong><br>
+            • "A팀만 보여줘"<br>
+            • "2024년 3~6월만 분석해줘"<br>
+            • "월별 차트를 꺾은선으로 바꿔줘"<br>
+            • "금액 TOP 3 SDWT 알려줘"
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="action-bar">
-      <button class="btn btn-primary" id="analyzeBtn" onclick="startAnalysis()">
-        🔍 분석하기
-      </button>
-      <button class="btn btn-outline" id="clearBtn" onclick="clearAll()">
-        🗑️ 초기화
-      </button>
-    </div>
-
-    <div id="statusBar" class="status-bar">
-      <div class="spinner" id="statusSpinner" style="display:none"></div>
-      <span id="statusMsg"></span>
+    <!-- Input -->
+    <div class="chat-input-area">
+      <textarea id="chatInput" class="chat-input" rows="2"
+        placeholder="분석 명령을 입력하세요... (Enter: 전송, Shift+Enter: 줄바꿈)"
+        onkeydown="onChatKey(event)"></textarea>
+      <button class="btn btn-primary btn-sm" id="sendBtn" onclick="sendChat()">전송</button>
     </div>
   </div>
 
-  <!-- ─── Results ─── -->
-  <div id="results-section">
+</div><!-- /app-layout -->
 
-    <!-- Summary cards -->
-    <div class="summary-grid" id="summaryCards"></div>
-
-    <!-- 차트 + 테이블 그리드 -->
-    <div class="results-grid">
-
-      <!-- 월별 대분류 사용건수 차트 -->
-      <div class="card">
-        <div class="chart-header">
-          <div class="card-title" style="margin:0">📊 월별 대분류 사용건수</div>
-          <div class="chart-type-btns" id="monthlyChartBtns">
-            <button class="chart-type-btn active" onclick="setChartType('monthly','bar',this)">막대</button>
-            <button class="chart-type-btn" onclick="setChartType('monthly','line',this)">꺾은선</button>
-            <button class="chart-type-btn" onclick="setChartType('monthly','radar',this)">레이더</button>
-          </div>
-        </div>
-        <div class="chart-wrap"><canvas id="monthlyChart"></canvas></div>
-        <button class="btn btn-outline copy-ppt-btn" onclick="copyChartForPPT('monthlyChart', '월별 대분류 사용건수')">
-          📎 PPT에 복사
-        </button>
-      </div>
-
-      <!-- SDWT별 사용금액 차트 -->
-      <div class="card">
-        <div class="chart-header">
-          <div class="card-title" style="margin:0">💰 SDWT별 사용금액 (총액)</div>
-          <div class="chart-type-btns" id="sdwtChartBtns">
-            <button class="chart-type-btn active" onclick="setChartType('sdwt','doughnut',this)">도넛</button>
-            <button class="chart-type-btn" onclick="setChartType('sdwt','pie',this)">파이</button>
-            <button class="chart-type-btn" onclick="setChartType('sdwt','bar',this)">막대</button>
-            <button class="chart-type-btn" onclick="setChartType('sdwt','polarArea',this)">폴라</button>
-          </div>
-        </div>
-        <div class="chart-wrap"><canvas id="sdwtChart"></canvas></div>
-        <button class="btn btn-outline copy-ppt-btn" onclick="copyChartForPPT('sdwtChart', 'SDWT별 사용금액')">
-          📎 PPT에 복사
-        </button>
-      </div>
-
-    </div><!-- /results-grid -->
-
-    <!-- SDWT × 대분류 테이블 -->
-    <div class="card">
-      <div class="chart-header">
-        <div class="card-title" style="margin:0">📋 SDWT별 대분류 사용현황 (건수 / 총 금액)</div>
-        <button class="btn btn-outline" onclick="copyTableForPPT()">📎 PPT에 복사</button>
-      </div>
-      <div class="table-wrap" id="sdwtTableWrap"></div>
+<!-- API Key Modal -->
+<div class="modal-overlay" id="apiModal">
+  <div class="modal">
+    <h3>🔑 Claude API 키 설정</h3>
+    <p>Anthropic Console에서 발급한 API 키를 입력하세요.<br>키는 이 세션에서만 사용되며 외부로 저장되지 않습니다.</p>
+    <input type="password" id="modalApiInput" placeholder="sk-ant-api03-..." />
+    <p style="font-size:12px;color:var(--sub);margin-bottom:14px">
+      키 발급: <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a>
+    </p>
+    <div class="modal-btns">
+      <button class="btn btn-outline btn-sm" onclick="closeApiModal()">취소</button>
+      <button class="btn btn-primary btn-sm" onclick="saveApiKey()">저장</button>
     </div>
+  </div>
+</div>
 
-    <!-- 월별 원시 집계 테이블 -->
-    <div class="card">
-      <div class="chart-header">
-        <div class="card-title" style="margin:0">📅 월별 대분류 상세 집계</div>
-        <button class="btn btn-outline" onclick="copyMonthlyTableForPPT()">📎 PPT에 복사</button>
-      </div>
-      <div class="table-wrap" id="monthlyTableWrap"></div>
-    </div>
-
-    <!-- 보고서 버튼 -->
-    <div class="card" style="text-align:center;">
-      <p style="font-size:14px;color:var(--text-sub);margin-bottom:16px;">모든 분석 결과를 하나의 PPT 파일로 다운로드합니다.</p>
-      <button class="btn btn-success" style="font-size:16px;padding:14px 36px;" onclick="downloadPPT()">
-        📥 보고서 다운로드 (PPT)
-      </button>
-    </div>
-
-  </div><!-- /results-section -->
-
-</div><!-- /container -->
-
-<div class="copy-toast" id="copyToast">✅ 클립보드에 복사되었습니다</div>
+<div class="toast" id="toast"></div>
 
 <script>
-/* ═══════════════════════════════════════════════
+/* ════════════════════════════════════════
    전역 상태
-═══════════════════════════════════════════════ */
-let parsedRows = [];
-let headers    = [];
+════════════════════════════════════════ */
+let parsedRows   = [];
+let filteredRows = [];
+let headers      = [];
 let analysisData = null;
-let chartInstances = { monthly: null, sdwt: null };
-let currentChartTypes = { monthly: 'bar', sdwt: 'doughnut' };
+let filterState  = { sdwts: [], categories: [], dateFrom: null, dateTo: null };
+let chatHistory  = [];   // [{role,content}] text-only
+let sessionLog   = '';   // AI 액션 이력 (system prompt용)
+let chartInst    = { monthly: null, sdwt: null };
+let chartTypes   = { monthly: 'bar', sdwt: 'doughnut' };
 
 const COLORS = [
   '#1a73e8','#34a853','#fa7b17','#ea4335','#9334e6',
@@ -439,634 +438,733 @@ const COLORS = [
   '#558b2f','#6a1b9a','#00838f','#4e342e','#37474f'
 ];
 
-/* ═══════════════════════════════════════════════
+/* ── Claude API 도구 정의 ── */
+const AI_TOOLS = [
+  {
+    name: 'filter_data',
+    description: '데이터를 SDWT, 대분류, 날짜 범위로 필터링합니다. 빈 배열 = 전체 표시.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        sdwts:      { type:'array', items:{type:'string'}, description:'포함할 SDWT 목록. 빈 배열이면 전체.' },
+        categories: { type:'array', items:{type:'string'}, description:'포함할 대분류 목록. 빈 배열이면 전체.' },
+        dateFrom:   { type:'string', description:'시작 월 (YYYY-MM). null이면 제한 없음.' },
+        dateTo:     { type:'string', description:'종료 월 (YYYY-MM). null이면 제한 없음.' }
+      }
+    }
+  },
+  {
+    name: 'change_chart',
+    description: '월별 또는 SDWT 차트의 종류를 변경합니다.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        chart:     { type:'string', enum:['monthly','sdwt'] },
+        chartType: { type:'string', enum:['bar','line','radar','pie','doughnut','polarArea'] }
+      },
+      required: ['chart','chartType']
+    }
+  },
+  {
+    name: 'reset_filters',
+    description: '모든 필터를 해제하고 전체 데이터를 표시합니다.',
+    input_schema: { type:'object', properties:{} }
+  },
+  {
+    name: 'show_insight',
+    description: '분석 인사이트 카드를 화면에 표시합니다.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title:   { type:'string', description:'인사이트 제목' },
+        content: { type:'string', description:'HTML 형식의 인사이트 내용 (ul/li/strong 사용 가능)' }
+      },
+      required: ['title','content']
+    }
+  }
+];
+
+/* ════════════════════════════════════════
    유틸
-═══════════════════════════════════════════════ */
-function showToast(msg) {
-  const t = document.getElementById('copyToast');
-  t.textContent = msg;
-  t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2200);
-}
+════════════════════════════════════════ */
+function fmt(n)  { return Number(n).toLocaleString('ko-KR'); }
+function now()   { return new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}); }
 
-function setStatus(type, msg, spinning=false) {
-  const bar = document.getElementById('statusBar');
-  const sp  = document.getElementById('statusSpinner');
-  const txt = document.getElementById('statusMsg');
-  bar.className = `status-bar show ${type}`;
-  txt.textContent = msg;
-  sp.style.display = spinning ? 'block' : 'none';
-}
-
-function fmtNumber(n) {
-  return Number(n).toLocaleString('ko-KR');
-}
-
-function parseNumber(s) {
-  if (!s) return 0;
+function parseNum(s) {
+  if (!s && s !== 0) return 0;
   return parseFloat(String(s).replace(/[,\s₩원]/g,'')) || 0;
 }
 
 function parseDate(s) {
   if (!s) return null;
-  const str = String(s).trim();
-  // YYYY-MM-DD / YYYY/MM/DD / YYYYMMDD / YYYY년MM월DD일 등
-  const m = str.match(/(\d{4})[.\-\/년](\d{1,2})[.\-\/월]?(\d{0,2})/);
-  if (m) return { year: m[1], month: m[2].padStart(2,'0') };
-  return null;
+  const m = String(s).trim().match(/(\d{4})[.\-\/년](\d{1,2})[.\-\/월]?/);
+  return m ? { year: m[1], month: m[2].padStart(2,'0') } : null;
 }
 
-/* ═══════════════════════════════════════════════
-   CSV 파싱 → 열 감지
-═══════════════════════════════════════════════ */
-document.getElementById('csvInput').addEventListener('input', onPasteInput);
-document.getElementById('csvInput').addEventListener('paste', () => {
-  setTimeout(onPasteInput, 50);
-});
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
 
-function onPasteInput() {
+function setStatus(type, msg, spin = false) {
+  const el = document.getElementById('statusBar');
+  el.className = `status-bar show ${type}`;
+  el.innerHTML = (spin ? '<div class="spinner"></div>' : '') + `<span>${msg}</span>`;
+}
+
+/* ════════════════════════════════════════
+   API 키 관리
+════════════════════════════════════════ */
+function getApiKey() { return sessionStorage.getItem('claude_api_key') || ''; }
+
+function saveApiKey() {
+  const val = (document.getElementById('modalApiInput').value || '').trim();
+  if (!val.startsWith('sk-')) { alert('올바른 API 키 형식이 아닙니다 (sk- 로 시작해야 합니다).'); return; }
+  sessionStorage.setItem('claude_api_key', val);
+  updateApiChip(true);
+  closeApiModal();
+  showToast('✅ API 키가 저장되었습니다');
+}
+
+function showApiModal() {
+  document.getElementById('modalApiInput').value = getApiKey();
+  document.getElementById('apiModal').classList.add('show');
+}
+
+function closeApiModal() { document.getElementById('apiModal').classList.remove('show'); }
+
+function updateApiChip(ok) {
+  document.getElementById('apiDot').className   = ok ? 'dot ok' : 'dot';
+  document.getElementById('apiChipLabel').textContent = ok ? 'API 연결됨' : 'API 키 설정';
+}
+
+// 초기 상태 체크
+window.addEventListener('load', () => { if (getApiKey()) updateApiChip(true); });
+
+/* ════════════════════════════════════════
+   CSV 파싱
+════════════════════════════════════════ */
+document.getElementById('csvInput').addEventListener('paste', () => setTimeout(onInput, 60));
+document.getElementById('csvInput').addEventListener('input', onInput);
+
+function onInput() {
   const raw = document.getElementById('csvInput').value.trim();
   if (!raw) return;
-
-  const result = Papa.parse(raw, {
-    header: true,
-    skipEmptyLines: true,
-    delimiter: detectDelimiter(raw),
-  });
-
-  if (result.data.length === 0) return;
-
-  parsedRows = result.data;
-  headers    = result.meta.fields || [];
-
+  const delim = raw.split('\n')[0].includes('\t') ? '\t' : ',';
+  const res = Papa.parse(raw, { header: true, skipEmptyLines: true, delimiter: delim });
+  if (!res.data.length) return;
+  parsedRows = res.data;
+  filteredRows = [...parsedRows];
+  headers = res.meta.fields || [];
   document.getElementById('csvInput').classList.add('filled');
   document.getElementById('colMapSection').style.display = 'block';
-
-  populateSelects();
-  autoMap();
-  setStatus('info', `✅ ${parsedRows.length.toLocaleString()}행 데이터 인식 완료. 열 매핑을 확인하고 [분석하기]를 눌러주세요.`);
-}
-
-function detectDelimiter(text) {
-  const first = text.split('\n')[0];
-  const tabs   = (first.match(/\t/g) || []).length;
-  const commas = (first.match(/,/g)  || []).length;
-  return tabs > commas ? '\t' : ',';
+  populateSelects(); autoMap();
+  setStatus('info', `✅ ${fmt(parsedRows.length)}행 인식 완료. 열 매핑을 확인하고 [분석하기]를 눌러주세요.`);
 }
 
 function populateSelects() {
-  const ids = ['mapDate','mapCategory','mapSdwt','mapCount','mapAmount'];
-  ids.forEach(id => {
-    const sel = document.getElementById(id);
-    sel.innerHTML = '<option value="">-- 선택 --</option>';
-    headers.forEach(h => {
-      const opt = document.createElement('option');
-      opt.value = h; opt.textContent = h;
-      sel.appendChild(opt);
-    });
+  ['mapDate','mapCategory','mapSdwt','mapCount','mapAmount'].forEach(id => {
+    const s = document.getElementById(id);
+    s.innerHTML = '<option value="">-- 선택 --</option>';
+    headers.forEach(h => { const o = document.createElement('option'); o.value = h; o.textContent = h; s.appendChild(o); });
   });
 }
 
 function autoMap() {
   const rules = {
     mapDate:     [/날짜|date|일자|ymd|년월/i],
-    mapCategory: [/대분류|category|cat|분류|품목/i],
+    mapCategory: [/대분류|category|분류|품목/i],
     mapSdwt:     [/sdwt|팀|team|부서|dept/i],
-    mapCount:    [/건수|count|수량|qty|사용횟수/i],
-    mapAmount:   [/금액|amount|총액|원가|cost|price/i],
+    mapCount:    [/건수|count|수량|qty/i],
+    mapAmount:   [/금액|amount|총액|원가|cost|price/i]
   };
-  Object.entries(rules).forEach(([id, patterns]) => {
-    const match = headers.find(h => patterns.some(p => p.test(h)));
-    if (match) document.getElementById(id).value = match;
+  Object.entries(rules).forEach(([id, pats]) => {
+    const m = headers.find(h => pats.some(p => p.test(h)));
+    if (m) document.getElementById(id).value = m;
   });
 }
 
-/* ═══════════════════════════════════════════════
+function getCols() {
+  return {
+    date:  document.getElementById('mapDate').value,
+    cat:   document.getElementById('mapCategory').value,
+    sdwt:  document.getElementById('mapSdwt').value,
+    count: document.getElementById('mapCount').value,
+    amt:   document.getElementById('mapAmount').value
+  };
+}
+
+/* ════════════════════════════════════════
    분석
-═══════════════════════════════════════════════ */
+════════════════════════════════════════ */
 function startAnalysis() {
-  if (parsedRows.length === 0) {
-    setStatus('error','❌ 먼저 CSV 데이터를 붙여넣어 주세요.');
-    return;
-  }
-  const colDate  = document.getElementById('mapDate').value;
-  const colCat   = document.getElementById('mapCategory').value;
-  const colSdwt  = document.getElementById('mapSdwt').value;
-  const colCount = document.getElementById('mapCount').value;
-  const colAmt   = document.getElementById('mapAmount').value;
-
-  if (!colDate || !colCat || !colSdwt) {
-    setStatus('error','❌ 날짜, 대분류, SDWT 열은 반드시 매핑해야 합니다.');
-    return;
-  }
-
+  if (!parsedRows.length) { setStatus('error','❌ CSV 데이터를 먼저 붙여넣어 주세요.'); return; }
+  const c = getCols();
+  if (!c.date || !c.cat || !c.sdwt) { setStatus('error','❌ 날짜·대분류·SDWT 열은 반드시 매핑해야 합니다.'); return; }
   setStatus('info','⏳ 분석 중...', true);
-
   setTimeout(() => {
     try {
-      const data = analyze(parsedRows, { colDate, colCat, colSdwt, colCount, colAmt });
-      analysisData = data;
-      renderAll(data);
-      document.getElementById('results-section').style.display = 'block';
-      document.getElementById('results-section').scrollIntoView({ behavior:'smooth', block:'start' });
-      setStatus('success',`✅ 분석 완료 — ${parsedRows.length.toLocaleString()}행 처리, ${data.months.length}개월 / ${data.sdwts.length}개 SDWT / ${data.categories.length}개 대분류`);
-    } catch(e) {
-      setStatus('error','❌ 분석 오류: ' + e.message);
-    }
+      filteredRows = applyFilterToRows(parsedRows);
+      analysisData = compute(filteredRows, c);
+      renderAll(analysisData);
+      document.getElementById('resultsSection').style.display = 'block';
+      document.getElementById('resultsSection').scrollIntoView({ behavior:'smooth' });
+      setStatus('success', `✅ 완료 — ${fmt(filteredRows.length)}행 / ${analysisData.months.length}개월 / ${analysisData.sdwts.length}개 SDWT / ${analysisData.categories.length}개 대분류`);
+    } catch(e) { setStatus('error','❌ 오류: ' + e.message); }
   }, 80);
 }
 
-function analyze(rows, { colDate, colCat, colSdwt, colCount, colAmt }) {
-  const monthSet = new Set(), catSet = new Set(), sdwtSet = new Set();
-
-  // 월별×대분류 집계
-  const monthCatCount  = {};  // month → cat → count
-  const sdwtCatCount   = {};  // sdwt  → cat → count
-  const sdwtCatAmount  = {};  // sdwt  → cat → amount
-  const sdwtTotal      = {};  // sdwt  → total amount
+function compute(rows, c) {
+  const mSet = new Set(), catSet = new Set(), sdwtSet = new Set();
+  const mCat = {}, sCatCnt = {}, sCatAmt = {}, sTotal = {};
 
   rows.forEach(row => {
-    const d    = parseDate(row[colDate]);
-    const cat  = (row[colCat]  || '').trim() || '미분류';
-    const sdwt = (row[colSdwt] || '').trim() || '미지정';
-    const cnt  = colCount ? parseNumber(row[colCount]) : 1;
-    const amt  = colAmt   ? parseNumber(row[colAmt])  : 0;
-
+    const d    = parseDate(row[c.date]);
+    const cat  = (row[c.cat]  || '').trim() || '미분류';
+    const sdwt = (row[c.sdwt] || '').trim() || '미지정';
+    const cnt  = c.count ? parseNum(row[c.count]) : 1;
+    const amt  = c.amt   ? parseNum(row[c.amt])   : 0;
     if (!d) return;
     const ym = `${d.year}-${d.month}`;
-
-    monthSet.add(ym); catSet.add(cat); sdwtSet.add(sdwt);
-
-    // 월별×대분류
-    if (!monthCatCount[ym]) monthCatCount[ym] = {};
-    monthCatCount[ym][cat] = (monthCatCount[ym][cat] || 0) + cnt;
-
-    // SDWT×대분류
-    if (!sdwtCatCount[sdwt])  sdwtCatCount[sdwt]  = {};
-    if (!sdwtCatAmount[sdwt]) sdwtCatAmount[sdwt] = {};
-    sdwtCatCount[sdwt][cat]  = (sdwtCatCount[sdwt][cat]  || 0) + cnt;
-    sdwtCatAmount[sdwt][cat] = (sdwtCatAmount[sdwt][cat] || 0) + amt;
-    sdwtTotal[sdwt]          = (sdwtTotal[sdwt] || 0) + amt;
+    mSet.add(ym); catSet.add(cat); sdwtSet.add(sdwt);
+    if (!mCat[ym])         mCat[ym] = {};
+    if (!sCatCnt[sdwt])    sCatCnt[sdwt] = {};
+    if (!sCatAmt[sdwt])    sCatAmt[sdwt] = {};
+    mCat[ym][cat]         = (mCat[ym][cat]        || 0) + cnt;
+    sCatCnt[sdwt][cat]    = (sCatCnt[sdwt][cat]   || 0) + cnt;
+    sCatAmt[sdwt][cat]    = (sCatAmt[sdwt][cat]   || 0) + amt;
+    sTotal[sdwt]          = (sTotal[sdwt]          || 0) + amt;
   });
 
-  const months     = [...monthSet].sort();
-  const categories = [...catSet].sort();
-  const sdwts      = [...sdwtSet].sort();
-
-  // 총합 계산
-  const totalCount  = rows.reduce((s,r) => s + (colCount ? parseNumber(r[colCount]) : 1), 0);
-  const totalAmount = rows.reduce((s,r) => s + (colAmt ? parseNumber(r[colAmt]) : 0), 0);
-
-  return { months, categories, sdwts, monthCatCount, sdwtCatCount, sdwtCatAmount, sdwtTotal,
-           totalCount, totalAmount, rowCount: rows.length };
+  const months = [...mSet].sort(), categories = [...catSet].sort(), sdwts = [...sdwtSet].sort();
+  const totalCount  = rows.reduce((s,r) => s + (c.count ? parseNum(r[c.count]) : 1), 0);
+  const totalAmount = rows.reduce((s,r) => s + (c.amt ? parseNum(r[c.amt]) : 0), 0);
+  return { months, categories, sdwts, mCat, sCatCnt, sCatAmt, sTotal, totalCount, totalAmount, rowCount: rows.length };
 }
 
-/* ═══════════════════════════════════════════════
+/* ════════════════════════════════════════
+   필터
+════════════════════════════════════════ */
+function applyFilterToRows(rows) {
+  const c = getCols();
+  return rows.filter(row => {
+    const sdwt = (row[c.sdwt] || '').trim() || '미지정';
+    const cat  = (row[c.cat]  || '').trim() || '미분류';
+    const d    = parseDate(row[c.date]);
+    const ym   = d ? `${d.year}-${d.month}` : '';
+    if (filterState.sdwts.length > 0      && !filterState.sdwts.includes(sdwt))      return false;
+    if (filterState.categories.length > 0 && !filterState.categories.includes(cat))  return false;
+    if (filterState.dateFrom && ym < filterState.dateFrom)  return false;
+    if (filterState.dateTo   && ym > filterState.dateTo)    return false;
+    return true;
+  });
+}
+
+function applyFilter({ sdwts, categories, dateFrom, dateTo }) {
+  if (sdwts      !== undefined) filterState.sdwts      = sdwts      || [];
+  if (categories !== undefined) filterState.categories = categories || [];
+  if (dateFrom   !== undefined) filterState.dateFrom   = dateFrom   || null;
+  if (dateTo     !== undefined) filterState.dateTo     = dateTo     || null;
+  recompute();
+}
+
+function resetFilters() {
+  filterState = { sdwts: [], categories: [], dateFrom: null, dateTo: null };
+  recompute();
+  updateFilterBadge();
+}
+
+function recompute() {
+  if (!parsedRows.length) return;
+  filteredRows = applyFilterToRows(parsedRows);
+  analysisData = compute(filteredRows, getCols());
+  renderAll(analysisData);
+  updateFilterBadge();
+  document.getElementById('resultsSection').style.display = 'block';
+}
+
+function updateFilterBadge() {
+  const parts = [];
+  if (filterState.sdwts.length)      parts.push(`SDWT: ${filterState.sdwts.join(', ')}`);
+  if (filterState.categories.length) parts.push(`대분류: ${filterState.categories.join(', ')}`);
+  if (filterState.dateFrom || filterState.dateTo)
+    parts.push(`기간: ${filterState.dateFrom||'~'} ~ ${filterState.dateTo||'~'}`);
+  const badge = document.getElementById('filterBadge');
+  if (parts.length) {
+    badge.classList.add('show');
+    document.getElementById('filterBadgeText').textContent = '필터 적용 중 — ' + parts.join(' / ');
+  } else {
+    badge.classList.remove('show');
+  }
+}
+
+/* ════════════════════════════════════════
    렌더링
-═══════════════════════════════════════════════ */
+════════════════════════════════════════ */
 function renderAll(d) {
-  renderSummaryCards(d);
-  renderMonthlyChart(d, currentChartTypes.monthly);
-  renderSdwtChart(d, currentChartTypes.sdwt);
+  renderSummary(d);
+  renderMonthlyChart(d, chartTypes.monthly);
+  renderSdwtChart(d, chartTypes.sdwt);
   renderSdwtTable(d);
   renderMonthlyTable(d);
 }
 
-/* ── 요약 카드 ── */
-function renderSummaryCards(d) {
-  const el = document.getElementById('summaryCards');
-  el.innerHTML = `
-    <div class="summary-card">
-      <div class="s-label">📦 총 사용건수</div>
-      <div class="s-value">${fmtNumber(d.totalCount)}</div>
-      <div class="s-sub">전체 ${d.rowCount.toLocaleString()}행</div>
-    </div>
-    <div class="summary-card green">
-      <div class="s-label">💰 총 사용금액</div>
-      <div class="s-value">${fmtNumber(d.totalAmount)}원</div>
-      <div class="s-sub">누적 합계</div>
-    </div>
-    <div class="summary-card orange">
-      <div class="s-label">👥 SDWT 수</div>
-      <div class="s-value">${d.sdwts.length}</div>
-      <div class="s-sub">${d.sdwts.slice(0,3).join(', ')}${d.sdwts.length>3?' …':''}</div>
-    </div>
-    <div class="summary-card purple">
-      <div class="s-label">🗂️ 대분류 수</div>
-      <div class="s-value">${d.categories.length}</div>
-      <div class="s-sub">${d.categories.slice(0,3).join(', ')}${d.categories.length>3?' …':''}</div>
-    </div>
-    <div class="summary-card" style="border-left-color:#00bcd4">
-      <div class="s-label">📅 분석 기간</div>
-      <div class="s-value">${d.months.length}개월</div>
-      <div class="s-sub">${d.months[0] || '-'} ~ ${d.months[d.months.length-1] || '-'}</div>
-    </div>
+function renderSummary(d) {
+  document.getElementById('summaryCards').innerHTML = `
+    <div class="s-card"><div class="s-label">📦 총 사용건수</div><div class="s-value">${fmt(d.totalCount)}</div><div class="s-sub">${fmt(d.rowCount)}행</div></div>
+    <div class="s-card g"><div class="s-label">💰 총 사용금액</div><div class="s-value">${fmt(d.totalAmount)}</div><div class="s-sub">원 (누적)</div></div>
+    <div class="s-card o"><div class="s-label">👥 SDWT 수</div><div class="s-value">${d.sdwts.length}</div><div class="s-sub">${d.sdwts.slice(0,2).join(', ')}${d.sdwts.length>2?' …':''}</div></div>
+    <div class="s-card p"><div class="s-label">🗂️ 대분류 수</div><div class="s-value">${d.categories.length}</div><div class="s-sub">${d.categories.slice(0,2).join(', ')}${d.categories.length>2?' …':''}</div></div>
+    <div class="s-card c"><div class="s-label">📅 분석 기간</div><div class="s-value">${d.months.length}개월</div><div class="s-sub">${d.months[0]||'-'} ~ ${d.months[d.months.length-1]||'-'}</div></div>
   `;
 }
 
-/* ── 월별 대분류 차트 ── */
 function renderMonthlyChart(d, type) {
   const ctx = document.getElementById('monthlyChart').getContext('2d');
-  if (chartInstances.monthly) chartInstances.monthly.destroy();
-
-  const datasets = d.categories.map((cat, i) => ({
+  if (chartInst.monthly) chartInst.monthly.destroy();
+  const isRadar = type === 'radar';
+  const datasets = d.categories.map((cat,i) => ({
     label: cat,
-    data: d.months.map(m => d.monthCatCount[m]?.[cat] || 0),
-    backgroundColor: COLORS[i % COLORS.length] + (type === 'line' ? '33' : 'cc'),
-    borderColor: COLORS[i % COLORS.length],
-    borderWidth: 2,
-    fill: type === 'line',
-    tension: 0.35,
-    pointRadius: 4,
+    data: isRadar ? d.months.map(m => d.mCat[m]?.[cat]||0) : d.months.map(m => d.mCat[m]?.[cat]||0),
+    backgroundColor: COLORS[i%COLORS.length] + (type==='line'?'33':'cc'),
+    borderColor: COLORS[i%COLORS.length], borderWidth:2, tension:0.35,
+    fill: type==='line', pointRadius:4
   }));
-
-  const isRadar  = type === 'radar';
-  const isPie    = ['pie','doughnut','polarArea'].includes(type);
-
-  chartInstances.monthly = new Chart(ctx, {
-    type: type,
+  chartInst.monthly = new Chart(ctx, {
+    type,
     data: {
       labels: isRadar ? d.categories : d.months,
-      datasets: isRadar
-        ? d.months.map((m, i) => ({
-            label: m,
-            data: d.categories.map(c => d.monthCatCount[m]?.[c] || 0),
-            backgroundColor: COLORS[i % COLORS.length] + '44',
-            borderColor: COLORS[i % COLORS.length],
-            borderWidth: 2,
-          }))
-        : datasets,
+      datasets: isRadar ? d.months.map((m,i) => ({
+        label:m, data:d.categories.map(c=>d.mCat[m]?.[c]||0),
+        backgroundColor:COLORS[i%COLORS.length]+'44', borderColor:COLORS[i%COLORS.length], borderWidth:2
+      })) : datasets
     },
     options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'bottom', labels: { font: { size: 11 } } },
-        tooltip: {
-          callbacks: {
-            label: ctx => ` ${ctx.dataset.label}: ${fmtNumber(ctx.raw)}건`
-          }
-        }
-      },
-      scales: (isPie || isRadar) ? {} : {
-        x: { stacked: type==='bar', grid:{display:false} },
-        y: { stacked: type==='bar', beginAtZero: true,
-             ticks:{ callback: v => fmtNumber(v) } }
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ position:'bottom', labels:{ font:{size:10} } },
+        tooltip:{ callbacks:{ label:c=>` ${c.dataset.label}: ${fmt(c.raw)}건` } } },
+      scales: (isRadar || ['pie','doughnut','polarArea'].includes(type)) ? {} : {
+        x:{ stacked:type==='bar', grid:{display:false} },
+        y:{ stacked:type==='bar', beginAtZero:true, ticks:{callback:v=>fmt(v)} }
       }
     }
   });
 }
 
-/* ── SDWT별 금액 차트 ── */
 function renderSdwtChart(d, type) {
   const ctx = document.getElementById('sdwtChart').getContext('2d');
-  if (chartInstances.sdwt) chartInstances.sdwt.destroy();
-
-  const labels = d.sdwts;
-  const values = d.sdwts.map(s => d.sdwtTotal[s] || 0);
-  const bgs    = d.sdwts.map((_,i) => COLORS[i % COLORS.length] + 'cc');
-  const borders = d.sdwts.map((_,i) => COLORS[i % COLORS.length]);
-
+  if (chartInst.sdwt) chartInst.sdwt.destroy();
   const isBar = type === 'bar';
-
-  chartInstances.sdwt = new Chart(ctx, {
-    type: type,
-    data: {
-      labels,
-      datasets: [{
-        label: '총 사용금액 (원)',
-        data: values,
-        backgroundColor: isBar ? bgs : bgs,
-        borderColor: isBar ? borders : borders,
-        borderWidth: 2,
-      }]
-    },
+  const bgs = d.sdwts.map((_,i)=>COLORS[i%COLORS.length]+'cc');
+  chartInst.sdwt = new Chart(ctx, {
+    type,
+    data: { labels: d.sdwts, datasets: [{ label:'총 사용금액(원)', data:d.sdwts.map(s=>d.sTotal[s]||0), backgroundColor:bgs, borderColor:bgs.map(c=>c.slice(0,-2)), borderWidth:2 }] },
     options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { position: isBar ? 'bottom' : 'right', labels: { font:{size:11} } },
-        tooltip: {
-          callbacks: {
-            label: ctx => ` ${ctx.label}: ${fmtNumber(ctx.raw)}원`
-          }
-        }
-      },
-      scales: isBar ? {
-        x: { grid:{display:false} },
-        y: { beginAtZero:true, ticks:{ callback: v => fmtNumber(v)+'원' } }
-      } : {}
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ position: isBar?'bottom':'right', labels:{font:{size:10}} },
+        tooltip:{ callbacks:{ label:c=>` ${c.label}: ${fmt(c.raw)}원` } } },
+      scales: isBar ? { x:{grid:{display:false}}, y:{beginAtZero:true, ticks:{callback:v=>fmt(v)+'원'}} } : {}
     }
   });
 }
 
-/* ── 차트 종류 변경 ── */
-function setChartType(chartKey, type, btn) {
-  currentChartTypes[chartKey] = type;
-  const groupId = chartKey === 'monthly' ? 'monthlyChartBtns' : 'sdwtChartBtns';
-  document.getElementById(groupId).querySelectorAll('.chart-type-btn')
-    .forEach(b => b.classList.remove('active'));
+function setChart(key, type, btn) {
+  chartTypes[key] = type;
+  const grp = key==='monthly' ? 'monthlyBtns' : 'sdwtBtns';
+  document.getElementById(grp).querySelectorAll('.ct-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-
   if (!analysisData) return;
-  if (chartKey === 'monthly') renderMonthlyChart(analysisData, type);
-  else                        renderSdwtChart(analysisData, type);
+  key==='monthly' ? renderMonthlyChart(analysisData, type) : renderSdwtChart(analysisData, type);
 }
 
-/* ── SDWT × 대분류 테이블 ── */
 function renderSdwtTable(d) {
-  const wrap = document.getElementById('sdwtTableWrap');
-  let html = '<table><thead><tr><th>SDWT</th>';
-  d.categories.forEach(c => { html += `<th colspan="2">${c}</th>`; });
-  html += '<th>총 금액</th></tr>';
-  html += '<tr><th></th>';
-  d.categories.forEach(() => { html += '<th>건수</th><th>금액(원)</th>'; });
-  html += '<th></th></tr></thead><tbody>';
-
-  // 총계 누적
-  const totalCnt = {}, totalAmt = {};
-  let grandAmt = 0;
-  d.categories.forEach(c => { totalCnt[c]=0; totalAmt[c]=0; });
-
+  const w = document.getElementById('sdwtTableWrap');
+  let h = '<table><thead><tr><th>SDWT</th>';
+  d.categories.forEach(c => { h += `<th colspan="2">${c}</th>`; });
+  h += '<th>총 금액(원)</th></tr><tr><th></th>';
+  d.categories.forEach(()=>{ h+='<th>건수</th><th>금액</th>'; });
+  h += '<th></th></tr></thead><tbody>';
+  const tCnt={}, tAmt={};  d.categories.forEach(c=>{tCnt[c]=0;tAmt[c]=0;});  let grand=0;
   d.sdwts.forEach(s => {
-    html += `<tr><td class="row-header">${s}</td>`;
+    h += `<tr><td class="row-hd">${s}</td>`;
     d.categories.forEach(c => {
-      const cnt = d.sdwtCatCount[s]?.[c]  || 0;
-      const amt = d.sdwtCatAmount[s]?.[c] || 0;
-      totalCnt[c] += cnt; totalAmt[c] += amt;
-      html += `<td>${fmtNumber(cnt)}</td><td class="money">${fmtNumber(amt)}</td>`;
+      const cnt=d.sCatCnt[s]?.[c]||0, amt=d.sCatAmt[s]?.[c]||0;
+      tCnt[c]+=cnt; tAmt[c]+=amt;
+      h += `<td>${fmt(cnt)}</td><td class="money">${fmt(amt)}</td>`;
     });
-    const tot = d.sdwtTotal[s] || 0;
-    grandAmt += tot;
-    html += `<td class="money" style="font-weight:700">${fmtNumber(tot)}</td></tr>`;
+    const tot=d.sTotal[s]||0; grand+=tot;
+    h += `<td class="money" style="font-weight:700">${fmt(tot)}</td></tr>`;
   });
-
-  // 합계 행
-  html += '<tr class="total-row"><td class="row-header">합계</td>';
-  d.categories.forEach(c => {
-    html += `<td>${fmtNumber(totalCnt[c])}</td><td class="money">${fmtNumber(totalAmt[c])}</td>`;
-  });
-  html += `<td class="money">${fmtNumber(grandAmt)}</td></tr>`;
-  html += '</tbody></table>';
-  wrap.innerHTML = html;
+  h += '<tr class="total-row"><td class="row-hd">합계</td>';
+  d.categories.forEach(c => { h+=`<td>${fmt(tCnt[c])}</td><td class="money">${fmt(tAmt[c])}</td>`; });
+  h += `<td class="money">${fmt(grand)}</td></tr></tbody></table>`;
+  w.innerHTML = h;
 }
 
-/* ── 월별 상세 테이블 ── */
 function renderMonthlyTable(d) {
-  const wrap = document.getElementById('monthlyTableWrap');
-  let html = '<table><thead><tr><th>월</th>';
-  d.categories.forEach(c => { html += `<th>${c}</th>`; });
-  html += '<th>합계</th></tr></thead><tbody>';
+  const w = document.getElementById('monthlyTableWrap');
+  let h = '<table><thead><tr><th>월</th>';
+  d.categories.forEach(c=>{ h+=`<th>${c}</th>`; });
+  h += '<th>합계</th></tr></thead><tbody>';
+  const cTot={}; d.categories.forEach(c=>cTot[c]=0); let grand=0;
+  d.months.forEach((m,ri) => {
+    let rTot=0; h+=`<tr><td class="row-hd">${m}</td>`;
+    d.categories.forEach(c=>{ const v=d.mCat[m]?.[c]||0; cTot[c]+=v; rTot+=v; h+=`<td>${fmt(v)}</td>`; });
+    grand+=rTot; h+=`<td style="font-weight:700">${fmt(rTot)}</td></tr>`;
+  });
+  h += '<tr class="total-row"><td class="row-hd">합계</td>';
+  d.categories.forEach(c=>{ h+=`<td>${fmt(cTot[c])}</td>`; });
+  h += `<td>${fmt(grand)}</td></tr></tbody></table>`;
+  w.innerHTML = h;
+}
 
-  const catTotal = {};
-  d.categories.forEach(c => catTotal[c] = 0);
+/* Insight */
+function showInsight(title, content) {
+  document.getElementById('insightTitle').textContent = '💡 ' + title;
+  document.getElementById('insightBody').innerHTML = content;
+  document.getElementById('insightCard').classList.add('show');
+}
+function clearInsight() { document.getElementById('insightCard').classList.remove('show'); }
 
-  d.months.forEach(m => {
-    let rowTotal = 0;
-    html += `<tr><td class="row-header">${m}</td>`;
-    d.categories.forEach(c => {
-      const v = d.monthCatCount[m]?.[c] || 0;
-      catTotal[c] += v; rowTotal += v;
-      html += `<td>${fmtNumber(v)}</td>`;
+/* ════════════════════════════════════════
+   AI 채팅
+════════════════════════════════════════ */
+function buildSystemPrompt() {
+  const d = analysisData;
+  if (!d) return '당신은 부품 사용량 분석 어시스턴트입니다. 데이터가 아직 로드되지 않았습니다. 사용자에게 데이터를 붙여넣고 분석하기를 눌러달라고 안내하세요. 항상 한국어로 응답하세요.';
+
+  const topSdwt = [...d.sdwts].sort((a,b)=>(d.sTotal[b]||0)-(d.sTotal[a]||0)).slice(0,5)
+    .map(s=>`${s}(${fmt(d.sTotal[s]||0)}원)`).join(', ');
+
+  const catCount = {};
+  d.categories.forEach(c => { catCount[c] = d.months.reduce((s,m)=>s+(d.mCat[m]?.[c]||0),0); });
+  const topCat = [...d.categories].sort((a,b)=>catCount[b]-catCount[a]).slice(0,5).join(', ');
+
+  const fDesc = [];
+  if (filterState.sdwts.length)      fDesc.push(`SDWT 필터: ${filterState.sdwts.join(', ')}`);
+  if (filterState.categories.length) fDesc.push(`대분류 필터: ${filterState.categories.join(', ')}`);
+  if (filterState.dateFrom || filterState.dateTo) fDesc.push(`기간: ${filterState.dateFrom||'시작'} ~ ${filterState.dateTo||'끝'}`);
+
+  return `당신은 부품 사용량 분석 어시스턴트입니다. 사용자의 한국어 명령을 이해하여 적절한 도구를 호출하고, 분석 결과를 친절하게 설명합니다.
+
+## 현재 데이터 현황
+- 전체: ${fmt(parsedRows.length)}행 / 필터 후: ${fmt(filteredRows.length)}행
+- 분석 기간: ${d.months[0]||'?'} ~ ${d.months[d.months.length-1]||'?'} (${d.months.length}개월)
+- SDWT (${d.sdwts.length}개): ${d.sdwts.join(', ')}
+- 대분류 (${d.categories.length}개): ${d.categories.join(', ')}
+- 총 사용건수: ${fmt(d.totalCount)}건
+- 총 사용금액: ${fmt(d.totalAmount)}원
+
+## 주요 통계
+- 금액 상위 SDWT: ${topSdwt}
+- 건수 상위 대분류: ${topCat}
+
+${fDesc.length ? '## 현재 적용된 필터\n' + fDesc.join('\n') : '## 현재 적용된 필터: 없음 (전체 데이터)'}
+
+${sessionLog ? '## 이번 세션 실행 이력\n' + sessionLog : ''}
+
+## 도구 사용 규칙
+- SDWT명·대분류명은 위 목록에 있는 정확한 이름을 사용하세요.
+- 사용자가 약칭을 쓰면 가장 유사한 항목으로 매핑하세요.
+- 텍스트 응답과 도구 호출을 함께 사용할 수 있습니다.
+- 항상 한국어로 응답하세요. 응답은 간결하고 명확하게 작성하세요.`;
+}
+
+function addMsg(role, html) {
+  const container = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+  const avatars = { user:'👤', assistant:'🤖', error:'⚠️' };
+  div.innerHTML = `
+    <div class="msg-avatar">${avatars[role]||'💬'}</div>
+    <div>
+      <div class="msg-bubble">${html}</div>
+      <div class="msg-time">${now()}</div>
+    </div>`;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  return div;
+}
+
+function addTyping() {
+  const container = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'msg assistant';
+  div.id = 'typingIndicator';
+  div.innerHTML = `<div class="msg-avatar">🤖</div><div class="typing"><span></span><span></span><span></span></div>`;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function removeTyping() { document.getElementById('typingIndicator')?.remove(); }
+
+function execTool(tool) {
+  const { name, input } = tool;
+  let logEntry = '';
+
+  if (name === 'filter_data') {
+    applyFilter(input);
+    const parts = [];
+    if (input.sdwts?.length)      parts.push(`SDWT: ${input.sdwts.join(', ')}`);
+    if (input.categories?.length) parts.push(`대분류: ${input.categories.join(', ')}`);
+    if (input.dateFrom || input.dateTo) parts.push(`기간: ${input.dateFrom||'?'} ~ ${input.dateTo||'?'}`);
+    logEntry = `filter_data(${parts.join('; ')})`;
+  }
+  else if (name === 'change_chart') {
+    chartTypes[input.chart] = input.chartType;
+    const grp = input.chart==='monthly' ? 'monthlyBtns' : 'sdwtBtns';
+    document.getElementById(grp).querySelectorAll('.ct-btn').forEach(b => b.classList.remove('active'));
+    const typeLabels = { bar:'막대', line:'꺾은선', radar:'레이더', pie:'파이', doughnut:'도넛', polarArea:'폴라' };
+    document.getElementById(grp).querySelectorAll('.ct-btn').forEach(b => {
+      if (b.textContent === (typeLabels[input.chartType]||input.chartType)) b.classList.add('active');
     });
-    html += `<td style="font-weight:700">${fmtNumber(rowTotal)}</td></tr>`;
-  });
-
-  // 합계
-  let grandTotal = 0;
-  html += '<tr class="total-row"><td class="row-header">합계</td>';
-  d.categories.forEach(c => {
-    grandTotal += catTotal[c];
-    html += `<td>${fmtNumber(catTotal[c])}</td>`;
-  });
-  html += `<td>${fmtNumber(grandTotal)}</td></tr>`;
-  html += '</tbody></table>';
-  wrap.innerHTML = html;
-}
-
-/* ═══════════════════════════════════════════════
-   PPT 복사 (차트 이미지 → 클립보드)
-═══════════════════════════════════════════════ */
-async function copyChartForPPT(canvasId, title) {
-  const canvas = document.getElementById(canvasId);
-  canvas.toBlob(async (blob) => {
-    try {
-      await navigator.clipboard.write([
-        new ClipboardItem({ 'image/png': blob })
-      ]);
-      showToast(`📊 "${title}" 차트를 클립보드에 복사했습니다. PPT에서 붙여넣기(Ctrl+V) 하세요.`);
-    } catch {
-      // fallback: open in new tab
-      const url = canvas.toDataURL('image/png');
-      const win = window.open();
-      win.document.write(`<img src="${url}" style="max-width:100%"><p>이 이미지를 우클릭 → 복사 후 PPT에 붙여넣기 하세요.</p>`);
+    if (analysisData) {
+      input.chart==='monthly' ? renderMonthlyChart(analysisData, input.chartType) : renderSdwtChart(analysisData, input.chartType);
     }
-  }, 'image/png');
+    logEntry = `change_chart(${input.chart}, ${input.chartType})`;
+  }
+  else if (name === 'reset_filters') {
+    resetFilters();
+    logEntry = 'reset_filters()';
+  }
+  else if (name === 'show_insight') {
+    showInsight(input.title, input.content);
+    logEntry = `show_insight("${input.title}")`;
+  }
+
+  if (logEntry) sessionLog += `\n- ${logEntry}`;
 }
 
-/* ── 테이블 HTML → 클립보드 (PPT 텍스트 붙여넣기용) ── */
-async function copyTableForPPT() {
-  const el = document.getElementById('sdwtTableWrap');
-  await copyHTMLTable(el, 'SDWT별 대분류 사용현황');
-}
-async function copyMonthlyTableForPPT() {
-  const el = document.getElementById('monthlyTableWrap');
-  await copyHTMLTable(el, '월별 대분류 상세 집계');
-}
+async function sendChat() {
+  const inputEl = document.getElementById('chatInput');
+  const msg = inputEl.value.trim();
+  if (!msg) return;
 
-async function copyHTMLTable(wrap, name) {
-  const table = wrap.querySelector('table');
-  if (!table) return;
+  const apiKey = getApiKey();
+  if (!apiKey) { showApiModal(); return; }
 
-  // plain text (TSV) for maximum compatibility
-  let tsv = '';
-  table.querySelectorAll('tr').forEach(tr => {
-    const cells = [...tr.querySelectorAll('th,td')].map(c => c.innerText.replace(/\n/g,' ').trim());
-    tsv += cells.join('\t') + '\n';
-  });
+  inputEl.value = '';
+  document.getElementById('sendBtn').disabled = true;
+  addMsg('user', escHtml(msg));
+  addTyping();
 
   try {
-    const htmlBlob = new Blob([wrap.innerHTML], { type: 'text/html' });
-    const textBlob = new Blob([tsv], { type: 'text/plain' });
-    await navigator.clipboard.write([
-      new ClipboardItem({ 'text/html': htmlBlob, 'text/plain': textBlob })
-    ]);
-    showToast(`📋 "${name}" 표를 클립보드에 복사했습니다. PPT에서 붙여넣기(Ctrl+V) 하세요.`);
-  } catch {
-    await navigator.clipboard.writeText(tsv);
-    showToast(`📋 텍스트(TSV)로 복사했습니다. PPT에서 붙여넣기 하세요.`);
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1500,
+        system: buildSystemPrompt(),
+        tools: AI_TOOLS,
+        messages: [...chatHistory, { role:'user', content:msg }]
+      })
+    });
+
+    removeTyping();
+
+    if (!res.ok) {
+      const err = await res.json().catch(()=>({}));
+      throw new Error(err.error?.message || `API 오류 ${res.status}`);
+    }
+
+    const data = await res.json();
+    let textResp = '';
+    const toolCalls = [];
+
+    data.content.forEach(block => {
+      if (block.type === 'text')     textResp += block.text;
+      if (block.type === 'tool_use') toolCalls.push(block);
+    });
+
+    // 도구 실행
+    toolCalls.forEach(t => execTool(t));
+
+    // 도구 실행 결과 pill 생성
+    let pillsHtml = '';
+    toolCalls.forEach(t => {
+      const labels = {
+        filter_data:  '🔍 필터 적용',
+        change_chart: '📊 차트 변경',
+        reset_filters:'🔄 필터 해제',
+        show_insight: '💡 인사이트 추가'
+      };
+      pillsHtml += `<div class="action-pill">${labels[t.name]||t.name}</div>`;
+    });
+
+    // 응답 표시
+    const displayText = textResp || (toolCalls.length ? '✅ 요청하신 내용을 반영했습니다.' : '처리가 완료되었습니다.');
+    addMsg('assistant', (pillsHtml ? pillsHtml + '<br>' : '') + escHtml(displayText).replace(/\n/g,'<br>'));
+
+    // 히스토리 업데이트 (text only, 최근 12개 유지)
+    chatHistory.push(
+      { role:'user', content: msg },
+      { role:'assistant', content: textResp || '(액션 실행)' }
+    );
+    if (chatHistory.length > 24) chatHistory = chatHistory.slice(-24);
+
+    updateApiChip(true);
+
+  } catch(e) {
+    removeTyping();
+    if (e.message.includes('401') || e.message.includes('authentication')) {
+      addMsg('error', '❌ API 키가 유효하지 않습니다. 상단의 <strong>API 키 설정</strong>을 클릭해 키를 다시 입력해 주세요.');
+      updateApiChip(false);
+    } else {
+      addMsg('error', `❌ 오류: ${escHtml(e.message)}`);
+    }
+  } finally {
+    document.getElementById('sendBtn').disabled = false;
   }
 }
 
-/* ═══════════════════════════════════════════════
-   PPT 다운로드
-═══════════════════════════════════════════════ */
-async function downloadPPT() {
-  if (!analysisData) { alert('먼저 분석을 완료해 주세요.'); return; }
-  setStatus('info','⏳ PPT 파일 생성 중...', true);
+function onChatKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+}
 
+function quick(cmd) {
+  document.getElementById('chatInput').value = cmd;
+  sendChat();
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ════════════════════════════════════════
+   PPT 복사 / 다운로드
+════════════════════════════════════════ */
+async function copyChart(canvasId, title) {
+  const canvas = document.getElementById(canvasId);
+  canvas.toBlob(async blob => {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
+      showToast(`📊 "${title}" 이미지를 복사했습니다. PPT에서 Ctrl+V`);
+    } catch {
+      const url = canvas.toDataURL('image/png');
+      const w = window.open(); w.document.write(`<img src="${url}" style="max-width:100%"><p>이미지를 우클릭 → 복사 후 PPT에 붙여넣기</p>`);
+    }
+  },'image/png');
+}
+
+async function copyTable(wrapId, name) {
+  const wrap = document.getElementById(wrapId);
+  const table = wrap.querySelector('table'); if (!table) return;
+  let tsv = '';
+  table.querySelectorAll('tr').forEach(tr => {
+    tsv += [...tr.querySelectorAll('th,td')].map(c=>c.innerText.trim()).join('\t') + '\n';
+  });
+  try {
+    await navigator.clipboard.write([
+      new ClipboardItem({'text/html':new Blob([wrap.innerHTML],{type:'text/html'}), 'text/plain':new Blob([tsv],{type:'text/plain'})})
+    ]);
+    showToast(`📋 "${name}" 표를 복사했습니다. PPT에서 Ctrl+V`);
+  } catch {
+    await navigator.clipboard.writeText(tsv);
+    showToast(`📋 텍스트로 복사했습니다.`);
+  }
+}
+
+async function downloadPPT() {
+  if (!analysisData) { alert('분석을 먼저 완료해 주세요.'); return; }
+  setStatus('info','⏳ PPT 생성 중...', true);
   const d = analysisData;
   const pptx = new PptxGenJS();
+  pptx.defineLayout({name:'C',width:10,height:5.63}); pptx.layout='C';
+  const hc='1a73e8', dt='202124', sc='5f6368';
 
-  pptx.defineLayout({ name:'CUSTOM', width:10, height:5.63 });
-  pptx.layout = 'CUSTOM';
+  function addTitle(s, txt) {
+    s.addShape(pptx.ShapeType.rect,{x:0,y:0,w:'100%',h:0.85,fill:{color:hc}});
+    s.addText(txt,{x:0.4,y:0.1,w:9.2,h:0.65,fontSize:17,bold:true,color:'FFFFFF'});
+  }
 
-  const headerColor = '1a73e8';
-  const darkText    = '202124';
-  const subText     = '5f6368';
-
-  // ── 슬라이드 1: 표지 ────────────────────────
+  // 표지
   const s1 = pptx.addSlide();
-  s1.addShape(pptx.ShapeType.rect, { x:0, y:0, w:'100%', h:'100%', fill:{color:'1a73e8'} });
-  s1.addText('⚙️ 부품 사용량 분석 보고서', {
-    x:0.5, y:1.5, w:9, h:1.2,
-    fontSize:32, bold:true, color:'FFFFFF', align:'center',
-    fontFace:'Noto Sans KR'
-  });
-  s1.addText(`분석 기간: ${d.months[0] || '-'} ~ ${d.months[d.months.length-1] || '-'}`, {
-    x:0.5, y:2.9, w:9, h:0.5,
-    fontSize:16, color:'c8daff', align:'center'
-  });
-  s1.addText(`총 ${d.rowCount.toLocaleString()}행  |  ${d.sdwts.length}개 SDWT  |  ${d.categories.length}개 대분류`, {
-    x:0.5, y:3.5, w:9, h:0.4,
-    fontSize:13, color:'c8daff', align:'center'
-  });
-  const today = new Date().toLocaleDateString('ko-KR');
-  s1.addText(`작성일: ${today}`, {
-    x:0.5, y:5.0, w:9, h:0.3,
-    fontSize:11, color:'c8daff', align:'center'
-  });
+  s1.addShape(pptx.ShapeType.rect,{x:0,y:0,w:'100%',h:'100%',fill:{color:hc}});
+  s1.addText('부품 사용량 분석 보고서',{x:0.5,y:1.6,w:9,h:1.1,fontSize:30,bold:true,color:'FFFFFF',align:'center'});
+  s1.addText(`${d.months[0]||'-'} ~ ${d.months[d.months.length-1]||'-'}`,{x:0.5,y:2.9,w:9,h:0.5,fontSize:16,color:'c8daff',align:'center'});
+  s1.addText(`${fmt(d.rowCount)}행  |  ${d.sdwts.length}개 SDWT  |  ${d.categories.length}개 대분류`,{x:0.5,y:3.5,w:9,h:0.4,fontSize:13,color:'c8daff',align:'center'});
+  s1.addText(new Date().toLocaleDateString('ko-KR'),{x:0.5,y:5.1,w:9,h:0.3,fontSize:11,color:'c8daff',align:'center'});
 
-  // ── 슬라이드 2: 요약 ────────────────────────
-  const s2 = pptx.addSlide();
-  addSlideTitle(s2, pptx, '📊 분석 요약');
-
-  const summaryItems = [
-    { label:'총 사용건수',  value: fmtNumber(d.totalCount)+'건',  color:'1a73e8' },
-    { label:'총 사용금액',  value: fmtNumber(d.totalAmount)+'원', color:'34a853' },
-    { label:'SDWT 수',     value: d.sdwts.length+'개',            color:'fa7b17' },
-    { label:'대분류 수',    value: d.categories.length+'개',      color:'9334e6' },
-    { label:'분석 기간',    value: d.months.length+'개월',        color:'00bcd4' },
+  // 요약
+  const s2 = pptx.addSlide(); addTitle(s2,'📊 분석 요약');
+  const items = [
+    {l:'총 사용건수',v:fmt(d.totalCount)+'건',c:hc},
+    {l:'총 사용금액',v:fmt(d.totalAmount)+'원',c:'34a853'},
+    {l:'SDWT 수',v:d.sdwts.length+'개',c:'fa7b17'},
+    {l:'대분류 수',v:d.categories.length+'개',c:'9334e6'},
+    {l:'분석 기간',v:d.months.length+'개월',c:'00bcd4'},
   ];
-
-  summaryItems.forEach((item, i) => {
-    const x = 0.4 + (i % 3) * 3.1;
-    const y = 1.3 + Math.floor(i / 3) * 1.6;
-    s2.addShape(pptx.ShapeType.rect, { x, y, w:2.8, h:1.3, fill:{color:'f8f9fa'}, line:{color:'dadce0',pt:1}, rectRadius:0.1 });
-    s2.addShape(pptx.ShapeType.rect, { x, y, w:0.08, h:1.3, fill:{color:item.color} });
-    s2.addText(item.label, { x:x+0.18, y:y+0.15, w:2.55, h:0.35, fontSize:11, color:subText });
-    s2.addText(item.value, { x:x+0.18, y:y+0.5,  w:2.55, h:0.6,  fontSize:20, bold:true, color:darkText });
+  items.forEach((it,i) => {
+    const x=0.4+(i%3)*3.1, y=1.1+Math.floor(i/3)*1.6;
+    s2.addShape(pptx.ShapeType.rect,{x,y,w:2.8,h:1.3,fill:{color:'f8f9fa'},line:{color:'dadce0',pt:1}});
+    s2.addShape(pptx.ShapeType.rect,{x,y,w:0.08,h:1.3,fill:{color:it.c}});
+    s2.addText(it.l,{x:x+0.18,y:y+0.18,w:2.55,h:0.3,fontSize:11,color:sc});
+    s2.addText(it.v,{x:x+0.18,y:y+0.55,w:2.55,h:0.55,fontSize:20,bold:true,color:dt});
   });
 
-  // ── 슬라이드 3: 월별 대분류 차트 ──────────
-  const s3 = pptx.addSlide();
-  addSlideTitle(s3, pptx, '📅 월별 대분류 사용건수');
-  const monthlyImg = document.getElementById('monthlyChart').toDataURL('image/png');
-  s3.addImage({ data: monthlyImg, x:0.5, y:1.2, w:9, h:4.0 });
+  // 차트 슬라이드
+  const s3 = pptx.addSlide(); addTitle(s3,'📅 월별 대분류 사용건수');
+  s3.addImage({data:document.getElementById('monthlyChart').toDataURL('image/png'),x:0.4,y:1.0,w:9.2,h:4.3});
+  const s4 = pptx.addSlide(); addTitle(s4,'💰 SDWT별 사용금액');
+  s4.addImage({data:document.getElementById('sdwtChart').toDataURL('image/png'),x:0.4,y:1.0,w:9.2,h:4.3});
 
-  // ── 슬라이드 4: SDWT별 금액 차트 ──────────
-  const s4 = pptx.addSlide();
-  addSlideTitle(s4, pptx, '💰 SDWT별 사용금액 (총액)');
-  const sdwtImg = document.getElementById('sdwtChart').toDataURL('image/png');
-  s4.addImage({ data: sdwtImg, x:0.5, y:1.2, w:9, h:4.0 });
-
-  // ── 슬라이드 5: SDWT × 대분류 테이블 ──────
-  const s5 = pptx.addSlide();
-  addSlideTitle(s5, pptx, '📋 SDWT별 대분류 사용현황');
-
-  const tblRows = [];
-  // 헤더
-  const hdr1 = [{ text:'SDWT', options:{ bold:true, fill:headerColor, color:'FFFFFF', align:'center' } }];
-  d.categories.forEach(c => {
-    hdr1.push({ text:c, options:{ bold:true, fill:headerColor, color:'FFFFFF', align:'center', colspan:2 } });
-    hdr1.push({ text:'', options:{ fill:headerColor } }); // colspan 처리
-  });
-  hdr1.push({ text:'총 금액', options:{ bold:true, fill:headerColor, color:'FFFFFF', align:'center' } });
-  tblRows.push(hdr1);
-
-  const hdr2 = [{ text:'', options:{ fill:'e8eaf6' } }];
-  d.categories.forEach(() => {
-    hdr2.push({ text:'건수', options:{ bold:true, fill:'e8eaf6', align:'center' } });
-    hdr2.push({ text:'금액(원)', options:{ bold:true, fill:'e8eaf6', align:'center' } });
-  });
-  hdr2.push({ text:'', options:{ fill:'e8eaf6' } });
-  tblRows.push(hdr2);
-
-  d.sdwts.forEach((s, ri) => {
-    const row = [{ text: s, options:{ bold:true, color:headerColor } }];
-    d.categories.forEach(c => {
-      const cnt = d.sdwtCatCount[s]?.[c]  || 0;
-      const amt = d.sdwtCatAmount[s]?.[c] || 0;
-      row.push({ text: fmtNumber(cnt), options:{ align:'center', fill: ri%2===0?'ffffff':'f8f9fa' } });
-      row.push({ text: fmtNumber(amt), options:{ align:'right',  fill: ri%2===0?'ffffff':'f8f9fa' } });
+  // SDWT 테이블
+  const s5 = pptx.addSlide(); addTitle(s5,'📋 SDWT별 대분류 사용현황');
+  const rows5 = [[{text:'SDWT',options:{bold:true,fill:hc,color:'FFFFFF',align:'center'}}]];
+  d.categories.forEach(c=>rows5[0].push({text:c,options:{bold:true,fill:hc,color:'FFFFFF',align:'center',colspan:2}},{text:'',options:{fill:hc}}));
+  rows5[0].push({text:'총 금액',options:{bold:true,fill:hc,color:'FFFFFF',align:'center'}});
+  const hdr2=[{text:'',options:{fill:'e8eaf6'}}];
+  d.categories.forEach(()=>{hdr2.push({text:'건수',options:{bold:true,fill:'e8eaf6',align:'center'}},{text:'금액(원)',options:{bold:true,fill:'e8eaf6',align:'center'}});});
+  hdr2.push({text:'',options:{fill:'e8eaf6'}}); rows5.push(hdr2);
+  d.sdwts.forEach((s,ri)=>{
+    const row=[{text:s,options:{bold:true,color:hc}}];
+    d.categories.forEach(c=>{
+      const bg=ri%2===0?'ffffff':'f8f9fa';
+      row.push({text:fmt(d.sCatCnt[s]?.[c]||0),options:{align:'center',fill:bg}},{text:fmt(d.sCatAmt[s]?.[c]||0),options:{align:'right',fill:bg}});
     });
-    row.push({ text: fmtNumber(d.sdwtTotal[s]||0), options:{ bold:true, align:'right', fill: ri%2===0?'ffffff':'f8f9fa' } });
-    tblRows.push(row);
+    row.push({text:fmt(d.sTotal[s]||0),options:{bold:true,align:'right',fill:ri%2===0?'eef2ff':'e8eaf6'}});
+    rows5.push(row);
   });
+  s5.addTable(rows5,{x:0.2,y:1.0,w:9.6,fontSize:9,border:{type:'solid',pt:0.5,color:'dadce0'}});
 
-  s5.addTable(tblRows, {
-    x:0.3, y:1.2, w:9.4,
-    fontSize:10,
-    border:{ type:'solid', pt:0.5, color:'dadce0' },
+  // 월별 테이블
+  const s6 = pptx.addSlide(); addTitle(s6,'📅 월별 대분류 상세 집계');
+  const rows6=[[{text:'월',options:{bold:true,fill:hc,color:'FFFFFF',align:'center'}}]];
+  d.categories.forEach(c=>rows6[0].push({text:c,options:{bold:true,fill:hc,color:'FFFFFF',align:'center'}}));
+  rows6[0].push({text:'합계',options:{bold:true,fill:hc,color:'FFFFFF',align:'center'}});
+  d.months.forEach((m,ri)=>{
+    let rTot=0; const row=[{text:m,options:{bold:true,color:hc}}];
+    d.categories.forEach(c=>{const v=d.mCat[m]?.[c]||0;rTot+=v;row.push({text:fmt(v),options:{align:'center',fill:ri%2===0?'ffffff':'f8f9fa'}});});
+    row.push({text:fmt(rTot),options:{bold:true,align:'center',fill:ri%2===0?'eef2ff':'e8eaf6'}});
+    rows6.push(row);
   });
+  s6.addTable(rows6,{x:0.2,y:1.0,w:9.6,fontSize:9,border:{type:'solid',pt:0.5,color:'dadce0'}});
 
-  // ── 슬라이드 6: 월별 상세 집계 테이블 ──────
-  const s6 = pptx.addSlide();
-  addSlideTitle(s6, pptx, '📅 월별 대분류 상세 집계');
-
-  const tbl2 = [];
-  const hdrM = [{ text:'월', options:{ bold:true, fill:headerColor, color:'FFFFFF', align:'center' } }];
-  d.categories.forEach(c => hdrM.push({ text:c, options:{ bold:true, fill:headerColor, color:'FFFFFF', align:'center' } }));
-  hdrM.push({ text:'합계', options:{ bold:true, fill:headerColor, color:'FFFFFF', align:'center' } });
-  tbl2.push(hdrM);
-
-  d.months.forEach((m, ri) => {
-    let rowTotal = 0;
-    const row = [{ text:m, options:{ bold:true, color:headerColor } }];
-    d.categories.forEach(c => {
-      const v = d.monthCatCount[m]?.[c] || 0;
-      rowTotal += v;
-      row.push({ text: fmtNumber(v), options:{ align:'center', fill: ri%2===0?'ffffff':'f8f9fa' } });
-    });
-    row.push({ text: fmtNumber(rowTotal), options:{ bold:true, align:'center', fill: ri%2===0?'eef2ff':'e8eaf6' } });
-    tbl2.push(row);
-  });
-
-  s6.addTable(tbl2, {
-    x:0.3, y:1.2, w:9.4,
-    fontSize:10,
-    border:{ type:'solid', pt:0.5, color:'dadce0' },
-  });
-
-  // 저장
-  const filename = `부품사용량분석_${d.months[0]||''}~${d.months[d.months.length-1]||''}.pptx`;
-  await pptx.writeFile({ fileName: filename });
-  setStatus('success', `✅ "${filename}" 다운로드 완료`);
+  const fn = `부품사용량분석_${d.months[0]||''}~${d.months[d.months.length-1]||''}.pptx`;
+  await pptx.writeFile({fileName:fn});
+  setStatus('success',`✅ "${fn}" 다운로드 완료`);
 }
 
-function addSlideTitle(slide, pptx, title) {
-  slide.addShape(pptx.ShapeType.rect, { x:0, y:0, w:'100%', h:0.9, fill:{color:'1a73e8'} });
-  slide.addText(title, {
-    x:0.4, y:0.1, w:9.2, h:0.7,
-    fontSize:18, bold:true, color:'FFFFFF',
-    fontFace:'Noto Sans KR'
-  });
-}
-
-/* ═══════════════════════════════════════════════
-   초기화
-═══════════════════════════════════════════════ */
+/* 초기화 */
 function clearAll() {
   document.getElementById('csvInput').value = '';
   document.getElementById('csvInput').classList.remove('filled');
   document.getElementById('colMapSection').style.display = 'none';
-  document.getElementById('results-section').style.display = 'none';
-  document.getElementById('statusBar').classList.remove('show');
-  parsedRows = []; headers = []; analysisData = null;
-  if (chartInstances.monthly) { chartInstances.monthly.destroy(); chartInstances.monthly = null; }
-  if (chartInstances.sdwt)    { chartInstances.sdwt.destroy();    chartInstances.sdwt    = null; }
+  document.getElementById('resultsSection').style.display = 'none';
+  document.getElementById('statusBar').className = 'status-bar';
+  document.getElementById('filterBadge').classList.remove('show');
+  parsedRows=[]; filteredRows=[]; headers=[]; analysisData=null;
+  filterState={sdwts:[],categories:[],dateFrom:null,dateTo:null};
+  if(chartInst.monthly){chartInst.monthly.destroy();chartInst.monthly=null;}
+  if(chartInst.sdwt){chartInst.sdwt.destroy();chartInst.sdwt=null;}
 }
-
-/* ── Chart.js datalabels 전역 등록 해제 (불필요한 레이블 방지) ── */
-Chart.unregister(ChartDataLabels);
 </script>
 </body>
 </html>
