@@ -260,6 +260,77 @@
       body { background:#fff; }
     }
 
+    /* Dark Mode */
+    [data-dark]{--primary:#90caf9;--pd:#64b5f6;--accent:#a5d6a7;--ad:#81c784;--warn:#ef9a9a;--bg:#121212;--card:#1e1e1e;--text:#e0e0e0;--sub:#9e9e9e;--border:#2a2a2a;--shadow:0 2px 12px rgba(0,0,0,.6);}
+    [data-dark] .paste{background:#252525;color:#e0e0e0;}
+    [data-dark] .chat-panel,[data-dark] .chat-hd,[data-dark] .qcmds{background:#1e1e1e;border-color:#2a2a2a;}
+    [data-dark] .msg.bot .bub{background:#2d2d2d;color:#e0e0e0;}
+    [data-dark] thead th{background:#2a2a2a;}
+    [data-dark] tbody tr:hover td{background:#262626;}
+    [data-dark] .qc{background:#252525;color:#ccc;}
+    [data-dark] .hm-table .hm-lbl{background:#2a2a2a;color:#ccc;}
+    [data-dark] .cb,.lbl-btn,.opt-btn{background:#252525;color:#9e9e9e;}
+    [data-dark] .ci2{background:#252525;color:#e0e0e0;border-color:#333;}
+    [data-dark] .modal,[data-dark] .fs-inner,[data-dark] .ss-inner{background:#1e1e1e;color:#e0e0e0;}
+    [data-dark] .mf input,[data-dark] .mf textarea{background:#252525;color:#e0e0e0;border-color:#333;}
+    [data-dark] .hist-item{border-color:#333;}
+    [data-dark] .hist-item:hover{background:#252525;}
+    [data-dark] .fav-chip{background:#252525;color:#ccc;border-color:#333;}
+
+    /* Theme Swatches */
+    .dk-btn{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);border-radius:12px;padding:4px 10px;color:#fff;font-size:11px;cursor:pointer;transition:all .15s;}
+    .dk-btn:hover{background:rgba(255,255,255,.28);}
+    .th-swatch{width:17px;height:17px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:all .15s;flex-shrink:0;}
+    .th-swatch.active{border-color:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.6);}
+    .hdr-tools{display:flex;align-items:center;gap:7px;margin-left:12px;}
+
+    /* Treemap */
+    .tm-wrap{position:relative;height:290px;}
+    #tmCanvas{display:block;cursor:crosshair;}
+    .tm-legend{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+    .tm-li{display:flex;align-items:center;gap:4px;font-size:11px;}
+    .tm-dot{width:10px;height:10px;border-radius:2px;flex-shrink:0;}
+
+    /* Waterfall / Scatter / Pareto */
+    .wf-wrap,.scat-wrap,.pareto-wrap{position:relative;height:250px;}
+
+    /* Option buttons (MA, Trend, Quarterly) */
+    .opt-row{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px;}
+    .opt-btn{padding:3px 10px;border:1.5px solid var(--border);border-radius:12px;background:#fff;font-size:10.5px;font-weight:600;cursor:pointer;color:var(--sub);transition:all .15s;white-space:nowrap;}
+    .opt-btn.on{background:#e8f0fe;border-color:var(--primary);color:var(--pd);}
+    .opt-btn.red.on{background:#fce8e6;border-color:#ea4335;color:#c62828;}
+    .opt-btn.grn.on{background:#e6f4ea;border-color:var(--accent);color:var(--ad);}
+
+    /* Top N */
+    .topn-row{display:flex;align-items:center;gap:6px;margin-top:6px;}
+    .topn-inp{width:52px;padding:3px 7px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;outline:none;text-align:center;background:#fff;color:var(--text);}
+    .topn-inp:focus{border-color:var(--primary);}
+
+    /* Slideshow */
+    .ss-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.93);z-index:400;align-items:center;justify-content:center;}
+    .ss-modal.show{display:flex;}
+    .ss-inner{background:#fff;border-radius:14px;width:min(96vw,1020px);height:min(90vh,700px);display:flex;flex-direction:column;padding:20px 24px;}
+    .ss-hd{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-shrink:0;}
+    .ss-title{font-size:15px;font-weight:700;flex:1;}
+    .ss-counter{font-size:12px;color:var(--sub);white-space:nowrap;}
+    .ss-body{flex:1;overflow:auto;min-height:0;}
+    .ss-auto{padding:4px 10px;border:1.5px solid var(--border);border-radius:10px;background:#fff;font-size:11px;font-weight:600;cursor:pointer;}
+    .ss-auto.on{background:var(--accent);color:#fff;border-color:var(--accent);}
+    .ss-close{background:none;border:none;font-size:22px;cursor:pointer;color:var(--sub);padding:0 4px;}
+    .ss-close:hover{background:#f1f3f4;border-radius:6px;}
+
+    /* Drag & Drop */
+    .card.drag-over{outline:2px dashed var(--primary);outline-offset:2px;}
+    .dh{font-size:13px;color:var(--sub);opacity:.4;cursor:grab;padding:0 3px;user-select:none;line-height:1;}
+    .dh:hover{opacity:.9;}
+
+    /* Watermark */
+    .wm-row{display:flex;align-items:center;gap:8px;padding:10px 14px;background:#f8f9fa;border-radius:8px;margin-top:12px;}
+    .wm-inp{flex:1;padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12.5px;outline:none;background:#fff;color:var(--text);}
+    .wm-inp:focus{border-color:var(--primary);}
+    [data-dark] .wm-row{background:#252525;}
+    [data-dark] .wm-inp{background:#2a2a2a;color:#e0e0e0;}
+
     /* Data Label Toggle */
     .lbl-btn { padding:4px 10px; border:1.5px solid var(--border); border-radius:14px; background:#fff; font-size:11px; font-weight:600; cursor:pointer; color:var(--sub); transition:all .15s; white-space:nowrap; }
     .lbl-btn.on { background:#fff3e0; border-color:#ffb300; color:#e65100; }
@@ -290,6 +361,15 @@
     <p>CSV 붙여넣기 → 분석 → 채팅 명령으로 실시간 탐색</p>
   </div>
   <div class="hbadge"><div class="dot"></div>무료 명령어 모드</div>
+  <div class="hdr-tools">
+    <button class="dk-btn" id="dkBtn" onclick="toggleDarkMode()">🌙 다크</button>
+    <div class="th-swatch active" data-theme="blue" style="background:#1a73e8" onclick="setTheme('blue')" title="Blue"></div>
+    <div class="th-swatch" data-theme="warm" style="background:#e53935" onclick="setTheme('warm')" title="Warm"></div>
+    <div class="th-swatch" data-theme="cool" style="background:#00897b" onclick="setTheme('cool')" title="Cool"></div>
+    <div class="th-swatch" data-theme="pastel" style="background:#90caf9" onclick="setTheme('pastel')" title="Pastel"></div>
+    <button class="dk-btn" onclick="openSlideshow()">▶ 슬라이드</button>
+    <button class="dk-btn" onclick="shareURL()">🔗 공유</button>
+  </div>
 </header>
 
 <div class="app">
@@ -373,6 +453,16 @@
             </div>
           </div>
           <div class="cw"><canvas id="mc"></canvas></div>
+          <div class="opt-row">
+            <button class="opt-btn" id="maBtn" onclick="toggleMA()">📈 이동평균</button>
+            <button class="opt-btn grn" id="trendBtn" onclick="toggleTrend()">📉 추세선</button>
+            <button class="opt-btn" id="qtrBtn" onclick="toggleQuarterly()">🗓️ 분기 집계</button>
+          </div>
+          <div class="topn-row">
+            <span style="font-size:11px;color:var(--sub)">상위</span>
+            <input class="topn-inp" type="number" id="topNM" min="1" max="50" value="10" oninput="applyTopN('m')">
+            <span style="font-size:11px;color:var(--sub)">개 대분류</span>
+          </div>
           <div style="display:flex;gap:7px;margin-top:10px;flex-wrap:wrap">
             <button class="btn bo bsm" onclick="copyChart('mc','월별 대분류 사용건수')">📎 PPT 복사</button>
             <button class="btn bo bsm" onclick="openFull('m','월별 대분류 사용건수')">⛶ 전체화면</button>
@@ -390,6 +480,11 @@
             </div>
           </div>
           <div class="cw"><canvas id="sc2"></canvas></div>
+          <div class="topn-row">
+            <span style="font-size:11px;color:var(--sub)">상위</span>
+            <input class="topn-inp" type="number" id="topNS" min="1" max="50" value="10" oninput="applyTopN('s')">
+            <span style="font-size:11px;color:var(--sub)">개 SDWT</span>
+          </div>
           <div style="display:flex;gap:7px;margin-top:10px;flex-wrap:wrap">
             <button class="btn bo bsm" onclick="copyChart('sc2','SDWT별 사용금액')">📎 PPT 복사</button>
             <button class="btn bo bsm" onclick="openFull('s','SDWT별 사용금액')">⛶ 전체화면</button>
@@ -412,6 +507,34 @@
         <div class="hm-wrap" id="hmWrap"><div style="color:var(--sub);font-size:12px;padding:12px 0">분석 후 표시됩니다.</div></div>
       </div>
 
+      <!-- Waterfall Chart -->
+      <div class="card" id="wfCard" style="display:none">
+        <div class="ch">
+          <div class="ct" style="margin:0">📊 월별 금액 폭포수 차트</div>
+          <button class="btn bo bsm" onclick="document.getElementById('wfCard').style.display='none'">✕</button>
+        </div>
+        <div class="wf-wrap"><canvas id="wfCanvas"></canvas></div>
+      </div>
+
+      <!-- Scatter Chart -->
+      <div class="card" id="scatCard" style="display:none">
+        <div class="ch">
+          <div class="ct" style="margin:0">📍 SDWT별 건수 vs 금액 산점도</div>
+          <button class="btn bo bsm" onclick="document.getElementById('scatCard').style.display='none'">✕</button>
+        </div>
+        <div class="scat-wrap"><canvas id="scatCanvas"></canvas></div>
+      </div>
+
+      <!-- Treemap -->
+      <div class="card" id="tmCard" style="display:none">
+        <div class="ch">
+          <div class="ct" style="margin:0">🗂️ 대분류 트리맵</div>
+          <button class="btn bo bsm" onclick="document.getElementById('tmCard').style.display='none'">✕</button>
+        </div>
+        <div class="tm-wrap"><canvas id="tmCanvas"></canvas></div>
+        <div class="tm-legend" id="tmLegend"></div>
+      </div>
+
       <!-- SDWT Table -->
       <div class="card">
         <div class="ch">
@@ -428,6 +551,24 @@
           <button class="btn bo bsm" onclick="copyTbl('tw2','월별 상세 집계')">📎 PPT 복사</button>
         </div>
         <div class="tw" id="tw2"></div>
+      </div>
+
+      <!-- Pareto Chart -->
+      <div class="card" id="paretoCard" style="display:none">
+        <div class="ch">
+          <div class="ct" style="margin:0">📊 대분류 파레토 분석 (80/20 법칙)</div>
+          <button class="btn bo bsm" onclick="document.getElementById('paretoCard').style.display='none'">✕</button>
+        </div>
+        <div class="pareto-wrap"><canvas id="paretoCanvas"></canvas></div>
+      </div>
+
+      <!-- Seasonality -->
+      <div class="card" id="seasonCard" style="display:none">
+        <div class="ch">
+          <div class="ct" style="margin:0">🌊 월별 계절성 분석</div>
+          <button class="btn bo bsm" onclick="document.getElementById('seasonCard').style.display='none'">✕</button>
+        </div>
+        <div id="seasonResult"></div>
       </div>
 
       <!-- Quality Report -->
@@ -467,12 +608,24 @@
           <button class="btn bo" style="font-size:14px;padding:11px 22px" onclick="openMailModal()">📧 메일 보내기</button>
         </div>
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:10px">
+          <button class="btn bo bsm" onclick="dlCSV()">📄 CSV 저장</button>
           <button class="btn bo bsm" onclick="showBudgetCard()">🎯 예산 비교</button>
           <button class="btn bo bsm" onclick="showAnomalies()">🚨 이상치 감지</button>
           <button class="btn bo bsm" onclick="showYoY()">📅 전년 동기 비교</button>
           <button class="btn bo bsm" onclick="showHistoryCard()">🕐 히스토리</button>
           <button class="btn bo bsm" onclick="showFavCard()">⭐ 즐겨찾기</button>
           <button class="btn bo bsm" onclick="saveHistory()">💾 현재 분석 저장</button>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:10px">
+          <button class="btn bo bsm" onclick="showPareto()">📊 파레토 분석</button>
+          <button class="btn bo bsm" onclick="showSeasonality()">🌊 계절성 분석</button>
+          <button class="btn bo bsm" onclick="showWfCard()">📊 폭포수 차트</button>
+          <button class="btn bo bsm" onclick="showScatCard()">📍 산점도</button>
+          <button class="btn bo bsm" onclick="showTmCard()">🗂️ 트리맵</button>
+        </div>
+        <div class="wm-row">
+          <span style="font-size:11.5px;font-weight:700;color:var(--sub);white-space:nowrap">🔖 워터마크</span>
+          <input class="wm-inp" type="text" id="wmInput" placeholder="PPT·트리맵에 삽입할 텍스트 (예: Confidential)" oninput="updateWatermark()">
         </div>
       </div>
     </div>
@@ -494,8 +647,12 @@
       <div class="qc" onclick="q('대분류 사용건수 순위')">📦 건수 순위</div>
       <div class="qc" onclick="q('월별 추이 분석해줘')">📈 월별 추이</div>
       <div class="qc" onclick="q('이상치 감지해줘')">🚨 이상치</div>
+      <div class="qc" onclick="q('파레토 분석')">📊 파레토</div>
+      <div class="qc" onclick="q('계절성 분석')">🌊 계절성</div>
+      <div class="qc" onclick="q('트리맵 보여줘')">🗂️ 트리맵</div>
       <div class="qc" onclick="q('전년 동기 비교')">📅 전년비교</div>
       <div class="qc" onclick="q('데이터 품질 검사')">🔍 품질</div>
+      <div class="qc" onclick="q('다크모드')">🌙 다크</div>
       <div class="qc" onclick="q('필터 초기화')">🔄 필터 해제</div>
       <div class="qc" onclick="q('도움말')">❓ 도움말</div>
     </div>
@@ -528,6 +685,21 @@
   </div>
 
 </div><!-- /app -->
+
+<!-- Slideshow Modal -->
+<div class="ss-modal" id="ssModal" onclick="if(event.target===this)closeSlideshow()">
+  <div class="ss-inner">
+    <div class="ss-hd">
+      <button class="ss-auto" id="ssAuto" onclick="toggleSSAuto()">▶ 자동</button>
+      <div class="ss-title" id="ssTitle">슬라이드쇼</div>
+      <div class="ss-counter" id="ssCounter">1 / 6</div>
+      <button class="btn bo bsm" onclick="ssGo(-1)">◀ 이전</button>
+      <button class="btn bo bsm" onclick="ssGo(1)">다음 ▶</button>
+      <button class="ss-close" onclick="closeSlideshow()">✕</button>
+    </div>
+    <div class="ss-body" id="ssBody"></div>
+  </div>
+</div>
 
 <!-- Fullscreen Chart Modal -->
 <div class="fs-modal" id="fsModal" onclick="if(event.target===this)closeFull()">
@@ -579,12 +751,22 @@
 let rows = [], frows = [], headers = [], data = null;
 let fs   = { sdwts:[], cats:[], from:null, to:null };
 let ci   = { m:'bar', s:'doughnut' };
-let ch   = { m:null, s:null };
+let ch   = { m:null, s:null, wf:null, scat:null, pareto:null };
 let showLabels = false;
+let showMA = false, maPeriod = 3;
+let showTrend = false, trendMonths = 3;
+let viewMode = 'month';
+let topNM = 10, topNS = 10;
+let watermarkText = '';
+let ssIdx = 0, ssTimer = null;
 
-const C = ['#1a73e8','#34a853','#fa7b17','#ea4335','#9334e6',
-           '#00bcd4','#ff6f00','#2e7d32','#ad1457','#1565c0',
-           '#558b2f','#6a1b9a','#00838f','#4e342e','#37474f'];
+const THEMES = {
+  blue:  ['#1a73e8','#34a853','#fa7b17','#ea4335','#9334e6','#00bcd4','#ff6f00','#2e7d32','#ad1457','#1565c0','#558b2f','#6a1b9a','#00838f','#4e342e','#37474f'],
+  warm:  ['#e53935','#fb8c00','#fdd835','#e91e63','#ff5722','#f4511e','#bf360c','#c62828','#ad1457','#d81b60','#6a1b9a','#4a148c','#880e4f','#b71c1c','#e65100'],
+  cool:  ['#1565c0','#0097a7','#00897b','#43a047','#7cb342','#039be5','#00acc1','#00bcd4','#26a69a','#66bb6a','#0288d1','#0277bd','#01579b','#00695c','#1b5e20'],
+  pastel:['#90caf9','#a5d6a7','#ffcc80','#ef9a9a','#ce93d8','#80deea','#ffab40','#a5d6a7','#f48fb1','#81d4fa','#c5e1a5','#b39ddb','#80cbc4','#bcaaa4','#b0bec5'],
+};
+let C = [...THEMES.blue];
 
 /* ══════════════════════════════════════
    UTILS
@@ -819,6 +1001,7 @@ function doAnalyze(){
 function renderAll(d){
   renderSummary(d); renderMChart(d,ci.m); renderSChart(d,ci.s);
   renderHeatmap(d); renderSdwtTbl(d); renderMonthTbl(d);
+  renderWaterfall(d); renderScatter(d); renderTreemap(d);
 }
 
 function renderSummary(d){
@@ -834,16 +1017,46 @@ function renderMChart(d,type){
   const ctx=document.getElementById('mc').getContext('2d');
   if(ch.m){ch.m.destroy();ch.m=null;}
   const isR=type==='radar';
-  const ds=d.cats.map((c,i)=>({
-    label:c, data:d.months.map(m=>d.mCat[m]?.[c]||0),
+  const isPie=['pie','doughnut','polarArea'].includes(type);
+
+  // Top N filter
+  const cTot={};
+  d.cats.forEach(c=>{cTot[c]=d.months.reduce((s,m)=>s+(d.mCat[m]?.[c]||0),0);});
+  const activeCats=[...d.cats].sort((a,b)=>cTot[b]-cTot[a]).slice(0,topNM);
+
+  // Quarterly vs monthly
+  let labels,mCatV;
+  if(viewMode==='quarter'&&!isR&&!isPie){
+    const{quarters,qMap}=getQuarterData(d);
+    labels=quarters; mCatV=qMap;
+  } else { labels=d.months; mCatV=d.mCat; }
+
+  const ds=activeCats.map((c,i)=>({
+    label:c, data:labels.map(m=>mCatV[m]?.[c]||0),
     backgroundColor:C[i%C.length]+(type==='line'?'33':'cc'),
     borderColor:C[i%C.length], borderWidth:2, tension:.35,
     fill:type==='line', pointRadius:4
   }));
+
+  // Moving Average overlay
+  if(showMA&&!isR&&!isPie&&labels.length>1){
+    const tot=labels.map(m=>activeCats.reduce((s,c)=>s+(mCatV[m]?.[c]||0),0));
+    const maData=tot.map((_,i)=>{const sl=tot.slice(Math.max(0,i-maPeriod+1),i+1);return sl.reduce((a,b)=>a+b,0)/sl.length;});
+    ds.push({label:`이동평균(${maPeriod})`,data:maData,borderColor:'#ff6f00',backgroundColor:'transparent',borderWidth:2.5,borderDash:[6,3],tension:.4,pointRadius:3,fill:false,type:'line',datalabels:{display:false}});
+  }
+
+  // Trend/prediction overlay
+  if(showTrend&&!isR&&!isPie&&labels.length>=2){
+    const tot=labels.map(m=>activeCats.reduce((s,c)=>s+(mCatV[m]?.[c]||0),0));
+    const{slope,intercept}=linearRegression(tot.map((_,i)=>i),tot);
+    const trendData=tot.map((_,i)=>Math.max(0,slope*i+intercept));
+    ds.push({label:'추세선',data:trendData,borderColor:'#9334e6',backgroundColor:'transparent',borderWidth:2,borderDash:[4,4],tension:0,pointRadius:0,fill:false,type:'line',datalabels:{display:false}});
+  }
+
   ch.m=new Chart(ctx,{
     type, data:{
-      labels:isR?d.cats:d.months,
-      datasets:isR?d.months.map((m,i)=>({label:m,data:d.cats.map(c=>d.mCat[m]?.[c]||0),backgroundColor:C[i%C.length]+'44',borderColor:C[i%C.length],borderWidth:2})):ds
+      labels:isR?activeCats:labels,
+      datasets:isR?labels.map((m,i)=>({label:m,data:activeCats.map(c=>mCatV[m]?.[c]||0),backgroundColor:C[i%C.length]+'44',borderColor:C[i%C.length],borderWidth:2})):ds
     },
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{
@@ -851,7 +1064,7 @@ function renderMChart(d,type){
         tooltip:{callbacks:{label:x=>` ${x.dataset.label}: ${fmt(x.raw)}건`}},
         datalabels:{display:showLabels,color:type==='bar'?'#fff':'#333',font:{size:9,weight:'bold'},formatter:v=>v>0?fmt(v):null,anchor:type==='bar'?'center':'end',align:type==='bar'?'center':'end',clamp:true}
       },
-      scales:(isR||['pie','doughnut','polarArea'].includes(type))?{}:{x:{stacked:type==='bar',grid:{display:false}},y:{stacked:type==='bar',beginAtZero:true,ticks:{callback:v=>fmt(v)}}}
+      scales:(isR||isPie)?{}:{x:{stacked:type==='bar',grid:{display:false}},y:{stacked:type==='bar',beginAtZero:true,ticks:{callback:v=>fmt(v)}}}
     },
     plugins:[ChartDataLabels]
   });
@@ -861,9 +1074,10 @@ function renderSChart(d,type){
   const ctx=document.getElementById('sc2').getContext('2d');
   if(ch.s){ch.s.destroy();ch.s=null;}
   const isB=type==='bar';
-  const bgs=d.sdwts.map((_,i)=>C[i%C.length]+'cc');
+  const activeSdwts=[...d.sdwts].sort((a,b)=>(d.sTotal[b]||0)-(d.sTotal[a]||0)).slice(0,topNS);
+  const bgs=activeSdwts.map((_,i)=>C[i%C.length]+'cc');
   ch.s=new Chart(ctx,{
-    type, data:{labels:d.sdwts,datasets:[{label:'총 사용금액(원)',data:d.sdwts.map(s=>d.sTotal[s]||0),backgroundColor:bgs,borderColor:bgs.map(c=>c.slice(0,-2)),borderWidth:2}]},
+    type, data:{labels:activeSdwts,datasets:[{label:'총 사용금액(원)',data:activeSdwts.map(s=>d.sTotal[s]||0),backgroundColor:bgs,borderColor:bgs.map(c=>c.slice(0,-2)),borderWidth:2}]},
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{
         legend:{position:isB?'bottom':'right',labels:{font:{size:10}}},
@@ -980,8 +1194,11 @@ function parseCmd(txt){
       <li><strong>필터 해제</strong>: "초기화", "전체 보여줘", "필터 해제"</li>
       <li><strong>차트 변경</strong>: "막대로 바꿔줘", "꺾은선으로", "파이로", "도넛으로"</li>
       <li><strong>분석</strong>: "요약", "SDWT 순위", "대분류 순위", "월별 추이", "비교"</li>
-      <li><strong>신규</strong>: "이상치 감지", "전년 동기 비교", "예산 비교", "품질 검사"</li>
-      <li><strong>내보내기</strong>: "엑셀 저장", "인쇄", "히스토리", "즐겨찾기"</li>
+      <li><strong>신규 분석</strong>: "이상치", "전년 동기 비교", "예산 비교", "품질 검사"</li>
+      <li><strong>고급 차트</strong>: "파레토 분석", "계절성 분석", "폭포수 차트", "산점도", "트리맵"</li>
+      <li><strong>차트 오버레이</strong>: "이동평균", "추세선", "분기 집계"</li>
+      <li><strong>UI</strong>: "다크모드", "슬라이드쇼", "공유 링크"</li>
+      <li><strong>내보내기</strong>: "엑셀 저장", "CSV 저장", "인쇄", "히스토리", "즐겨찾기"</li>
     </ul>`);
   }
 
@@ -1098,8 +1315,20 @@ function parseCmd(txt){
   if(/즐겨찾기|favorite|북마크|저장필터/.test(lo)){ showFavCard(); return bot('즐겨찾기 필터를 표시했습니다.','즐겨찾기'); }
   if(/예산|budget|목표|달성/.test(lo)){ showBudgetCard(); return bot('예산 목표 비교 카드를 열었습니다. 예산을 입력하면 달성률을 표시합니다.','예산 비교'); }
   if(/엑셀|excel|xlsx|스프레드/.test(lo)){ dlExcel(); return bot('Excel 파일을 다운로드했습니다.','Excel 저장'); }
+  if(/csv저장|csv다운|csv파일/.test(lo)){ dlCSV(); return bot('CSV 파일을 다운로드했습니다.','CSV 저장'); }
   if(/인쇄|print|pdf/.test(lo)){ printReport(); return bot('인쇄 다이얼로그를 열었습니다. PDF로 저장하려면 "PDF로 저장"을 선택하세요.','인쇄'); }
   if(/히트맵|heatmap|열지도/.test(lo)){ document.getElementById('hmWrap')?.scrollIntoView({behavior:'smooth'}); return bot('히트맵 차트로 이동했습니다.','히트맵'); }
+  if(/파레토|pareto|8020|80\/20/.test(lo)){ showPareto(); return bot('파레토 분석 차트를 표시했습니다.','파레토 분석'); }
+  if(/계절성|계절|seasonality|시즌/.test(lo)){ showSeasonality(); return bot('월별 계절성 분석을 표시했습니다.','계절성 분석'); }
+  if(/폭포수|waterfall|누적금액/.test(lo)){ showWfCard(); return bot('월별 금액 폭포수 차트를 표시했습니다.','폭포수 차트'); }
+  if(/산점도|scatter|산포도/.test(lo)){ showScatCard(); return bot('건수 vs 금액 산점도를 표시했습니다.','산점도'); }
+  if(/트리맵|treemap|사각형차트/.test(lo)){ showTmCard(); return bot('대분류 트리맵을 표시했습니다.','트리맵'); }
+  if(/이동평균|movingavg|ma/.test(lo)){ toggleMA(); return bot(`이동평균 오버레이를 ${showMA?'켰습니다':'껐습니다'}.`,'이동평균'); }
+  if(/추세선|추세|trendline/.test(lo)){ toggleTrend(); return bot(`추세선을 ${showTrend?'켰습니다':'껐습니다'}.`,'추세선'); }
+  if(/분기집계|분기보기|쿼터|quarter/.test(lo)){ toggleQuarterly(); return bot(`분기 집계를 ${viewMode==='quarter'?'켰습니다':'껐습니다'}.`,'분기 집계'); }
+  if(/다크모드|다크|darkmode|어둡게/.test(lo)){ toggleDarkMode(); return bot('다크/라이트 모드를 전환했습니다.','다크모드'); }
+  if(/슬라이드|slideshow|발표/.test(lo)){ openSlideshow(); return bot('슬라이드쇼를 시작했습니다.','슬라이드쇼'); }
+  if(/공유|링크|shareurl/.test(lo)){ shareURL(); return bot('현재 필터 상태를 공유 링크로 복사했습니다.','URL 공유'); }
 
   if(/요약|overview|현황|통계|전체/.test(lo)){ showSummary(); return bot('전체 데이터 요약을 표시했습니다.','요약'); }
 
@@ -1386,6 +1615,12 @@ async function dlPPT(){
   });
   s6.addTable(r6,{x:.2,y:1.0,w:9.6,fontSize:9,border:{type:'solid',pt:.5,color:'dadce0'}});
 
+  // Watermark on each slide
+  if(watermarkText){
+    pptx.slides.forEach(s=>{
+      s.addText(watermarkText,{x:.1,y:5.3,w:9.8,h:.28,fontSize:9,color:'aaaaaa',align:'center',italic:true});
+    });
+  }
   const fn=`부품사용량분석_${d.months[0]||''}~${d.months[d.months.length-1]||''}.pptx`;
   await pptx.writeFile({fileName:fn});
   setStatus('success',`✅ "${fn}" 다운로드 완료`);
@@ -1860,6 +2095,367 @@ async function copyMailContent(){
   }catch(e){alert('복사 실패: '+e.message);}
 }
 
+/* ══════════════════════════════════════
+   LINEAR REGRESSION
+══════════════════════════════════════ */
+function linearRegression(xs,ys){
+  const n=xs.length; if(n<2) return{slope:0,intercept:ys[0]||0};
+  const mx=xs.reduce((a,b)=>a+b,0)/n, my=ys.reduce((a,b)=>a+b,0)/n;
+  const num=xs.reduce((s,x,i)=>s+(x-mx)*(ys[i]-my),0);
+  const den=xs.reduce((s,x)=>s+(x-mx)**2,0);
+  const slope=den?num/den:0;
+  return{slope,intercept:my-slope*mx};
+}
+
+/* ══════════════════════════════════════
+   QUARTERLY AGGREGATION
+══════════════════════════════════════ */
+function getQuarterData(d){
+  const qMap={};
+  d.months.forEach(m=>{
+    const y=m.slice(0,4), mo=parseInt(m.slice(5));
+    const q=`${y}-Q${Math.ceil(mo/3)}`;
+    if(!qMap[q]) qMap[q]={};
+    d.cats.forEach(c=>{qMap[q][c]=(qMap[q][c]||0)+(d.mCat[m]?.[c]||0);});
+  });
+  return{quarters:Object.keys(qMap).sort(),qMap};
+}
+
+/* ══════════════════════════════════════
+   TREEMAP LAYOUT (slice-and-dice)
+══════════════════════════════════════ */
+function sliceDice(items,x,y,w,h,horiz,rects){
+  if(!items.length) return;
+  if(items.length===1){rects[items[0].i]={x,y,w,h};return;}
+  const total=items.reduce((s,it)=>s+it.r,0);
+  let cum=0,split=1;
+  for(let i=0;i<items.length;i++){cum+=items[i].r;if(cum>=total/2){split=i+1;break;}}
+  const a=items.slice(0,split),b=items.slice(split);
+  const aSum=a.reduce((s,it)=>s+it.r,0);
+  if(horiz){const aw=w*aSum/total;sliceDice(a,x,y,aw,h,!horiz,rects);sliceDice(b,x+aw,y,w-aw,h,!horiz,rects);}
+  else{const ah=h*aSum/total;sliceDice(a,x,y,w,ah,!horiz,rects);sliceDice(b,x,y+ah,w,h-ah,!horiz,rects);}
+}
+
+/* ══════════════════════════════════════
+   RENDER TREEMAP
+══════════════════════════════════════ */
+function renderTreemap(d){
+  const card=document.getElementById('tmCard');
+  if(!card||card.style.display==='none') return;
+  if(!d||!d.cats.length) return;
+  const canvas=document.getElementById('tmCanvas');
+  const wrap=canvas.closest('.tm-wrap');
+  canvas.width=wrap.offsetWidth||600; canvas.height=290;
+  const ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  const cTot={};
+  d.cats.forEach(c=>{cTot[c]=d.months.reduce((s,m)=>s+(d.mCat[m]?.[c]||0),0);});
+  const total=Object.values(cTot).reduce((a,b)=>a+b,0);
+  if(!total) return;
+  const sorted=[...d.cats].map((c,i)=>({c,v:cTot[c],color:C[i%C.length]})).sort((a,b)=>b.v-a.v);
+  const rects=new Array(sorted.length).fill(null).map(()=>({x:0,y:0,w:0,h:0}));
+  sliceDice(sorted.map((s,i)=>({r:s.v/total,i})),0,0,canvas.width,canvas.height,true,rects);
+  sorted.forEach((item,i)=>{
+    const r=rects[i]; if(!r) return;
+    ctx.fillStyle=item.color+'cc';
+    ctx.fillRect(r.x,r.y,r.w,r.h);
+    ctx.strokeStyle='#fff'; ctx.lineWidth=2;
+    ctx.strokeRect(r.x,r.y,r.w,r.h);
+    const minD=Math.min(r.w,r.h);
+    if(minD>24){
+      ctx.fillStyle='#fff';
+      ctx.font=`bold ${Math.min(13,minD/3)}px 'Segoe UI',sans-serif`;
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      const cx=r.x+r.w/2, cy=r.y+r.h/2;
+      const lbl=item.c.length>10?item.c.slice(0,9)+'…':item.c;
+      ctx.fillText(lbl,cx,cy-(minD>48?8:0));
+      if(minD>48){
+        ctx.font=`${Math.min(10,minD/4)}px 'Segoe UI',sans-serif`;
+        ctx.fillText(fmt(item.v)+'건',cx,cy+10);
+      }
+    }
+  });
+  if(watermarkText){
+    ctx.save(); ctx.globalAlpha=.12; ctx.font='bold 26px sans-serif';
+    ctx.fillStyle='#666'; ctx.textAlign='center';
+    ctx.translate(canvas.width/2,canvas.height/2); ctx.rotate(-.3);
+    ctx.fillText(watermarkText,0,0); ctx.restore();
+  }
+  const leg=document.getElementById('tmLegend');
+  if(leg) leg.innerHTML=sorted.slice(0,12).map(it=>`<div class="tm-li"><div class="tm-dot" style="background:${it.color}"></div>${esc(it.c)}: ${fmt(it.v)}</div>`).join('');
+}
+
+/* ══════════════════════════════════════
+   RENDER WATERFALL
+══════════════════════════════════════ */
+function renderWaterfall(d){
+  const card=document.getElementById('wfCard');
+  if(!card||card.style.display==='none') return;
+  const ctx=document.getElementById('wfCanvas').getContext('2d');
+  if(ch.wf){ch.wf.destroy();ch.wf=null;}
+  const months=d.months, amts=months.map(m=>d.mAmt?.[m]||0);
+  let cum=0;
+  const floatData=amts.map(v=>{const bar=[cum,cum+v];cum+=v;return bar;});
+  const colors=amts.map(v=>v>=0?'#34a853cc':'#ea4335cc');
+  ch.wf=new Chart(ctx,{
+    type:'bar',
+    data:{labels:months,datasets:[{label:'월별 사용금액',data:floatData,backgroundColor:colors,borderColor:colors.map(c=>c.slice(0,-2)),borderWidth:1.5}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},datalabels:{display:showLabels,color:'#333',font:{size:9,weight:'bold'},formatter:v=>fmt(v[1]-v[0]),anchor:'end',align:'end',clamp:true},
+        tooltip:{callbacks:{label:x=>` ${fmt(x.raw[1]-x.raw[0])}원`}}},
+      scales:{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>fmt(v)}}}
+    },
+    plugins:[ChartDataLabels]
+  });
+}
+
+/* ══════════════════════════════════════
+   RENDER SCATTER
+══════════════════════════════════════ */
+function renderScatter(d){
+  const card=document.getElementById('scatCard');
+  if(!card||card.style.display==='none') return;
+  const ctx=document.getElementById('scatCanvas').getContext('2d');
+  if(ch.scat){ch.scat.destroy();ch.scat=null;}
+  const pts=d.sdwts.map((s,i)=>{
+    const cnt=d.cats.reduce((a,c)=>a+(d.sCnt[s]?.[c]||0),0);
+    return{label:s,data:[{x:cnt,y:d.sTotal[s]||0}],backgroundColor:C[i%C.length]+'cc',borderColor:C[i%C.length],borderWidth:2,pointRadius:9,pointHoverRadius:11};
+  });
+  ch.scat=new Chart(ctx,{
+    type:'scatter',
+    data:{datasets:pts},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{position:'bottom',labels:{font:{size:10}}},
+        tooltip:{callbacks:{label:x=>` ${x.dataset.label}: ${fmt(x.raw.x)}건 / ${fmt(x.raw.y)}원`}},
+        datalabels:{display:true,color:'#333',font:{size:9,weight:'bold'},formatter:(_,dc)=>dc.dataset.label,anchor:'end',align:'right',clamp:true}
+      },
+      scales:{
+        x:{title:{display:true,text:'총 사용건수'},ticks:{callback:v=>fmt(v)}},
+        y:{title:{display:true,text:'총 사용금액(원)'},ticks:{callback:v=>fmt(v)}}
+      }
+    },
+    plugins:[ChartDataLabels]
+  });
+}
+
+/* ══════════════════════════════════════
+   SHOW/HIDE NEW CHART CARDS
+══════════════════════════════════════ */
+function showWfCard(){
+  if(!data){toast('분석을 먼저 완료해 주세요.');return;}
+  const el=document.getElementById('wfCard');
+  el.style.display='block'; el.scrollIntoView({behavior:'smooth'});
+  renderWaterfall(data);
+}
+function showScatCard(){
+  if(!data){toast('분석을 먼저 완료해 주세요.');return;}
+  const el=document.getElementById('scatCard');
+  el.style.display='block'; el.scrollIntoView({behavior:'smooth'});
+  renderScatter(data);
+}
+function showTmCard(){
+  if(!data){toast('분석을 먼저 완료해 주세요.');return;}
+  const el=document.getElementById('tmCard');
+  el.style.display='block'; el.scrollIntoView({behavior:'smooth'});
+  setTimeout(()=>renderTreemap(data),50);
+}
+
+/* ══════════════════════════════════════
+   PARETO CHART
+══════════════════════════════════════ */
+function showPareto(){
+  if(!data){toast('분석을 먼저 완료해 주세요.');return;}
+  const card=document.getElementById('paretoCard');
+  card.style.display='block'; card.scrollIntoView({behavior:'smooth'});
+  if(ch.pareto){ch.pareto.destroy();ch.pareto=null;}
+  const cTot={};
+  data.cats.forEach(c=>{cTot[c]=data.months.reduce((s,m)=>s+(data.mCat[m]?.[c]||0),0);});
+  const sorted=[...data.cats].map(c=>({c,v:cTot[c]})).sort((a,b)=>b.v-a.v);
+  const total=sorted.reduce((s,it)=>s+it.v,0);
+  let cum=0;
+  const cumPct=sorted.map(it=>{cum+=it.v;return total?(cum/total*100):0;});
+  const ctx=document.getElementById('paretoCanvas').getContext('2d');
+  ch.pareto=new Chart(ctx,{
+    type:'bar',
+    data:{labels:sorted.map(it=>it.c),datasets:[
+      {type:'bar',label:'사용건수',data:sorted.map(it=>it.v),backgroundColor:C.map(c=>c+'cc'),borderColor:C,borderWidth:1.5,yAxisID:'y',
+        datalabels:{display:showLabels,color:'#333',font:{size:9,weight:'bold'},formatter:v=>fmt(v),anchor:'end',align:'end',clamp:true}},
+      {type:'line',label:'누적 비율(%)',data:cumPct,borderColor:'#ea4335',backgroundColor:'transparent',borderWidth:2,pointRadius:4,yAxisID:'y2',tension:0,
+        datalabels:{display:false}}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{position:'bottom',labels:{font:{size:10}}},
+        tooltip:{callbacks:{label:x=>x.datasetIndex===0?` ${fmt(x.raw)}건`:` ${x.raw.toFixed(1)}%`}}
+      },
+      scales:{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>fmt(v)}},y2:{beginAtZero:true,max:100,position:'right',grid:{display:false},ticks:{callback:v=>v+'%'}}}
+    },
+    plugins:[ChartDataLabels]
+  });
+}
+
+/* ══════════════════════════════════════
+   SEASONALITY ANALYSIS
+══════════════════════════════════════ */
+function showSeasonality(){
+  if(!data){toast('분석을 먼저 완료해 주세요.');return;}
+  const card=document.getElementById('seasonCard');
+  card.style.display='block'; card.scrollIntoView({behavior:'smooth'});
+  const byMo={};
+  for(let i=1;i<=12;i++) byMo[String(i).padStart(2,'0')]=[];
+  data.months.forEach(m=>{
+    const mo=m.slice(5);
+    const tot=Object.values(data.mCat[m]||{}).reduce((a,b)=>a+b,0);
+    if(byMo[mo]) byMo[mo].push(tot);
+  });
+  const entries=Object.entries(byMo).map(([mo,vals])=>({mo,avg:vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:null,cnt:vals.length}));
+  const validAvgs=entries.filter(e=>e.cnt>0).map(e=>e.avg);
+  const globalAvg=validAvgs.length?validAvgs.reduce((a,b)=>a+b,0)/validAvgs.length:1;
+  const moNames=['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+  let h='<div style="overflow-x:auto"><table><thead><tr><th>월</th><th>평균 건수</th><th>계절지수</th><th>수준</th></tr></thead><tbody>';
+  entries.forEach((e,i)=>{
+    if(e.cnt===0){h+=`<tr><td class="rh">${moNames[i]}</td><td colspan="3" style="color:var(--sub)">데이터 없음</td></tr>`;return;}
+    const idx=globalAvg?e.avg/globalAvg:1;
+    const col=idx>1.15?'var(--warn)':idx<0.85?'var(--ad)':'var(--text)';
+    const bars='▮'.repeat(Math.max(1,Math.round(idx*4)));
+    h+=`<tr><td class="rh">${moNames[i]}</td><td>${fmt(Math.round(e.avg))}</td><td style="color:${col};font-weight:700">${idx.toFixed(2)}</td><td style="color:${col}">${bars}</td></tr>`;
+  });
+  h+='</tbody></table></div>';
+  h+='<div style="margin-top:8px;font-size:11.5px;color:var(--sub)">계절지수 &gt;1.15: 성수기 ▲ | &lt;0.85: 비수기 ▼ | ≈1.00: 평균</div>';
+  document.getElementById('seasonResult').innerHTML=h;
+}
+
+/* ══════════════════════════════════════
+   CSV DOWNLOAD
+══════════════════════════════════════ */
+function dlCSV(){
+  if(!frows.length){alert('분석 데이터가 없습니다.');return;}
+  const keys=Object.keys(frows[0]);
+  const lines=[keys.join(',')];
+  frows.forEach(row=>{
+    lines.push(keys.map(k=>{const v=String(row[k]??'').replace(/"/g,'""');return(v.includes(',')||v.includes('\n'))?`"${v}"`:v;}).join(','));
+  });
+  const blob=new Blob(['﻿'+lines.join('\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`부품사용량분석_${data?.months[0]||''}~${data?.months[data?.months.length-1]||''}.csv`;
+  a.click(); toast('✅ CSV 파일을 다운로드했습니다.');
+}
+
+/* ══════════════════════════════════════
+   SLIDESHOW
+══════════════════════════════════════ */
+let ssChart1=null, ssChart2=null;
+const SS_SLIDES=[
+  {title:'📊 분석 요약',    render:el=>{el.innerHTML='<div class="sg" style="margin:0">'+document.getElementById('sc').innerHTML+'</div>';}},
+  {title:'📈 월별 대분류 사용건수', render:el=>{el.innerHTML='<div style="height:380px;position:relative"><canvas id="ssC1"></canvas></div>';requestAnimationFrame(()=>{if(ssChart1){ssChart1.destroy();ssChart1=null;}const d=data,type=ci.m,isR=type==='radar';const cTot={};d.cats.forEach(c=>{cTot[c]=d.months.reduce((s,m)=>s+(d.mCat[m]?.[c]||0),0);});const aCats=[...d.cats].sort((a,b)=>cTot[b]-cTot[a]).slice(0,10);const ds=aCats.map((c,i)=>({label:c,data:d.months.map(m=>d.mCat[m]?.[c]||0),backgroundColor:C[i%C.length]+(type==='line'?'33':'cc'),borderColor:C[i%C.length],borderWidth:2,tension:.35,fill:type==='line',pointRadius:4}));ssChart1=new Chart(document.getElementById('ssC1').getContext('2d'),{type,data:{labels:isR?aCats:d.months,datasets:isR?d.months.map((m,i)=>({label:m,data:aCats.map(c=>d.mCat[m]?.[c]||0),backgroundColor:C[i%C.length]+'44',borderColor:C[i%C.length],borderWidth:2})):ds},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{font:{size:10}}},datalabels:{display:false}},scales:(isR||['pie','doughnut','polarArea'].includes(type))?{}:{x:{stacked:type==='bar'},y:{stacked:type==='bar',beginAtZero:true}}},plugins:[ChartDataLabels]});});}},
+  {title:'💰 SDWT별 사용금액', render:el=>{el.innerHTML='<div style="height:380px;position:relative"><canvas id="ssC2"></canvas></div>';requestAnimationFrame(()=>{if(ssChart2){ssChart2.destroy();ssChart2=null;}const d=data,type=ci.s,isB=type==='bar';const bgs=d.sdwts.map((_,i)=>C[i%C.length]+'cc');ssChart2=new Chart(document.getElementById('ssC2').getContext('2d'),{type,data:{labels:d.sdwts,datasets:[{label:'총 사용금액(원)',data:d.sdwts.map(s=>d.sTotal[s]||0),backgroundColor:bgs,borderColor:bgs.map(c=>c.slice(0,-2)),borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:isB?'bottom':'right',labels:{font:{size:10}}},datalabels:{display:false}},scales:isB?{x:{},y:{beginAtZero:true}}:{}},plugins:[ChartDataLabels]});});}},
+  {title:'🌡️ 히트맵',       render:el=>{el.innerHTML='<div class="hm-wrap">'+document.getElementById('hmWrap').innerHTML+'</div>';}},
+  {title:'📋 SDWT별 현황', render:el=>{el.innerHTML='<div class="tw">'+document.getElementById('tw1').innerHTML+'</div>';}},
+  {title:'📅 월별 상세',   render:el=>{el.innerHTML='<div class="tw">'+document.getElementById('tw2').innerHTML+'</div>';}}
+];
+
+function openSlideshow(){
+  if(!data){toast('분석을 먼저 완료해 주세요.');return;}
+  ssIdx=0; document.getElementById('ssModal').classList.add('show'); renderSSSlide();
+}
+function closeSlideshow(){
+  document.getElementById('ssModal').classList.remove('show');
+  if(ssTimer){clearInterval(ssTimer);ssTimer=null;}
+  const btn=document.getElementById('ssAuto');
+  if(btn){btn.classList.remove('on');btn.textContent='▶ 자동';}
+  if(ssChart1){ssChart1.destroy();ssChart1=null;}
+  if(ssChart2){ssChart2.destroy();ssChart2=null;}
+}
+function renderSSSlide(){
+  const slide=SS_SLIDES[ssIdx];
+  document.getElementById('ssTitle').textContent=slide.title;
+  document.getElementById('ssCounter').textContent=`${ssIdx+1} / ${SS_SLIDES.length}`;
+  const body=document.getElementById('ssBody'); body.innerHTML='';
+  if(ssChart1){ssChart1.destroy();ssChart1=null;}
+  if(ssChart2){ssChart2.destroy();ssChart2=null;}
+  slide.render(body);
+}
+function ssGo(dir){ssIdx=(ssIdx+dir+SS_SLIDES.length)%SS_SLIDES.length;renderSSSlide();}
+function toggleSSAuto(){
+  const btn=document.getElementById('ssAuto');
+  if(ssTimer){clearInterval(ssTimer);ssTimer=null;btn.classList.remove('on');btn.textContent='▶ 자동';}
+  else{ssTimer=setInterval(()=>ssGo(1),3000);btn.classList.add('on');btn.textContent='⏸ 정지';}
+}
+
+/* ══════════════════════════════════════
+   URL SHARE
+══════════════════════════════════════ */
+function shareURL(){
+  if(!data){toast('분석을 먼저 완료해 주세요.');return;}
+  try{
+    const state={fs:JSON.parse(JSON.stringify(fs)),ci:{...ci},showLabels};
+    const hash=btoa(encodeURIComponent(JSON.stringify(state)));
+    const url=location.href.split('#')[0]+'#'+hash;
+    navigator.clipboard.writeText(url).then(()=>toast('🔗 공유 링크가 클립보드에 복사됐습니다.')).catch(()=>toast('링크 생성 완료 — 주소창에서 복사하세요'));
+  }catch(e){toast('링크 생성 실패: '+e.message);}
+}
+function loadFromURL(){
+  const hash=location.hash.slice(1); if(!hash) return;
+  try{const state=JSON.parse(decodeURIComponent(atob(hash)));if(state.fs)fs=state.fs;if(state.ci)ci=state.ci;if(state.showLabels!==undefined)showLabels=state.showLabels;}catch{}
+}
+
+/* ══════════════════════════════════════
+   WATERMARK
+══════════════════════════════════════ */
+function updateWatermark(){
+  watermarkText=document.getElementById('wmInput')?.value||'';
+  if(data) renderTreemap(data);
+}
+
+/* ══════════════════════════════════════
+   DARK MODE
+══════════════════════════════════════ */
+function toggleDarkMode(){
+  const isDark=document.body.hasAttribute('data-dark');
+  if(isDark) document.body.removeAttribute('data-dark');
+  else document.body.setAttribute('data-dark','');
+  const btn=document.getElementById('dkBtn');
+  if(btn) btn.textContent=isDark?'🌙 다크':'☀️ 라이트';
+}
+
+/* ══════════════════════════════════════
+   COLOR THEMES
+══════════════════════════════════════ */
+function setTheme(name){
+  C=[...(THEMES[name]||THEMES.blue)];
+  document.querySelectorAll('.th-swatch').forEach(el=>el.classList.remove('active'));
+  document.querySelector(`.th-swatch[data-theme="${name}"]`)?.classList.add('active');
+  if(data){renderMChart(data,ci.m);renderSChart(data,ci.s);}
+}
+
+/* ══════════════════════════════════════
+   TOP N
+══════════════════════════════════════ */
+function applyTopN(key){
+  if(key==='m') topNM=Math.max(1,parseInt(document.getElementById('topNM').value)||10);
+  else topNS=Math.max(1,parseInt(document.getElementById('topNS').value)||10);
+  if(data){ key==='m'?renderMChart(data,ci.m):renderSChart(data,ci.s); }
+}
+
+/* ══════════════════════════════════════
+   MA / TREND / QUARTERLY TOGGLES
+══════════════════════════════════════ */
+function toggleMA(){
+  showMA=!showMA;
+  document.getElementById('maBtn').classList.toggle('on',showMA);
+  if(data) renderMChart(data,ci.m);
+}
+function toggleTrend(){
+  showTrend=!showTrend;
+  document.getElementById('trendBtn').classList.toggle('on',showTrend);
+  if(data) renderMChart(data,ci.m);
+}
+function toggleQuarterly(){
+  viewMode=viewMode==='quarter'?'month':'quarter';
+  document.getElementById('qtrBtn').classList.toggle('on',viewMode==='quarter');
+  if(data) renderMChart(data,ci.m);
+}
+
 /* 초기화 */
 function doClear(){
   document.getElementById('csvInput').value='';
@@ -1872,7 +2468,13 @@ function doClear(){
   fs={sdwts:[],cats:[],from:null,to:null};
   if(ch.m){ch.m.destroy();ch.m=null;}
   if(ch.s){ch.s.destroy();ch.s=null;}
+  if(ch.wf){ch.wf.destroy();ch.wf=null;}
+  if(ch.scat){ch.scat.destroy();ch.scat=null;}
+  if(ch.pareto){ch.pareto.destroy();ch.pareto=null;}
 }
+
+// Load URL-shared state on page open
+loadFromURL();
 </script>
 </body>
 </html>
