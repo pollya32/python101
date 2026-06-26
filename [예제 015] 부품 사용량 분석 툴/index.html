@@ -8,6 +8,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     :root {
       --primary: #1a73e8; --pd: #1557b0;
@@ -194,6 +195,71 @@
     .toast { position: fixed; bottom: 22px; right: calc(var(--cw) + 14px); background: #333; color: #fff; padding: 8px 15px; border-radius: 8px; font-size: 12px; opacity: 0; pointer-events: none; transition: opacity .3s; z-index: 9999; }
     .toast.show { opacity: 1; }
 
+    /* Heatmap */
+    .hm-wrap { overflow-x:auto; }
+    .hm-table { border-collapse:collapse; font-size:11px; min-width:100%; }
+    .hm-table th { padding:5px 9px; background:#f1f3f4; font-weight:700; color:var(--sub); border:1px solid var(--border); white-space:nowrap; text-align:center; }
+    .hm-table td { min-width:46px; height:34px; text-align:center; border:1px solid rgba(0,0,0,.06); cursor:default; font-size:10px; font-weight:700; vertical-align:middle; transition:opacity .15s; }
+    .hm-table td:hover { opacity:.75; outline:2px solid #333; }
+    .hm-table .hm-lbl { padding:5px 10px; background:#f8f9fa; font-weight:700; color:var(--text); white-space:nowrap; text-align:left; border:1px solid var(--border); }
+    .hm-metric-sel { font-size:11px; padding:3px 7px; border:1px solid var(--border); border-radius:6px; outline:none; }
+
+    /* Budget */
+    .budget-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+    .budget-row input { padding:7px 11px; border:1.5px solid var(--border); border-radius:8px; font-size:13px; outline:none; width:180px; }
+    .budget-row input:focus { border-color:var(--primary); }
+    .prog-bar { height:9px; border-radius:5px; background:#e8f0fe; overflow:hidden; margin:3px 0; }
+    .prog-fill { height:100%; border-radius:5px; background:var(--accent); transition:width .5s; }
+    .prog-fill.over { background:var(--warn); }
+
+    /* Anomaly */
+    .anom { display:inline-flex; align-items:center; gap:4px; padding:3px 8px; border-radius:10px; font-size:11px; font-weight:700; margin:2px; }
+    .anom.up { background:#fce8e6; color:var(--warn); }
+    .anom.dn { background:#e6f4ea; color:var(--ad); }
+
+    /* Quality */
+    .qr-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:8px; }
+    .qr-item { padding:10px 12px; border-radius:8px; background:#f8f9fa; border-left:3px solid var(--border); }
+    .qr-item.warn { border-left-color:var(--warn); background:#fff8f8; }
+    .qr-item.ok { border-left-color:var(--accent); }
+    .qr-lbl { font-size:10.5px; color:var(--sub); }
+    .qr-val { font-size:18px; font-weight:700; margin-top:2px; }
+
+    /* History */
+    .hist-list { display:flex; flex-direction:column; gap:6px; max-height:220px; overflow-y:auto; }
+    .hist-item { padding:9px 13px; border:1.5px solid var(--border); border-radius:8px; cursor:pointer; transition:all .15s; }
+    .hist-item:hover { border-color:var(--primary); background:#f0f4ff; }
+    .hist-meta { font-size:11px; color:var(--sub); margin-top:3px; }
+
+    /* Favorites */
+    .fav-list { display:flex; gap:7px; flex-wrap:wrap; min-height:32px; }
+    .fav-chip { display:inline-flex; align-items:center; gap:5px; padding:5px 11px; border:1.5px solid var(--border); border-radius:14px; font-size:11.5px; cursor:pointer; background:#fff; transition:all .15s; }
+    .fav-chip:hover { border-color:var(--primary); color:var(--primary); }
+    .fav-del { color:var(--warn); font-size:13px; line-height:1; margin-left:2px; }
+
+    /* Fullscreen modal */
+    .fs-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.88); z-index:300; align-items:center; justify-content:center; padding:16px; }
+    .fs-modal.show { display:flex; }
+    .fs-inner { background:#fff; border-radius:12px; padding:18px; width:min(96vw,1100px); height:min(90vh,720px); display:flex; flex-direction:column; }
+    .fs-hd { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; flex-shrink:0; }
+    .fs-title { font-size:15px; font-weight:700; }
+    .fs-close { background:none; border:none; cursor:pointer; font-size:22px; color:var(--sub); padding:0 4px; border-radius:6px; }
+    .fs-close:hover { background:#f1f3f4; }
+    .fs-cw { flex:1; position:relative; min-height:0; }
+
+    /* Merge CSV */
+    .merge-box { border:2px dashed #c5cae9; border-radius:10px; padding:10px; background:#f8f9ff; margin-top:10px; }
+    .merge-box .paste { min-height:60px; border:none; background:transparent; }
+
+    /* Print */
+    @media print {
+      .chat-panel,header,.ab,.ctb,button,.fb,.cinput,.qcmds,.hint,#sb,#colMap,#budgetCard,.hbadge { display:none !important; }
+      .app { display:block !important; }
+      .card { break-inside:avoid; box-shadow:none; border:1px solid #ddd; margin-bottom:12px; }
+      .main { padding:8px; }
+      body { background:#fff; }
+    }
+
     /* Data Label Toggle */
     .lbl-btn { padding:4px 10px; border:1.5px solid var(--border); border-radius:14px; background:#fff; font-size:11px; font-weight:600; cursor:pointer; color:var(--sub); transition:all .15s; white-space:nowrap; }
     .lbl-btn.on { background:#fff3e0; border-color:#ffb300; color:#e65100; }
@@ -251,7 +317,16 @@
 
       <div class="ab">
         <button class="btn bp" onclick="doAnalyze()">🔍 분석하기</button>
+        <button class="btn bo" onclick="toggleMerge()">➕ CSV 병합</button>
+        <button class="btn bo" onclick="showQuality()">🔍 품질 검사</button>
         <button class="btn bo" onclick="doClear()">🗑️ 초기화</button>
+      </div>
+      <div id="mergeArea" style="display:none">
+        <div class="merge-box">
+          <div class="ct" style="font-size:12px;margin-bottom:6px">📎 추가 CSV 붙여넣기 — 기존 데이터에 행을 합산합니다 (헤더 자동 매핑)</div>
+          <textarea id="csvMerge" class="paste" style="min-height:70px" placeholder="추가할 CSV 데이터 붙여넣기..."></textarea>
+          <button class="btn bp bsm" style="margin-top:7px" onclick="doMerge()">➕ 합산하기</button>
+        </div>
       </div>
       <div id="sb" class="sb"></div>
     </div>
@@ -272,6 +347,19 @@
         <div class="ib" id="ib"></div>
       </div>
 
+      <!-- Budget Compare -->
+      <div class="card" id="budgetCard" style="display:none">
+        <div class="ch">
+          <div class="ct" style="margin:0">🎯 예산 목표 대비 실적</div>
+          <button class="btn bo bsm" onclick="document.getElementById('budgetCard').style.display='none'">✕</button>
+        </div>
+        <div class="budget-row">
+          <label style="font-size:12px;font-weight:700;color:var(--sub)">월 예산 목표 (원)</label>
+          <input type="number" id="budgetInput" placeholder="예: 10000000" oninput="renderBudget()">
+        </div>
+        <div id="budgetResult"><div style="font-size:12px;color:var(--sub)">위에 예산을 입력하면 달성률이 표시됩니다.</div></div>
+      </div>
+
       <!-- Charts -->
       <div class="cg2">
         <div class="card">
@@ -285,7 +373,10 @@
             </div>
           </div>
           <div class="cw"><canvas id="mc"></canvas></div>
-          <button class="btn bo bsm" style="margin-top:10px" onclick="copyChart('mc','월별 대분류 사용건수')">📎 PPT 복사</button>
+          <div style="display:flex;gap:7px;margin-top:10px;flex-wrap:wrap">
+            <button class="btn bo bsm" onclick="copyChart('mc','월별 대분류 사용건수')">📎 PPT 복사</button>
+            <button class="btn bo bsm" onclick="openFull('m','월별 대분류 사용건수')">⛶ 전체화면</button>
+          </div>
         </div>
         <div class="card">
           <div class="ch">
@@ -299,8 +390,26 @@
             </div>
           </div>
           <div class="cw"><canvas id="sc2"></canvas></div>
-          <button class="btn bo bsm" style="margin-top:10px" onclick="copyChart('sc2','SDWT별 사용금액')">📎 PPT 복사</button>
+          <div style="display:flex;gap:7px;margin-top:10px;flex-wrap:wrap">
+            <button class="btn bo bsm" onclick="copyChart('sc2','SDWT별 사용금액')">📎 PPT 복사</button>
+            <button class="btn bo bsm" onclick="openFull('s','SDWT별 사용금액')">⛶ 전체화면</button>
+          </div>
         </div>
+      </div>
+
+      <!-- Heatmap -->
+      <div class="card">
+        <div class="ch">
+          <div class="ct" style="margin:0">🌡️ 월 × SDWT 사용 히트맵</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <label style="font-size:11px;color:var(--sub)">기준:</label>
+            <select class="hm-metric-sel" id="hmMetric" onchange="renderHeatmap(data)">
+              <option value="cnt">사용건수</option>
+              <option value="amt">사용금액</option>
+            </select>
+          </div>
+        </div>
+        <div class="hm-wrap" id="hmWrap"><div style="color:var(--sub);font-size:12px;padding:12px 0">분석 후 표시됩니다.</div></div>
       </div>
 
       <!-- SDWT Table -->
@@ -321,12 +430,49 @@
         <div class="tw" id="tw2"></div>
       </div>
 
+      <!-- Quality Report -->
+      <div class="card" id="qualityCard" style="display:none">
+        <div class="ch">
+          <div class="ct" style="margin:0">🔍 데이터 품질 리포트</div>
+          <button class="btn bo bsm" onclick="document.getElementById('qualityCard').style.display='none'">✕</button>
+        </div>
+        <div id="qualityResult"></div>
+      </div>
+
+      <!-- History -->
+      <div class="card" id="historyCard" style="display:none">
+        <div class="ch">
+          <div class="ct" style="margin:0">🕐 분석 히스토리</div>
+          <button class="btn bo bsm" onclick="document.getElementById('historyCard').style.display='none'">✕</button>
+        </div>
+        <div class="hist-list" id="histList"></div>
+      </div>
+
+      <!-- Favorites -->
+      <div class="card" id="favCard" style="display:none">
+        <div class="ch">
+          <div class="ct" style="margin:0">⭐ 즐겨찾기 필터</div>
+          <button class="btn bo bsm" onclick="saveFavorite()">+ 현재 필터 저장</button>
+        </div>
+        <div class="fav-list" id="favList"><span style="font-size:12px;color:var(--sub)">저장된 즐겨찾기가 없습니다.</span></div>
+      </div>
+
       <!-- PPT -->
       <div class="card" style="text-align:center;padding:26px">
-        <p style="font-size:13px;color:var(--sub);margin-bottom:14px">모든 분석 결과를 하나의 PPT 파일로 내보냅니다.</p>
-        <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
-          <button class="btn bg" style="font-size:15px;padding:12px 30px" onclick="dlPPT()">📥 보고서 다운로드 (PPT)</button>
-          <button class="btn bo" style="font-size:15px;padding:12px 30px" onclick="openMailModal()">📧 메일 보내기</button>
+        <p style="font-size:13px;color:var(--sub);margin-bottom:14px">분석 결과를 PPT·Excel로 내보내거나 메일로 공유합니다.</p>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+          <button class="btn bg" style="font-size:14px;padding:11px 22px" onclick="dlPPT()">📥 PPT 다운로드</button>
+          <button class="btn" style="font-size:14px;padding:11px 22px;background:#217346;color:#fff" onclick="dlExcel()">📊 Excel 다운로드</button>
+          <button class="btn bo" style="font-size:14px;padding:11px 22px" onclick="printReport()">🖨️ 인쇄 / PDF</button>
+          <button class="btn bo" style="font-size:14px;padding:11px 22px" onclick="openMailModal()">📧 메일 보내기</button>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:10px">
+          <button class="btn bo bsm" onclick="showBudgetCard()">🎯 예산 비교</button>
+          <button class="btn bo bsm" onclick="showAnomalies()">🚨 이상치 감지</button>
+          <button class="btn bo bsm" onclick="showYoY()">📅 전년 동기 비교</button>
+          <button class="btn bo bsm" onclick="showHistoryCard()">🕐 히스토리</button>
+          <button class="btn bo bsm" onclick="showFavCard()">⭐ 즐겨찾기</button>
+          <button class="btn bo bsm" onclick="saveHistory()">💾 현재 분석 저장</button>
         </div>
       </div>
     </div>
@@ -347,6 +493,9 @@
       <div class="qc" onclick="q('SDWT 금액 순위 알려줘')">🏆 금액 순위</div>
       <div class="qc" onclick="q('대분류 사용건수 순위')">📦 건수 순위</div>
       <div class="qc" onclick="q('월별 추이 분석해줘')">📈 월별 추이</div>
+      <div class="qc" onclick="q('이상치 감지해줘')">🚨 이상치</div>
+      <div class="qc" onclick="q('전년 동기 비교')">📅 전년비교</div>
+      <div class="qc" onclick="q('데이터 품질 검사')">🔍 품질</div>
       <div class="qc" onclick="q('필터 초기화')">🔄 필터 해제</div>
       <div class="qc" onclick="q('도움말')">❓ 도움말</div>
     </div>
@@ -379,6 +528,17 @@
   </div>
 
 </div><!-- /app -->
+
+<!-- Fullscreen Chart Modal -->
+<div class="fs-modal" id="fsModal" onclick="if(event.target===this)closeFull()">
+  <div class="fs-inner">
+    <div class="fs-hd">
+      <div class="fs-title" id="fsTitle">차트 전체화면</div>
+      <button class="fs-close" onclick="closeFull()">✕</button>
+    </div>
+    <div class="fs-cw"><canvas id="fsCanvas"></canvas></div>
+  </div>
+</div>
 
 <!-- Mail Modal -->
 <div class="modal-bg" id="mailModal" onclick="if(event.target===this)closeMailModal()">
@@ -560,7 +720,7 @@ function cols(){ return {date:document.getElementById('mDate').value,cat:documen
 ══════════════════════════════════════ */
 function compute(rs,c){
   const mS=new Set(),catS=new Set(),sdwtS=new Set();
-  const mCat={},sCnt={},sAmt={},sTotal={};
+  const mCat={},sCnt={},sAmt={},sTotal={},mAmt={},mSdwt={};
   let skipped=0;
   rs.forEach(row=>{
     const d=pdate(row[c.date]);
@@ -574,15 +734,20 @@ function compute(rs,c){
     if(!mCat[ym]) mCat[ym]={};
     if(!sCnt[sdwt]) sCnt[sdwt]={};
     if(!sAmt[sdwt]) sAmt[sdwt]={};
+    if(!mSdwt[ym]) mSdwt[ym]={};
+    if(!mSdwt[ym][sdwt]) mSdwt[ym][sdwt]={cnt:0,amt:0};
     mCat[ym][cat]=(mCat[ym][cat]||0)+cnt;
     sCnt[sdwt][cat]=(sCnt[sdwt][cat]||0)+cnt;
     sAmt[sdwt][cat]=(sAmt[sdwt][cat]||0)+amt;
     sTotal[sdwt]=(sTotal[sdwt]||0)+amt;
+    mAmt[ym]=(mAmt[ym]||0)+amt;
+    mSdwt[ym][sdwt].cnt+=cnt;
+    mSdwt[ym][sdwt].amt+=amt;
   });
   const months=[...mS].sort(), cats=[...catS].sort(), sdwts=[...sdwtS].sort();
   const tc=rs.reduce((s,r)=>s+(c.cnt?pnum(r[c.cnt]):1),0);
   const ta=rs.reduce((s,r)=>s+(c.amt?pnum(r[c.amt]):0),0);
-  return {months,cats,sdwts,mCat,sCnt,sAmt,sTotal,tc,ta,n:rs.length,skipped};
+  return {months,cats,sdwts,mCat,sCnt,sAmt,sTotal,mAmt,mSdwt,tc,ta,n:rs.length,skipped};
 }
 
 /* ══════════════════════════════════════
@@ -653,7 +818,7 @@ function doAnalyze(){
 ══════════════════════════════════════ */
 function renderAll(d){
   renderSummary(d); renderMChart(d,ci.m); renderSChart(d,ci.s);
-  renderSdwtTbl(d); renderMonthTbl(d);
+  renderHeatmap(d); renderSdwtTbl(d); renderMonthTbl(d);
 }
 
 function renderSummary(d){
@@ -811,11 +976,12 @@ function parseCmd(txt){
   /* ── 도움말 ─────────────────────── */
   if(/도움말|help|\?/.test(lo)){
     return bot(`<strong>사용 가능한 명령어 목록</strong><ul>
-      <li><strong>필터</strong>: "A팀만", "A팀 B팀만", "전장품만", "설계" (부분 이름도 인식), "3월~6월", "2024년 상반기", "1분기", "최근 3개월"</li>
+      <li><strong>필터</strong>: "A팀만", "A팀 B팀만", "전장품만", "3월~6월", "1분기", "최근 3개월"</li>
       <li><strong>필터 해제</strong>: "초기화", "전체 보여줘", "필터 해제"</li>
-      <li><strong>차트 변경</strong>: "막대로 바꿔줘", "꺾은선으로", "월별 차트 레이더로", "SDWT 파이로"</li>
+      <li><strong>차트 변경</strong>: "막대로 바꿔줘", "꺾은선으로", "파이로", "도넛으로"</li>
       <li><strong>분석</strong>: "요약", "SDWT 순위", "대분류 순위", "월별 추이", "비교"</li>
-      <li><strong>비교</strong>: "A팀 B팀 비교", "전장품 소모품 비교"</li>
+      <li><strong>신규</strong>: "이상치 감지", "전년 동기 비교", "예산 비교", "품질 검사"</li>
+      <li><strong>내보내기</strong>: "엑셀 저장", "인쇄", "히스토리", "즐겨찾기"</li>
     </ul>`);
   }
 
@@ -924,6 +1090,17 @@ function parseCmd(txt){
   }
 
   /* ── 분석 인사이트 ──────────────── */
+  /* ── 신규 분석 명령 ─────────────── */
+  if(/이상치|anomaly|급증|급감|이상/.test(lo)){ showAnomalies(); return bot('이상치 감지 결과를 표시했습니다.','이상치 감지'); }
+  if(/전년|yoy|연간비교|전년비|동기/.test(lo)){ showYoY(); return bot('전년 동기 비교를 표시했습니다.','전년 동기 비교'); }
+  if(/품질|quality|중복|빈값|검사|null/.test(lo)){ showQuality(); return bot('데이터 품질 리포트를 표시했습니다.','품질 검사'); }
+  if(/히스토리|history|저장된|이전분석/.test(lo)){ showHistoryCard(); return bot('분석 히스토리를 표시했습니다.','히스토리'); }
+  if(/즐겨찾기|favorite|북마크|저장필터/.test(lo)){ showFavCard(); return bot('즐겨찾기 필터를 표시했습니다.','즐겨찾기'); }
+  if(/예산|budget|목표|달성/.test(lo)){ showBudgetCard(); return bot('예산 목표 비교 카드를 열었습니다. 예산을 입력하면 달성률을 표시합니다.','예산 비교'); }
+  if(/엑셀|excel|xlsx|스프레드/.test(lo)){ dlExcel(); return bot('Excel 파일을 다운로드했습니다.','Excel 저장'); }
+  if(/인쇄|print|pdf/.test(lo)){ printReport(); return bot('인쇄 다이얼로그를 열었습니다. PDF로 저장하려면 "PDF로 저장"을 선택하세요.','인쇄'); }
+  if(/히트맵|heatmap|열지도/.test(lo)){ document.getElementById('hmWrap')?.scrollIntoView({behavior:'smooth'}); return bot('히트맵 차트로 이동했습니다.','히트맵'); }
+
   if(/요약|overview|현황|통계|전체/.test(lo)){ showSummary(); return bot('전체 데이터 요약을 표시했습니다.','요약'); }
 
   if(/(sdwt|팀별|팀).*순위|(순위|top|rank).*(sdwt|팀|금액)/.test(lo)||(/순위|top|rank/.test(lo)&&/금액/.test(lo))){
@@ -1212,6 +1389,412 @@ async function dlPPT(){
   const fn=`부품사용량분석_${d.months[0]||''}~${d.months[d.months.length-1]||''}.pptx`;
   await pptx.writeFile({fileName:fn});
   setStatus('success',`✅ "${fn}" 다운로드 완료`);
+}
+
+/* ══════════════════════════════════════
+   MULTIPLE CSV MERGE
+══════════════════════════════════════ */
+function toggleMerge(){
+  const el=document.getElementById('mergeArea');
+  el.style.display=el.style.display==='none'?'block':'none';
+}
+function doMerge(){
+  const raw=document.getElementById('csvMerge').value.trim();
+  if(!raw){toast('합산할 CSV를 붙여넣어 주세요.');return;}
+  if(!rows.length){toast('기존 데이터가 없습니다. 먼저 분석하기를 눌러주세요.');return;}
+  const delim=raw.split('\n')[0].includes('\t')?'\t':',';
+  const r=Papa.parse(raw,{header:true,skipEmptyLines:true,delimiter:delim});
+  if(!r.data.length){toast('데이터를 인식할 수 없습니다.');return;}
+  const newRows=r.data.map(row=>{
+    const mapped={};
+    headers.forEach(h=>{
+      mapped[h]=row[h]??row[Object.keys(row).find(k=>normStr(k)===normStr(h))||'']??'';
+    });
+    return mapped;
+  });
+  rows=[...rows,...newRows]; frows=[...rows];
+  document.getElementById('csvMerge').value='';
+  toggleMerge();
+  recompute();
+  toast(`✅ ${fmt(newRows.length)}행 합산 완료 → 총 ${fmt(rows.length)}행`);
+}
+
+/* ══════════════════════════════════════
+   HEATMAP
+══════════════════════════════════════ */
+function renderHeatmap(d){
+  const wrap=document.getElementById('hmWrap');
+  if(!wrap) return;
+  if(!d||!d.mSdwt||!d.months.length||!d.sdwts.length){
+    wrap.innerHTML='<div style="color:var(--sub);font-size:12px;padding:12px 0">분석 후 표시됩니다.</div>';
+    return;
+  }
+  const metric=(document.getElementById('hmMetric')?.value)||'cnt';
+  let maxVal=0;
+  d.months.forEach(m=>d.sdwts.forEach(s=>{
+    const v=d.mSdwt[m]?.[s]?.[metric]||0;
+    if(v>maxVal) maxVal=v;
+  }));
+  if(!maxVal){wrap.innerHTML='<div style="color:var(--sub);font-size:12px">데이터가 없습니다.</div>';return;}
+  let h='<table class="hm-table"><thead><tr><th>SDWT＼월</th>';
+  d.months.forEach(m=>{h+=`<th>${m.slice(5)}월</th>`;});
+  h+='</tr></thead><tbody>';
+  d.sdwts.forEach(s=>{
+    h+=`<tr><td class="hm-lbl">${esc(s)}</td>`;
+    d.months.forEach(m=>{
+      const v=d.mSdwt[m]?.[s]?.[metric]||0;
+      const p=maxVal?v/maxVal:0;
+      const r2=Math.round(255-p*229), g2=Math.round(255-p*140), b2=Math.round(255-p*23);
+      const tc=p>0.55?'#fff':'#333';
+      const lbl=metric==='amt'?(v>=1e6?`${(v/1e6).toFixed(1)}M`:(v>0?fmt(v):'')):( v>0?fmt(v):'');
+      h+=`<td style="background:rgb(${r2},${g2},${b2});color:${tc}" title="${esc(s)} | ${m}: ${fmt(v)}${metric==='amt'?'원':'건'}">${lbl}</td>`;
+    });
+    h+='</tr>';
+  });
+  h+='</tbody></table>';
+  wrap.innerHTML=h;
+}
+
+/* ══════════════════════════════════════
+   ANOMALY DETECTION
+══════════════════════════════════════ */
+function showAnomalies(){
+  if(!data){toast('분석을 먼저 완료해 주세요.');return;}
+  const mTot=data.months.map(m=>({m,v:Object.values(data.mCat[m]||{}).reduce((a,b)=>a+b,0)}));
+  const monthly=[];
+  for(let i=1;i<mTot.length;i++){
+    const prev=mTot[i-1].v, curr=mTot[i].v;
+    if(prev===0) continue;
+    const chg=(curr-prev)/prev*100;
+    if(Math.abs(chg)>=30) monthly.push({m:mTot[i].m,chg:chg.toFixed(1),prev,curr});
+  }
+  const catAnom=[];
+  data.cats.forEach(cat=>{
+    const vals=data.months.map(m=>data.mCat[m]?.[cat]||0);
+    const avg=vals.reduce((a,b)=>a+b,0)/vals.length;
+    const std=Math.sqrt(vals.reduce((a,b)=>a+(b-avg)**2,0)/vals.length);
+    if(std>0) vals.forEach((v,i)=>{
+      if(Math.abs(v-avg)>2*std&&v>0) catAnom.push({cat,m:data.months[i],v,avg:Math.round(avg),sigma:((v-avg)/std).toFixed(1)});
+    });
+  });
+  if(!monthly.length&&!catAnom.length){
+    showInsight('이상치 감지','<p style="color:var(--ad)">✅ 감지된 이상치가 없습니다. 데이터가 비교적 균일하게 분포되어 있습니다.</p>');
+    return;
+  }
+  let h='';
+  if(monthly.length){
+    h+='<strong>월별 사용량 급변 (전월 대비 ±30% 이상):</strong><br style="margin-bottom:6px">';
+    monthly.forEach(a=>{
+      const up=Number(a.chg)>0;
+      h+=`<span class="anom ${up?'up':'dn'}">${up?'▲':'▼'} ${a.m}: ${up?'+':''}${a.chg}% (${fmt(a.prev)}→${fmt(a.curr)}건)</span>`;
+    });
+    h+='<br><br>';
+  }
+  if(catAnom.length){
+    h+='<strong>대분류 통계적 이상치 (평균±2σ):</strong><ul>';
+    catAnom.forEach(a=>{h+=`<li><strong>${esc(a.cat)}</strong> — ${a.m}: <strong>${fmt(a.v)}건</strong> (평균 ${fmt(a.avg)}건, ${a.sigma}σ)</li>`;});
+    h+='</ul>';
+  }
+  showInsight('🚨 이상치 감지 결과',h);
+}
+
+/* ══════════════════════════════════════
+   BUDGET COMPARE
+══════════════════════════════════════ */
+function showBudgetCard(){
+  if(!data){toast('분석을 먼저 완료해 주세요.');return;}
+  const el=document.getElementById('budgetCard');
+  el.style.display='block';
+  el.scrollIntoView({behavior:'smooth'});
+}
+function renderBudget(){
+  if(!data) return;
+  const budget=pnum(document.getElementById('budgetInput').value);
+  const el=document.getElementById('budgetResult');
+  if(!budget){el.innerHTML='<div style="font-size:12px;color:var(--sub)">예산을 입력하면 달성률이 표시됩니다.</div>';return;}
+  let h='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px"><thead><tr>';
+  ['월','실적(원)','예산(원)','달성률'].forEach(t=>{h+=`<th style="padding:6px 10px;background:#f1f3f4;text-align:${t==='월'?'left':'right'};border-bottom:2px solid var(--border)">${t}</th>`;});
+  h+='</tr></thead><tbody>';
+  data.months.forEach(m=>{
+    const actual=data.mAmt?.[m]||0;
+    const pct=actual/budget*100;
+    const over=pct>100;
+    h+=`<tr>
+      <td style="padding:6px 10px;border-bottom:1px solid #f1f3f4;font-weight:700;color:var(--primary)">${m}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #f1f3f4;text-align:right;font-family:Consolas">${fmt(actual)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #f1f3f4;text-align:right;font-family:Consolas">${fmt(budget)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #f1f3f4;min-width:150px">
+        <div style="font-size:11px;font-weight:700;color:${over?'var(--warn)':'var(--ad)'};margin-bottom:3px">${pct.toFixed(1)}%${over?' ⚠️ 초과':' ✅'}</div>
+        <div class="prog-bar"><div class="prog-fill${over?' over':''}" style="width:${Math.min(pct,100).toFixed(1)}%"></div></div>
+      </td>
+    </tr>`;
+  });
+  h+='</tbody></table></div>';
+  el.innerHTML=h;
+}
+
+/* ══════════════════════════════════════
+   YEAR-OVER-YEAR
+══════════════════════════════════════ */
+function showYoY(){
+  if(!data){bot('⚠️ 분석을 먼저 완료해 주세요.');return;}
+  const byYear={};
+  data.months.forEach(m=>{
+    const y=m.slice(0,4);
+    if(!byYear[y]) byYear[y]={};
+    byYear[y][m.slice(5)]=Object.values(data.mCat[m]||{}).reduce((a,b)=>a+b,0);
+  });
+  const years=Object.keys(byYear).sort();
+  if(years.length<2){
+    showInsight('전년 동기 비교',`<p style="color:var(--warn)">⚠️ 2개 이상 연도 데이터가 필요합니다. 현재 데이터는 <strong>${years[0]}년</strong> 한 해만 포함되어 있습니다.</p>`);
+    return;
+  }
+  const mos=[...new Set(data.months.map(m=>m.slice(5)))].sort();
+  let h='<div style="overflow-x:auto"><table><thead><tr><th>월</th>';
+  years.forEach(y=>{h+=`<th>${y}년(건수)</th>`;});
+  h+='<th>전년비</th></tr></thead><tbody>';
+  let totPrev=0,totCurr=0;
+  mos.forEach(mo=>{
+    h+=`<tr><td class="rh">${mo}월</td>`;
+    let prev=null,curr=null;
+    years.forEach((y,i)=>{
+      const v=byYear[y][mo]||0;
+      h+=`<td>${fmt(v)}</td>`;
+      if(i===years.length-2){prev=v;totPrev+=v;}
+      if(i===years.length-1){curr=v;totCurr+=v;}
+    });
+    const chg=prev?((curr-prev)/prev*100).toFixed(1):null;
+    const col=chg===null?'var(--sub)':(Number(chg)>0?'var(--warn)':'var(--ad)');
+    h+=`<td style="color:${col};font-weight:700">${chg===null?'-':(Number(chg)>0?'+':'')+chg+'%'}</td></tr>`;
+  });
+  const totChg=totPrev?((totCurr-totPrev)/totPrev*100).toFixed(1):null;
+  h+=`<tr class="tr"><td class="rh">합계</td>`;
+  years.forEach(y=>{h+=`<td>${fmt(Object.values(byYear[y]).reduce((a,b)=>a+b,0))}</td>`;});
+  h+=`<td style="font-weight:700;color:${totChg&&Number(totChg)>0?'var(--warn)':'var(--ad)'}">${totChg?(Number(totChg)>0?'+':'')+totChg+'%':'-'}</td></tr>`;
+  h+='</tbody></table></div>';
+  showInsight(`📅 전년 동기 비교 (${years.join(' vs ')}년)`,h);
+}
+
+/* ══════════════════════════════════════
+   DATA QUALITY
+══════════════════════════════════════ */
+function showQuality(){
+  const c=cols();
+  if(!rows.length){toast('먼저 데이터를 붙여넣어 주세요.');return;}
+  let nullDate=0,badDate=0,nullCat=0,nullSdwt=0,nullAmt=0,badAmt=0,dupCount=0;
+  const seen=new Set();
+  rows.forEach(row=>{
+    const dv=String(row[c.date]||'').trim();
+    if(!dv) nullDate++; else if(!pdate(dv)) badDate++;
+    if(!String(row[c.cat]||'').trim()) nullCat++;
+    if(!String(row[c.sdwt]||'').trim()) nullSdwt++;
+    if(c.amt){const av=String(row[c.amt]||'').trim();if(!av) nullAmt++;else if(pnum(av)<0) badAmt++;}
+    const key=JSON.stringify([row[c.date],row[c.cat],row[c.sdwt],row[c.amt]]);
+    if(seen.has(key)) dupCount++; else seen.add(key);
+  });
+  const total=rows.length;
+  const items=[
+    {l:'전체 행 수',v:fmt(total),ok:true},
+    {l:'날짜 빈 값',v:nullDate,warn:nullDate>0},
+    {l:'날짜 인식 불가',v:badDate,warn:badDate>0},
+    {l:'대분류 빈 값',v:nullCat,warn:nullCat>0},
+    {l:'SDWT 빈 값',v:nullSdwt,warn:nullSdwt>0},
+    {l:'금액 빈 값',v:nullAmt,warn:nullAmt>0},
+    {l:'음수 금액',v:badAmt,warn:badAmt>0},
+    {l:'중복 행',v:dupCount,warn:dupCount>0},
+  ];
+  let h='<div class="qr-grid">';
+  items.forEach(it=>{
+    const cls=it.ok?'ok':(it.warn?'warn':'ok');
+    h+=`<div class="qr-item ${cls}">
+      <div class="qr-lbl">${it.ok?'✅':(it.warn?'⚠️':'✅')} ${it.l}</div>
+      <div class="qr-val" style="color:${it.warn?'var(--warn)':(it.ok?'var(--ad)':'var(--text)')}">${it.v}</div>
+    </div>`;
+  });
+  h+='</div>';
+  const allOk=!items.some(i=>i.warn);
+  h+=`<div style="margin-top:12px;padding:9px 13px;background:${allOk?'#e6f4ea':'#fce8e6'};border-radius:8px;font-size:12.5px;font-weight:600;color:${allOk?'var(--ad)':'var(--warn)'}">
+    ${allOk?'✅ 데이터 품질이 양호합니다.':'⚠️ 품질 이슈가 발견됐습니다. 위 항목을 원본에서 확인해 주세요.'}
+  </div>`;
+  document.getElementById('qualityResult').innerHTML=h;
+  const el=document.getElementById('qualityCard');
+  el.style.display='block';
+  el.scrollIntoView({behavior:'smooth'});
+}
+
+/* ══════════════════════════════════════
+   HISTORY (localStorage)
+══════════════════════════════════════ */
+const HIST_KEY='parts-analysis-history';
+function saveHistory(){
+  if(!data) return;
+  const item={
+    ts:Date.now(),
+    label:`${data.months[0]||'?'} ~ ${data.months[data.months.length-1]||'?'} (${fmt(data.n)}행)`,
+    snap:{months:data.months,sdwts:data.sdwts,cats:data.cats,tc:data.tc,ta:data.ta,n:data.n,sTotal:data.sTotal,mCat:data.mCat,mAmt:data.mAmt,mSdwt:data.mSdwt,sCnt:data.sCnt,sAmt:data.sAmt}
+  };
+  try{
+    const h=JSON.parse(localStorage.getItem(HIST_KEY)||'[]');
+    h.unshift(item); h.splice(5);
+    localStorage.setItem(HIST_KEY,JSON.stringify(h));
+    toast('✅ 분석 히스토리에 저장됐습니다.');
+  }catch(e){toast('저장 실패: '+e.message);}
+}
+function showHistoryCard(){
+  const hist=(()=>{try{return JSON.parse(localStorage.getItem(HIST_KEY)||'[]');}catch{return[];}})();
+  const list=document.getElementById('histList');
+  list.innerHTML=hist.length?hist.map((h,i)=>`
+    <div class="hist-item" onclick="restoreHistory(${i})">
+      <div style="font-size:12.5px;font-weight:700">${h.label}</div>
+      <div class="hist-meta">${new Date(h.ts).toLocaleString('ko-KR')} | 건수 ${fmt(h.snap.tc)} | 금액 ${fmt(h.snap.ta)}원</div>
+    </div>`).join('')
+    :'<div style="font-size:12px;color:var(--sub);padding:6px 0">저장된 히스토리가 없습니다. [현재 분석 저장] 버튼을 눌러 저장하세요.</div>';
+  const el=document.getElementById('historyCard');
+  el.style.display='block';
+  el.scrollIntoView({behavior:'smooth'});
+}
+function restoreHistory(idx){
+  try{
+    const hist=JSON.parse(localStorage.getItem(HIST_KEY)||'[]');
+    const h=hist[idx]; if(!h) return;
+    data=h.snap; renderAll(data);
+    document.getElementById('res').style.display='block';
+    toast(`✅ "${h.label}" 히스토리를 불러왔습니다.`);
+  }catch(e){toast('불러오기 실패: '+e.message);}
+}
+
+/* ══════════════════════════════════════
+   FAVORITES (localStorage)
+══════════════════════════════════════ */
+const FAV_KEY='parts-analysis-favorites';
+function saveFavorite(){
+  const parts=[];
+  if(fs.sdwts.length) parts.push(`SDWT:${fs.sdwts.join(',')}`);
+  if(fs.cats.length)  parts.push(`분류:${fs.cats.join(',')}`);
+  if(fs.from||fs.to)  parts.push(`기간:${fs.from||'?'}~${fs.to||'?'}`);
+  if(!parts.length){toast('현재 적용된 필터가 없습니다.');return;}
+  const name=parts.join(' | ');
+  try{
+    const favs=JSON.parse(localStorage.getItem(FAV_KEY)||'[]');
+    if(favs.find(f=>f.name===name)){toast('이미 저장된 즐겨찾기입니다.');return;}
+    favs.push({name,fs:JSON.parse(JSON.stringify(fs))}); favs.splice(10);
+    localStorage.setItem(FAV_KEY,JSON.stringify(favs));
+    renderFavList(); toast('⭐ 즐겨찾기에 저장됐습니다.');
+  }catch(e){toast('저장 실패: '+e.message);}
+}
+function renderFavList(){
+  const favs=(()=>{try{return JSON.parse(localStorage.getItem(FAV_KEY)||'[]');}catch{return[];}})();
+  const list=document.getElementById('favList'); if(!list) return;
+  list.innerHTML=favs.length?favs.map((f,i)=>`
+    <div class="fav-chip" onclick="applyFavorite(${i})">⭐ ${esc(f.name)}<span class="fav-del" onclick="event.stopPropagation();deleteFav(${i})">✕</span></div>
+  `).join(''):'<span style="font-size:12px;color:var(--sub)">저장된 즐겨찾기가 없습니다.</span>';
+}
+function applyFavorite(idx){
+  const favs=(()=>{try{return JSON.parse(localStorage.getItem(FAV_KEY)||'[]');}catch{return[];}})();
+  const f=favs[idx]; if(!f||!data){toast('먼저 데이터를 분석해 주세요.');return;}
+  fs=JSON.parse(JSON.stringify(f.fs)); recompute();
+  toast(`✅ "${f.name}" 필터를 적용했습니다.`);
+}
+function deleteFav(idx){
+  const favs=(()=>{try{return JSON.parse(localStorage.getItem(FAV_KEY)||'[]');}catch{return[];}})();
+  favs.splice(idx,1); localStorage.setItem(FAV_KEY,JSON.stringify(favs));
+  renderFavList(); toast('즐겨찾기를 삭제했습니다.');
+}
+function showFavCard(){
+  renderFavList();
+  const el=document.getElementById('favCard');
+  el.style.display='block';
+  el.scrollIntoView({behavior:'smooth'});
+}
+
+/* ══════════════════════════════════════
+   FULLSCREEN CHART
+══════════════════════════════════════ */
+let fsChart=null;
+function openFull(key,title){
+  if(!data){toast('분석을 먼저 완료해 주세요.');return;}
+  document.getElementById('fsTitle').textContent=title;
+  document.getElementById('fsModal').classList.add('show');
+  if(fsChart){fsChart.destroy();fsChart=null;}
+  requestAnimationFrame(()=>{
+    const ctx=document.getElementById('fsCanvas').getContext('2d');
+    if(key==='m'){
+      const d=data,type=ci.m,isR=type==='radar';
+      const ds=d.cats.map((c,i)=>({
+        label:c,data:d.months.map(m=>d.mCat[m]?.[c]||0),
+        backgroundColor:C[i%C.length]+(type==='line'?'33':'cc'),
+        borderColor:C[i%C.length],borderWidth:2,tension:.35,fill:type==='line',pointRadius:5
+      }));
+      fsChart=new Chart(ctx,{
+        type,data:{
+          labels:isR?d.cats:d.months,
+          datasets:isR?d.months.map((m,i)=>({label:m,data:d.cats.map(c=>d.mCat[m]?.[c]||0),backgroundColor:C[i%C.length]+'44',borderColor:C[i%C.length],borderWidth:2})):ds
+        },
+        options:{responsive:true,maintainAspectRatio:false,
+          plugins:{legend:{position:'bottom',labels:{font:{size:12}}},datalabels:{display:true,color:type==='bar'?'#fff':'#333',font:{size:11,weight:'bold'},formatter:v=>v>0?fmt(v):null,anchor:type==='bar'?'center':'end',align:type==='bar'?'center':'end',clamp:true}},
+          scales:(isR||['pie','doughnut','polarArea'].includes(type))?{}:{x:{stacked:type==='bar',grid:{display:false}},y:{stacked:type==='bar',beginAtZero:true,ticks:{callback:v=>fmt(v)}}}
+        },plugins:[ChartDataLabels]
+      });
+    } else {
+      const d=data,type=ci.s,isB=type==='bar';
+      const bgs=d.sdwts.map((_,i)=>C[i%C.length]+'cc');
+      fsChart=new Chart(ctx,{
+        type,data:{labels:d.sdwts,datasets:[{label:'총 사용금액(원)',data:d.sdwts.map(s=>d.sTotal[s]||0),backgroundColor:bgs,borderColor:bgs.map(c=>c.slice(0,-2)),borderWidth:2}]},
+        options:{responsive:true,maintainAspectRatio:false,
+          plugins:{legend:{position:isB?'bottom':'right',labels:{font:{size:12}}},datalabels:{display:true,color:isB?'#333':'#fff',font:{size:11,weight:'bold'},formatter:(v,dc)=>{if(v<=0)return null;if(isB)return fmt(v)+'원';const tot=dc.dataset.data.reduce((a,b)=>a+b,0);return tot?((v/tot*100).toFixed(1)+'%'):null;},anchor:isB?'end':'center',align:isB?'end':'center',clamp:true}},
+          scales:isB?{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>fmt(v)+'원'}}}:{}
+        },plugins:[ChartDataLabels]
+      });
+    }
+  });
+}
+function closeFull(){
+  document.getElementById('fsModal').classList.remove('show');
+  if(fsChart){fsChart.destroy();fsChart=null;}
+}
+
+/* ══════════════════════════════════════
+   EXCEL EXPORT (SheetJS)
+══════════════════════════════════════ */
+function dlExcel(){
+  if(!data){alert('분석을 먼저 완료해 주세요.');return;}
+  const wb=XLSX.utils.book_new();
+  // 요약
+  const sumRows=[['항목','값'],['분석 기간',`${data.months[0]} ~ ${data.months[data.months.length-1]}`],['기간(개월)',data.months.length],['총 사용건수',data.tc],['총 사용금액(원)',data.ta],['SDWT 수',data.sdwts.length],['대분류 수',data.cats.length],['분석 행 수',data.n]];
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(sumRows),'요약');
+  // SDWT별 현황
+  const sh=['SDWT']; data.cats.forEach(c=>{sh.push(`${c}(건수)`,`${c}(금액)`);});sh.push('총 금액(원)');
+  const sRows=[sh]; const tC={},tA={};data.cats.forEach(c=>{tC[c]=0;tA[c]=0;});let grand=0;
+  data.sdwts.forEach(s=>{
+    const row=[s];
+    data.cats.forEach(c=>{const cn=data.sCnt[s]?.[c]||0,am=data.sAmt[s]?.[c]||0;tC[c]+=cn;tA[c]+=am;row.push(cn,am);});
+    const t=data.sTotal[s]||0;grand+=t;row.push(t);sRows.push(row);
+  });
+  const tr=['합계'];data.cats.forEach(c=>{tr.push(tC[c],tA[c]);});tr.push(grand);sRows.push(tr);
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(sRows),'SDWT별 현황');
+  // 월별 상세
+  const mh=['월',...data.cats,'합계']; const mRows=[mh];
+  const cT={};data.cats.forEach(c=>cT[c]=0);let grd=0;
+  data.months.forEach(m=>{
+    let rt=0;const row=[m];
+    data.cats.forEach(c=>{const v=data.mCat[m]?.[c]||0;cT[c]+=v;rt+=v;row.push(v);});
+    grd+=rt;row.push(rt);mRows.push(row);
+  });
+  mRows.push(['합계',...data.cats.map(c=>cT[c]),grd]);
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(mRows),'월별 상세');
+  // 원본 데이터
+  if(frows.length>0) XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(frows),'원본 데이터');
+  const fn=`부품사용량분석_${data.months[0]||''}~${data.months[data.months.length-1]||''}.xlsx`;
+  XLSX.writeFile(wb,fn);
+  setStatus('success',`✅ "${fn}" Excel 다운로드 완료`);
+}
+
+/* ══════════════════════════════════════
+   PRINT / PDF
+══════════════════════════════════════ */
+function printReport(){
+  if(!data){alert('분석을 먼저 완료해 주세요.');return;}
+  window.print();
 }
 
 /* ══════════════════════════════════════
