@@ -70,6 +70,9 @@
     .ci label { font-size: 11px; font-weight: 700; color: var(--sub); display: block; margin-bottom: 3px; }
     .ci select { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 7px; font-size: 12.5px; outline: none; }
     .ci select:focus { border-color: var(--primary); }
+    .col-prev { font-size: 10.5px; color: var(--sub); margin-top: 4px; padding: 3px 7px; background: #f8f9fa; border-radius: 5px; min-height: 18px; line-height: 1.4; word-break: break-all; }
+    .col-prev.ok  { color: var(--ad); }
+    .col-prev.bad { color: var(--warn); }
 
     /* Buttons */
     .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .18s; }
@@ -218,11 +221,11 @@
       <div id="colMap" style="display:none">
         <div class="ct" style="margin-top:16px">🔗 열 매핑</div>
         <div class="cg">
-          <div class="ci"><label>📅 날짜</label><select id="mDate"></select></div>
-          <div class="ci"><label>🏷️ 대분류</label><select id="mCat"></select></div>
-          <div class="ci"><label>👥 SDWT</label><select id="mSdwt"></select></div>
-          <div class="ci"><label>🔢 사용건수</label><select id="mCount"></select></div>
-          <div class="ci"><label>💰 사용금액</label><select id="mAmt"></select></div>
+          <div class="ci"><label>📅 날짜</label><select id="mDate" onchange="showPreview('mDate','pvDate',true)"></select><div class="col-prev" id="pvDate"></div></div>
+          <div class="ci"><label>🏷️ 대분류</label><select id="mCat" onchange="showPreview('mCat','pvCat',false)"></select><div class="col-prev" id="pvCat"></div></div>
+          <div class="ci"><label>👥 SDWT</label><select id="mSdwt" onchange="showPreview('mSdwt','pvSdwt',false)"></select><div class="col-prev" id="pvSdwt"></div></div>
+          <div class="ci"><label>🔢 사용건수</label><select id="mCount" onchange="showPreview('mCount','pvCount',true)"></select><div class="col-prev" id="pvCount"></div></div>
+          <div class="ci"><label>💰 사용금액</label><select id="mAmt" onchange="showPreview('mAmt','pvAmt',true)"></select><div class="col-prev" id="pvAmt"></div></div>
         </div>
       </div>
 
@@ -371,10 +374,62 @@ const C = ['#1a73e8','#34a853','#fa7b17','#ea4335','#9334e6',
    UTILS
 ══════════════════════════════════════ */
 const fmt  = n => Number(n).toLocaleString('ko-KR');
-const pnum = s => { if (!s && s!==0) return 0; return parseFloat(String(s).replace(/[,\s₩원]/g,''))||0; };
-const pdate = s => { if(!s) return null; const m=String(s).trim().match(/(\d{4})[.\-\/년](\d{1,2})/); return m?{y:m[1],mo:m[2].padStart(2,'0')}:null; };
-const nowt  = () => new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
-const esc   = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const nowt = () => new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
+const esc  = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+// ── 숫자 파싱: 단위 문자(건·개·EA·원·₩·$·% 등) 포함 문자열에서 첫 번째 숫자 추출
+function pnum(s) {
+  if (s === undefined || s === null || s === '') return 0;
+  const str = String(s).replace(/,/g, '');          // 천 단위 쉼표 제거
+  const m = str.match(/-?[\d]+(?:\.[\d]+)?/);       // 첫 번째 숫자(정수·소수·음수)
+  return m ? parseFloat(m[0]) : 0;
+}
+
+// ── 날짜 파싱: 다양한 포맷 → {y, mo}
+function pdate(s) {
+  if (s === undefined || s === null) return null;
+  const str = String(s).trim();
+  if (!str) return null;
+  let m;
+
+  // 1) YYYYMMDD (8자리 연속 숫자)
+  m = str.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (m) return { y: m[1], mo: m[2] };
+
+  // 2) YYYY-MM-DD  /  YYYY/MM/DD  /  YYYY.MM.DD
+  m = str.match(/^(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
+  if (m) return { y: m[1], mo: m[2].padStart(2,'0') };
+
+  // 3) YYYY-MM  /  YYYY/MM  /  YYYY.MM (년·월만 있는 경우)
+  m = str.match(/^(\d{4})[.\-\/](\d{1,2})$/);
+  if (m) return { y: m[1], mo: m[2].padStart(2,'0') };
+
+  // 4) YYYY년MM월DD일  /  YYYY년 MM월
+  m = str.match(/(\d{4})\s*년\s*(\d{1,2})\s*월/);
+  if (m) return { y: m[1], mo: m[2].padStart(2,'0') };
+
+  // 5) MM/DD/YYYY (미국식) — 앞 숫자가 13 이상이면 DD/MM으로 처리
+  m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) {
+    const [, a, b, y] = m;
+    const mo = parseInt(a) <= 12 ? a : b;
+    return { y, mo: String(mo).padStart(2,'0') };
+  }
+
+  // 6) DD.MM.YYYY  /  DD-MM-YYYY (유럽식)
+  m = str.match(/^(\d{1,2})[.\-](\d{1,2})[.\-](\d{4})/);
+  if (m) {
+    const [, a, b, y] = m;
+    const mo = parseInt(b) <= 12 ? b : a;
+    return { y, mo: String(mo).padStart(2,'0') };
+  }
+
+  // 7) 문자열 내 어디서든 YYYY년MM월 / YYYY-MM 패턴 추출 (최후 시도)
+  m = str.match(/(\d{4})[.\-\/년](\d{1,2})/);
+  if (m) return { y: m[1], mo: m[2].padStart(2,'0') };
+
+  return null;
+}
 
 function toast(msg) {
   const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
@@ -404,16 +459,43 @@ function onInput(){
   setStatus('info',`✅ ${fmt(rows.length)}행 인식. 열 매핑 확인 후 [분석하기]를 눌러주세요.`);
 }
 
+// 선택된 열의 샘플 값을 미리보기 영역에 표시
+function showPreview(selId, pvId, isNumeric){
+  const col=document.getElementById(selId).value;
+  const el=document.getElementById(pvId);
+  if(!col||!rows.length){ el.textContent=''; el.className='col-prev'; return; }
+  const samples=[...new Set(rows.slice(0,200).map(r=>String(r[col]??'').trim()).filter(v=>v&&v!=='undefined'))].slice(0,4);
+  if(!samples.length){ el.textContent='(값 없음)'; el.className='col-prev bad'; return; }
+  if(isNumeric){
+    // 날짜/숫자 열: 파싱 성공률 표시
+    const parsed=samples.filter(v=>selId==='mDate'?pdate(v)!==null:!isNaN(pnum(v)));
+    const ok=parsed.length===samples.length;
+    el.className='col-prev '+(ok?'ok':'bad');
+    el.textContent='예시: '+samples.join(' / ')+(ok?'' : '  ⚠️ 일부 인식 불가');
+  } else {
+    el.className='col-prev ok';
+    el.textContent='예시: '+samples.join(' / ');
+  }
+}
+
 function fillSelects(){
-  ['mDate','mCat','mSdwt','mCount','mAmt'].forEach(id=>{
+  const MAP=[['mDate','pvDate',true],['mCat','pvCat',false],['mSdwt','pvSdwt',false],['mCount','pvCount',true],['mAmt','pvAmt',true]];
+  MAP.forEach(([id])=>{
     const s=document.getElementById(id);
     s.innerHTML='<option value="">-- 선택 --</option>';
     headers.forEach(h=>{const o=document.createElement('option');o.value=h;o.textContent=h;s.appendChild(o);});
   });
 }
+
 function autoMap(){
   const r={mDate:[/날짜|date|일자|ymd|년월/i],mCat:[/대분류|category|분류|품목/i],mSdwt:[/sdwt|팀|team|부서|dept/i],mCount:[/건수|count|수량|qty/i],mAmt:[/금액|amount|총액|원가|cost|price/i]};
   Object.entries(r).forEach(([id,p])=>{const m=headers.find(h=>p.some(x=>x.test(h)));if(m)document.getElementById(id).value=m;});
+  // 자동 매핑 후 미리보기 갱신
+  showPreview('mDate','pvDate',true);
+  showPreview('mCat','pvCat',false);
+  showPreview('mSdwt','pvSdwt',false);
+  showPreview('mCount','pvCount',true);
+  showPreview('mAmt','pvAmt',true);
 }
 function cols(){ return {date:document.getElementById('mDate').value,cat:document.getElementById('mCat').value,sdwt:document.getElementById('mSdwt').value,cnt:document.getElementById('mCount').value,amt:document.getElementById('mAmt').value}; }
 
@@ -423,9 +505,11 @@ function cols(){ return {date:document.getElementById('mDate').value,cat:documen
 function compute(rs,c){
   const mS=new Set(),catS=new Set(),sdwtS=new Set();
   const mCat={},sCnt={},sAmt={},sTotal={};
+  let skipped=0;
   rs.forEach(row=>{
-    const d=pdate(row[c.date]); if(!d) return;
-    const cat=(row[c.cat]||'').trim()||'미분류';
+    const d=pdate(row[c.date]);
+    if(!d){ skipped++; return; }
+    const cat =(row[c.cat] ||'').trim()||'미분류';
     const sdwt=(row[c.sdwt]||'').trim()||'미지정';
     const cnt=c.cnt?pnum(row[c.cnt]):1;
     const amt=c.amt?pnum(row[c.amt]):0;
@@ -442,7 +526,7 @@ function compute(rs,c){
   const months=[...mS].sort(), cats=[...catS].sort(), sdwts=[...sdwtS].sort();
   const tc=rs.reduce((s,r)=>s+(c.cnt?pnum(r[c.cnt]):1),0);
   const ta=rs.reduce((s,r)=>s+(c.amt?pnum(r[c.amt]):0),0);
-  return {months,cats,sdwts,mCat,sCnt,sAmt,sTotal,tc,ta,n:rs.length};
+  return {months,cats,sdwts,mCat,sCnt,sAmt,sTotal,tc,ta,n:rs.length,skipped};
 }
 
 /* ══════════════════════════════════════
@@ -502,7 +586,8 @@ function doAnalyze(){
     try{
       recompute();
       document.getElementById('res').scrollIntoView({behavior:'smooth'});
-      setStatus('success',`✅ ${fmt(frows.length)}행 / ${data.months.length}개월 / ${data.sdwts.length}개 SDWT / ${data.cats.length}개 대분류`);
+      const skipMsg=data.skipped>0?` | ⚠️ 날짜 인식 실패 ${fmt(data.skipped)}행 제외 (날짜 열 확인)`:'';
+      setStatus(data.skipped>0?'info':'success',`✅ ${fmt(frows.length-data.skipped)}행 분석 / ${data.months.length}개월 / ${data.sdwts.length}개 SDWT / ${data.cats.length}개 대분류${skipMsg}`);
     }catch(e){ setStatus('error','❌ 오류: '+e.message); }
   },80);
 }
