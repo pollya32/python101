@@ -504,6 +504,12 @@
             <button class="opt-btn" id="maBtn" onclick="toggleMA()">📈 이동평균</button>
             <button class="opt-btn grn" id="trendBtn" onclick="toggleTrend()">📉 추세선</button>
             <button class="opt-btn" id="qtrBtn" onclick="toggleQuarterly()">🗓️ 분기 집계</button>
+            <button class="opt-btn" id="rollingBtn" onclick="toggleRolling()">📊 롤링±1σ</button>
+          </div>
+          <div class="pred-row" id="rollingRow" style="display:none">
+            <span style="font-size:11px;color:var(--sub)">롤링 기간</span>
+            <input class="pred-inp" type="number" id="rollingPeriodInp" min="2" max="12" value="6" oninput="rollingPeriod=Math.max(2,parseInt(this.value)||6);if(data)renderMChart(data,ci.m)">
+            <span style="font-size:11px;color:var(--sub)">개월</span>
           </div>
           <div class="topn-row">
             <span style="font-size:11px;color:var(--sub)">상위</span>
@@ -669,6 +675,50 @@
         <div class="fav-list" id="favList"><span style="font-size:12px;color:var(--sub)">저장된 즐겨찾기가 없습니다.</span></div>
       </div>
 
+      <!-- Cohort Analysis -->
+      <div class="card" id="cohortCard" style="display:none">
+        <div class="ch">
+          <div class="ct" style="margin:0">👥 코호트 분석 (연도별 월 패턴)</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select id="cohortMetric" class="hm-metric-sel" onchange="showCohort()">
+              <option value="cnt">사용건수</option>
+              <option value="amt">사용금액</option>
+            </select>
+            <button class="btn bo bsm" onclick="document.getElementById('cohortCard').style.display='none'">✕</button>
+          </div>
+        </div>
+        <div style="position:relative;height:260px"><canvas id="cohortCanvas"></canvas></div>
+        <div id="cohortResult" style="margin-top:10px"></div>
+      </div>
+
+      <!-- Correlation Matrix -->
+      <div class="card" id="corrCard" style="display:none">
+        <div class="ch">
+          <div class="ct" style="margin:0">🔗 상관관계 행렬 (대분류 간 피어슨 r)</div>
+          <button class="btn bo bsm" onclick="document.getElementById('corrCard').style.display='none'">✕</button>
+        </div>
+        <div id="corrResult" style="overflow-x:auto"></div>
+      </div>
+
+      <!-- Contribution Decomposition -->
+      <div class="card" id="contribCard" style="display:none">
+        <div class="ch">
+          <div class="ct" style="margin:0">📐 기여도 분해 (월별 증감 기여)</div>
+          <button class="btn bo bsm" onclick="document.getElementById('contribCard').style.display='none'">✕</button>
+        </div>
+        <div style="position:relative;height:270px"><canvas id="contribCanvas"></canvas></div>
+      </div>
+
+      <!-- Volatility Analysis -->
+      <div class="card" id="volatCard" style="display:none">
+        <div class="ch">
+          <div class="ct" style="margin:0">📉 변동성 분석 (CV% 변동계수)</div>
+          <button class="btn bo bsm" onclick="document.getElementById('volatCard').style.display='none'">✕</button>
+        </div>
+        <div id="volatResult" style="margin-bottom:12px"></div>
+        <div style="position:relative;height:260px"><canvas id="volatCanvas"></canvas></div>
+      </div>
+
       <!-- PPT -->
       <div class="card" id="exportCard" style="text-align:center;padding:26px">
         <p style="font-size:13px;color:var(--sub);margin-bottom:14px">분석 결과를 PPT·Excel로 내보내거나 메일로 공유합니다.</p>
@@ -695,6 +745,12 @@
           <button class="btn bo bsm" onclick="showTmCard()">🗂️ 트리맵</button>
           <button class="btn bo bsm" onclick="showCalcColCard()">🧮 열 계산</button>
           <button class="btn bo bsm" onclick="openDashCustomizer()">🎨 대시보드 설정</button>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:10px">
+          <button class="btn bo bsm" onclick="showCohort()">👥 코호트 분석</button>
+          <button class="btn bo bsm" onclick="showCorrelation()">🔗 상관관계</button>
+          <button class="btn bo bsm" onclick="showContrib()">📐 기여도 분해</button>
+          <button class="btn bo bsm" onclick="showVolatility()">📉 변동성 분석</button>
         </div>
         <div class="wm-row">
           <span style="font-size:11.5px;font-weight:700;color:var(--sub);white-space:nowrap">🔖 워터마크</span>
@@ -729,6 +785,11 @@
       <div class="qc" onclick="q('편집모드')">✏️ 편집모드</div>
       <div class="qc" onclick="q('열 계산')">🧮 열 계산</div>
       <div class="qc" onclick="q('대시보드 설정')">🎨 대시보드</div>
+      <div class="qc" onclick="q('코호트 분석')">👥 코호트</div>
+      <div class="qc" onclick="q('상관관계 분석')">🔗 상관관계</div>
+      <div class="qc" onclick="q('기여도 분해')">📐 기여도</div>
+      <div class="qc" onclick="q('변동성 분석')">📉 변동성</div>
+      <div class="qc" onclick="q('롤링통계')">📊 롤링통계</div>
       <div class="qc" onclick="q('다크모드')">🌙 다크</div>
       <div class="qc" onclick="q('필터 초기화')">🔄 필터 해제</div>
       <div class="qc" onclick="q('도움말')">❓ 도움말</div>
@@ -844,10 +905,11 @@
 let rows = [], frows = [], headers = [], data = null;
 let fs   = { sdwts:[], cats:[], from:null, to:null };
 let ci   = { m:'bar', s:'doughnut' };
-let ch   = { m:null, s:null, wf:null, scat:null, pareto:null };
+let ch   = { m:null, s:null, wf:null, scat:null, pareto:null, cohort:null, contrib:null, volat:null };
 let showLabels = false;
 let showMA = false, maPeriod = 3;
 let showTrend = false, trendMonths = 3;
+let showRolling = false, rollingPeriod = 6;
 let viewMode = 'month';
 let topNM = 10, topNS = 10;
 let watermarkText = '';
@@ -1154,6 +1216,19 @@ function renderMChart(d,type){
     ds.push({label:`이동평균(${maPeriod})`,data:[...maData,...futureLabels.map(()=>null)],borderColor:'#ff6f00',backgroundColor:'transparent',borderWidth:2.5,borderDash:[6,3],tension:.4,pointRadius:3,fill:false,type:'line',datalabels:{display:false}});
   }
 
+  // Rolling Statistics ±1σ band
+  if(showRolling&&!isR&&!isPie&&labels.length>2){
+    const n=Math.max(2,rollingPeriod);
+    const tot=labels.map(m=>activeCats.reduce((s,c)=>s+(mCatV[m]?.[c]||0),0));
+    const rMean=tot.map((_,i)=>{const sl=tot.slice(Math.max(0,i-n+1),i+1);return sl.reduce((a,b)=>a+b,0)/sl.length;});
+    const rStd=tot.map((_,i)=>{const sl=tot.slice(Math.max(0,i-n+1),i+1);const mv=sl.reduce((a,b)=>a+b,0)/sl.length;return Math.sqrt(sl.reduce((s,v)=>s+(v-mv)**2,0)/sl.length);});
+    const upper=rMean.map((mv,i)=>mv+rStd[i]);
+    const lower=rMean.map((mv,i)=>Math.max(0,mv-rStd[i]));
+    const ext=futureLabels.map(()=>null);
+    ds.push({label:'롤링 하단(-1σ)',data:[...lower,...ext],borderColor:'rgba(0,150,136,0.5)',backgroundColor:'transparent',borderWidth:1,borderDash:[3,3],pointRadius:0,type:'line',fill:false,datalabels:{display:false}});
+    ds.push({label:'롤링 상단(+1σ)',data:[...upper,...ext],borderColor:'rgba(0,150,136,0.5)',backgroundColor:'rgba(0,150,136,0.12)',borderWidth:1,borderDash:[3,3],pointRadius:0,type:'line',fill:'-1',datalabels:{display:false}});
+  }
+
   // Trend/prediction overlay
   if(showTrend&&!isR&&!isPie&&labels.length>=2){
     const tot=labels.map(m=>activeCats.reduce((s,c)=>s+(mCatV[m]?.[c]||0),0));
@@ -1320,7 +1395,8 @@ function parseCmd(txt){
       <li><strong>분석</strong>: "요약", "SDWT 순위", "대분류 순위", "월별 추이", "비교"</li>
       <li><strong>신규 분석</strong>: "이상치", "전년 동기 비교", "예산 비교", "품질 검사"</li>
       <li><strong>고급 차트</strong>: "파레토 분석", "계절성 분석", "폭포수 차트", "산점도", "트리맵"</li>
-      <li><strong>차트 오버레이</strong>: "이동평균", "추세선", "분기 집계", "예측 6개월"</li>
+      <li><strong>차트 오버레이</strong>: "이동평균", "추세선", "분기 집계", "예측 6개월", "롤링통계"</li>
+      <li><strong>고급 분석</strong>: "코호트 분석", "상관관계", "기여도 분해", "변동성 분석"</li>
       <li><strong>데이터 편집</strong>: "편집모드", "열 계산", "편집 초기화"</li>
       <li><strong>UI/공유</strong>: "다크모드", "슬라이드쇼", "공유 링크", "대시보드 설정"</li>
       <li><strong>내보내기</strong>: "엑셀 저장", "CSV 저장", "인쇄", "히스토리", "즐겨찾기"</li>
@@ -1468,6 +1544,11 @@ function parseCmd(txt){
     }
   }
   if(/추세선|추세|trendline/.test(lo)){ toggleTrend(); return bot(`추세선을 ${showTrend?'켰습니다':'껐습니다'}.`,'추세선'); }
+  if(/코호트|cohort|연도별패턴/.test(lo)){ showCohort(); return bot('코호트 분석을 표시했습니다. 연도별 월 패턴을 비교할 수 있습니다.','코호트 분석'); }
+  if(/상관관계|correlation|pearson|피어슨/.test(lo)){ showCorrelation(); return bot('대분류 간 상관관계 행렬을 표시했습니다.','상관관계 분석'); }
+  if(/기여도|contribution|분해|decomp/.test(lo)){ showContrib(); return bot('월별 기여도 분해 차트를 표시했습니다.','기여도 분해'); }
+  if(/변동성|volatility|변동계수/.test(lo)){ showVolatility(); return bot('변동성(CV%) 분석을 표시했습니다.','변동성 분석'); }
+  if(/롤링통계|롤링|rollingstat/.test(lo)){ toggleRolling(); return bot(`롤링 통계(±1σ)를 ${showRolling?'켰습니다':'껐습니다'}.`,'롤링 통계'); }
 
   if(/요약|overview|현황|통계|전체/.test(lo)){ showSummary(); return bot('전체 데이터 요약을 표시했습니다.','요약'); }
 
@@ -2613,6 +2694,9 @@ function doClear(){
   if(ch.wf){ch.wf.destroy();ch.wf=null;}
   if(ch.scat){ch.scat.destroy();ch.scat=null;}
   if(ch.pareto){ch.pareto.destroy();ch.pareto=null;}
+  if(ch.cohort){ch.cohort.destroy();ch.cohort=null;}
+  if(ch.contrib){ch.contrib.destroy();ch.contrib=null;}
+  if(ch.volat){ch.volat.destroy();ch.volat=null;}
   if(seasonChart){seasonChart.destroy();seasonChart=null;}
 }
 
@@ -2780,6 +2864,10 @@ const DASH_CARDS=[
   {id:'monthTableCard',label:'📅 월별 집계'},
   {id:'paretoCard',   label:'📊 파레토 분석'},
   {id:'seasonCard',   label:'🌊 계절성 분석'},
+  {id:'cohortCard',   label:'👥 코호트 분석'},
+  {id:'corrCard',     label:'🔗 상관관계 행렬'},
+  {id:'contribCard',  label:'📐 기여도 분해'},
+  {id:'volatCard',    label:'📉 변동성 분석'},
   {id:'qualityCard',  label:'🔍 품질 리포트'},
   {id:'historyCard',  label:'🕐 히스토리'},
   {id:'favCard',      label:'⭐ 즐겨찾기'},
@@ -2844,6 +2932,243 @@ function moveDashCard(idx,dir){
   [dashConfig[idx],dashConfig[ni]]=[dashConfig[ni],dashConfig[idx]];
   dashConfig.forEach((c,i)=>c.order=i);
   renderDashList();
+}
+
+/* ══════════════════════════════════════
+   ROLLING STATISTICS TOGGLE
+══════════════════════════════════════ */
+function toggleRolling(){
+  showRolling=!showRolling;
+  document.getElementById('rollingBtn').classList.toggle('on',showRolling);
+  const row=document.getElementById('rollingRow');
+  if(row) row.style.display=showRolling?'flex':'none';
+  if(data) renderMChart(data,ci.m);
+}
+
+/* ══════════════════════════════════════
+   COHORT ANALYSIS
+══════════════════════════════════════ */
+function showCohort(){
+  if(!data){toast('분석을 먼저 완료해 주세요.');return;}
+  const card=document.getElementById('cohortCard');
+  card.style.display='block'; card.scrollIntoView({behavior:'smooth'});
+  const metric=(document.getElementById('cohortMetric')?.value)||'cnt';
+  const byYear={};
+  data.months.forEach(m=>{
+    const y=m.slice(0,4), mo=parseInt(m.slice(5));
+    if(!byYear[y]) byYear[y]={};
+    const tot=metric==='cnt'
+      ? Object.values(data.mCat[m]||{}).reduce((a,b)=>a+b,0)
+      : (data.mAmt?.[m]||0);
+    byYear[y][mo]=tot;
+  });
+  const years=Object.keys(byYear).sort();
+  const moLabels=['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+  if(ch.cohort){ch.cohort.destroy();ch.cohort=null;}
+  const ds=years.map((y,i)=>({
+    label:y+'년',
+    data:Array.from({length:12},(_,j)=>byYear[y][j+1]??null),
+    borderColor:C[i%C.length], backgroundColor:C[i%C.length]+'22',
+    borderWidth:2, tension:.35, pointRadius:4, fill:false,
+    datalabels:{display:false}
+  }));
+  ch.cohort=new Chart(document.getElementById('cohortCanvas').getContext('2d'),{
+    type:'line',
+    data:{labels:moLabels,datasets:ds},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{position:'bottom',labels:{font:{size:10}}},
+        tooltip:{callbacks:{label:x=>x.raw!=null?` ${x.dataset.label} ${x.label}: ${fmt(Math.round(x.raw))}${metric==='amt'?'원':'건'}`:null}},
+        datalabels:{display:false}},
+      scales:{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>fmt(v)}}}
+    },
+    plugins:[ChartDataLabels]
+  });
+  if(years.length>=2){
+    renderCohortTable(byYear,years,moLabels,metric);
+  } else {
+    document.getElementById('cohortResult').innerHTML='<div style="font-size:12px;color:var(--sub)">전년 비교: 2개 이상 연도 데이터가 필요합니다.</div>';
+  }
+}
+function renderCohortTable(byYear,years,moLabels,metric){
+  const prevY=years[years.length-2], currY=years[years.length-1];
+  let h='<div style="overflow-x:auto;margin-top:8px"><table><thead><tr><th>월</th>';
+  years.forEach(y=>{h+=`<th>${y}년</th>`;});
+  h+='<th>전년비(%)</th></tr></thead><tbody>';
+  let totP=0,totC=0;
+  for(let mo=1;mo<=12;mo++){
+    const prev=byYear[prevY]?.[mo]??null, curr=byYear[currY]?.[mo]??null;
+    if(prev===null&&curr===null) continue;
+    h+=`<tr><td class="rh">${moLabels[mo-1]}</td>`;
+    years.forEach(y=>{const v=byYear[y]?.[mo];h+=`<td>${v!=null?fmt(Math.round(v)):'-'}</td>`;});
+    const chg=prev&&prev>0&&curr!=null?((curr-prev)/prev*100):null;
+    const col=chg===null?'var(--sub)':(chg>0?'var(--warn)':'var(--ad)');
+    h+=`<td style="color:${col};font-weight:700">${chg===null?'-':(chg>0?'+':'')+chg.toFixed(1)+'%'}</td></tr>`;
+    if(prev!=null) totP+=prev; if(curr!=null) totC+=curr;
+  }
+  const totChg=totP>0?((totC-totP)/totP*100):null;
+  const totCol=totChg===null?'var(--sub)':(totChg>0?'var(--warn)':'var(--ad)');
+  h+=`<tr class="tr"><td class="rh">합계</td>`;
+  years.forEach(y=>{const v=Object.values(byYear[y]).reduce((a,b)=>a+b,0);h+=`<td>${fmt(Math.round(v))}</td>`;});
+  h+=`<td style="color:${totCol};font-weight:700">${totChg===null?'-':(totChg>0?'+':'')+totChg.toFixed(1)+'%'}</td></tr>`;
+  h+='</tbody></table></div>';
+  document.getElementById('cohortResult').innerHTML=h;
+}
+
+/* ══════════════════════════════════════
+   CORRELATION MATRIX (Pearson r)
+══════════════════════════════════════ */
+function pearson(a,b){
+  const n=a.length; if(n<2) return 0;
+  const ma=a.reduce((s,v)=>s+v,0)/n, mb=b.reduce((s,v)=>s+v,0)/n;
+  let num=0,da=0,db=0;
+  for(let i=0;i<n;i++){num+=(a[i]-ma)*(b[i]-mb);da+=(a[i]-ma)**2;db+=(b[i]-mb)**2;}
+  const den=Math.sqrt(da*db);
+  return den?num/den:0;
+}
+function showCorrelation(){
+  if(!data){toast('분석을 먼저 완료해 주세요.');return;}
+  if(data.months.length<3){toast('상관관계 분석에는 3개월 이상 데이터가 필요합니다.');return;}
+  const card=document.getElementById('corrCard');
+  card.style.display='block'; card.scrollIntoView({behavior:'smooth'});
+  const cTot={};
+  data.cats.forEach(c=>{cTot[c]=data.months.reduce((s,m)=>s+(data.mCat[m]?.[c]||0),0);});
+  const topCats=[...data.cats].sort((a,b)=>cTot[b]-cTot[a]).slice(0,15);
+  const series={};
+  topCats.forEach(c=>{series[c]=data.months.map(m=>data.mCat[m]?.[c]||0);});
+  let h='<table class="hm-table"><thead><tr><th></th>';
+  topCats.forEach(c=>{h+=`<th title="${esc(c)}" style="max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.length>6?c.slice(0,5)+'…':c)}</th>`;});
+  h+='</tr></thead><tbody>';
+  topCats.forEach(r=>{
+    h+=`<tr><td class="hm-lbl" title="${esc(r)}">${esc(r.length>8?r.slice(0,7)+'…':r)}</td>`;
+    topCats.forEach(c=>{
+      if(r===c){h+=`<td style="background:#e8eaf6;color:#333;font-weight:700">1.00</td>`;return;}
+      const rv=pearson(series[r],series[c]);
+      const abs=Math.abs(rv);
+      const bg=rv>0?`rgba(26,115,232,${(abs*0.75).toFixed(2)})`:`rgba(234,67,53,${(abs*0.75).toFixed(2)})`;
+      const tc=abs>0.5?'#fff':'#333';
+      h+=`<td style="background:${bg};color:${tc}" title="${esc(r)} vs ${esc(c)}: r=${rv.toFixed(3)}">${rv.toFixed(2)}</td>`;
+    });
+    h+='</tr>';
+  });
+  h+='</tbody></table>';
+  h+='<div style="margin-top:8px;font-size:11.5px;color:var(--sub)">🔵 파란색 = 정상관 (함께 증가) | 🔴 빨간색 = 역상관 (반대로 움직임) | 색이 진할수록 강한 상관관계</div>';
+  document.getElementById('corrResult').innerHTML=h;
+}
+
+/* ══════════════════════════════════════
+   CONTRIBUTION DECOMPOSITION
+══════════════════════════════════════ */
+function showContrib(){
+  if(!data){toast('분석을 먼저 완료해 주세요.');return;}
+  if(data.months.length<2){toast('기여도 분해에는 2개월 이상 데이터가 필요합니다.');return;}
+  const card=document.getElementById('contribCard');
+  card.style.display='block'; card.scrollIntoView({behavior:'smooth'});
+  if(ch.contrib){ch.contrib.destroy();ch.contrib=null;}
+  const cTot={};
+  data.cats.forEach(c=>{cTot[c]=data.months.reduce((s,m)=>s+(data.mCat[m]?.[c]||0),0);});
+  const topCats=[...data.cats].sort((a,b)=>cTot[b]-cTot[a]).slice(0,10);
+  const changeMonths=data.months.slice(1);
+  const totalChange=changeMonths.map((m,i)=>{
+    const prev=data.months[i];
+    return data.cats.reduce((s,c)=>s+(data.mCat[m]?.[c]||0)-(data.mCat[prev]?.[c]||0),0);
+  });
+  const catDs=topCats.map((cat,ci2)=>({
+    label:cat,
+    data:changeMonths.map((m,i)=>(data.mCat[m]?.[cat]||0)-(data.mCat[data.months[i]]?.[cat]||0)),
+    backgroundColor:C[ci2%C.length]+'cc',
+    borderColor:C[ci2%C.length],
+    borderWidth:1,
+    stack:'stack',
+    type:'bar',
+    datalabels:{display:false}
+  }));
+  catDs.push({
+    label:'총 변화',
+    data:totalChange,
+    type:'line',
+    borderColor:'#333',
+    backgroundColor:'transparent',
+    borderWidth:2.5,
+    pointRadius:4,
+    tension:.3,
+    fill:false,
+    datalabels:{display:false}
+  });
+  ch.contrib=new Chart(document.getElementById('contribCanvas').getContext('2d'),{
+    type:'bar',
+    data:{labels:changeMonths,datasets:catDs},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{position:'bottom',labels:{font:{size:10}}},
+        tooltip:{callbacks:{label:x=>` ${x.dataset.label}: ${x.raw>0?'+':''}${fmt(Math.round(x.raw))}`}},
+        datalabels:{display:false}},
+      scales:{x:{stacked:true,grid:{display:false}},y:{stacked:true,ticks:{callback:v=>(v>0?'+':'')+fmt(v)}}}
+    },
+    plugins:[ChartDataLabels]
+  });
+}
+
+/* ══════════════════════════════════════
+   VOLATILITY ANALYSIS (CV%)
+══════════════════════════════════════ */
+function showVolatility(){
+  if(!data){toast('분석을 먼저 완료해 주세요.');return;}
+  if(data.months.length<3){toast('변동성 분석에는 3개월 이상 데이터가 필요합니다.');return;}
+  const card=document.getElementById('volatCard');
+  card.style.display='block'; card.scrollIntoView({behavior:'smooth'});
+  const cTot={};
+  data.cats.forEach(c=>{cTot[c]=data.months.reduce((s,m)=>s+(data.mCat[m]?.[c]||0),0);});
+  const topCats=[...data.cats].sort((a,b)=>cTot[b]-cTot[a]).slice(0,15);
+  const stats=topCats.map(cat=>{
+    const vals=data.months.map(m=>data.mCat[m]?.[cat]||0).filter(v=>v>0);
+    if(vals.length<2) return{cat,mean:0,std:0,cv:0};
+    const mean=vals.reduce((a,b)=>a+b,0)/vals.length;
+    const std=Math.sqrt(vals.reduce((s,v)=>s+(v-mean)**2,0)/vals.length);
+    return{cat,mean:Math.round(mean),std:Math.round(std),cv:parseFloat((mean>0?std/mean*100:0).toFixed(1))};
+  }).sort((a,b)=>b.cv-a.cv);
+  const maxCV=Math.max(...stats.map(s=>s.cv),1);
+  let h='<div style="overflow-x:auto"><table><thead><tr><th>대분류</th><th>평균(건)</th><th>표준편차</th><th>CV%</th><th>변동성</th></tr></thead><tbody>';
+  stats.forEach(s=>{
+    const lvl=s.cv>50?'🔴 매우높음':s.cv>30?'🟠 높음':s.cv>15?'🟡 보통':'🟢 낮음';
+    const barColor=s.cv>50?'#ea4335':s.cv>30?'#ff6f00':s.cv>15?'#fbbc04':'#34a853';
+    h+=`<tr>
+      <td class="rh">${esc(s.cat)}</td>
+      <td>${fmt(s.mean)}</td>
+      <td>${fmt(s.std)}</td>
+      <td style="font-weight:700;color:${barColor}">${s.cv}%</td>
+      <td style="min-width:120px">
+        <div class="prog-bar" style="margin:0"><div class="prog-fill" style="width:${(s.cv/maxCV*100).toFixed(1)}%;background:${barColor}"></div></div>
+        <div style="font-size:10px;color:var(--sub);margin-top:2px">${lvl}</div>
+      </td>
+    </tr>`;
+  });
+  h+='</tbody></table></div>';
+  document.getElementById('volatResult').innerHTML=h;
+  renderVolatScatter(stats);
+}
+function renderVolatScatter(stats){
+  if(ch.volat){ch.volat.destroy();ch.volat=null;}
+  const pts=stats.map((s,i)=>({
+    label:s.cat,
+    data:[{x:s.mean,y:s.cv}],
+    backgroundColor:C[i%C.length]+'cc',
+    borderColor:C[i%C.length],
+    borderWidth:2, pointRadius:9, pointHoverRadius:11
+  }));
+  ch.volat=new Chart(document.getElementById('volatCanvas').getContext('2d'),{
+    type:'scatter',
+    data:{datasets:pts},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:x=>` ${x.dataset.label}: 평균 ${fmt(x.raw.x)}건, CV ${x.raw.y.toFixed(1)}%`}},
+        datalabels:{display:true,color:'#333',font:{size:9,weight:'bold'},formatter:(_,dc)=>dc.dataset.label,anchor:'end',align:'right',clamp:true}
+      },
+      scales:{
+        x:{title:{display:true,text:'평균 사용건수',font:{size:11}},ticks:{callback:v=>fmt(v)},beginAtZero:true},
+        y:{title:{display:true,text:'CV% (변동계수)',font:{size:11}},ticks:{callback:v=>v+'%'},beginAtZero:true}
+      }
+    },
+    plugins:[ChartDataLabels]
+  });
 }
 
 // Initialize dashboard on load
