@@ -331,6 +331,53 @@
     [data-dark] .wm-row{background:#252525;}
     [data-dark] .wm-inp{background:#2a2a2a;color:#e0e0e0;}
 
+    /* Edit mode table */
+    .edit-mode .editable { cursor:pointer; }
+    .edit-mode .editable:hover { background:#fffde7 !important; outline:1.5px dashed #ffb300; outline-offset:-1px; }
+    .cell-inp { width:100%; min-width:56px; border:2px solid var(--primary); border-radius:4px; padding:2px 5px; font-size:12px; font-family:monospace; text-align:right; background:#e8f0fe; outline:none; box-sizing:border-box; }
+    [data-dark] .cell-inp { background:#1a237e; color:#e0e0e0; }
+    .edit-banner { display:none; background:#fff3e0; border:1.5px solid #ffb300; border-radius:8px; padding:7px 12px; font-size:12px; font-weight:700; color:#e65100; margin-bottom:10px; align-items:center; gap:8px; }
+    .edit-banner.show { display:flex; }
+
+    /* Calculated columns builder */
+    .calc-builder { display:flex; flex-direction:column; gap:7px; }
+    .calc-item { display:flex; align-items:center; gap:8px; padding:8px 13px; background:#f8f9fa; border-radius:9px; border:1.5px solid var(--border); flex-wrap:wrap; }
+    .calc-name-inp { width:120px; padding:6px 10px; border:1.5px solid var(--border); border-radius:7px; font-size:12.5px; outline:none; }
+    .calc-form-inp { flex:1; min-width:160px; padding:6px 10px; border:1.5px solid var(--border); border-radius:7px; font-size:12.5px; outline:none; font-family:monospace; }
+    .calc-name-inp:focus, .calc-form-inp:focus { border-color:var(--primary); }
+    [data-dark] .calc-item { background:#252525; }
+    [data-dark] .calc-name-inp, [data-dark] .calc-form-inp { background:#2a2a2a; color:#e0e0e0; border-color:#333; }
+
+    /* Prediction period */
+    .pred-row { display:flex; align-items:center; gap:6px; margin-top:5px; flex-wrap:wrap; }
+    .pred-inp { width:48px; padding:3px 7px; border:1.5px solid var(--border); border-radius:8px; font-size:12px; outline:none; text-align:center; background:#fff; color:var(--text); }
+    .pred-inp:focus { border-color:var(--primary); }
+    [data-dark] .pred-inp { background:#252525; color:#e0e0e0; }
+
+    /* Season chart */
+    .season-chart-wrap { position:relative; height:210px; margin-top:12px; }
+
+    /* Dashboard customizer */
+    .dash-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:260; align-items:center; justify-content:center; }
+    .dash-modal.show { display:flex; }
+    .dash-inner { background:var(--card); border-radius:14px; width:min(460px,95vw); max-height:85vh; overflow-y:auto; padding:22px 24px; }
+    [data-dark] .dash-inner { background:#1e1e1e; }
+    .dash-item { display:flex; align-items:center; gap:10px; padding:9px 13px; border:1.5px solid var(--border); border-radius:9px; margin-bottom:7px; background:var(--card); transition:all .15s; }
+    .dash-item:hover { border-color:var(--primary); }
+    .dash-chk { accent-color:var(--primary); width:16px; height:16px; cursor:pointer; flex-shrink:0; }
+    .dash-lbl { flex:1; font-size:13px; font-weight:600; }
+    .dash-mv { display:flex; gap:3px; }
+    .dash-mv button { background:none; border:1px solid var(--border); border-radius:4px; cursor:pointer; font-size:11px; padding:2px 6px; color:var(--sub); line-height:1.2; }
+    .dash-mv button:hover { border-color:var(--primary); color:var(--primary); }
+    .dash-mv button:disabled { opacity:.35; pointer-events:none; }
+
+    /* Results flex layout for reordering */
+    #res { display:flex; flex-direction:column; }
+    #res > * { order:100; }
+    .sg { order:0 !important; }
+    .ic { order:1 !important; }
+    #budgetCard { order:2 !important; }
+
     /* Data Label Toggle */
     .lbl-btn { padding:4px 10px; border:1.5px solid var(--border); border-radius:14px; background:#fff; font-size:11px; font-weight:600; cursor:pointer; color:var(--sub); transition:all .15s; white-space:nowrap; }
     .lbl-btn.on { background:#fff3e0; border-color:#ffb300; color:#e65100; }
@@ -441,7 +488,7 @@
       </div>
 
       <!-- Charts -->
-      <div class="cg2">
+      <div class="cg2" id="chartsGrid">
         <div class="card">
           <div class="ch">
             <div class="ct" style="margin:0">📊 월별 대분류 사용건수</div>
@@ -462,6 +509,11 @@
             <span style="font-size:11px;color:var(--sub)">상위</span>
             <input class="topn-inp" type="number" id="topNM" min="1" max="50" value="10" oninput="applyTopN('m')">
             <span style="font-size:11px;color:var(--sub)">개 대분류</span>
+          </div>
+          <div class="pred-row" id="predRow" style="display:none">
+            <span style="font-size:11px;color:var(--sub)">예측 기간</span>
+            <input class="pred-inp" type="number" id="predMonths" min="1" max="24" value="3" oninput="if(data)renderMChart(data,ci.m)">
+            <span style="font-size:11px;color:var(--sub)">개월 앞으로</span>
           </div>
           <div style="display:flex;gap:7px;margin-top:10px;flex-wrap:wrap">
             <button class="btn bo bsm" onclick="copyChart('mc','월별 대분류 사용건수')">📎 PPT 복사</button>
@@ -493,7 +545,7 @@
       </div>
 
       <!-- Heatmap -->
-      <div class="card">
+      <div class="card" id="heatmapCard">
         <div class="ch">
           <div class="ct" style="margin:0">🌡️ 월 × SDWT 사용 히트맵</div>
           <div style="display:flex;align-items:center;gap:8px">
@@ -535,8 +587,22 @@
         <div class="tm-legend" id="tmLegend"></div>
       </div>
 
+      <!-- Calculated Columns -->
+      <div class="card" id="calcColCard" style="display:none">
+        <div class="ch">
+          <div class="ct" style="margin:0">🧮 열 계산 (Calculated Columns)</div>
+          <button class="btn bo bsm" onclick="document.getElementById('calcColCard').style.display='none'">✕</button>
+        </div>
+        <div class="calc-builder" id="calcColList"><div style="font-size:12px;color:var(--sub);padding:8px 0">열 추가 버튼을 눌러 계산 열을 만드세요.</div></div>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn bp bsm" onclick="addCalcCol()">+ 열 추가</button>
+          <button class="btn bg bsm" onclick="applyCalcCols()">✅ 적용</button>
+        </div>
+        <div style="margin-top:8px;font-size:11.5px;color:var(--sub)">수식 예: <code>[사용건수] * 1.1</code> · <code>[사용금액] / [사용건수]</code> — 대괄호로 기존 열 이름을 참조합니다.</div>
+      </div>
+
       <!-- SDWT Table -->
-      <div class="card">
+      <div class="card" id="sdwtTableCard">
         <div class="ch">
           <div class="ct" style="margin:0">📋 SDWT별 대분류 사용현황</div>
           <button class="btn bo bsm" onclick="copyTbl('tw1','SDWT별 대분류')">📎 PPT 복사</button>
@@ -545,11 +611,15 @@
       </div>
 
       <!-- Monthly Table -->
-      <div class="card">
+      <div class="card" id="monthTableCard">
         <div class="ch">
           <div class="ct" style="margin:0">📅 월별 대분류 상세 집계</div>
-          <button class="btn bo bsm" onclick="copyTbl('tw2','월별 상세 집계')">📎 PPT 복사</button>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn bo bsm" id="editModeBtn" onclick="toggleEditMode()">✏️ 편집모드</button>
+            <button class="btn bo bsm" onclick="copyTbl('tw2','월별 상세 집계')">📎 PPT 복사</button>
+          </div>
         </div>
+        <div class="edit-banner" id="editBanner">✏️ 편집 모드: 셀을 클릭하면 값을 수정할 수 있습니다. <button class="btn bo bsm" onclick="clearManualEdits()" style="margin-left:auto">🔄 편집 초기화</button></div>
         <div class="tw" id="tw2"></div>
       </div>
 
@@ -569,6 +639,7 @@
           <button class="btn bo bsm" onclick="document.getElementById('seasonCard').style.display='none'">✕</button>
         </div>
         <div id="seasonResult"></div>
+        <div class="season-chart-wrap"><canvas id="seasonCanvas"></canvas></div>
       </div>
 
       <!-- Quality Report -->
@@ -599,7 +670,7 @@
       </div>
 
       <!-- PPT -->
-      <div class="card" style="text-align:center;padding:26px">
+      <div class="card" id="exportCard" style="text-align:center;padding:26px">
         <p style="font-size:13px;color:var(--sub);margin-bottom:14px">분석 결과를 PPT·Excel로 내보내거나 메일로 공유합니다.</p>
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
           <button class="btn bg" style="font-size:14px;padding:11px 22px" onclick="dlPPT()">📥 PPT 다운로드</button>
@@ -622,6 +693,8 @@
           <button class="btn bo bsm" onclick="showWfCard()">📊 폭포수 차트</button>
           <button class="btn bo bsm" onclick="showScatCard()">📍 산점도</button>
           <button class="btn bo bsm" onclick="showTmCard()">🗂️ 트리맵</button>
+          <button class="btn bo bsm" onclick="showCalcColCard()">🧮 열 계산</button>
+          <button class="btn bo bsm" onclick="openDashCustomizer()">🎨 대시보드 설정</button>
         </div>
         <div class="wm-row">
           <span style="font-size:11.5px;font-weight:700;color:var(--sub);white-space:nowrap">🔖 워터마크</span>
@@ -652,6 +725,10 @@
       <div class="qc" onclick="q('트리맵 보여줘')">🗂️ 트리맵</div>
       <div class="qc" onclick="q('전년 동기 비교')">📅 전년비교</div>
       <div class="qc" onclick="q('데이터 품질 검사')">🔍 품질</div>
+      <div class="qc" onclick="q('예측 6개월')">🔮 6개월 예측</div>
+      <div class="qc" onclick="q('편집모드')">✏️ 편집모드</div>
+      <div class="qc" onclick="q('열 계산')">🧮 열 계산</div>
+      <div class="qc" onclick="q('대시보드 설정')">🎨 대시보드</div>
       <div class="qc" onclick="q('다크모드')">🌙 다크</div>
       <div class="qc" onclick="q('필터 초기화')">🔄 필터 해제</div>
       <div class="qc" onclick="q('도움말')">❓ 도움말</div>
@@ -685,6 +762,22 @@
   </div>
 
 </div><!-- /app -->
+
+<!-- Dashboard Customizer Modal -->
+<div class="dash-modal" id="dashModal" onclick="if(event.target===this)closeDashCustomizer()">
+  <div class="dash-inner">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div style="font-size:15px;font-weight:700">🎨 대시보드 카드 설정</div>
+      <button class="modal-close" onclick="closeDashCustomizer()">✕</button>
+    </div>
+    <div style="font-size:12px;color:var(--sub);margin-bottom:12px">표시할 카드를 선택하고 순서를 조정하세요. 체크 해제한 카드는 숨겨집니다.</div>
+    <div id="dashList"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn bo bsm" onclick="closeDashCustomizer()">닫기</button>
+      <button class="btn bp bsm" onclick="applyDashLayout();closeDashCustomizer();toast('✅ 대시보드 레이아웃이 저장됐습니다.')">✅ 적용 & 저장</button>
+    </div>
+  </div>
+</div>
 
 <!-- Slideshow Modal -->
 <div class="ss-modal" id="ssModal" onclick="if(event.target===this)closeSlideshow()">
@@ -759,6 +852,10 @@ let viewMode = 'month';
 let topNM = 10, topNS = 10;
 let watermarkText = '';
 let ssIdx = 0, ssTimer = null;
+let calcCols = [];
+let editMode = false;
+let manualEdits = {};
+let seasonChart = null;
 
 const THEMES = {
   blue:  ['#1a73e8','#34a853','#fa7b17','#ea4335','#9334e6','#00bcd4','#ff6f00','#2e7d32','#ad1457','#1565c0','#558b2f','#6a1b9a','#00838f','#4e342e','#37474f'],
@@ -962,6 +1059,7 @@ function recompute(){
   if(!rows.length) return;
   frows=filtered();
   data=compute(frows,cols());
+  applyManualEdits(data);
   renderAll(data);
   updateBadge();
   document.getElementById('res').style.display='block';
@@ -1031,8 +1129,19 @@ function renderMChart(d,type){
     labels=quarters; mCatV=qMap;
   } else { labels=d.months; mCatV=d.mCat; }
 
+  // Extended prediction: only for line/bar monthly mode with trend on
+  let futureLabels=[];
+  const canPredict=showTrend&&!isR&&!isPie&&labels.length>=2&&viewMode==='month';
+  document.getElementById('predRow').style.display=canPredict?'flex':'none';
+  if(canPredict){
+    const pn=Math.max(0,parseInt(document.getElementById('predMonths')?.value)||3);
+    futureLabels=getNextMonths(labels,pn);
+  }
+  const allLabels=[...labels,...futureLabels];
+
   const ds=activeCats.map((c,i)=>({
-    label:c, data:labels.map(m=>mCatV[m]?.[c]||0),
+    label:c,
+    data:[...labels.map(m=>mCatV[m]?.[c]||0),...futureLabels.map(()=>null)],
     backgroundColor:C[i%C.length]+(type==='line'?'33':'cc'),
     borderColor:C[i%C.length], borderWidth:2, tension:.35,
     fill:type==='line', pointRadius:4
@@ -1042,26 +1151,33 @@ function renderMChart(d,type){
   if(showMA&&!isR&&!isPie&&labels.length>1){
     const tot=labels.map(m=>activeCats.reduce((s,c)=>s+(mCatV[m]?.[c]||0),0));
     const maData=tot.map((_,i)=>{const sl=tot.slice(Math.max(0,i-maPeriod+1),i+1);return sl.reduce((a,b)=>a+b,0)/sl.length;});
-    ds.push({label:`이동평균(${maPeriod})`,data:maData,borderColor:'#ff6f00',backgroundColor:'transparent',borderWidth:2.5,borderDash:[6,3],tension:.4,pointRadius:3,fill:false,type:'line',datalabels:{display:false}});
+    ds.push({label:`이동평균(${maPeriod})`,data:[...maData,...futureLabels.map(()=>null)],borderColor:'#ff6f00',backgroundColor:'transparent',borderWidth:2.5,borderDash:[6,3],tension:.4,pointRadius:3,fill:false,type:'line',datalabels:{display:false}});
   }
 
   // Trend/prediction overlay
   if(showTrend&&!isR&&!isPie&&labels.length>=2){
     const tot=labels.map(m=>activeCats.reduce((s,c)=>s+(mCatV[m]?.[c]||0),0));
     const{slope,intercept}=linearRegression(tot.map((_,i)=>i),tot);
-    const trendData=tot.map((_,i)=>Math.max(0,slope*i+intercept));
-    ds.push({label:'추세선',data:trendData,borderColor:'#9334e6',backgroundColor:'transparent',borderWidth:2,borderDash:[4,4],tension:0,pointRadius:0,fill:false,type:'line',datalabels:{display:false}});
+    // Historical fitted trend
+    const histTrend=labels.map((_,i)=>Math.max(0,slope*i+intercept));
+    ds.push({label:'추세선',data:[...histTrend,...futureLabels.map(()=>null)],borderColor:'#9334e6',backgroundColor:'transparent',borderWidth:2,borderDash:[4,4],tension:0,pointRadius:0,fill:false,type:'line',datalabels:{display:false}});
+    // Future prediction extension
+    if(futureLabels.length){
+      // Overlap by 1 to connect at boundary
+      const predData=[...labels.map((_,i)=>i===labels.length-1?Math.max(0,slope*i+intercept):null),...futureLabels.map((_,i)=>Math.max(0,slope*(labels.length+i)+intercept))];
+      ds.push({label:'예측 구간',data:predData,borderColor:'#ff6f00',backgroundColor:'rgba(255,111,0,0.09)',borderWidth:2.5,borderDash:[8,4],tension:0,pointRadius:4,pointBackgroundColor:'#ff6f00',fill:false,type:'line',datalabels:{display:false}});
+    }
   }
 
   ch.m=new Chart(ctx,{
     type, data:{
-      labels:isR?activeCats:labels,
+      labels:isR?activeCats:allLabels,
       datasets:isR?labels.map((m,i)=>({label:m,data:activeCats.map(c=>mCatV[m]?.[c]||0),backgroundColor:C[i%C.length]+'44',borderColor:C[i%C.length],borderWidth:2})):ds
     },
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{
         legend:{position:'bottom',labels:{font:{size:10}}},
-        tooltip:{callbacks:{label:x=>` ${x.dataset.label}: ${fmt(x.raw)}건`}},
+        tooltip:{callbacks:{label:x=>x.raw!=null?` ${x.dataset.label}: ${fmt(x.raw)}건`:null}},
         datalabels:{display:showLabels,color:type==='bar'?'#fff':'#333',font:{size:9,weight:'bold'},formatter:v=>v>0?fmt(v):null,anchor:type==='bar'?'center':'end',align:type==='bar'?'center':'end',clamp:true}
       },
       scales:(isR||isPie)?{}:{x:{stacked:type==='bar',grid:{display:false}},y:{stacked:type==='bar',beginAtZero:true,ticks:{callback:v=>fmt(v)}}}
@@ -1127,8 +1243,16 @@ function renderMonthTbl(d){
   const cT={};d.cats.forEach(c=>cT[c]=0);let grand=0;
   d.months.forEach(m=>{
     let rt=0; h+=`<tr><td class="rh">${m}</td>`;
-    d.cats.forEach(c=>{const v=d.mCat[m]?.[c]||0;cT[c]+=v;rt+=v;h+=`<td>${fmt(v)}</td>`;});
-    grand+=rt;h+=`<td style="font-weight:700">${fmt(rt)}</td></tr>`;
+    d.cats.forEach(c=>{
+      const v=d.mCat[m]?.[c]||0; cT[c]+=v; rt+=v;
+      if(editMode){
+        const edited=manualEdits[m]?.[c]!==undefined;
+        h+=`<td class="editable${edited?' mn':''}" style="${edited?'color:var(--primary);font-weight:700':''}" data-ym="${m}" data-cat="${esc(c)}" onclick="startCellEdit(this,this.dataset.ym,this.dataset.cat)">${fmt(v)}</td>`;
+      } else {
+        h+=`<td>${fmt(v)}</td>`;
+      }
+    });
+    grand+=rt; h+=`<td style="font-weight:700">${fmt(rt)}</td></tr>`;
   });
   h+='<tr class="tr"><td class="rh">합계</td>';
   d.cats.forEach(c=>{h+=`<td>${fmt(cT[c])}</td>`;});
@@ -1196,8 +1320,9 @@ function parseCmd(txt){
       <li><strong>분석</strong>: "요약", "SDWT 순위", "대분류 순위", "월별 추이", "비교"</li>
       <li><strong>신규 분석</strong>: "이상치", "전년 동기 비교", "예산 비교", "품질 검사"</li>
       <li><strong>고급 차트</strong>: "파레토 분석", "계절성 분석", "폭포수 차트", "산점도", "트리맵"</li>
-      <li><strong>차트 오버레이</strong>: "이동평균", "추세선", "분기 집계"</li>
-      <li><strong>UI</strong>: "다크모드", "슬라이드쇼", "공유 링크"</li>
+      <li><strong>차트 오버레이</strong>: "이동평균", "추세선", "분기 집계", "예측 6개월"</li>
+      <li><strong>데이터 편집</strong>: "편집모드", "열 계산", "편집 초기화"</li>
+      <li><strong>UI/공유</strong>: "다크모드", "슬라이드쇼", "공유 링크", "대시보드 설정"</li>
       <li><strong>내보내기</strong>: "엑셀 저장", "CSV 저장", "인쇄", "히스토리", "즐겨찾기"</li>
     </ul>`);
   }
@@ -1324,11 +1449,25 @@ function parseCmd(txt){
   if(/산점도|scatter|산포도/.test(lo)){ showScatCard(); return bot('건수 vs 금액 산점도를 표시했습니다.','산점도'); }
   if(/트리맵|treemap|사각형차트/.test(lo)){ showTmCard(); return bot('대분류 트리맵을 표시했습니다.','트리맵'); }
   if(/이동평균|movingavg|ma/.test(lo)){ toggleMA(); return bot(`이동평균 오버레이를 ${showMA?'켰습니다':'껐습니다'}.`,'이동평균'); }
-  if(/추세선|추세|trendline/.test(lo)){ toggleTrend(); return bot(`추세선을 ${showTrend?'켰습니다':'껐습니다'}.`,'추세선'); }
   if(/분기집계|분기보기|쿼터|quarter/.test(lo)){ toggleQuarterly(); return bot(`분기 집계를 ${viewMode==='quarter'?'켰습니다':'껐습니다'}.`,'분기 집계'); }
   if(/다크모드|다크|darkmode|어둡게/.test(lo)){ toggleDarkMode(); return bot('다크/라이트 모드를 전환했습니다.','다크모드'); }
   if(/슬라이드|slideshow|발표/.test(lo)){ openSlideshow(); return bot('슬라이드쇼를 시작했습니다.','슬라이드쇼'); }
   if(/공유|링크|shareurl/.test(lo)){ shareURL(); return bot('현재 필터 상태를 공유 링크로 복사했습니다.','URL 공유'); }
+  if(/편집모드|셀편집|데이터편집|직접편집/.test(lo)){ toggleEditMode(); return bot(`편집 모드를 ${editMode?'켰습니다':'껐습니다'}. ${editMode?'월별 집계 표의 셀을 클릭하면 수정할 수 있습니다.':''}`, '편집 모드'); }
+  if(/편집초기화|편집해제|편집리셋/.test(lo)){ clearManualEdits(); return bot('편집 내용을 초기화하고 원본 데이터로 복원했습니다.','편집 초기화'); }
+  if(/열계산|계산열|칼럼추가|컬럼추가/.test(lo)){ showCalcColCard(); return bot('열 계산 카드를 열었습니다. 수식으로 새 열을 추가할 수 있습니다.','열 계산'); }
+  if(/대시보드설정|대시설정|카드설정|레이아웃설정/.test(lo)){ openDashCustomizer(); return bot('대시보드 카드 설정 창을 열었습니다. 카드 표시 여부와 순서를 조정하세요.','대시보드 설정'); }
+  {
+    const predM=lo.match(/예측(\d+)개?월/);
+    if(predM){
+      const n=Math.min(24,Math.max(1,parseInt(predM[1])));
+      const inp=document.getElementById('predMonths'); if(inp) inp.value=n;
+      if(!showTrend){ showTrend=true; document.getElementById('trendBtn').classList.add('on'); }
+      if(data) renderMChart(data,ci.m);
+      return bot(`추세선을 <strong>${n}개월</strong> 앞으로 연장해 예측 구간을 표시했습니다.`,'예측 추세선');
+    }
+  }
+  if(/추세선|추세|trendline/.test(lo)){ toggleTrend(); return bot(`추세선을 ${showTrend?'켰습니다':'껐습니다'}.`,'추세선'); }
 
   if(/요약|overview|현황|통계|전체/.test(lo)){ showSummary(); return bot('전체 데이터 요약을 표시했습니다.','요약'); }
 
@@ -2322,6 +2461,7 @@ function showSeasonality(){
   h+='</tbody></table></div>';
   h+='<div style="margin-top:8px;font-size:11.5px;color:var(--sub)">계절지수 &gt;1.15: 성수기 ▲ | &lt;0.85: 비수기 ▼ | ≈1.00: 평균</div>';
   document.getElementById('seasonResult').innerHTML=h;
+  renderSeasonChart(entries, globalAvg);
 }
 
 /* ══════════════════════════════════════
@@ -2466,15 +2606,249 @@ function doClear(){
   document.getElementById('fb').classList.remove('show');
   rows=[];frows=[];headers=[];data=null;
   fs={sdwts:[],cats:[],from:null,to:null};
+  if(editMode) toggleEditMode();
+  manualEdits={};
   if(ch.m){ch.m.destroy();ch.m=null;}
   if(ch.s){ch.s.destroy();ch.s=null;}
   if(ch.wf){ch.wf.destroy();ch.wf=null;}
   if(ch.scat){ch.scat.destroy();ch.scat=null;}
   if(ch.pareto){ch.pareto.destroy();ch.pareto=null;}
+  if(seasonChart){seasonChart.destroy();seasonChart=null;}
 }
 
 // Load URL-shared state on page open
 loadFromURL();
+
+/* ══════════════════════════════════════
+   PREDICTION HELPERS
+══════════════════════════════════════ */
+function getNextMonths(months, n){
+  if(!months.length||n<=0) return [];
+  const last=months[months.length-1];
+  const[y,m]=last.split('-').map(Number);
+  const result=[];
+  for(let i=1;i<=n;i++){
+    let ny=y,nm=m+i;
+    while(nm>12){nm-=12;ny++;}
+    result.push(`${ny}-${String(nm).padStart(2,'0')}`);
+  }
+  return result;
+}
+
+/* ══════════════════════════════════════
+   MANUAL EDITS
+══════════════════════════════════════ */
+function applyManualEdits(d){
+  Object.entries(manualEdits).forEach(([ym,cats])=>{
+    if(!d.months.includes(ym)) return;
+    if(!d.mCat[ym]) d.mCat[ym]={};
+    Object.entries(cats).forEach(([cat,val])=>{
+      if(d.cats.includes(cat)) d.mCat[ym][cat]=val;
+    });
+  });
+}
+function clearManualEdits(){
+  manualEdits={};
+  if(data){ recompute(); toast('✅ 편집 내용을 초기화했습니다.'); }
+}
+
+/* ══════════════════════════════════════
+   EDIT MODE
+══════════════════════════════════════ */
+function toggleEditMode(){
+  editMode=!editMode;
+  const card=document.getElementById('monthTableCard');
+  const banner=document.getElementById('editBanner');
+  const btn=document.getElementById('editModeBtn');
+  if(card) card.classList.toggle('edit-mode',editMode);
+  if(banner) banner.classList.toggle('show',editMode);
+  if(btn){ btn.textContent=editMode?'✏️ 편집종료':'✏️ 편집모드'; btn.classList.toggle('on',editMode); }
+  if(data) renderMonthTbl(data);
+}
+function startCellEdit(td,ym,cat){
+  if(!editMode) return;
+  const cur=manualEdits[ym]?.[cat]!==undefined?manualEdits[ym][cat]:(data?.mCat[ym]?.[cat]||0);
+  const inp=document.createElement('input');
+  inp.type='number'; inp.className='cell-inp'; inp.value=cur;
+  td.innerHTML=''; td.appendChild(inp); inp.focus(); inp.select();
+  function commit(){
+    const v=parseFloat(inp.value)||0;
+    if(!manualEdits[ym]) manualEdits[ym]={};
+    manualEdits[ym][cat]=v;
+    if(data){ data.mCat[ym]=data.mCat[ym]||{}; data.mCat[ym][cat]=v; }
+    renderMonthTbl(data);
+    renderMChart(data,ci.m);
+  }
+  inp.addEventListener('blur',commit);
+  inp.addEventListener('keydown',e=>{
+    if(e.key==='Enter'){e.preventDefault();inp.blur();}
+    if(e.key==='Escape'){inp.removeEventListener('blur',commit);if(data)renderMonthTbl(data);}
+  });
+}
+
+/* ══════════════════════════════════════
+   CALCULATED COLUMNS
+══════════════════════════════════════ */
+function showCalcColCard(){
+  const el=document.getElementById('calcColCard');
+  if(!el) return;
+  el.style.display='block'; el.scrollIntoView({behavior:'smooth'});
+  renderCalcColList();
+}
+function renderCalcColList(){
+  const list=document.getElementById('calcColList'); if(!list) return;
+  if(!calcCols.length){
+    list.innerHTML='<div style="font-size:12px;color:var(--sub);padding:8px 0">열 추가 버튼을 눌러 계산 열을 만드세요.</div>';
+    return;
+  }
+  list.innerHTML=calcCols.map((c,i)=>`
+    <div class="calc-item">
+      <input class="calc-name-inp" type="text" placeholder="열 이름" value="${esc(c.name)}"
+        oninput="calcCols[${i}].name=this.value">
+      <span style="font-size:11px;color:var(--sub);flex-shrink:0">=</span>
+      <input class="calc-form-inp" type="text" placeholder="수식: [사용건수] * 1.1" value="${esc(c.formula)}"
+        oninput="calcCols[${i}].formula=this.value">
+      <button class="btn bo bsm" onclick="removeCalcCol(${i})">✕</button>
+    </div>`).join('');
+}
+function addCalcCol(){
+  calcCols.push({name:'계산열'+(calcCols.length+1),formula:''});
+  renderCalcColList();
+}
+function removeCalcCol(idx){
+  calcCols.splice(idx,1); renderCalcColList();
+}
+function evalCalcFormula(row,formula){
+  try{
+    let expr=formula.replace(/\[([^\]]+)\]/g,(_,col)=>{const v=pnum(row[col]);return isNaN(v)?0:v;});
+    if(!/^[\d\s+\-*/().,eE%^]+$/.test(expr)) return null;
+    const r=new Function('return '+expr)();
+    return isFinite(r)?r:null;
+  }catch{return null;}
+}
+function applyCalcCols(){
+  if(!frows.length){toast('먼저 데이터를 분석하세요.');return;}
+  let applied=0;
+  calcCols.forEach(cc=>{
+    if(!cc.name.trim()||!cc.formula.trim()) return;
+    frows.forEach(row=>{const v=evalCalcFormula(row,cc.formula);if(v!==null)row[cc.name]=v;});
+    if(!headers.includes(cc.name)) headers.push(cc.name);
+    applied++;
+  });
+  if(!applied){toast('적용할 열이 없습니다. 이름과 수식을 입력해 주세요.');return;}
+  recompute();
+  toast(`✅ 계산 열 ${applied}개가 적용됐습니다.`);
+}
+
+/* ══════════════════════════════════════
+   SEASONALITY RADAR CHART
+══════════════════════════════════════ */
+function renderSeasonChart(entries,globalAvg){
+  const canvas=document.getElementById('seasonCanvas'); if(!canvas) return;
+  if(seasonChart){seasonChart.destroy();seasonChart=null;}
+  const moNames=['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+  const idxData=entries.map(e=>e.cnt>0&&globalAvg>0?parseFloat((e.avg/globalAvg).toFixed(3)):0);
+  seasonChart=new Chart(canvas.getContext('2d'),{
+    type:'radar',
+    data:{
+      labels:moNames,
+      datasets:[
+        {label:'계절지수',data:idxData,backgroundColor:'rgba(26,115,232,0.15)',borderColor:'#1a73e8',borderWidth:2,pointRadius:4,pointBackgroundColor:'#1a73e8',
+          datalabels:{display:true,color:'#1a73e8',font:{size:9,weight:'bold'},formatter:v=>v?v.toFixed(2):null,anchor:'end',align:'start'}},
+        {label:'기준(1.0)',data:new Array(12).fill(1.0),backgroundColor:'transparent',borderColor:'#bbb',borderWidth:1.5,borderDash:[4,4],pointRadius:0,datalabels:{display:false}}
+      ]
+    },
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{position:'bottom',labels:{font:{size:10}}},datalabels:{}},
+      scales:{r:{beginAtZero:false,min:0,suggestedMax:2,ticks:{stepSize:0.5,font:{size:9},backdropColor:'transparent'},grid:{color:'rgba(0,0,0,.08)'},pointLabels:{font:{size:10}}}}
+    },
+    plugins:[ChartDataLabels]
+  });
+}
+
+/* ══════════════════════════════════════
+   DASHBOARD CARDS
+══════════════════════════════════════ */
+const DASH_CARDS=[
+  {id:'chartsGrid',   label:'📊 차트 (월별/SDWT)'},
+  {id:'heatmapCard',  label:'🌡️ 히트맵'},
+  {id:'wfCard',       label:'📊 폭포수 차트'},
+  {id:'scatCard',     label:'📍 산점도'},
+  {id:'tmCard',       label:'🗂️ 트리맵'},
+  {id:'calcColCard',  label:'🧮 열 계산'},
+  {id:'sdwtTableCard',label:'📋 SDWT별 현황'},
+  {id:'monthTableCard',label:'📅 월별 집계'},
+  {id:'paretoCard',   label:'📊 파레토 분석'},
+  {id:'seasonCard',   label:'🌊 계절성 분석'},
+  {id:'qualityCard',  label:'🔍 품질 리포트'},
+  {id:'historyCard',  label:'🕐 히스토리'},
+  {id:'favCard',      label:'⭐ 즐겨찾기'},
+  {id:'exportCard',   label:'📥 내보내기'}
+];
+const ALWAYS_VISIBLE=['chartsGrid','heatmapCard','sdwtTableCard','monthTableCard','exportCard'];
+let dashConfig=DASH_CARDS.map((c,i)=>({...c,visible:true,order:i}));
+
+const DASH_KEY='parts-dash-config';
+function saveDashConfig(){
+  try{localStorage.setItem(DASH_KEY,JSON.stringify(dashConfig));}catch{}
+}
+function loadDashConfig(){
+  try{
+    const saved=JSON.parse(localStorage.getItem(DASH_KEY)||'null');
+    if(!saved) return;
+    const savedMap={};
+    saved.forEach(c=>{savedMap[c.id]={visible:c.visible,order:c.order};});
+    dashConfig=DASH_CARDS.map((c,i)=>{
+      const s=savedMap[c.id];
+      return{...c,visible:s?s.visible:true,order:s?s.order:999+i};
+    });
+    dashConfig.sort((a,b)=>a.order-b.order);
+    dashConfig.forEach((c,i)=>c.order=i);
+  }catch{}
+}
+
+function applyDashLayout(){
+  const sorted=[...dashConfig].sort((a,b)=>a.order-b.order);
+  sorted.forEach((c,i)=>{
+    const el=document.getElementById(c.id); if(!el) return;
+    el.style.order=i+3;
+    if(ALWAYS_VISIBLE.includes(c.id)){
+      el.style.display=c.visible?'':'none';
+    }
+  });
+  saveDashConfig();
+}
+
+function openDashCustomizer(){
+  renderDashList();
+  document.getElementById('dashModal').classList.add('show');
+}
+function closeDashCustomizer(){
+  document.getElementById('dashModal').classList.remove('show');
+}
+function renderDashList(){
+  const list=document.getElementById('dashList'); if(!list) return;
+  list.innerHTML=dashConfig.map((c,i)=>`
+    <div class="dash-item">
+      <input type="checkbox" class="dash-chk" ${c.visible?'checked':''} onchange="dashConfig[${i}].visible=this.checked">
+      <span class="dash-lbl">${c.label}</span>
+      <div class="dash-mv">
+        <button onclick="moveDashCard(${i},-1)" ${i===0?'disabled':''}>▲</button>
+        <button onclick="moveDashCard(${i},1)" ${i===dashConfig.length-1?'disabled':''}>▼</button>
+      </div>
+    </div>`).join('');
+}
+function moveDashCard(idx,dir){
+  const ni=idx+dir;
+  if(ni<0||ni>=dashConfig.length) return;
+  [dashConfig[idx],dashConfig[ni]]=[dashConfig[ni],dashConfig[idx]];
+  dashConfig.forEach((c,i)=>c.order=i);
+  renderDashList();
+}
+
+// Initialize dashboard on load
+loadDashConfig();
+applyDashLayout();
 </script>
 </body>
 </html>
