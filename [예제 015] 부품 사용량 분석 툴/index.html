@@ -1559,7 +1559,7 @@ function parseCmd(txt){
     showCatRank(); return bot('대분류별 사용건수 순위를 표시했습니다.','대분류 순위');
   }
   if(/순위|top|rank/.test(lo)){ showSdwtRank(); return bot('SDWT 금액 순위를 표시했습니다.','순위'); }
-  if(/추이|트렌드|trend|변화|증감/.test(lo)){ showTrend(); return bot('월별 사용 추이 분석을 표시했습니다.','추이 분석'); }
+  if(/추이|트렌드|trend|변화|증감/.test(lo)){ showTrendAnalysis(); return bot('월별 사용 추이 분석을 표시했습니다.','추이 분석'); }
 
   /* ── SDWT/대분류 명 포함 → 해당 분석 ── */
   if(matchedSdwt.length>0){
@@ -1639,7 +1639,7 @@ function showCatRank(){
   showInsight('대분류별 사용건수 순위',h);
 }
 
-function showTrend(){
+function showTrendAnalysis(){
   if(!data) return;
   const mTot=data.months.map(m=>({m,v:Object.values(data.mCat[m]||{}).reduce((s,v)=>s+v,0)}));
   const peak=mTot.reduce((a,b)=>a.v>b.v?a:b);
