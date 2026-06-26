@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>부품 사용량 분석 툴</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
   <style>
@@ -192,6 +193,25 @@
     /* Toast */
     .toast { position: fixed; bottom: 22px; right: calc(var(--cw) + 14px); background: #333; color: #fff; padding: 8px 15px; border-radius: 8px; font-size: 12px; opacity: 0; pointer-events: none; transition: opacity .3s; z-index: 9999; }
     .toast.show { opacity: 1; }
+
+    /* Data Label Toggle */
+    .lbl-btn { padding:4px 10px; border:1.5px solid var(--border); border-radius:14px; background:#fff; font-size:11px; font-weight:600; cursor:pointer; color:var(--sub); transition:all .15s; white-space:nowrap; }
+    .lbl-btn.on { background:#fff3e0; border-color:#ffb300; color:#e65100; }
+
+    /* Mail Modal */
+    .modal-bg { display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:200; align-items:center; justify-content:center; }
+    .modal-bg.show { display:flex; }
+    .modal { background:#fff; border-radius:14px; box-shadow:0 8px 40px rgba(0,0,0,.22); width:min(520px,95vw); max-height:88vh; overflow-y:auto; padding:24px 26px; }
+    .modal-hd { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
+    .modal-title { font-size:16px; font-weight:700; }
+    .modal-close { background:none; border:none; cursor:pointer; font-size:18px; color:var(--sub); padding:2px 7px; border-radius:6px; }
+    .modal-close:hover { background:#f1f3f4; }
+    .mf { margin-bottom:14px; }
+    .mf label { font-size:11.5px; font-weight:700; color:var(--sub); display:block; margin-bottom:5px; }
+    .mf input, .mf textarea { width:100%; padding:8px 11px; border:1.5px solid var(--border); border-radius:8px; font-size:13px; outline:none; font-family:inherit; }
+    .mf input:focus, .mf textarea:focus { border-color:var(--primary); }
+    .mf textarea { resize:vertical; min-height:170px; line-height:1.6; font-size:12px; }
+    .modal-acts { display:flex; gap:9px; justify-content:flex-end; margin-top:4px; flex-wrap:wrap; }
   </style>
 </head>
 <body>
@@ -261,6 +281,7 @@
               <button class="cb active" onclick="setChart('m','bar',this)">막대</button>
               <button class="cb" onclick="setChart('m','line',this)">꺾은선</button>
               <button class="cb" onclick="setChart('m','radar',this)">레이더</button>
+              <button class="lbl-btn" id="lblBtnM" onclick="toggleLabels()">🏷️ 수치 표기</button>
             </div>
           </div>
           <div class="cw"><canvas id="mc"></canvas></div>
@@ -274,6 +295,7 @@
               <button class="cb" onclick="setChart('s','pie',this)">파이</button>
               <button class="cb" onclick="setChart('s','bar',this)">막대</button>
               <button class="cb" onclick="setChart('s','polarArea',this)">폴라</button>
+              <button class="lbl-btn" id="lblBtnS" onclick="toggleLabels()">🏷️ 수치 표기</button>
             </div>
           </div>
           <div class="cw"><canvas id="sc2"></canvas></div>
@@ -302,7 +324,10 @@
       <!-- PPT -->
       <div class="card" style="text-align:center;padding:26px">
         <p style="font-size:13px;color:var(--sub);margin-bottom:14px">모든 분석 결과를 하나의 PPT 파일로 내보냅니다.</p>
-        <button class="btn bg" style="font-size:15px;padding:12px 30px" onclick="dlPPT()">📥 보고서 다운로드 (PPT)</button>
+        <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+          <button class="btn bg" style="font-size:15px;padding:12px 30px" onclick="dlPPT()">📥 보고서 다운로드 (PPT)</button>
+          <button class="btn bo" style="font-size:15px;padding:12px 30px" onclick="openMailModal()">📧 메일 보내기</button>
+        </div>
       </div>
     </div>
 
@@ -355,6 +380,36 @@
 
 </div><!-- /app -->
 
+<!-- Mail Modal -->
+<div class="modal-bg" id="mailModal" onclick="if(event.target===this)closeMailModal()">
+  <div class="modal">
+    <div class="modal-hd">
+      <div class="modal-title">📧 메일 보내기</div>
+      <button class="modal-close" onclick="closeMailModal()">✕</button>
+    </div>
+    <div class="mf">
+      <label>📨 수신자 (받는 사람)</label>
+      <input type="email" id="mailTo" placeholder="example@company.com">
+    </div>
+    <div class="mf">
+      <label>📋 참조 (CC, 선택)</label>
+      <input type="email" id="mailCc" placeholder="example@company.com">
+    </div>
+    <div class="mf">
+      <label>📌 제목</label>
+      <input type="text" id="mailSubject">
+    </div>
+    <div class="mf">
+      <label>📝 내용 (자동 생성됨, 수정 가능)</label>
+      <textarea id="mailBody"></textarea>
+    </div>
+    <div class="modal-acts">
+      <button class="btn bo" onclick="copyMailContent()">📋 내용 복사</button>
+      <button class="btn bp" onclick="sendMail()">📧 메일 프로그램으로 열기</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -365,6 +420,7 @@ let rows = [], frows = [], headers = [], data = null;
 let fs   = { sdwts:[], cats:[], from:null, to:null };
 let ci   = { m:'bar', s:'doughnut' };
 let ch   = { m:null, s:null };
+let showLabels = false;
 
 const C = ['#1a73e8','#34a853','#fa7b17','#ea4335','#9334e6',
            '#00bcd4','#ff6f00','#2e7d32','#ad1457','#1565c0',
@@ -625,8 +681,14 @@ function renderMChart(d,type){
       datasets:isR?d.months.map((m,i)=>({label:m,data:d.cats.map(c=>d.mCat[m]?.[c]||0),backgroundColor:C[i%C.length]+'44',borderColor:C[i%C.length],borderWidth:2})):ds
     },
     options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{position:'bottom',labels:{font:{size:10}}},tooltip:{callbacks:{label:x=>` ${x.dataset.label}: ${fmt(x.raw)}건`}}},
-      scales:(isR||['pie','doughnut','polarArea'].includes(type))?{}:{x:{stacked:type==='bar',grid:{display:false}},y:{stacked:type==='bar',beginAtZero:true,ticks:{callback:v=>fmt(v)}}}}
+      plugins:{
+        legend:{position:'bottom',labels:{font:{size:10}}},
+        tooltip:{callbacks:{label:x=>` ${x.dataset.label}: ${fmt(x.raw)}건`}},
+        datalabels:{display:showLabels,color:type==='bar'?'#fff':'#333',font:{size:9,weight:'bold'},formatter:v=>v>0?fmt(v):null,anchor:type==='bar'?'center':'end',align:type==='bar'?'center':'end',clamp:true}
+      },
+      scales:(isR||['pie','doughnut','polarArea'].includes(type))?{}:{x:{stacked:type==='bar',grid:{display:false}},y:{stacked:type==='bar',beginAtZero:true,ticks:{callback:v=>fmt(v)}}}
+    },
+    plugins:[ChartDataLabels]
   });
 }
 
@@ -638,8 +700,14 @@ function renderSChart(d,type){
   ch.s=new Chart(ctx,{
     type, data:{labels:d.sdwts,datasets:[{label:'총 사용금액(원)',data:d.sdwts.map(s=>d.sTotal[s]||0),backgroundColor:bgs,borderColor:bgs.map(c=>c.slice(0,-2)),borderWidth:2}]},
     options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{position:isB?'bottom':'right',labels:{font:{size:10}}},tooltip:{callbacks:{label:x=>` ${x.label}: ${fmt(x.raw)}원`}}},
-      scales:isB?{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>fmt(v)+'원'}}}:{}}
+      plugins:{
+        legend:{position:isB?'bottom':'right',labels:{font:{size:10}}},
+        tooltip:{callbacks:{label:x=>` ${x.label}: ${fmt(x.raw)}원`}},
+        datalabels:{display:showLabels,color:isB?'#333':'#fff',font:{size:10,weight:'bold'},formatter:(v,dc)=>{if(v<=0)return null;if(isB)return fmt(v);const tot=dc.dataset.data.reduce((a,b)=>a+b,0);return tot?((v/tot*100).toFixed(1)+'%'):null;},anchor:isB?'end':'center',align:isB?'end':'center',clamp:true}
+      },
+      scales:isB?{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>fmt(v)+'원'}}}:{}
+    },
+    plugins:[ChartDataLabels]
   });
 }
 
@@ -1144,6 +1212,69 @@ async function dlPPT(){
   const fn=`부품사용량분석_${d.months[0]||''}~${d.months[d.months.length-1]||''}.pptx`;
   await pptx.writeFile({fileName:fn});
   setStatus('success',`✅ "${fn}" 다운로드 완료`);
+}
+
+/* ══════════════════════════════════════
+   DATA LABEL TOGGLE
+══════════════════════════════════════ */
+function toggleLabels(){
+  showLabels=!showLabels;
+  document.querySelectorAll('.lbl-btn').forEach(b=>b.classList.toggle('on',showLabels));
+  if(data){renderMChart(data,ci.m);renderSChart(data,ci.s);}
+}
+
+/* ══════════════════════════════════════
+   MAIL
+══════════════════════════════════════ */
+function openMailModal(){
+  if(!data){alert('분석을 먼저 완료해 주세요.');return;}
+  document.getElementById('mailSubject').value=`부품 사용량 분석 보고서 (${data.months[0]||''} ~ ${data.months[data.months.length-1]||''})`;
+  document.getElementById('mailBody').value=buildMailBody();
+  document.getElementById('mailModal').classList.add('show');
+}
+function closeMailModal(){document.getElementById('mailModal').classList.remove('show');}
+
+function buildMailBody(){
+  if(!data) return '';
+  const lines=[
+    '===== 부품 사용량 분석 보고서 =====','',
+    `■ 분석 기간: ${data.months[0]||'-'} ~ ${data.months[data.months.length-1]||'-'} (${data.months.length}개월)`,
+    `■ 총 사용건수: ${fmt(data.tc)}건`,
+    `■ 총 사용금액: ${fmt(data.ta)}원`,
+    `■ SDWT 수: ${data.sdwts.length}개 / 대분류 수: ${data.cats.length}개`,
+    '','■ SDWT별 사용금액 순위'
+  ];
+  [...data.sdwts].sort((a,b)=>(data.sTotal[b]||0)-(data.sTotal[a]||0)).forEach((s,i)=>{
+    const pct=data.ta?((data.sTotal[s]||0)/data.ta*100).toFixed(1):0;
+    lines.push(`  ${i+1}. ${s}: ${fmt(data.sTotal[s]||0)}원 (${pct}%)`);
+  });
+  const cTot={};data.cats.forEach(c=>{cTot[c]=data.months.reduce((s,m)=>s+(data.mCat[m]?.[c]||0),0);});
+  const tot=Object.values(cTot).reduce((a,b)=>a+b,0);
+  lines.push('','■ 대분류별 사용건수 순위');
+  [...data.cats].sort((a,b)=>cTot[b]-cTot[a]).forEach((c,i)=>{
+    const pct=tot?(cTot[c]/tot*100).toFixed(1):0;
+    lines.push(`  ${i+1}. ${c}: ${fmt(cTot[c])}건 (${pct}%)`);
+  });
+  lines.push('',`생성일: ${new Date().toLocaleDateString('ko-KR')}`,'(본 보고서는 부품 사용량 분석 툴에서 자동 생성되었습니다.)');
+  return lines.join('\n');
+}
+
+function sendMail(){
+  const to=document.getElementById('mailTo').value.trim();
+  const cc=document.getElementById('mailCc').value.trim();
+  const subj=document.getElementById('mailSubject').value.trim();
+  const body=document.getElementById('mailBody').value;
+  let url=`mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}`;
+  if(cc) url+=`&cc=${encodeURIComponent(cc)}`;
+  window.location.href=url;
+}
+
+async function copyMailContent(){
+  try{
+    await navigator.clipboard.writeText(document.getElementById('mailBody').value);
+    toast('📧 메일 내용이 클립보드에 복사되었습니다.');
+    closeMailModal();
+  }catch(e){alert('복사 실패: '+e.message);}
 }
 
 /* 초기화 */
