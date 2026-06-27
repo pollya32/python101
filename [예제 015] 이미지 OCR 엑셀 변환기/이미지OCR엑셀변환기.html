@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>이미지 OCR 엑셀 변환기</title>
+  <!-- Tesseract.js: 브라우저에서 동작하는 OCR 엔진 -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <!-- SheetJS: 브라우저에서 Excel 파일 생성 -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+      background: #eef2ff;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 36px 16px 60px;
+    }
+
+    h1 { font-size: 1.85rem; color: #2d3a8c; margin-bottom: 6px; text-align: center; }
+    .subtitle { color: #6b7ab8; font-size: 0.93rem; margin-bottom: 6px; text-align: center; }
+    .badge-offline {
+      display: inline-block;
+      background: #e8f5e9; color: #2e7d32;
+      font-size: 0.78rem; font-weight: 700;
+      padding: 3px 10px; border-radius: 20px;
+      margin-bottom: 24px;
+    }
+
+    .steps {
+      display: flex; gap: 8px; margin-bottom: 24px;
+      justify-content: center; flex-wrap: wrap;
+    }
+    .step {
+      background: white; border: 1.5px solid #b3c2ff;
+      border-radius: 20px; padding: 5px 14px;
+      font-size: 0.8rem; color: #4472C4; font-weight: 600;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .step-num {
+      background: #4472C4; color: white;
+      width: 19px; height: 19px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 0.72rem; flex-shrink: 0;
+    }
+
+    .card {
+      background: white; border-radius: 16px;
+      box-shadow: 0 4px 24px rgba(68,114,196,0.10);
+      padding: 28px; width: 100%; max-width: 920px;
+      margin-bottom: 20px;
+    }
+
+    /* 붙여넣기 / 드롭 영역 */
+    #drop-zone {
+      border: 2.5px dashed #7c9dff;
+      border-radius: 12px;
+      padding: 52px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+      background: #f6f8ff;
+    }
+    #drop-zone.over  { background: #eaedff; border-color: #4472C4; }
+    #drop-zone.ready { padding: 16px; border-style: solid; border-color: #4472C4; }
+
+    .drop-icon  { font-size: 2.8rem; margin-bottom: 10px; }
+    .drop-hint  { color: #5a6ea8; font-size: 0.97rem; line-height: 1.7; }
+    .drop-hint strong { color: #2d3a8c; }
+
+    #preview-img {
+      max-width: 100%; max-height: 300px;
+      border-radius: 8px; display: none;
+      margin: 0 auto;
+      box-shadow: 0 2px 14px rgba(0,0,0,0.13);
+    }
+
+    #file-input { display: none; }
+    .btn-file {
+      display: inline-block; margin-top: 14px;
+      padding: 8px 20px; background: #e8eeff; color: #2d3a8c;
+      border-radius: 8px; cursor: pointer; font-size: 0.88rem;
+      font-weight: 600; border: 1.5px solid #b3c2ff;
+      transition: background 0.15s;
+    }
+    .btn-file:hover { background: #d0dcff; }
+
+    /* 버튼 */
+    .btn-row { display: flex; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
+
+    .btn {
+      flex: 1; min-width: 150px;
+      padding: 13px 18px; border: none; border-radius: 10px;
+      font-size: 0.97rem; font-weight: 700; cursor: pointer;
+      transition: transform 0.12s, box-shadow 0.12s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .btn:disabled { opacity: 0.42; cursor: not-allowed; }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #4472C4, #2d3a8c);
+      color: white; box-shadow: 0 4px 12px rgba(68,114,196,0.28);
+    }
+    .btn-primary:not(:disabled):hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(68,114,196,0.36); }
+
+    .btn-green {
+      background: linear-gradient(135deg, #1e7e5e, #148a50);
+      color: white; box-shadow: 0 4px 12px rgba(30,126,94,0.28);
+    }
+    .btn-green:not(:disabled):hover { transform: translateY(-1px); }
+
+    .btn-orange {
+      background: linear-gradient(135deg, #e67e22, #d35400);
+      color: white; box-shadow: 0 4px 12px rgba(230,126,34,0.28);
+    }
+    .btn-orange:not(:disabled):hover { transform: translateY(-1px); }
+
+    .btn-gray { background: #f0f2f8; color: #555; flex: 0; min-width: 90px; }
+    .btn-gray:hover { background: #e4e8f0; }
+
+    /* 언어 선택 */
+    .lang-row {
+      display: flex; align-items: center; gap: 10px;
+      margin-top: 14px; flex-wrap: wrap;
+    }
+    .lang-row label { font-size: 0.88rem; color: #5a6ea8; font-weight: 600; }
+    .lang-row select {
+      padding: 6px 12px; border: 1.5px solid #b3c2ff; border-radius: 8px;
+      font-size: 0.88rem; color: #2d3a8c; background: #f6f8ff;
+      cursor: pointer; outline: none;
+    }
+
+    /* 진행 상태 */
+    #status {
+      display: none; text-align: center;
+      padding: 13px; border-radius: 8px;
+      font-size: 0.93rem; margin-top: 14px;
+    }
+    #status.loading { display: block; background: #e8f0fe; color: #2d3a8c; }
+    #status.error   { display: block; background: #ffe8e8; color: #c0392b; }
+    #status.success { display: block; background: #e8f8f0; color: #1e7e5e; }
+
+    /* 진행바 */
+    #progress-wrap {
+      display: none; margin-top: 12px;
+      background: #e8eeff; border-radius: 8px; overflow: hidden; height: 8px;
+    }
+    #progress-bar {
+      height: 100%; background: linear-gradient(90deg, #4472C4, #7c9dff);
+      width: 0%; transition: width 0.3s ease;
+      border-radius: 8px;
+    }
+
+    .spinner {
+      display: inline-block; width: 17px; height: 17px;
+      border: 2.5px solid #4472C4; border-top-color: transparent;
+      border-radius: 50%; animation: spin 0.7s linear infinite;
+      vertical-align: middle; margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* 결과 테이블 */
+    .result-header {
+      display: flex; align-items: center;
+      justify-content: space-between; margin-bottom: 12px;
+    }
+    .result-title { font-size: 1.05rem; font-weight: 700; color: #2d3a8c; }
+    .result-badge {
+      background: #e8eeff; color: #4472C4;
+      font-size: 0.8rem; padding: 3px 10px;
+      border-radius: 20px; font-weight: 600;
+    }
+
+    .table-scroll { overflow-x: auto; border-radius: 10px; border: 1.5px solid #d0d9f0; }
+
+    #result-table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+    #result-table th, #result-table td {
+      border: 1px solid #d0d9f0; padding: 8px 12px;
+      min-width: 70px; max-width: 220px; text-align: center;
+    }
+    #result-table th { background: #4472C4; color: white; font-weight: 700; }
+    #result-table tr:nth-child(even) td { background: #f0f4ff; }
+    #result-table td[contenteditable="true"]:focus {
+      outline: 2px solid #4472C4; background: #fffde7; border-radius: 2px;
+    }
+
+    .edit-hint { font-size: 0.78rem; color: #aaa; margin-top: 8px; }
+
+    /* 토스트 */
+    #toast {
+      position: fixed; bottom: 30px; left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: #2d3a8c; color: white;
+      padding: 12px 28px; border-radius: 30px;
+      font-size: 0.93rem; font-weight: 600;
+      transition: transform 0.3s ease; z-index: 999;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+      pointer-events: none;
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* 첫 방문 안내 */
+    .info-box {
+      background: #fff8e1; border: 1.5px solid #ffe082;
+      border-radius: 10px; padding: 12px 16px;
+      font-size: 0.83rem; color: #7a6000; margin-top: 14px;
+      line-height: 1.6;
+    }
+    .info-box strong { color: #5a4200; }
+  </style>
+</head>
+<body>
+
+<h1>📸 이미지 OCR 엑셀 변환기</h1>
+<p class="subtitle">이미지 속 표/텍스트를 자동 인식해 엑셀로 변환합니다</p>
+<div style="text-align:center">
+  <span class="badge-offline">✅ 서버 불필요 — 브라우저에서만 실행</span>
+</div>
+
+<div class="steps">
+  <div class="step"><span class="step-num">1</span> 이미지 붙여넣기 / 파일 선택</div>
+  <div class="step"><span class="step-num">2</span> OCR 인식 시작</div>
+  <div class="step"><span class="step-num">3</span> 결과 확인 및 편집</div>
+  <div class="step"><span class="step-num">4</span> Excel 저장 or 클립보드 복사</div>
+</div>
+
+<div class="card">
+  <div id="drop-zone" tabindex="0" role="button" aria-label="이미지 붙여넣기 또는 드롭 영역">
+    <div id="drop-placeholder">
+      <div class="drop-icon">🖼️</div>
+      <p class="drop-hint">
+        <strong>Ctrl+V</strong> 로 캡처 이미지 붙여넣기<br>
+        또는 드래그 앤 드롭 · 파일 선택
+      </p>
+      <label class="btn-file" for="file-input">📂 파일 선택</label>
+      <input type="file" id="file-input" accept="image/*" />
+    </div>
+    <img id="preview-img" alt="미리보기" />
+  </div>
+
+  <div class="lang-row">
+    <label for="lang-select">인식 언어:</label>
+    <select id="lang-select">
+      <option value="kor+eng" selected>한국어 + 영어</option>
+      <option value="kor">한국어만</option>
+      <option value="eng">영어만</option>
+    </select>
+    <span style="font-size:0.78rem;color:#999">※ 첫 실행 시 언어 데이터 자동 다운로드 (수초 소요)</span>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn-primary" id="btn-ocr" disabled>🔍 OCR 인식 시작</button>
+    <button class="btn btn-gray" id="btn-reset">🔄 초기화</button>
+  </div>
+
+  <div id="progress-wrap"><div id="progress-bar"></div></div>
+  <div id="status"></div>
+
+  <div class="info-box">
+    <strong>💡 잘 되는 이미지:</strong> 화면 캡처한 표, 스캔된 문서, 선명한 숫자/텍스트 이미지<br>
+    <strong>📌 사용 팁:</strong> Windows는 <kbd>Win+Shift+S</kbd>, Mac은 <kbd>Cmd+Shift+4</kbd> 로 캡처 후 바로 Ctrl+V
+  </div>
+</div>
+
+<!-- 결과 카드 -->
+<div class="card" id="result-card" style="display:none">
+  <div class="result-header">
+    <span class="result-title">📊 인식 결과</span>
+    <span class="result-badge" id="size-badge"></span>
+  </div>
+  <div class="table-scroll">
+    <table id="result-table"></table>
+  </div>
+  <p class="edit-hint">💡 셀을 클릭하면 직접 편집할 수 있습니다</p>
+
+  <div class="btn-row" style="margin-top:20px">
+    <button class="btn btn-green" id="btn-download">⬇️ Excel 파일 저장</button>
+    <button class="btn btn-orange" id="btn-copy">📋 클립보드 복사 후 엑셀에 붙여넣기</button>
+  </div>
+</div>
+
+<div id="toast">✅ 복사 완료! 엑셀에서 Ctrl+V 하세요</div>
+
+<script>
+// ── 상태 ─────────────────────────────────────────
+let currentObjectURL = null;
+let currentFile = null;
+let tableData = [];
+
+const dropZone    = document.getElementById('drop-zone');
+const placeholder = document.getElementById('drop-placeholder');
+const previewImg  = document.getElementById('preview-img');
+const fileInput   = document.getElementById('file-input');
+const btnOcr      = document.getElementById('btn-ocr');
+const btnReset    = document.getElementById('btn-reset');
+const btnDownload = document.getElementById('btn-download');
+const btnCopy     = document.getElementById('btn-copy');
+const statusEl    = document.getElementById('status');
+const progressWrap = document.getElementById('progress-wrap');
+const progressBar  = document.getElementById('progress-bar');
+const resultCard  = document.getElementById('result-card');
+const resultTable = document.getElementById('result-table');
+const sizeBadge   = document.getElementById('size-badge');
+const toast       = document.getElementById('toast');
+
+// ── 이미지 로드 ───────────────────────────────────
+function loadFile(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  currentFile = file;
+  if (currentObjectURL) URL.revokeObjectURL(currentObjectURL);
+  currentObjectURL = URL.createObjectURL(file);
+  previewImg.src = currentObjectURL;
+  previewImg.style.display = 'block';
+  placeholder.style.display = 'none';
+  dropZone.classList.add('ready');
+  btnOcr.disabled = false;
+  hideStatus();
+  hideResult();
+}
+
+// 전역 Ctrl+V
+document.addEventListener('paste', e => {
+  const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
+  if (item) { e.preventDefault(); loadFile(item.getAsFile()); }
+});
+
+fileInput.addEventListener('change', e => loadFile(e.target.files[0]));
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('over');
+  const file = e.dataTransfer.files[0];
+  if (file?.type.startsWith('image/')) loadFile(file);
+});
+dropZone.addEventListener('click', e => {
+  if (!dropZone.classList.contains('ready')) fileInput.click();
+});
+
+// ── 클러스터링 (행/열 위치 그루핑) ───────────────
+function clusterPositions(values, tolerance) {
+  if (!values.length) return [];
+  const sorted = [...new Set(values)].sort((a, b) => a - b);
+  const clusters = [[sorted[0]]];
+  for (let i = 1; i < sorted.length; i++) {
+    const last = clusters[clusters.length - 1];
+    if (sorted[i] - last[last.length - 1] <= tolerance) {
+      last.push(sorted[i]);
+    } else {
+      clusters.push([sorted[i]]);
+    }
+  }
+  return clusters.map(c => Math.round(c.reduce((a, b) => a + b, 0) / c.length));
+}
+
+function nearestIndex(centers, value) {
+  return centers.reduce((best, c, i) =>
+    Math.abs(c - value) < Math.abs(centers[best] - value) ? i : best, 0);
+}
+
+// ── OCR → 표 구조 변환 ───────────────────────────
+async function runOCR(imageEl, lang) {
+  const worker = await Tesseract.createWorker(lang, 1, {
+    logger: m => {
+      if (m.status === 'recognizing text') {
+        const pct = Math.round(m.progress * 100);
+        progressBar.style.width = pct + '%';
+        showStatus('loading', `<span class="spinner"></span> OCR 인식 중... ${pct}%`);
+      } else if (m.status) {
+        showStatus('loading', `<span class="spinner"></span> ${m.status}`);
+      }
+    }
+  });
+
+  const { data } = await worker.recognize(imageEl);
+  await worker.terminate();
+
+  // 신뢰도 40 이상 단어 필터
+  const words = (data.words || [])
+    .filter(w => w.confidence >= 40 && w.text.trim())
+    .map(w => ({
+      text: w.text.trim(),
+      cx: (w.bbox.x0 + w.bbox.x1) / 2,
+      cy: (w.bbox.y0 + w.bbox.y1) / 2,
+      h:  w.bbox.y1 - w.bbox.y0,
+      w:  w.bbox.x1 - w.bbox.x0,
+    }));
+
+  if (!words.length) return [];
+
+  const avgH = words.reduce((s, w) => s + w.h, 0) / words.length;
+  const avgW = words.reduce((s, w) => s + w.w, 0) / words.length;
+
+  const rowCenters = clusterPositions(words.map(w => w.cy), Math.max(avgH * 0.6, 8));
+  const colCenters = clusterPositions(words.map(w => w.cx), Math.max(avgW * 1.4, 20));
+
+  const grid = {};
+  for (const w of words) {
+    const r = nearestIndex(rowCenters, w.cy);
+    const c = nearestIndex(colCenters, w.cx);
+    const k = `${r},${c}`;
+    grid[k] = grid[k] ? grid[k] + ' ' + w.text : w.text;
+  }
+
+  const maxR = Math.max(...Object.keys(grid).map(k => +k.split(',')[0]));
+  const maxC = Math.max(...Object.keys(grid).map(k => +k.split(',')[1]));
+
+  const table = [];
+  for (let r = 0; r <= maxR; r++) {
+    const row = [];
+    for (let c = 0; c <= maxC; c++) row.push(grid[`${r},${c}`] || '');
+    table.push(row);
+  }
+  return table;
+}
+
+// ── OCR 버튼 ─────────────────────────────────────
+btnOcr.addEventListener('click', async () => {
+  if (!currentFile) return;
+  const lang = document.getElementById('lang-select').value;
+
+  btnOcr.disabled = true;
+  progressWrap.style.display = 'block';
+  progressBar.style.width = '0%';
+  showStatus('loading', '<span class="spinner"></span> 시작 중...');
+  hideResult();
+
+  try {
+    // Image element 생성
+    const img = new Image();
+    await new Promise((res, rej) => {
+      img.onload = res; img.onerror = rej;
+      img.src = currentObjectURL;
+    });
+
+    tableData = await runOCR(img, lang);
+
+    if (!tableData.length) {
+      showStatus('error', '❌ 텍스트를 인식하지 못했습니다. 더 선명한 이미지를 사용해 보세요.');
+      return;
+    }
+
+    renderTable(tableData);
+    showStatus('success', `✅ 인식 완료! ${tableData.length}행 × ${tableData[0].length}열`);
+    resultCard.style.display = 'block';
+    resultCard.scrollIntoView({ behavior: 'smooth' });
+
+  } catch (err) {
+    showStatus('error', '❌ 오류: ' + err.message);
+  } finally {
+    btnOcr.disabled = false;
+    progressWrap.style.display = 'none';
+  }
+});
+
+// ── 테이블 렌더링 ─────────────────────────────────
+function renderTable(data) {
+  resultTable.innerHTML = '';
+  sizeBadge.textContent = `${data.length}행 × ${data[0].length}열`;
+
+  data.forEach((row, rIdx) => {
+    const tr = document.createElement('tr');
+    row.forEach((cell, cIdx) => {
+      const el = document.createElement(rIdx === 0 ? 'th' : 'td');
+      el.textContent = cell;
+      if (rIdx > 0) {
+        el.contentEditable = 'true';
+        el.addEventListener('input', () => { tableData[rIdx][cIdx] = el.textContent; });
+      }
+      tr.appendChild(el);
+    });
+    resultTable.appendChild(tr);
+  });
+}
+
+// ── Excel 저장 (SheetJS) ─────────────────────────
+btnDownload.addEventListener('click', () => {
+  if (!tableData.length) return;
+
+  const ws = XLSX.utils.aoa_to_sheet(tableData);
+
+  // 열 너비 자동 계산
+  ws['!cols'] = tableData[0].map((_, ci) => ({
+    wch: Math.min(40, Math.max(8, ...tableData.map(r => String(r[ci] || '').length)) + 4)
+  }));
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'OCR 결과');
+  XLSX.writeFile(wb, 'OCR_결과.xlsx');
+});
+
+// ── 클립보드 복사 (TSV → 엑셀 붙여넣기용) ────────
+btnCopy.addEventListener('click', async () => {
+  if (!tableData.length) return;
+  const tsv = tableData.map(r => r.join('\t')).join('\n');
+  try {
+    await navigator.clipboard.writeText(tsv);
+  } catch {
+    const ta = Object.assign(document.createElement('textarea'), {
+      value: tsv, style: 'position:fixed;opacity:0'
+    });
+    document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 3000);
+});
+
+// ── 초기화 ───────────────────────────────────────
+btnReset.addEventListener('click', () => {
+  currentFile = null;
+  if (currentObjectURL) { URL.revokeObjectURL(currentObjectURL); currentObjectURL = null; }
+  tableData = [];
+  previewImg.src = ''; previewImg.style.display = 'none';
+  placeholder.style.display = 'block';
+  dropZone.classList.remove('ready', 'over');
+  fileInput.value = '';
+  btnOcr.disabled = true;
+  progressWrap.style.display = 'none';
+  hideStatus(); hideResult();
+});
+
+function showStatus(type, msg) {
+  statusEl.className = type; statusEl.innerHTML = msg; statusEl.style.display = 'block';
+}
+function hideStatus() { statusEl.style.display = 'none'; }
+function hideResult() { resultCard.style.display = 'none'; resultTable.innerHTML = ''; }
+</script>
+</body>
+</html>
