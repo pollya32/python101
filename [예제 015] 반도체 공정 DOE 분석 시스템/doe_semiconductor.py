@@ -1,7 +1,7 @@
 """
 반도체 공정 DOE (Design of Experiments) 분석 시스템
 목표: 두께(Thickness), 균일도(Uniformity), 파티클(Particle) 최적화
-변수: AR, N2, HE, C3H6, O2, NF3, PRESSURE, SPACE, TIME
+변수: AR, N2, HE, C3H6, O2, NF3, PRESSURE, SPACE, TIME, RF_POWER
 """
 
 import numpy as np
@@ -57,6 +57,7 @@ FACTORS = {
     'PRESSURE': {'unit': 'Torr', 'low': 1,    'high': 10,   'type': 'process'},
     'SPACE':    {'unit': 'mm',   'low': 5,    'high': 30,   'type': 'process'},
     'TIME':     {'unit': 'sec',  'low': 10,   'high': 120,  'type': 'process'},
+    'RF_POWER': {'unit': 'W',    'low': 100,  'high': 2000, 'type': 'process'},
 }
 
 RESPONSES = {
@@ -856,56 +857,67 @@ class ProcessSimulator:
         return value * (1 + np.random.normal(0, self.noise))
 
     def thickness(self, params: dict) -> float:
-        """두께 모델 (C3H6, TIME, PRESSURE 주요 영향)"""
+        """두께 모델 (C3H6, TIME, PRESSURE, RF_POWER 주요 영향)"""
         c3h6 = params.get('C3H6', 0)
         time_ = params.get('TIME', 60)
         pressure = params.get('PRESSURE', 5)
         n2 = params.get('N2', 100)
         ar = params.get('AR', 50)
         space = params.get('SPACE', 15)
-        # 기본 증착률
+        rf = params.get('RF_POWER', 1000)
+        # 기본 증착률 (RF 파워가 높을수록 플라즈마 밀도↑ → 증착률 증가)
         dep_rate = 40 + 0.8 * c3h6 + 0.5 * n2 * 0.1 - 0.3 * ar * 0.1
         dep_rate *= (pressure / 5) ** 0.6
         dep_rate *= max(0.5, 1 - (space - 15) * 0.015)
+        dep_rate *= (rf / 1000) ** 0.45
         thick = dep_rate * time_
         # 교호작용
         thick += 2.5 * (c3h6 - 25) * (pressure - 5) * 0.1
         thick -= 1.0 * (time_ - 60) * (space - 15) * 0.02
+        thick += 0.8 * (rf - 1000) * (c3h6 - 25) * 0.0001
         return max(0, self._noise(thick))
 
     def uniformity(self, params: dict) -> float:
-        """균일도 모델 (SPACE, HE, AR 주요 영향, 낮을수록 좋음)"""
+        """균일도 모델 (SPACE, HE, AR, RF_POWER 주요 영향, 낮을수록 좋음)"""
         space = params.get('SPACE', 15)
         he = params.get('HE', 250)
         ar = params.get('AR', 50)
         pressure = params.get('PRESSURE', 5)
         nf3 = params.get('NF3', 50)
+        rf = params.get('RF_POWER', 1000)
         uni = 5.0
         uni -= 0.08 * (he - 250) * 0.01
         uni += 0.05 * abs(space - 15) * 0.2
         uni += 0.03 * pressure
         uni -= 0.02 * ar * 0.01
         uni += 0.01 * nf3 * 0.01
+        # RF 파워: 적정 파워에서 균일도 최적 (너무 낮거나 높으면 불균일)
+        uni += 0.0015 * abs(rf - 1000)
         # 교호작용
         uni += 0.005 * (he - 250) * 0.01 * (space - 15)
+        uni -= 0.0001 * (rf - 1000) * (he - 250) * 0.001
         uni = max(0.1, abs(self._noise(uni)))
         return min(uni, 15.0)
 
     def particle(self, params: dict) -> float:
-        """파티클 모델 (NF3, O2 클리닝 효과, 낮을수록 좋음)"""
+        """파티클 모델 (NF3, O2 클리닝 효과, RF_POWER, 낮을수록 좋음)"""
         nf3 = params.get('NF3', 50)
         o2 = params.get('O2', 50)
         time_ = params.get('TIME', 60)
         pressure = params.get('PRESSURE', 5)
         c3h6 = params.get('C3H6', 25)
+        rf = params.get('RF_POWER', 1000)
         base_particle = 30
         base_particle -= 0.2 * nf3
         base_particle -= 0.15 * o2
         base_particle += 0.05 * c3h6
         base_particle += 0.1 * pressure
         base_particle += 0.02 * time_
-        # 교호작용 (NF3*O2 시너지)
+        # RF 파워가 높을수록 파티클 증가 (아크 방전, 챔버 벽 스퍼터링)
+        base_particle += 0.008 * (rf - 1000)
+        # 교호작용 (NF3*O2 시너지, RF_POWER*PRESSURE)
         base_particle -= 0.002 * nf3 * o2
+        base_particle += 0.0005 * (rf - 1000) * (pressure - 5)
         particle = max(0, self._noise(base_particle))
         return round(particle)
 
