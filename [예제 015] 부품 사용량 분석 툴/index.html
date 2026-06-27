@@ -1117,6 +1117,7 @@ let C = [...THEMES.blue];
    UTILS
 ══════════════════════════════════════ */
 const fmt  = n => Number(n).toLocaleString('ko-KR');
+const fmtAmt = n => { const a=Math.abs(n); if(a>=1e8) return (n/1e8).toFixed(1)+'억'; if(a>=1e4) return fmt(Math.round(n/1e4))+'만'; return fmt(n); };
 const nowt = () => new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
 const esc  = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
@@ -1437,7 +1438,7 @@ function renderAll(d){
 function renderSummary(d){
   document.getElementById('sc').innerHTML=`
     <div class="sc"><div class="sl">📦 총 ${colLabels.cnt}</div><div class="sv">${fmt(d.tc)}</div><div class="ss">${fmt(d.n)}행</div></div>
-    <div class="sc g"><div class="sl">💰 총 ${colLabels.amt}</div><div class="sv">${fmt(d.ta)}</div><div class="ss">원 (누적)</div></div>
+    <div class="sc g"><div class="sl">💰 총 ${colLabels.amt}</div><div class="sv">${fmtAmt(d.ta)}</div><div class="ss">누적</div></div>
     <div class="sc o"><div class="sl">👥 ${colLabels.sdwt} 수</div><div class="sv">${d.sdwts.length}</div><div class="ss">${d.sdwts.slice(0,2).join(', ')}${d.sdwts.length>2?' …':''}</div></div>
     <div class="sc p"><div class="sl">🗂️ ${colLabels.cat} 수</div><div class="sv">${d.cats.length}</div><div class="ss">${d.cats.slice(0,2).join(', ')}${d.cats.length>2?' …':''}</div></div>
     <div class="sc c"><div class="sl">📅 분석 기간</div><div class="sv">${d.months.length}개월</div><div class="ss">${d.months[0]||'-'} ~ ${d.months[d.months.length-1]||'-'}</div></div>`;
@@ -1542,10 +1543,10 @@ function renderSChart(d,type){
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{
         legend:{position:isB?'bottom':'right',labels:{font:{size:10}}},
-        tooltip:{callbacks:{label:x=>` ${x.label}: ${fmt(x.raw)}원`}},
-        datalabels:{display:showLabels,color:isB?'#333':'#fff',font:{size:10,weight:'bold'},formatter:(v,dc)=>{if(v<=0)return null;if(isB)return fmt(v);const tot=dc.dataset.data.reduce((a,b)=>a+b,0);return tot?((v/tot*100).toFixed(1)+'%'):null;},anchor:isB?'end':'center',align:isB?'end':'center',clamp:true}
+        tooltip:{callbacks:{label:x=>` ${x.label}: ${fmtAmt(x.raw)}`}},
+        datalabels:{display:showLabels,color:isB?'#333':'#fff',font:{size:10,weight:'bold'},formatter:(v,dc)=>{if(v<=0)return null;if(isB)return fmtAmt(v);const tot=dc.dataset.data.reduce((a,b)=>a+b,0);return tot?((v/tot*100).toFixed(1)+'%'):null;},anchor:isB?'end':'center',align:isB?'end':'center',clamp:true}
       },
-      scales:isB?{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>fmt(v)+'원'}}}:{}
+      scales:isB?{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>fmtAmt(v)}}}:{}
     },
     plugins:[ChartDataLabels]
   });
@@ -1880,8 +1881,8 @@ function showSummary(){
   const peak=mTot.reduce((a,b)=>a.v>b.v?a:b);
   showInsight('전체 데이터 요약',`<ul>
     <li>분석 기간: <strong>${data.months[0]} ~ ${data.months[data.months.length-1]}</strong> (${data.months.length}개월)</li>
-    <li>총 사용건수: <strong>${fmt(data.tc)}건</strong> / 총 사용금액: <strong>${fmt(data.ta)}원</strong></li>
-    <li>금액 최다 SDWT: <strong>${topS}</strong> (${fmt(data.sTotal[topS]||0)}원, ${data.ta?((data.sTotal[topS]||0)/data.ta*100).toFixed(1):0}%)</li>
+    <li>총 사용건수: <strong>${fmt(data.tc)}건</strong> / 총 사용금액: <strong>${fmtAmt(data.ta)}</strong></li>
+    <li>금액 최다 SDWT: <strong>${topS}</strong> (${fmtAmt(data.sTotal[topS]||0)}, ${data.ta?((data.sTotal[topS]||0)/data.ta*100).toFixed(1):0}%)</li>
     <li>건수 최다 대분류: <strong>${topC}</strong> (${fmt(cTot[topC])}건)</li>
     <li>사용 피크 월: <strong>${peak.m}</strong> (${fmt(peak.v)}건)</li>
   </ul>`);
@@ -1947,10 +1948,10 @@ function showSdwtDetail(sdwt){
   if(!data) return;
   const cTot={}; data.cats.forEach(c=>{cTot[c]=data.sCnt[sdwt]?.[c]||0;});
   const sorted=[...data.cats].sort((a,b)=>cTot[b]-cTot[a]);
-  let h=`<p style="margin-bottom:8px">총 금액: <strong>${fmt(data.sTotal[sdwt]||0)}원</strong></p>
-  <table><tr><th>대분류</th><th>건수</th><th>금액(원)</th></tr>`;
+  let h=`<p style="margin-bottom:8px">총 금액: <strong>${fmtAmt(data.sTotal[sdwt]||0)}</strong></p>
+  <table><tr><th>대분류</th><th>건수</th><th>금액</th></tr>`;
   sorted.forEach(c=>{
-    if(cTot[c]>0) h+=`<tr><td class="rh">${esc(c)}</td><td>${fmt(cTot[c])}</td><td class="mn">${fmt(data.sAmt[sdwt]?.[c]||0)}</td></tr>`;
+    if(cTot[c]>0) h+=`<tr><td class="rh">${esc(c)}</td><td>${fmt(cTot[c])}</td><td class="mn">${fmtAmt(data.sAmt[sdwt]?.[c]||0)}</td></tr>`;
   });
   h+='</table>';
   showInsight(`${sdwt} 상세 현황`,h);
@@ -1958,11 +1959,11 @@ function showSdwtDetail(sdwt){
 
 function showCatDetail(cat){
   if(!data) return;
-  let h=`<table><tr><th>SDWT</th><th>건수</th><th>금액(원)</th></tr>`;
+  let h=`<table><tr><th>SDWT</th><th>건수</th><th>금액</th></tr>`;
   const sorted=[...data.sdwts].sort((a,b)=>(data.sCnt[b]?.[cat]||0)-(data.sCnt[a]?.[cat]||0));
   sorted.forEach(s=>{
     const cnt=data.sCnt[s]?.[cat]||0, amt=data.sAmt[s]?.[cat]||0;
-    if(cnt>0) h+=`<tr><td class="rh">${esc(s)}</td><td>${fmt(cnt)}</td><td class="mn">${fmt(amt)}</td></tr>`;
+    if(cnt>0) h+=`<tr><td class="rh">${esc(s)}</td><td>${fmt(cnt)}</td><td class="mn">${fmtAmt(amt)}</td></tr>`;
   });
   h+='</table>';
   const total=data.sdwts.reduce((s,x)=>s+(data.sCnt[x]?.[cat]||0),0);
@@ -2072,7 +2073,7 @@ async function dlPPT(){
   s1.addText(new Date().toLocaleDateString('ko-KR'),{x:.5,y:5.1,w:9,h:.3,fontSize:11,color:'c8daff',align:'center'});
 
   const s2=pptx.addSlide(); addT(s2,'📊 분석 요약');
-  const items=[{l:'총 사용건수',v:fmt(d.tc)+'건',c:hc},{l:'총 사용금액',v:fmt(d.ta)+'원',c:'34a853'},{l:'SDWT 수',v:d.sdwts.length+'개',c:'fa7b17'},{l:'대분류 수',v:d.cats.length+'개',c:'9334e6'},{l:'분석 기간',v:d.months.length+'개월',c:'00bcd4'}];
+  const items=[{l:'총 사용건수',v:fmt(d.tc)+'건',c:hc},{l:'총 사용금액',v:fmtAmt(d.ta),c:'34a853'},{l:'SDWT 수',v:d.sdwts.length+'개',c:'fa7b17'},{l:'대분류 수',v:d.cats.length+'개',c:'9334e6'},{l:'분석 기간',v:d.months.length+'개월',c:'00bcd4'}];
   items.forEach((it,i)=>{
     const x=.4+(i%3)*3.1, y=1.0+Math.floor(i/3)*1.6;
     s2.addShape(pptx.ShapeType.rect,{x,y,w:2.8,h:1.3,fill:{color:'f8f9fa'},line:{color:'dadce0',pt:1}});
@@ -2177,8 +2178,8 @@ function renderHeatmap(d){
       const p=maxVal?v/maxVal:0;
       const r2=Math.round(255-p*229), g2=Math.round(255-p*140), b2=Math.round(255-p*23);
       const tc=p>0.55?'#fff':'#333';
-      const lbl=metric==='amt'?(v>=1e6?`${(v/1e6).toFixed(1)}M`:(v>0?fmt(v):'')):( v>0?fmt(v):'');
-      h+=`<td style="background:rgb(${r2},${g2},${b2});color:${tc}" title="${esc(s)} | ${m}: ${fmt(v)}${metric==='amt'?'원':'건'}">${lbl}</td>`;
+      const lbl=metric==='amt'?(v>0?fmtAmt(v):''):(v>0?fmt(v):'');
+      h+=`<td style="background:rgb(${r2},${g2},${b2});color:${tc}" title="${esc(s)} | ${m}: ${metric==='amt'?fmtAmt(v):fmt(v)+'건'}">${lbl}</td>`;
     });
     h+='</tr>';
   });
@@ -2377,7 +2378,7 @@ function showHistoryCard(){
   list.innerHTML=hist.length?hist.map((h,i)=>`
     <div class="hist-item" onclick="restoreHistory(${i})">
       <div style="font-size:12.5px;font-weight:700">${h.label}</div>
-      <div class="hist-meta">${new Date(h.ts).toLocaleString('ko-KR')} | 건수 ${fmt(h.snap.tc)} | 금액 ${fmt(h.snap.ta)}원</div>
+      <div class="hist-meta">${new Date(h.ts).toLocaleString('ko-KR')} | 건수 ${fmt(h.snap.tc)} | 금액 ${fmtAmt(h.snap.ta)}</div>
     </div>`).join('')
     :'<div style="font-size:12px;color:var(--sub);padding:6px 0">저장된 히스토리가 없습니다. [현재 분석 저장] 버튼을 눌러 저장하세요.</div>';
   const el=document.getElementById('historyCard');
@@ -2472,8 +2473,8 @@ function openFull(key,title){
       fsChart=new Chart(ctx,{
         type,data:{labels:d.sdwts,datasets:[{label:'총 사용금액(원)',data:d.sdwts.map(s=>d.sTotal[s]||0),backgroundColor:bgs,borderColor:bgs.map(c=>c.slice(0,-2)),borderWidth:2}]},
         options:{responsive:true,maintainAspectRatio:false,
-          plugins:{legend:{position:isB?'bottom':'right',labels:{font:{size:12}}},datalabels:{display:true,color:isB?'#333':'#fff',font:{size:11,weight:'bold'},formatter:(v,dc)=>{if(v<=0)return null;if(isB)return fmt(v)+'원';const tot=dc.dataset.data.reduce((a,b)=>a+b,0);return tot?((v/tot*100).toFixed(1)+'%'):null;},anchor:isB?'end':'center',align:isB?'end':'center',clamp:true}},
-          scales:isB?{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>fmt(v)+'원'}}}:{}
+          plugins:{legend:{position:isB?'bottom':'right',labels:{font:{size:12}}},datalabels:{display:true,color:isB?'#333':'#fff',font:{size:11,weight:'bold'},formatter:(v,dc)=>{if(v<=0)return null;if(isB)return fmtAmt(v);const tot=dc.dataset.data.reduce((a,b)=>a+b,0);return tot?((v/tot*100).toFixed(1)+'%'):null;},anchor:isB?'end':'center',align:isB?'end':'center',clamp:true}},
+          scales:isB?{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>fmtAmt(v)}}}:{}
         },plugins:[ChartDataLabels]
       });
     }
@@ -2554,13 +2555,13 @@ function buildMailBody(){
     '===== 부품 사용량 분석 보고서 =====','',
     `■ 분석 기간: ${data.months[0]||'-'} ~ ${data.months[data.months.length-1]||'-'} (${data.months.length}개월)`,
     `■ 총 사용건수: ${fmt(data.tc)}건`,
-    `■ 총 사용금액: ${fmt(data.ta)}원`,
+    `■ 총 사용금액: ${fmtAmt(data.ta)}`,
     `■ SDWT 수: ${data.sdwts.length}개 / 대분류 수: ${data.cats.length}개`,
     '','■ SDWT별 사용금액 순위'
   ];
   [...data.sdwts].sort((a,b)=>(data.sTotal[b]||0)-(data.sTotal[a]||0)).forEach((s,i)=>{
     const pct=data.ta?((data.sTotal[s]||0)/data.ta*100).toFixed(1):0;
-    lines.push(`  ${i+1}. ${s}: ${fmt(data.sTotal[s]||0)}원 (${pct}%)`);
+    lines.push(`  ${i+1}. ${s}: ${fmtAmt(data.sTotal[s]||0)} (${pct}%)`);
   });
   const cTot={};data.cats.forEach(c=>{cTot[c]=data.months.reduce((s,m)=>s+(data.mCat[m]?.[c]||0),0);});
   const tot=Object.values(cTot).reduce((a,b)=>a+b,0);
@@ -2698,7 +2699,7 @@ function renderWaterfall(d){
     data:{labels:months,datasets:[{label:'월별 사용금액',data:floatData,backgroundColor:colors,borderColor:colors.map(c=>c.slice(0,-2)),borderWidth:1.5}]},
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{legend:{display:false},datalabels:{display:showLabels,color:'#333',font:{size:9,weight:'bold'},formatter:v=>fmt(v[1]-v[0]),anchor:'end',align:'end',clamp:true},
-        tooltip:{callbacks:{label:x=>` ${fmt(x.raw[1]-x.raw[0])}원`}}},
+        tooltip:{callbacks:{label:x=>` ${fmtAmt(x.raw[1]-x.raw[0])}`}}},
       scales:{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>fmt(v)}}}
     },
     plugins:[ChartDataLabels]
@@ -2722,7 +2723,7 @@ function renderScatter(d){
     data:{datasets:pts},
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{legend:{position:'bottom',labels:{font:{size:10}}},
-        tooltip:{callbacks:{label:x=>` ${x.dataset.label}: ${fmt(x.raw.x)}건 / ${fmt(x.raw.y)}원`}},
+        tooltip:{callbacks:{label:x=>` ${x.dataset.label}: ${fmt(x.raw.x)}건 / ${fmtAmt(x.raw.y)}`}},
         datalabels:{display:true,color:'#333',font:{size:9,weight:'bold'},formatter:(_,dc)=>dc.dataset.label,anchor:'end',align:'right',clamp:true}
       },
       scales:{
@@ -3253,7 +3254,7 @@ function showCohort(){
     data:{labels:moLabels,datasets:ds},
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{legend:{position:'bottom',labels:{font:{size:10}}},
-        tooltip:{callbacks:{label:x=>x.raw!=null?` ${x.dataset.label} ${x.label}: ${fmt(Math.round(x.raw))}${metric==='amt'?'원':'건'}`:null}},
+        tooltip:{callbacks:{label:x=>x.raw!=null?` ${x.dataset.label} ${x.label}: ${metric==='amt'?fmtAmt(Math.round(x.raw)):fmt(Math.round(x.raw))+'건'}`:null}},
         datalabels:{display:false}},
       scales:{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>fmt(v)}}}
     },
@@ -3373,7 +3374,7 @@ function _corrPickerHtml(axis){
         ${sel.size<1?'<span style="font-size:11px;color:var(--warn)">⚠️ 1개 이상</span>':''}
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:4px;max-height:90px;overflow-y:auto">
-        ${sorted.map(v=>`<span class="corr-chip${sel.has(v)?' on':''}" onclick="${toggleFn}(${JSON.stringify(v)})">${esc(v)}</span>`).join('')}
+        ${sorted.map(v=>`<span class="corr-chip${sel.has(v)?' on':''}" onclick="${toggleFn}(${JSON.stringify(v).replace(/"/g,'&quot;')})">${esc(v)}</span>`).join('')}
       </div>
     </div>`;
 }
@@ -3572,7 +3573,8 @@ function renderLineBar(){
   const months=data.months;
   const ctx=document.getElementById('lineBarCanvas')?.getContext('2d'); if(!ctx) return;
   const metricLabel=metric==='cnt'?colLabels.cnt:colLabels.amt;
-  const suffix=metric==='cnt'?'건':'원';
+  const fmtV=v=>metric==='cnt'?fmt(v)+'건':fmtAmt(v);
+  const fmtAxis=v=>metric==='cnt'?fmt(v):fmtAmt(v);
 
   if(lineChartType==='bar'){
     const vals=lines.map(l=>months.reduce((s,m)=>s+(data.mLine[m]?.[l]?.[metric]||0),0));
@@ -3585,10 +3587,10 @@ function renderLineBar(){
         borderColor:labels.map((_,i)=>C[i%C.length]),borderWidth:2}]},
       options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',
         plugins:{legend:{display:false},
-          tooltip:{callbacks:{label:x=>` ${fmt(x.raw)}${suffix}`}},
-          datalabels:{display:true,color:'#fff',font:{size:10,weight:'bold'},formatter:v=>v>0?fmt(v):null,anchor:'center',align:'center',clamp:true}
+          tooltip:{callbacks:{label:x=>` ${fmtV(x.raw)}`}},
+          datalabels:{display:true,color:'#fff',font:{size:10,weight:'bold'},formatter:v=>v>0?fmtAxis(v):null,anchor:'center',align:'center',clamp:true}
         },
-        scales:{x:{beginAtZero:true,ticks:{callback:v=>fmt(v)}},y:{grid:{display:false}}}
+        scales:{x:{beginAtZero:true,ticks:{callback:v=>fmtAxis(v)}},y:{grid:{display:false}}}
       },
       plugins:[ChartDataLabels]
     });
@@ -3604,10 +3606,10 @@ function renderLineBar(){
       }))},
       options:{responsive:true,maintainAspectRatio:false,
         plugins:{legend:{position:'bottom',labels:{font:{size:10}}},
-          tooltip:{callbacks:{label:x=>` ${x.dataset.label}: ${fmt(x.raw)}${suffix}`}},
+          tooltip:{callbacks:{label:x=>` ${x.dataset.label}: ${fmtV(x.raw)}`}},
           datalabels:{display:false}
         },
-        scales:{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>fmt(v)}}}
+        scales:{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>fmtAxis(v)}}}
       },
       plugins:[ChartDataLabels]
     });
@@ -3620,7 +3622,7 @@ function renderLineBar(){
         borderColor:lines.map((_,i)=>C[i%C.length]),borderWidth:2}]},
       options:{responsive:true,maintainAspectRatio:false,
         plugins:{legend:{position:'right',labels:{font:{size:10}}},
-          tooltip:{callbacks:{label:x=>` ${x.label}: ${fmt(x.raw)}${suffix}`}},
+          tooltip:{callbacks:{label:x=>` ${x.label}: ${fmtV(x.raw)}`}},
           datalabels:{display:true,color:'#fff',font:{size:10,weight:'bold'},
             formatter:(v,ctx2)=>{const tot=ctx2.dataset.data.reduce((a,b)=>a+b,0);return tot>0?(v/tot*100).toFixed(1)+'%':null;},
             anchor:'center',align:'center',clamp:true}
@@ -3640,10 +3642,10 @@ function renderLineBar(){
       }))},
       options:{responsive:true,maintainAspectRatio:false,
         plugins:{legend:{position:'bottom',labels:{font:{size:10}}},
-          tooltip:{callbacks:{label:x=>` ${x.dataset.label}: ${fmt(x.raw)}${suffix}`}},
+          tooltip:{callbacks:{label:x=>` ${x.dataset.label}: ${fmtV(x.raw)}`}},
           datalabels:{display:false}
         },
-        scales:{r:{beginAtZero:true,ticks:{callback:v=>fmt(v),font:{size:9}}}}
+        scales:{r:{beginAtZero:true,ticks:{callback:v=>fmtAxis(v),font:{size:9}}}}
       },
       plugins:[ChartDataLabels]
     });
@@ -3706,7 +3708,7 @@ function renderMoM(){
       aCls=da>0?'mom-up':da<0?'mom-dn':'mom-nc';
       cntChg=(dc>=0?'+':'')+fmt(dc);
       cntPct=(pc>=0?'+':'')+pc.toFixed(1)+'%';
-      amtChg=(da>=0?'+':'')+fmt(da);
+      amtChg=(da>=0?'+':'')+fmtAmt(da);
       amtPct=(pa>=0?'+':'')+pa.toFixed(1)+'%';
     }
     h+=`<tr>
@@ -3714,7 +3716,7 @@ function renderMoM(){
       <td class="mn">${fmt(cnt)}</td>
       <td class="mn ${cCls}">${cntChg}</td>
       <td class="mn ${cCls}">${cntPct}</td>
-      <td class="mn">${fmt(amt)}</td>
+      <td class="mn">${fmtAmt(amt)}</td>
       <td class="mn ${aCls}">${amtChg}</td>
       <td class="mn ${aCls}">${amtPct}</td>
     </tr>`;
@@ -3862,21 +3864,22 @@ function renderKPIGauges(){
   const lastCnt=Object.values(data.mCat[lastM]||{}).reduce((a,b)=>a+b,0);
   const lastAmt=data.mAmt[lastM]||0;
   const items=[
-    {id:'kpiG1',label:`누적 ${colLabels.cnt}`,actual:totalCnt,target:kpiTargets.cnt*n,unit:'건',color:'#1a73e8'},
-    {id:'kpiG2',label:`누적 ${colLabels.amt}`,actual:totalAmt,target:kpiTargets.amt*n,unit:'원',color:'#34a853'},
-    {id:'kpiG3',label:`월 평균 ${colLabels.cnt}`,actual:avgCnt,target:kpiTargets.cnt,unit:'건',color:'#fa7b17'},
-    {id:'kpiG4',label:`월 평균 ${colLabels.amt}`,actual:avgAmt,target:kpiTargets.amt,unit:'원',color:'#9334e6'},
-    {id:'kpiG5',label:`최근월 ${colLabels.cnt} (${lastM})`,actual:lastCnt,target:kpiTargets.cnt,unit:'건',color:'#00bcd4'},
-    {id:'kpiG6',label:`최근월 ${colLabels.amt} (${lastM})`,actual:lastAmt,target:kpiTargets.amt,unit:'원',color:'#ad1457'},
+    {id:'kpiG1',label:`누적 ${colLabels.cnt}`,actual:totalCnt,target:kpiTargets.cnt*n,isAmt:false,color:'#1a73e8'},
+    {id:'kpiG2',label:`누적 ${colLabels.amt}`,actual:totalAmt,target:kpiTargets.amt*n,isAmt:true,color:'#34a853'},
+    {id:'kpiG3',label:`월 평균 ${colLabels.cnt}`,actual:avgCnt,target:kpiTargets.cnt,isAmt:false,color:'#fa7b17'},
+    {id:'kpiG4',label:`월 평균 ${colLabels.amt}`,actual:avgAmt,target:kpiTargets.amt,isAmt:true,color:'#9334e6'},
+    {id:'kpiG5',label:`최근월 ${colLabels.cnt} (${lastM})`,actual:lastCnt,target:kpiTargets.cnt,isAmt:false,color:'#00bcd4'},
+    {id:'kpiG6',label:`최근월 ${colLabels.amt} (${lastM})`,actual:lastAmt,target:kpiTargets.amt,isAmt:true,color:'#ad1457'},
   ];
   el.innerHTML=items.map(it=>{
     const pctNum=it.target>0?Math.round(it.actual/it.target*100):null;
     const over=pctNum!==null&&pctNum>100;
+    const fmtIt=v=>it.isAmt?fmtAmt(v):fmt(v)+(it.isAmt?'':'건');
     return `<div class="kpi-gauge-wrap">
       <div class="kpi-gauge-label">${it.label}</div>
       <div style="position:relative;width:140px;height:80px"><canvas id="${it.id}" width="140" height="80"></canvas></div>
-      <div class="kpi-gauge-val" style="color:${over?'#ea4335':it.color}">${fmt(it.actual)}${it.unit}</div>
-      <div class="kpi-gauge-pct">${pctNum!==null?`목표 ${fmt(it.target)}${it.unit}<br><strong style="color:${over?'#ea4335':pctNum>=80?'#34a853':'#fa7b17'}">${pctNum}%</strong>`:'목표 미설정'}</div>
+      <div class="kpi-gauge-val" style="color:${over?'#ea4335':it.color}">${fmtIt(it.actual)}</div>
+      <div class="kpi-gauge-pct">${pctNum!==null?`목표 ${fmtIt(it.target)}<br><strong style="color:${over?'#ea4335':pctNum>=80?'#34a853':'#fa7b17'}">${pctNum}%</strong>`:'목표 미설정'}</div>
     </div>`;
   }).join('');
   items.forEach(it=>{
