@@ -52,7 +52,7 @@
     .main { padding: 20px 18px; }
 
     /* Card */
-    .card { background: var(--card); border-radius: 12px; box-shadow: var(--shadow); padding: 18px 20px; margin-bottom: 18px; }
+    .card { background: var(--card); border-radius: 12px; box-shadow: var(--shadow); padding: 18px 20px; margin-bottom: 18px; position: relative; box-sizing: border-box; }
     .ct  { font-size: 14px; font-weight: 700; color: var(--primary); margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
 
     /* Paste */
@@ -127,8 +127,9 @@
     .ib tr:last-child td { font-weight: 700; background: #e8f0fe; }
 
     /* Charts */
-    .cg2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-    @media(max-width:860px){.cg2{grid-template-columns:1fr;}}
+    .cg2 { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; margin-bottom: 18px; }
+    .cg2 > .card { flex: 1 1 calc(50% - 9px); min-width: 260px; margin-bottom: 0; }
+    @media(max-width:860px){.cg2 > .card{flex: 1 1 100%;}}
     .ch { display: flex; align-items: center; justify-content: space-between; margin-bottom: 11px; flex-wrap: wrap; gap: 6px; }
     .ctb { display: flex; gap: 5px; flex-wrap: wrap; }
     .cb  { padding: 4px 9px; border: 1.5px solid var(--border); border-radius: 14px; background: #fff; font-size: 11px; font-weight: 600; cursor: pointer; color: var(--sub); transition: all .15s; }
@@ -308,6 +309,36 @@
       box-shadow:0 1px 4px rgba(0,0,0,.18);
     }
     body.is-resizing{cursor:ns-resize!important;user-select:none!important;}
+    body.is-resizing-ew{cursor:ew-resize!important;user-select:none!important;}
+    body.is-resizing-nwse{cursor:nwse-resize!important;user-select:none!important;}
+
+    /* Card frame 2D resize handles */
+    .cr-handle{position:absolute;z-index:20;opacity:0;transition:opacity .18s;}
+    .card:hover .cr-handle{opacity:1;}
+    /* East (right edge) */
+    .cr-e{top:15%;bottom:15%;right:-2px;width:10px;cursor:ew-resize;
+      display:flex;align-items:center;justify-content:center;}
+    .cr-e::before{content:'';width:4px;height:36px;
+      background:var(--primary);border-radius:3px;
+      box-shadow:0 0 6px rgba(26,115,232,.4);}
+    /* South (bottom edge) */
+    .cr-s{bottom:-2px;left:15%;right:15%;height:10px;cursor:ns-resize;
+      display:flex;align-items:center;justify-content:center;}
+    .cr-s::before{content:'';height:4px;width:36px;
+      background:var(--primary);border-radius:3px;
+      box-shadow:0 0 6px rgba(26,115,232,.4);}
+    /* South-east corner */
+    .cr-se{bottom:3px;right:3px;width:18px;height:18px;cursor:nwse-resize;
+      display:flex;align-items:flex-end;justify-content:flex-end;padding:2px;}
+    .cr-se::before{content:'';width:10px;height:10px;
+      border-right:3px solid var(--primary);border-bottom:3px solid var(--primary);
+      border-radius:1px;opacity:.85;}
+    /* Reset size tooltip */
+    .cr-handle[title]:hover::after{
+      content:attr(title);position:absolute;right:12px;top:-22px;
+      white-space:nowrap;font-size:10px;background:#333;color:#fff;
+      padding:2px 6px;border-radius:4px;pointer-events:none;z-index:99;
+    }
 
     /* Option buttons (MA, Trend, Quarterly) */
     .opt-row{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px;}
@@ -1310,6 +1341,7 @@ function renderAll(d){
   renderHeatmap(d); renderSdwtTbl(d); renderMonthTbl(d);
   renderWaterfall(d); renderScatter(d); renderTreemap(d);
   initResizable();
+  initCardResize();
 }
 
 function renderSummary(d){
@@ -3320,6 +3352,78 @@ function renderVolatScatter(stats){
 }
 
 /* ══════════════════════════════════════
+   CARD FRAME 2D RESIZE
+══════════════════════════════════════ */
+function initCardResize(){
+  document.querySelectorAll('#res .card').forEach(card=>{
+    if(card.querySelector(':scope>.cr-se')) return;
+    const eh=document.createElement('div');  eh.className='cr-handle cr-e';  eh.title='가로 드래그 / 더블클릭으로 초기화';
+    const sh=document.createElement('div');  sh.className='cr-handle cr-s';  sh.title='세로 드래그 / 더블클릭으로 초기화';
+    const seh=document.createElement('div'); seh.className='cr-handle cr-se'; seh.title='가로+세로 드래그 / 더블클릭으로 초기화';
+    card.appendChild(eh); card.appendChild(sh); card.appendChild(seh);
+
+    function resetCard(){
+      card.style.width=''; card.style.height=''; card.style.flex='';
+      card.style.overflow=''; card.style.minHeight='';
+      card.querySelectorAll('canvas').forEach(c=>{const ch=Chart.getChart(c);if(ch)ch.resize();});
+      if(card.querySelector('#tmCanvas')&&data) renderTreemap(data);
+    }
+    [eh,sh,seh].forEach(h=>h.addEventListener('dblclick',e=>{e.preventDefault();e.stopPropagation();resetCard();}));
+
+    function addDrag(el,mode){
+      el.addEventListener('mousedown',e=>{
+        if(e.button!==0) return;
+        e.preventDefault(); e.stopPropagation();
+        const sx=e.clientX,sy=e.clientY,sw=card.offsetWidth,sh2=card.offsetHeight;
+        const cursor=mode==='ew'?'ew-resize':mode==='ns'?'ns-resize':'nwse-resize';
+        document.body.style.cursor=cursor;
+        document.body.classList.add(mode==='ew'?'is-resizing-ew':mode==='ns'?'is-resizing':'is-resizing-nwse');
+        const onMove=e=>{
+          if(mode==='ew'||mode==='both'){
+            card.style.width=Math.max(220,sw+e.clientX-sx)+'px';
+            card.style.flex='0 0 auto';
+          }
+          if(mode==='ns'||mode==='both'){
+            card.style.height=Math.max(80,sh2+e.clientY-sy)+'px';
+            card.style.overflow='hidden';
+          }
+          card.querySelectorAll('canvas').forEach(c=>{const ch=Chart.getChart(c);if(ch)ch.resize();});
+        };
+        const onUp=()=>{
+          document.body.style.cursor='';
+          document.body.classList.remove('is-resizing','is-resizing-ew','is-resizing-nwse');
+          document.removeEventListener('mousemove',onMove);
+          document.removeEventListener('mouseup',onUp);
+          if(card.querySelector('#tmCanvas')&&data) renderTreemap(data);
+          initResizable();
+        };
+        document.addEventListener('mousemove',onMove);
+        document.addEventListener('mouseup',onUp);
+      });
+      // Touch support
+      el.addEventListener('touchstart',e=>{
+        e.preventDefault(); e.stopPropagation();
+        const t0=e.touches[0],sx=t0.clientX,sy=t0.clientY,sw=card.offsetWidth,sh2=card.offsetHeight;
+        const onMove=e=>{
+          const t=e.touches[0];
+          if(mode==='ew'||mode==='both'){card.style.width=Math.max(220,sw+t.clientX-sx)+'px';card.style.flex='0 0 auto';}
+          if(mode==='ns'||mode==='both'){card.style.height=Math.max(80,sh2+t.clientY-sy)+'px';card.style.overflow='hidden';}
+          card.querySelectorAll('canvas').forEach(c=>{const ch=Chart.getChart(c);if(ch)ch.resize();});
+        };
+        const onEnd=()=>{
+          el.removeEventListener('touchmove',onMove);
+          el.removeEventListener('touchend',onEnd);
+          if(card.querySelector('#tmCanvas')&&data) renderTreemap(data);
+        };
+        el.addEventListener('touchmove',onMove,{passive:false});
+        el.addEventListener('touchend',onEnd);
+      },{passive:false});
+    }
+    addDrag(eh,'ew'); addDrag(sh,'ns'); addDrag(seh,'both');
+  });
+}
+
+/* ══════════════════════════════════════
    CHART RESIZE
 ══════════════════════════════════════ */
 function initResizable(){
@@ -3378,6 +3482,7 @@ function initResizable(){
 loadDashConfig();
 applyDashLayout();
 initResizable();
+initCardResize();
 </script>
 </body>
 </html>
