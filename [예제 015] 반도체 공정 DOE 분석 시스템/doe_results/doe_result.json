@@ -1,0 +1,35 @@
+{
+  "timestamp": "2026-06-27T07:12:20.174146",
+  "design_type": "plackett_burman",
+  "active_factors": [
+    "AR",
+    "N2",
+    "HE",
+    "C3H6",
+    "O2",
+    "NF3",
+    "PRESSURE",
+    "SPACE",
+    "TIME"
+  ],
+  "n_runs": 12,
+  "optimization": {
+    "desirability": 0.8682230049155112,
+    "optimal_factors": {
+      "AR": 86.47118839331564,
+      "N2": 183.1137153954285,
+      "HE": 48.786525973938105,
+      "C3H6": 27.709728809261293,
+      "O2": 12.921008786519549,
+      "NF3": 25.16504234873651,
+      "PRESSURE": 4.439145903970914,
+      "SPACE": 12.782860324234903,
+      "TIME": 88.74562973311247
+    },
+    "predicted_responses": {
+      "THICKNESS": 5000.00000193908,
+      "UNIFORMITY": 2.3792681063779177,
+      "PARTICLE": 0.0
+    }
+  }
+}
