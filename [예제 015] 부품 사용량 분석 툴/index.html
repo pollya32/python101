@@ -464,11 +464,11 @@
       <div id="colMap" style="display:none">
         <div class="ct" style="margin-top:16px">🔗 열 매핑 <span style="font-size:11px;font-weight:400;color:var(--sub)">(레이블 클릭 시 이름 변경)</span></div>
         <div class="cg">
-          <div class="ci"><label><span class="col-lbl" id="lbl_date" onclick="editColLabel('date')">📅 날짜</span></label><select id="mDate" onchange="showPreview('mDate','pvDate',true)"></select><div class="col-prev" id="pvDate"></div></div>
-          <div class="ci"><label><span class="col-lbl" id="lbl_cat" onclick="editColLabel('cat')">🏷️ 대분류</span></label><select id="mCat" onchange="showPreview('mCat','pvCat',false)"></select><div class="col-prev" id="pvCat"></div></div>
-          <div class="ci"><label><span class="col-lbl" id="lbl_sdwt" onclick="editColLabel('sdwt')">👥 SDWT</span></label><select id="mSdwt" onchange="showPreview('mSdwt','pvSdwt',false)"></select><div class="col-prev" id="pvSdwt"></div></div>
-          <div class="ci"><label><span class="col-lbl" id="lbl_cnt" onclick="editColLabel('cnt')">🔢 사용건수</span></label><select id="mCount" onchange="showPreview('mCount','pvCount',true)"></select><div class="col-prev" id="pvCount"></div></div>
-          <div class="ci"><label><span class="col-lbl" id="lbl_amt" onclick="editColLabel('amt')">💰 사용금액</span></label><select id="mAmt" onchange="showPreview('mAmt','pvAmt',true)"></select><div class="col-prev" id="pvAmt"></div></div>
+          <div class="ci"><label><span class="col-lbl" id="lbl_date" onclick="editColLabel('date')">📅 날짜</span></label><select id="mDate" onchange="onMappingChange('mDate','pvDate',true)"></select><div class="col-prev" id="pvDate"></div></div>
+          <div class="ci"><label><span class="col-lbl" id="lbl_cat" onclick="editColLabel('cat')">🏷️ 대분류</span></label><select id="mCat" onchange="onMappingChange('mCat','pvCat',false)"></select><div class="col-prev" id="pvCat"></div></div>
+          <div class="ci"><label><span class="col-lbl" id="lbl_sdwt" onclick="editColLabel('sdwt')">👥 SDWT</span></label><select id="mSdwt" onchange="onMappingChange('mSdwt','pvSdwt',false)"></select><div class="col-prev" id="pvSdwt"></div></div>
+          <div class="ci"><label><span class="col-lbl" id="lbl_cnt" onclick="editColLabel('cnt')">🔢 사용건수</span></label><select id="mCount" onchange="onMappingChange('mCount','pvCount',true)"></select><div class="col-prev" id="pvCount"></div></div>
+          <div class="ci"><label><span class="col-lbl" id="lbl_amt" onclick="editColLabel('amt')">💰 사용금액</span></label><select id="mAmt" onchange="onMappingChange('mAmt','pvAmt',true)"></select><div class="col-prev" id="pvAmt"></div></div>
         </div>
         <div style="margin-top:12px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px">
@@ -529,7 +529,7 @@
       <div class="cg2" id="chartsGrid">
         <div class="card">
           <div class="ch">
-            <div class="ct" style="margin:0">📊 월별 대분류 사용건수</div>
+            <div class="ct" data-col-template="📊 월별 {cat} {cnt}" style="margin:0">📊 월별 대분류 사용건수</div>
             <div class="ctb" id="mb">
               <button class="cb active" onclick="setChart('m','bar',this)">막대</button>
               <button class="cb" onclick="setChart('m','line',this)">꺾은선</button>
@@ -566,7 +566,7 @@
         </div>
         <div class="card">
           <div class="ch">
-            <div class="ct" style="margin:0">💰 SDWT별 사용금액</div>
+            <div class="ct" data-col-template="💰 {sdwt}별 {amt}" style="margin:0">💰 SDWT별 사용금액</div>
             <div class="ctb" id="sb2">
               <button class="cb active" onclick="setChart('s','doughnut',this)">도넛</button>
               <button class="cb" onclick="setChart('s','pie',this)">파이</button>
@@ -591,7 +591,7 @@
       <!-- Heatmap -->
       <div class="card" id="heatmapCard">
         <div class="ch">
-          <div class="ct" style="margin:0">🌡️ 월 × SDWT 사용 히트맵</div>
+          <div class="ct" data-col-template="🌡️ 월 × {sdwt} 사용 히트맵" style="margin:0">🌡️ 월 × SDWT 사용 히트맵</div>
           <div style="display:flex;align-items:center;gap:8px">
             <label style="font-size:11px;color:var(--sub)">기준:</label>
             <select class="hm-metric-sel" id="hmMetric" onchange="renderHeatmap(data)">
@@ -648,7 +648,7 @@
       <!-- SDWT Table -->
       <div class="card" id="sdwtTableCard">
         <div class="ch">
-          <div class="ct" style="margin:0">📋 SDWT별 대분류 사용현황</div>
+          <div class="ct" data-col-template="📋 {sdwt}별 {cat} 사용현황" style="margin:0">📋 SDWT별 대분류 사용현황</div>
           <button class="btn bo bsm" onclick="copyTbl('tw1','SDWT별 대분류')">📎 PPT 복사</button>
         </div>
         <div class="tw" id="tw1"></div>
@@ -657,7 +657,7 @@
       <!-- Monthly Table -->
       <div class="card" id="monthTableCard">
         <div class="ch">
-          <div class="ct" style="margin:0">📅 월별 대분류 상세 집계</div>
+          <div class="ct" data-col-template="📅 월별 {cat} 상세 집계" style="margin:0">📅 월별 대분류 상세 집계</div>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn bo bsm" id="editModeBtn" onclick="toggleEditMode()">✏️ 편집모드</button>
             <button class="btn bo bsm" onclick="copyTbl('tw2','월별 상세 집계')">📎 PPT 복사</button>
@@ -1098,6 +1098,29 @@ function autoMap(){
 }
 function cols(){ return {date:document.getElementById('mDate').value,cat:document.getElementById('mCat').value,sdwt:document.getElementById('mSdwt').value,cnt:document.getElementById('mCount').value,amt:document.getElementById('mAmt').value}; }
 
+function onMappingChange(selId,pvId,isNum){
+  showPreview(selId,pvId,isNum);
+  if(data) recompute();
+}
+
+function applyColLabels(){
+  document.querySelectorAll('[data-col-template]').forEach(el=>{
+    el.textContent=el.dataset.colTemplate
+      .replace(/{date}/g,colLabels.date)
+      .replace(/{cat}/g,colLabels.cat)
+      .replace(/{sdwt}/g,colLabels.sdwt)
+      .replace(/{cnt}/g,colLabels.cnt)
+      .replace(/{amt}/g,colLabels.amt);
+  });
+  // Heatmap metric select options
+  const hm=document.getElementById('hmMetric');
+  if(hm){hm.options[0].text=colLabels.cnt;hm.options[1].text=colLabels.amt;}
+  // Filter sidebar labels
+  const fCat=document.getElementById('fCatLbl'),fSdwt=document.getElementById('fSdwtLbl');
+  if(fCat) fCat.textContent=colLabels.cat+' 필터';
+  if(fSdwt) fSdwt.textContent=colLabels.sdwt+' 필터';
+}
+
 /* ── 열 레이블 인라인 편집 ── */
 const COL_ICONS = {date:'📅', cat:'🏷️', sdwt:'👥', cnt:'🔢', amt:'💰'};
 function editColLabel(role){
@@ -1113,6 +1136,7 @@ function editColLabel(role){
     colLabels[role] = v;
     span.textContent = COL_ICONS[role]+' '+v;
     span.onclick = ()=>editColLabel(role);
+    applyColLabels();
   };
   inp.onblur = commit;
   inp.onkeydown = e=>{ if(e.key==='Enter'){e.preventDefault();commit();inp.blur();} if(e.key==='Escape'){span.textContent=COL_ICONS[role]+' '+cur;span.onclick=()=>editColLabel(role);} };
@@ -1149,9 +1173,10 @@ function renderExtraMapGrid(){
     <div class="extra-map-row" id="em_row_${e.id}">
       <input class="extra-map-lbl-inp" id="em_name_${e.id}" value="${e.name.replace(/"/g,'&quot;')}"
         placeholder="열 이름" title="이 열의 참조 이름 (수식에서 [이름]으로 사용)"
-        oninput="extraMaps.find(x=>x.id===${e.id}).name=this.value">
+        oninput="extraMaps.find(x=>x.id===${e.id}).name=this.value"
+        onchange="if(data)recompute()">
       <select class="extra-map-sel" id="em_sel_${e.id}"
-        onchange="extraMaps.find(x=>x.id===${e.id}).col=this.value;showExtraPreview(${e.id})">
+        onchange="extraMaps.find(x=>x.id===${e.id}).col=this.value;showExtraPreview(${e.id});if(data)recompute()">
         <option value="">-- CSV 열 선택 --</option>
         ${headers.map(h=>`<option value="${h.replace(/"/g,'&quot;')}"${h===e.col?' selected':''}>${h}</option>`).join('')}
       </select>
@@ -1233,18 +1258,26 @@ function filtered(){
 
 function recompute(){
   if(!rows.length) return;
+  // Inject extra mapping aliases into every row so [이름] works in formulas
+  extraMaps.forEach(em=>{
+    if(!em.col||!em.name.trim()) return;
+    const name=em.name.trim();
+    rows.forEach(row=>{ row[name]=row[em.col]; });
+    if(!headers.includes(name)) headers.push(name);
+  });
   frows=filtered();
   data=compute(frows,cols());
   applyManualEdits(data);
   renderAll(data);
+  applyColLabels();
   updateBadge();
   document.getElementById('res').style.display='block';
 }
 
 function updateBadge(){
   const parts=[];
-  if(fs.sdwts.length) parts.push(`SDWT: ${fs.sdwts.join(', ')}`);
-  if(fs.cats.length)  parts.push(`대분류: ${fs.cats.join(', ')}`);
+  if(fs.sdwts.length) parts.push(`${colLabels.sdwt}: ${fs.sdwts.join(', ')}`);
+  if(fs.cats.length)  parts.push(`${colLabels.cat}: ${fs.cats.join(', ')}`);
   if(fs.from||fs.to)  parts.push(`기간: ${fs.from||'?'} ~ ${fs.to||'?'}`);
   const el=document.getElementById('fb');
   if(parts.length){ el.classList.add('show'); document.getElementById('fbtxt').textContent='필터 적용 — '+parts.join(' / '); }
@@ -1281,10 +1314,10 @@ function renderAll(d){
 
 function renderSummary(d){
   document.getElementById('sc').innerHTML=`
-    <div class="sc"><div class="sl">📦 총 사용건수</div><div class="sv">${fmt(d.tc)}</div><div class="ss">${fmt(d.n)}행</div></div>
-    <div class="sc g"><div class="sl">💰 총 사용금액</div><div class="sv">${fmt(d.ta)}</div><div class="ss">원 (누적)</div></div>
-    <div class="sc o"><div class="sl">👥 SDWT 수</div><div class="sv">${d.sdwts.length}</div><div class="ss">${d.sdwts.slice(0,2).join(', ')}${d.sdwts.length>2?' …':''}</div></div>
-    <div class="sc p"><div class="sl">🗂️ 대분류 수</div><div class="sv">${d.cats.length}</div><div class="ss">${d.cats.slice(0,2).join(', ')}${d.cats.length>2?' …':''}</div></div>
+    <div class="sc"><div class="sl">📦 총 ${colLabels.cnt}</div><div class="sv">${fmt(d.tc)}</div><div class="ss">${fmt(d.n)}행</div></div>
+    <div class="sc g"><div class="sl">💰 총 ${colLabels.amt}</div><div class="sv">${fmt(d.ta)}</div><div class="ss">원 (누적)</div></div>
+    <div class="sc o"><div class="sl">👥 ${colLabels.sdwt} 수</div><div class="sv">${d.sdwts.length}</div><div class="ss">${d.sdwts.slice(0,2).join(', ')}${d.sdwts.length>2?' …':''}</div></div>
+    <div class="sc p"><div class="sl">🗂️ ${colLabels.cat} 수</div><div class="sv">${d.cats.length}</div><div class="ss">${d.cats.slice(0,2).join(', ')}${d.cats.length>2?' …':''}</div></div>
     <div class="sc c"><div class="sl">📅 분석 기간</div><div class="sv">${d.months.length}개월</div><div class="ss">${d.months[0]||'-'} ~ ${d.months[d.months.length-1]||'-'}</div></div>`;
 }
 
@@ -1407,7 +1440,7 @@ function setChart(key,type,btn){
 
 function renderSdwtTbl(d){
   const w=document.getElementById('tw1');
-  let h='<table><thead><tr><th>SDWT</th>';
+  let h=`<table><thead><tr><th>${colLabels.sdwt}</th>`;
   d.cats.forEach(c=>{h+=`<th colspan="2">${esc(c)}</th>`;});
   h+='<th>총 금액(원)</th></tr><tr><th></th>';
   d.cats.forEach(()=>{h+='<th>건수</th><th>금액</th>';});
