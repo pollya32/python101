@@ -68,6 +68,28 @@ RESPONSES = {
 
 OUTPUT_DIR = 'doe_results'
 
+# ── 300mm 웨이퍼 25포인트 계측 좌표 (mm, 중심 기준) ──────────────────────────
+WAFER_RADIUS = 150.0  # mm (300mm 웨이퍼)
+WAFER_EDGE_EXCLUSION = 3.0  # mm
+
+# 배치: 중심 1 + r=35(4) + r=75(4) + r=105(4) + r=120(4) + r=140(8) = 25점
+WAFER_POINTS_25 = [
+    # P01: 중심
+    (  0.0,    0.0),
+    # P02-P05: r=35mm, 상하좌우
+    ( 35.0,    0.0), (  0.0,  35.0), (-35.0,   0.0), (  0.0, -35.0),
+    # P06-P09: r=75mm, 대각
+    ( 53.0,   53.0), (-53.0,  53.0), (-53.0, -53.0), ( 53.0, -53.0),
+    # P10-P13: r=105mm, 상하좌우
+    (105.0,    0.0), (  0.0, 105.0), (-105.0,  0.0), (  0.0,-105.0),
+    # P14-P17: r=120mm, 대각
+    ( 84.9,   84.9), (-84.9,  84.9), (-84.9, -84.9), ( 84.9, -84.9),
+    # P18-P25: r=140mm, 8방향
+    (140.0,    0.0), ( 99.0,  99.0), (  0.0, 140.0), (-99.0,  99.0),
+    (-140.0,   0.0), (-99.0, -99.0), (  0.0,-140.0), ( 99.0, -99.0),
+]
+POINT_LABELS = [f'P{i+1:02d}' for i in range(25)]
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  DOE 실험 설계 생성기
@@ -748,7 +770,200 @@ class DOEVisualizer:
         fig.tight_layout()
         self._save(fig, 'optimization_result.png')
 
-    # ── 8. 상관관계 히트맵 ───────────────────────────────────────────────────
+    # ── 8. 웨이퍼 맵 ─────────────────────────────────────────────────────────
+    def plot_wafer_maps(self, result_df: pd.DataFrame, title_prefix: str = ''):
+        """
+        전체 DOE Run 의 웨이퍼 두께 맵을 그리드로 시각화.
+        scipy interpolation 으로 웨이퍼 면을 채우고 25포인트 위치를 표시.
+        """
+        from scipy.interpolate import griddata
+
+        pt_cols = [f'T_{lbl}' for lbl in POINT_LABELS]
+        if not all(c in result_df.columns for c in pt_cols):
+            return
+
+        n_runs = len(result_df)
+        ncols = min(4, n_runs)
+        nrows = (n_runs + ncols - 1) // ncols
+        fig, axes = plt.subplots(nrows, ncols,
+                                 figsize=(ncols * 3.8, nrows * 3.5))
+        axes = np.array(axes).flatten() if n_runs > 1 else [axes]
+
+        pts = np.array(WAFER_POINTS_25)
+        xi = np.linspace(-WAFER_RADIUS, WAFER_RADIUS, 200)
+        yi = np.linspace(-WAFER_RADIUS, WAFER_RADIUS, 200)
+        XI, YI = np.meshgrid(xi, yi)
+        mask = XI**2 + YI**2 > WAFER_RADIUS**2   # 웨이퍼 밖 마스크
+
+        # 전체 런의 두께 범위 통일
+        all_vals = result_df[pt_cols].values.flatten()
+        vmin, vmax = np.nanpercentile(all_vals, 2), np.nanpercentile(all_vals, 98)
+
+        for idx, (_, row) in enumerate(result_df.iterrows()):
+            ax = axes[idx]
+            vals = np.array([row[c] for c in pt_cols], dtype=float)
+            run_no = int(row.get('Run', idx + 1))
+
+            # 보간 (cubic → nearest fallback)
+            try:
+                ZI = griddata(pts, vals, (XI, YI), method='cubic')
+            except Exception:
+                ZI = griddata(pts, vals, (XI, YI), method='nearest')
+            ZI[mask] = np.nan
+
+            im = ax.imshow(ZI, extent=[-WAFER_RADIUS, WAFER_RADIUS,
+                                        -WAFER_RADIUS, WAFER_RADIUS],
+                           origin='lower', cmap='RdYlGn',
+                           vmin=vmin, vmax=vmax, aspect='equal')
+            # 웨이퍼 외곽선
+            circle = plt.Circle((0, 0), WAFER_RADIUS,
+                                 fill=False, color='black', linewidth=1.5)
+            ax.add_patch(circle)
+            # 25포인트 표시
+            ax.scatter(pts[:, 0], pts[:, 1], c='black', s=18, zorder=5)
+            # 균일도 계산
+            unif_val = (vals.max() - vals.min()) / (2 * vals.mean() + 1e-9) * 100
+            mean_t = vals.mean()
+            ax.set_title(f'Run {run_no}\n'
+                         f'Mean={mean_t:.0f}Å  UNI={unif_val:.1f}%',
+                         fontsize=8.5, fontweight='bold')
+            ax.set_xlim(-WAFER_RADIUS * 1.05, WAFER_RADIUS * 1.05)
+            ax.set_ylim(-WAFER_RADIUS * 1.05, WAFER_RADIUS * 1.05)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+        for j in range(idx + 1, len(axes)):
+            axes[j].set_visible(False)
+
+        fig.suptitle(f'{title_prefix}300mm 웨이퍼 두께 맵 (25포인트)',
+                     fontsize=13, fontweight='bold')
+        fig.tight_layout()
+        self._save(fig, 'wafer_maps_all_runs.png')
+
+    def plot_wafer_best_worst(self, result_df: pd.DataFrame):
+        """최고/최저 균일도 Run 의 웨이퍼 맵 비교"""
+        from scipy.interpolate import griddata
+
+        pt_cols = [f'T_{lbl}' for lbl in POINT_LABELS]
+        if 'UNIFORMITY' not in result_df.columns or \
+                not all(c in result_df.columns for c in pt_cols):
+            return
+
+        best_idx = result_df['UNIFORMITY'].idxmin()
+        worst_idx = result_df['UNIFORMITY'].idxmax()
+
+        pts = np.array(WAFER_POINTS_25)
+        xi = np.linspace(-WAFER_RADIUS, WAFER_RADIUS, 250)
+        yi = np.linspace(-WAFER_RADIUS, WAFER_RADIUS, 250)
+        XI, YI = np.meshgrid(xi, yi)
+        mask = XI**2 + YI**2 > WAFER_RADIUS**2
+
+        fig, axes = plt.subplots(1, 2, figsize=(12, 5.5))
+        cases = [(best_idx, 'Best (최소 불균일)', '#4CAF50'),
+                 (worst_idx, 'Worst (최대 불균일)', '#F44336')]
+
+        all_vals = result_df[pt_cols].values.flatten()
+        vmin = np.nanpercentile(all_vals, 1)
+        vmax = np.nanpercentile(all_vals, 99)
+
+        for ax, (ridx, label, color) in zip(axes, cases):
+            row = result_df.loc[ridx]
+            vals = np.array([row[c] for c in pt_cols], dtype=float)
+            run_no = int(row.get('Run', ridx + 1))
+
+            try:
+                ZI = griddata(pts, vals, (XI, YI), method='cubic')
+            except Exception:
+                ZI = griddata(pts, vals, (XI, YI), method='nearest')
+            ZI[mask] = np.nan
+
+            im = ax.imshow(ZI, extent=[-WAFER_RADIUS, WAFER_RADIUS,
+                                        -WAFER_RADIUS, WAFER_RADIUS],
+                           origin='lower', cmap='RdYlGn',
+                           vmin=vmin, vmax=vmax, aspect='equal')
+            circle = plt.Circle((0, 0), WAFER_RADIUS,
+                                 fill=False, color='black', linewidth=2)
+            ax.add_patch(circle)
+
+            # 포인트별 값 레이블
+            for (px, py), lbl, v in zip(WAFER_POINTS_25, POINT_LABELS, vals):
+                ax.annotate(f'{v:.0f}', (px, py),
+                            fontsize=6, ha='center', va='center',
+                            color='black',
+                            bbox=dict(boxstyle='round,pad=0.15', fc='white',
+                                      alpha=0.6, ec='none'))
+
+            unif = (vals.max() - vals.min()) / (2 * vals.mean() + 1e-9) * 100
+            ax.set_title(f'Run {run_no} — {label}\n'
+                         f'Mean={vals.mean():.0f} Å   '
+                         f'Uniformity={unif:.2f}%   '
+                         f'Max={vals.max():.0f}  Min={vals.min():.0f}',
+                         fontsize=9.5, fontweight='bold', color=color)
+            ax.set_xlim(-WAFER_RADIUS * 1.05, WAFER_RADIUS * 1.05)
+            ax.set_ylim(-WAFER_RADIUS * 1.05, WAFER_RADIUS * 1.05)
+            ax.set_xlabel('X (mm)', fontsize=9)
+            ax.set_ylabel('Y (mm)', fontsize=9)
+            plt.colorbar(im, ax=ax, label='Thickness (Å)')
+
+        fig.suptitle('Best vs Worst Uniformity — 300mm 웨이퍼 두께 분포',
+                     fontsize=13, fontweight='bold')
+        fig.tight_layout()
+        self._save(fig, 'wafer_best_vs_worst.png')
+
+    def plot_wafer_point_stats(self, result_df: pd.DataFrame):
+        """25포인트별 두께 통계 (평균 ± σ 및 웨이퍼 위치 히트맵)"""
+        from scipy.interpolate import griddata
+
+        pt_cols = [f'T_{lbl}' for lbl in POINT_LABELS]
+        if not all(c in result_df.columns for c in pt_cols):
+            return
+
+        means = result_df[pt_cols].mean().values
+        stds  = result_df[pt_cols].std().values
+        pts   = np.array(WAFER_POINTS_25)
+
+        fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+
+        xi = np.linspace(-WAFER_RADIUS, WAFER_RADIUS, 200)
+        yi = np.linspace(-WAFER_RADIUS, WAFER_RADIUS, 200)
+        XI, YI = np.meshgrid(xi, yi)
+        mask = XI**2 + YI**2 > WAFER_RADIUS**2
+
+        for ax, values, cmap, label in [
+            (axes[0], means,         'RdYlGn', 'Mean Thickness (Å)'),
+            (axes[1], stds,          'YlOrRd',  '1σ Thickness (Å)'),
+            (axes[2], stds/means*100,'YlOrRd',  'CoV (%)'),
+        ]:
+            try:
+                ZI = griddata(pts, values, (XI, YI), method='cubic')
+            except Exception:
+                ZI = griddata(pts, values, (XI, YI), method='nearest')
+            ZI[mask] = np.nan
+
+            im = ax.imshow(ZI, extent=[-WAFER_RADIUS, WAFER_RADIUS,
+                                        -WAFER_RADIUS, WAFER_RADIUS],
+                           origin='lower', cmap=cmap, aspect='equal')
+            circle = plt.Circle((0, 0), WAFER_RADIUS,
+                                 fill=False, color='black', linewidth=1.5)
+            ax.add_patch(circle)
+            ax.scatter(pts[:, 0], pts[:, 1], c='black', s=15, zorder=5)
+            for (px, py), v in zip(pts, values):
+                ax.text(px, py + 6, f'{v:.1f}', fontsize=5.5,
+                        ha='center', va='bottom', color='black')
+            ax.set_title(label, fontsize=10, fontweight='bold')
+            ax.set_xlabel('X (mm)', fontsize=8)
+            ax.set_ylabel('Y (mm)', fontsize=8)
+            ax.set_xticks([-100, 0, 100])
+            ax.set_yticks([-100, 0, 100])
+            plt.colorbar(im, ax=ax, label=label, fraction=0.046)
+
+        fig.suptitle('25포인트 계측 통계 (전체 DOE 런)',
+                     fontsize=13, fontweight='bold')
+        fig.tight_layout()
+        self._save(fig, 'wafer_point_statistics.png')
+
+    # ── 9. 상관관계 히트맵 ───────────────────────────────────────────────────
     def plot_correlation_heatmap(self, data: pd.DataFrame, factors: list, responses: list):
         cols = [c for c in factors + responses if c in data.columns]
         if len(cols) < 2:
@@ -779,7 +994,27 @@ class DOEReporter:
         path = os.path.join(self.output_dir, 'doe_report.xlsx')
         with pd.ExcelWriter(path, engine='openpyxl') as writer:
             design_df.to_excel(writer, sheet_name='실험계획', index=False)
-            result_df.to_excel(writer, sheet_name='실험결과', index=False)
+            # 응답 및 비포인트 컬럼만
+            main_cols = [c for c in result_df.columns if not c.startswith('T_P')]
+            result_df[main_cols].to_excel(writer, sheet_name='실험결과', index=False)
+            # 25포인트 두께 데이터
+            pt_cols = ['Run'] + [f'T_{lbl}' for lbl in POINT_LABELS
+                                 if f'T_{lbl}' in result_df.columns]
+            if len(pt_cols) > 1:
+                pt_df = result_df[pt_cols].copy()
+                # 좌표 정보 헤더 행 추가
+                coord_row = {'Run': 'X(mm)'}
+                coord_row.update({f'T_{lbl}': WAFER_POINTS_25[i][0]
+                                  for i, lbl in enumerate(POINT_LABELS)
+                                  if f'T_{lbl}' in result_df.columns})
+                coord_row2 = {'Run': 'Y(mm)'}
+                coord_row2.update({f'T_{lbl}': WAFER_POINTS_25[i][1]
+                                   for i, lbl in enumerate(POINT_LABELS)
+                                   if f'T_{lbl}' in result_df.columns})
+                header_df = pd.DataFrame([coord_row, coord_row2])
+                pd.concat([header_df, pt_df], ignore_index=True).to_excel(
+                    writer, sheet_name='25pt_두께', index=False
+                )
             for resp, adict in analysis_results.items():
                 if 'anova' in adict and not adict['anova'].empty:
                     adict['anova'].to_excel(writer, sheet_name=f'ANOVA_{resp}')
@@ -921,10 +1156,48 @@ class ProcessSimulator:
         particle = max(0, self._noise(base_particle))
         return round(particle)
 
+    def _spatial_factor(self, x: float, y: float, params: dict) -> float:
+        """
+        웨이퍼 위치 (x, y) mm 에서의 두께 공간 변화 계수 반환.
+        공정 조건에 따라 bowl / dome / edge 프로파일을 모사.
+        """
+        R = WAFER_RADIUS
+        rn = np.sqrt(x**2 + y**2) / R   # 정규화 반경 [0, 1]
+        theta = np.arctan2(y, x)
+
+        space = params.get('SPACE', 15)
+        he    = params.get('HE', 250)
+        rf    = params.get('RF_POWER', 1000)
+        pressure = params.get('PRESSURE', 5)
+        n2    = params.get('N2', 100)
+
+        # SPACE: 간격 작으면 중심 두꺼운 dome, 크면 가장자리 두꺼운 bowl
+        space_coeff = (space - 15) / 25
+        radial = space_coeff * 0.12 * rn**2
+
+        # HE: 플라즈마 균일화 효과 → 반경 기울기 감소
+        he_smooth = max(0.2, 1 - (he / 500) * 0.45)
+        radial *= he_smooth
+
+        # RF_POWER: 고출력 → 가장자리 가열 → 가장자리 박막화
+        rf_coeff = (rf - 1000) / 1900
+        radial += rf_coeff * 0.07 * (rn**2 - 0.25)
+
+        # PRESSURE: 높을수록 가장자리 소모 증가
+        radial += (pressure - 5.5) / 9.0 * 0.05 * rn
+
+        # N2 흐름 방향 비대칭 (작은 각도 variation)
+        n2_asym = (n2 - 100) / 200 * 0.015
+        angular = n2_asym * np.sin(theta) * rn
+
+        return 1.0 + radial + angular
+
     def simulate(self, design_df: pd.DataFrame) -> pd.DataFrame:
-        """전체 실험 계획에 대해 응답 시뮬레이션"""
+        """전체 실험 계획에 대해 응답 시뮬레이션 (25포인트 계측)"""
         df = design_df.copy()
+        pt_cols = {lbl: [] for lbl in POINT_LABELS}
         thickness_vals, unif_vals, particle_vals = [], [], []
+
         for _, row in df.iterrows():
             params = {}
             for f in FACTORS:
@@ -934,12 +1207,33 @@ class ProcessSimulator:
                 elif f in row.index:
                     lo, hi = FACTORS[f]['low'], FACTORS[f]['high']
                     params[f] = lo + (row[f] + 1) / 2 * (hi - lo)
-            thickness_vals.append(self.thickness(params))
-            unif_vals.append(self.uniformity(params))
+
+            # 평균 두께 계산
+            mean_thick = self.thickness(params)
+
+            # 25포인트별 두께: 공간 변화 계수 × 평균 두께 + 측정 노이즈
+            pt_thicknesses = []
+            for (px, py), lbl in zip(WAFER_POINTS_25, POINT_LABELS):
+                sf = self._spatial_factor(px, py, params)
+                t = mean_thick * sf * (1 + np.random.normal(0, self.noise * 0.3))
+                t = max(0, t)
+                pt_cols[lbl].append(t)
+                pt_thicknesses.append(t)
+
+            pt_arr = np.array(pt_thicknesses)
+            pt_mean = pt_arr.mean()
+            # UNIFORMITY = (max-min) / (2*mean) × 100 (%)
+            unif = (pt_arr.max() - pt_arr.min()) / (2 * pt_mean + 1e-9) * 100
+
+            thickness_vals.append(pt_mean)
+            unif_vals.append(unif)
             particle_vals.append(self.particle(params))
-        df['THICKNESS'] = thickness_vals
+
+        for lbl in POINT_LABELS:
+            df[f'T_{lbl}'] = pt_cols[lbl]
+        df['THICKNESS']  = thickness_vals
         df['UNIFORMITY'] = unif_vals
-        df['PARTICLE'] = particle_vals
+        df['PARTICLE']   = particle_vals
         return df
 
 
@@ -1043,6 +1337,10 @@ def run_doe_analysis(
     viz.plot_correlation_heatmap(result_df, used_factors, resp_list)
     # 최적화 결과
     viz.plot_optimization_result(opt_result, RESPONSES)
+    # 웨이퍼 맵 (25포인트)
+    viz.plot_wafer_maps(result_df)
+    viz.plot_wafer_best_worst(result_df)
+    viz.plot_wafer_point_stats(result_df)
 
     # ── 6. 보고서 저장 ───────────────────────────────────────────────────────
     print('\n[6단계] 보고서 저장')
