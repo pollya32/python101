@@ -211,6 +211,26 @@
       line-height: 1.6;
     }
     .info-box strong { color: #5a4200; }
+
+    .options-detail {
+      margin-top: 14px; border: 1.5px solid #d0d9f0;
+      border-radius: 10px; overflow: hidden;
+    }
+    .options-detail summary {
+      padding: 10px 16px; cursor: pointer;
+      font-size: 0.88rem; font-weight: 700; color: #4472C4;
+      background: #f6f8ff; user-select: none;
+      list-style: none;
+    }
+    .options-detail summary::-webkit-details-marker { display: none; }
+    .options-body {
+      padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
+    }
+    .opt-row {
+      display: flex; align-items: flex-start; gap: 10px;
+      font-size: 0.86rem; color: #444; cursor: pointer;
+    }
+    .opt-row input[type="checkbox"] { margin-top: 2px; accent-color: #4472C4; }
   </style>
 </head>
 <body>
@@ -257,6 +277,33 @@
     <button class="btn btn-gray" id="btn-reset">🔄 초기화</button>
   </div>
 
+  <!-- 인식률 향상 옵션 -->
+  <details class="options-detail" id="options-detail">
+    <summary>⚙️ 인식률 향상 옵션</summary>
+    <div class="options-body">
+      <label class="opt-row">
+        <input type="checkbox" id="chk-preprocess" checked />
+        <span><strong>이미지 전처리</strong> — 2.5배 확대 + 자동 이진화 (캡처 화면에 효과적)</span>
+      </label>
+      <label class="opt-row">
+        <input type="checkbox" id="chk-preview" />
+        <span><strong>전처리 미리보기</strong> 표시</span>
+      </label>
+      <div class="opt-row" style="align-items:center;gap:10px;flex-wrap:wrap">
+        <span><strong>열 간격 감도</strong></span>
+        <input type="range" id="col-sensitivity" min="0.5" max="3" step="0.1" value="1.2" style="flex:1;min-width:120px;max-width:200px" />
+        <span id="col-val" style="min-width:28px;color:#4472C4;font-weight:700">1.2</span>
+        <span style="font-size:0.78rem;color:#999">← 낮으면 열 많이 분리 / 높으면 합치기</span>
+      </div>
+    </div>
+  </details>
+
+  <!-- 전처리 결과 미리보기 -->
+  <div id="preproc-wrap" style="display:none;margin-top:14px;text-align:center">
+    <p style="font-size:0.8rem;color:#888;margin-bottom:6px">전처리된 이미지 (OCR이 실제로 인식하는 모습)</p>
+    <canvas id="preproc-canvas" style="max-width:100%;border-radius:8px;border:1px solid #d0d9f0"></canvas>
+  </div>
+
   <div id="progress-wrap"><div id="progress-bar"></div></div>
   <div id="status"></div>
 
@@ -291,21 +338,30 @@ let currentObjectURL = null;
 let currentFile = null;
 let tableData = [];
 
-const dropZone    = document.getElementById('drop-zone');
-const placeholder = document.getElementById('drop-placeholder');
-const previewImg  = document.getElementById('preview-img');
-const fileInput   = document.getElementById('file-input');
-const btnOcr      = document.getElementById('btn-ocr');
-const btnReset    = document.getElementById('btn-reset');
-const btnDownload = document.getElementById('btn-download');
-const btnCopy     = document.getElementById('btn-copy');
-const statusEl    = document.getElementById('status');
+const dropZone     = document.getElementById('drop-zone');
+const placeholder  = document.getElementById('drop-placeholder');
+const previewImg   = document.getElementById('preview-img');
+const fileInput    = document.getElementById('file-input');
+const btnOcr       = document.getElementById('btn-ocr');
+const btnReset     = document.getElementById('btn-reset');
+const btnDownload  = document.getElementById('btn-download');
+const btnCopy      = document.getElementById('btn-copy');
+const statusEl     = document.getElementById('status');
 const progressWrap = document.getElementById('progress-wrap');
 const progressBar  = document.getElementById('progress-bar');
-const resultCard  = document.getElementById('result-card');
-const resultTable = document.getElementById('result-table');
-const sizeBadge   = document.getElementById('size-badge');
-const toast       = document.getElementById('toast');
+const resultCard   = document.getElementById('result-card');
+const resultTable  = document.getElementById('result-table');
+const sizeBadge    = document.getElementById('size-badge');
+const toast        = document.getElementById('toast');
+const preprocWrap  = document.getElementById('preproc-wrap');
+const preprocCanvas= document.getElementById('preproc-canvas');
+const colSlider    = document.getElementById('col-sensitivity');
+const colVal       = document.getElementById('col-val');
+
+colSlider.addEventListener('input', () => { colVal.textContent = colSlider.value; });
+document.getElementById('chk-preview').addEventListener('change', e => {
+  preprocWrap.style.display = e.target.checked ? 'block' : 'none';
+});
 
 // ── 이미지 로드 ───────────────────────────────────
 function loadFile(file) {
@@ -318,11 +374,11 @@ function loadFile(file) {
   placeholder.style.display = 'none';
   dropZone.classList.add('ready');
   btnOcr.disabled = false;
+  preprocWrap.style.display = 'none';
   hideStatus();
   hideResult();
 }
 
-// 전역 Ctrl+V
 document.addEventListener('paste', e => {
   const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
   if (item) { e.preventDefault(); loadFile(item.getAsFile()); }
@@ -337,11 +393,77 @@ dropZone.addEventListener('drop', e => {
   const file = e.dataTransfer.files[0];
   if (file?.type.startsWith('image/')) loadFile(file);
 });
-dropZone.addEventListener('click', e => {
+dropZone.addEventListener('click', () => {
   if (!dropZone.classList.contains('ready')) fileInput.click();
 });
 
-// ── 클러스터링 (행/열 위치 그루핑) ───────────────
+// ── ① 이미지 전처리: 업스케일 + Otsu 이진화 ─────
+function preprocessImage(img) {
+  const SCALE = 2.5;
+  const MAX_DIM = 4800;
+
+  let w = img.naturalWidth  || img.width;
+  let h = img.naturalHeight || img.height;
+  let scale = SCALE;
+  if (w * scale > MAX_DIM || h * scale > MAX_DIM) {
+    scale = MAX_DIM / Math.max(w, h);
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width  = Math.round(w * scale);
+  canvas.height = Math.round(h * scale);
+
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled  = true;
+  ctx.imageSmoothingQuality  = 'high';
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const d = imageData.data;
+  const n = canvas.width * canvas.height;
+
+  // 그레이스케일 변환
+  const gray = new Uint8Array(n);
+  for (let i = 0, j = 0; j < n; i += 4, j++) {
+    gray[j] = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+  }
+
+  // Otsu 자동 임계값 계산
+  const hist = new Array(256).fill(0);
+  for (const v of gray) hist[v]++;
+  const total = gray.length;
+  let sum = 0;
+  for (let i = 0; i < 256; i++) sum += i * hist[i];
+  let sumB = 0, wB = 0, maxVar = 0, threshold = 128;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t];
+    if (!wB) continue;
+    const wF = total - wB;
+    if (!wF) break;
+    sumB += t * hist[t];
+    const mB = sumB / wB;
+    const mF = (sum - sumB) / wF;
+    const between = wB * wF * (mB - mF) ** 2;
+    if (between > maxVar) { maxVar = between; threshold = t; }
+  }
+
+  // 배경이 어두운지 판단 (어두운 배경이면 반전)
+  const darkCount = gray.filter(v => v < threshold).length;
+  const invertNeeded = darkCount > total * 0.55;
+
+  // 이진화 적용
+  for (let i = 0, j = 0; j < n; i += 4, j++) {
+    let bw = gray[j] < threshold ? 0 : 255;
+    if (invertNeeded) bw = 255 - bw;
+    d[i] = d[i + 1] = d[i + 2] = bw;
+    d[i + 3] = 255;
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+// ── ② 열 위치 클러스터링 ─────────────────────────
 function clusterPositions(values, tolerance) {
   if (!values.length) return [];
   const sorted = [...new Set(values)].sort((a, b) => a - b);
@@ -362,90 +484,119 @@ function nearestIndex(centers, value) {
     Math.abs(c - value) < Math.abs(centers[best] - value) ? i : best, 0);
 }
 
-// ── OCR → 표 구조 변환 ───────────────────────────
-async function runOCR(imageEl, lang) {
+// ── ③ Tesseract line 구조로 표 구성 ──────────────
+function buildTable(data, colSensitivity) {
+  // Tesseract가 감지한 line 구조를 그대로 행으로 사용
+  const rowGroups = [];
+  for (const line of (data.lines || [])) {
+    const words = (line.words || [])
+      .filter(w => w.confidence >= 35 && w.text.trim())
+      .map(w => ({
+        text: w.text.trim(),
+        cx:   (w.bbox.x0 + w.bbox.x1) / 2,
+        ww:    w.bbox.x1 - w.bbox.x0,
+      }));
+    if (words.length) rowGroups.push(words);
+  }
+
+  if (!rowGroups.length) return [];
+
+  // 전체 단어 기준 열 클러스터링
+  const allWords = rowGroups.flat();
+  const avgW     = allWords.reduce((s, w) => s + w.ww, 0) / allWords.length;
+  const tolerance= Math.max(avgW * parseFloat(colSensitivity), 15);
+  const colCenters = clusterPositions(allWords.map(w => w.cx), tolerance);
+
+  // 그리드 채우기
+  return rowGroups.map(rowWords => {
+    const row = new Array(colCenters.length).fill('');
+    for (const word of rowWords) {
+      const ci  = nearestIndex(colCenters, word.cx);
+      row[ci]   = row[ci] ? row[ci] + ' ' + word.text : word.text;
+    }
+    return row;
+  });
+}
+
+// ── ④ OCR 실행 (PSM 6 → 단어 부족 시 PSM 11 재시도) ─
+async function runOCR(source, lang, colSensitivity) {
   const worker = await Tesseract.createWorker(lang, 1, {
     logger: m => {
       if (m.status === 'recognizing text') {
-        const pct = Math.round(m.progress * 100);
-        progressBar.style.width = pct + '%';
-        showStatus('loading', `<span class="spinner"></span> OCR 인식 중... ${pct}%`);
+        progressBar.style.width = Math.round(m.progress * 100) + '%';
+        showStatus('loading', `<span class="spinner"></span> OCR 인식 중... ${Math.round(m.progress * 100)}%`);
       } else if (m.status) {
         showStatus('loading', `<span class="spinner"></span> ${m.status}`);
       }
     }
   });
 
-  const { data } = await worker.recognize(imageEl);
+  // 1차: PSM 6 (균일 텍스트 블록 — 표에 최적)
+  await worker.setParameters({ tessedit_pageseg_mode: '6', preserve_interword_spaces: '1' });
+  let { data } = await worker.recognize(source);
+  let wordCount = (data.words || []).filter(w => w.confidence >= 35 && w.text.trim()).length;
+
+  // 단어가 3개 미만이면 PSM 11 (희소 텍스트) 로 재시도
+  if (wordCount < 3) {
+    showStatus('loading', '<span class="spinner"></span> 재시도 중 (희소 텍스트 모드)...');
+    await worker.setParameters({ tessedit_pageseg_mode: '11' });
+    ({ data } = await worker.recognize(source));
+    wordCount = (data.words || []).filter(w => w.confidence >= 35 && w.text.trim()).length;
+  }
+
   await worker.terminate();
 
-  // 신뢰도 40 이상 단어 필터
-  const words = (data.words || [])
-    .filter(w => w.confidence >= 40 && w.text.trim())
-    .map(w => ({
-      text: w.text.trim(),
-      cx: (w.bbox.x0 + w.bbox.x1) / 2,
-      cy: (w.bbox.y0 + w.bbox.y1) / 2,
-      h:  w.bbox.y1 - w.bbox.y0,
-      w:  w.bbox.x1 - w.bbox.x0,
-    }));
-
-  if (!words.length) return [];
-
-  const avgH = words.reduce((s, w) => s + w.h, 0) / words.length;
-  const avgW = words.reduce((s, w) => s + w.w, 0) / words.length;
-
-  const rowCenters = clusterPositions(words.map(w => w.cy), Math.max(avgH * 0.6, 8));
-  const colCenters = clusterPositions(words.map(w => w.cx), Math.max(avgW * 1.4, 20));
-
-  const grid = {};
-  for (const w of words) {
-    const r = nearestIndex(rowCenters, w.cy);
-    const c = nearestIndex(colCenters, w.cx);
-    const k = `${r},${c}`;
-    grid[k] = grid[k] ? grid[k] + ' ' + w.text : w.text;
-  }
-
-  const maxR = Math.max(...Object.keys(grid).map(k => +k.split(',')[0]));
-  const maxC = Math.max(...Object.keys(grid).map(k => +k.split(',')[1]));
-
-  const table = [];
-  for (let r = 0; r <= maxR; r++) {
-    const row = [];
-    for (let c = 0; c <= maxC; c++) row.push(grid[`${r},${c}`] || '');
-    table.push(row);
-  }
-  return table;
+  if (!wordCount) return [];
+  return buildTable(data, colSensitivity);
 }
 
 // ── OCR 버튼 ─────────────────────────────────────
 btnOcr.addEventListener('click', async () => {
   if (!currentFile) return;
-  const lang = document.getElementById('lang-select').value;
+  const lang           = document.getElementById('lang-select').value;
+  const usePreprocess  = document.getElementById('chk-preprocess').checked;
+  const showPreview    = document.getElementById('chk-preview').checked;
+  const colSensitivity = colSlider.value;
 
   btnOcr.disabled = true;
   progressWrap.style.display = 'block';
   progressBar.style.width = '0%';
-  showStatus('loading', '<span class="spinner"></span> 시작 중...');
+  showStatus('loading', '<span class="spinner"></span> 준비 중...');
   hideResult();
 
   try {
-    // Image element 생성
+    // 원본 이미지 로드
     const img = new Image();
-    await new Promise((res, rej) => {
-      img.onload = res; img.onerror = rej;
-      img.src = currentObjectURL;
-    });
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = currentObjectURL; });
 
-    tableData = await runOCR(img, lang);
+    let source = img;
+
+    if (usePreprocess) {
+      showStatus('loading', '<span class="spinner"></span> 이미지 전처리 중...');
+      source = preprocessImage(img);
+
+      // 미리보기 canvas 업데이트
+      if (showPreview) {
+        preprocCanvas.width  = source.width;
+        preprocCanvas.height = source.height;
+        preprocCanvas.getContext('2d').drawImage(source, 0, 0);
+        preprocWrap.style.display = 'block';
+      }
+    }
+
+    tableData = await runOCR(source, lang, colSensitivity);
 
     if (!tableData.length) {
-      showStatus('error', '❌ 텍스트를 인식하지 못했습니다. 더 선명한 이미지를 사용해 보세요.');
+      showStatus('error', '❌ 텍스트를 인식하지 못했습니다.<br>💡 전처리 옵션을 켜거나, 열 간격 감도를 조절해 보세요.');
       return;
     }
 
     renderTable(tableData);
-    showStatus('success', `✅ 인식 완료! ${tableData.length}행 × ${tableData[0].length}열`);
+    const avgConf = calcAvgConf();
+    showStatus('success',
+      `✅ 인식 완료 — ${tableData.length}행 × ${tableData[0].length}열` +
+      (avgConf ? `　평균 신뢰도: ${avgConf}%` : '')
+    );
     resultCard.style.display = 'block';
     resultCard.scrollIntoView({ behavior: 'smooth' });
 
@@ -457,11 +608,16 @@ btnOcr.addEventListener('click', async () => {
   }
 });
 
+let lastWordConfs = [];
+function calcAvgConf() {
+  if (!lastWordConfs.length) return null;
+  return Math.round(lastWordConfs.reduce((a, b) => a + b, 0) / lastWordConfs.length);
+}
+
 // ── 테이블 렌더링 ─────────────────────────────────
 function renderTable(data) {
   resultTable.innerHTML = '';
   sizeBadge.textContent = `${data.length}행 × ${data[0].length}열`;
-
   data.forEach((row, rIdx) => {
     const tr = document.createElement('tr');
     row.forEach((cell, cIdx) => {
@@ -477,35 +633,26 @@ function renderTable(data) {
   });
 }
 
-// ── Excel 저장 (SheetJS) ─────────────────────────
+// ── Excel 저장 ────────────────────────────────────
 btnDownload.addEventListener('click', () => {
   if (!tableData.length) return;
-
   const ws = XLSX.utils.aoa_to_sheet(tableData);
-
-  // 열 너비 자동 계산
   ws['!cols'] = tableData[0].map((_, ci) => ({
     wch: Math.min(40, Math.max(8, ...tableData.map(r => String(r[ci] || '').length)) + 4)
   }));
-
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'OCR 결과');
   XLSX.writeFile(wb, 'OCR_결과.xlsx');
 });
 
-// ── 클립보드 복사 (TSV → 엑셀 붙여넣기용) ────────
+// ── 클립보드 복사 ─────────────────────────────────
 btnCopy.addEventListener('click', async () => {
   if (!tableData.length) return;
   const tsv = tableData.map(r => r.join('\t')).join('\n');
-  try {
-    await navigator.clipboard.writeText(tsv);
-  } catch {
-    const ta = Object.assign(document.createElement('textarea'), {
-      value: tsv, style: 'position:fixed;opacity:0'
-    });
-    document.body.appendChild(ta);
-    ta.select(); document.execCommand('copy');
-    document.body.removeChild(ta);
+  try { await navigator.clipboard.writeText(tsv); }
+  catch {
+    const ta = Object.assign(document.createElement('textarea'), { value: tsv, style: 'position:fixed;opacity:0' });
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
   }
   toast.classList.add('show');
   setTimeout(() => toast.classList.remove('show'), 3000);
@@ -515,19 +662,18 @@ btnCopy.addEventListener('click', async () => {
 btnReset.addEventListener('click', () => {
   currentFile = null;
   if (currentObjectURL) { URL.revokeObjectURL(currentObjectURL); currentObjectURL = null; }
-  tableData = [];
+  tableData = []; lastWordConfs = [];
   previewImg.src = ''; previewImg.style.display = 'none';
   placeholder.style.display = 'block';
   dropZone.classList.remove('ready', 'over');
   fileInput.value = '';
   btnOcr.disabled = true;
   progressWrap.style.display = 'none';
+  preprocWrap.style.display = 'none';
   hideStatus(); hideResult();
 });
 
-function showStatus(type, msg) {
-  statusEl.className = type; statusEl.innerHTML = msg; statusEl.style.display = 'block';
-}
+function showStatus(type, msg) { statusEl.className = type; statusEl.innerHTML = msg; statusEl.style.display = 'block'; }
 function hideStatus() { statusEl.style.display = 'none'; }
 function hideResult() { resultCard.style.display = 'none'; resultTable.innerHTML = ''; }
 </script>
