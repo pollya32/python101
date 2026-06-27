@@ -408,14 +408,6 @@
     .col-lbl:hover::after{content:' ✏️';font-size:9px;}
     .col-lbl-inp{width:100%;padding:2px 6px;border:1.5px solid var(--primary);border-radius:5px;font-size:11px;font-weight:700;color:var(--text);outline:none;background:#e8f0fe;}
     [data-dark] .col-lbl-inp{background:#1a237e;color:#e0e0e0;}
-    /* Extra column mappings */
-    .extra-map-row{display:flex;align-items:center;gap:6px;padding:7px 9px;background:#f8f9fa;border-radius:8px;border:1px solid var(--border);margin-bottom:5px;flex-wrap:wrap;}
-    .extra-map-lbl-inp{width:90px;padding:4px 7px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;font-weight:700;outline:none;background:#fff;color:var(--text);}
-    .extra-map-lbl-inp:focus{border-color:var(--primary);}
-    .extra-map-sel{flex:1;min-width:120px;padding:4px 7px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;outline:none;background:#fff;color:var(--text);}
-    .extra-map-sel:focus{border-color:var(--primary);}
-    [data-dark] .extra-map-row{background:#252525;}
-    [data-dark] .extra-map-lbl-inp,[data-dark] .extra-map-sel{background:#2a2a2a;color:#e0e0e0;border-color:#333;}
 
     /* Prediction period */
     .pred-row { display:flex; align-items:center; gap:6px; margin-top:5px; flex-wrap:wrap; }
@@ -508,14 +500,7 @@
           <div class="ci"><label><span class="col-lbl" id="lbl_sdwt" onclick="editColLabel('sdwt')">👥 SDWT</span></label><select id="mSdwt" onchange="onMappingChange('mSdwt','pvSdwt',false)"></select><div class="col-prev" id="pvSdwt"></div></div>
           <div class="ci"><label><span class="col-lbl" id="lbl_cnt" onclick="editColLabel('cnt')">🔢 사용건수</span></label><select id="mCount" onchange="onMappingChange('mCount','pvCount',true)"></select><div class="col-prev" id="pvCount"></div></div>
           <div class="ci"><label><span class="col-lbl" id="lbl_amt" onclick="editColLabel('amt')">💰 사용금액</span></label><select id="mAmt" onchange="onMappingChange('mAmt','pvAmt',true)"></select><div class="col-prev" id="pvAmt"></div></div>
-        </div>
-        <div style="margin-top:12px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px">
-            <span style="font-size:12px;font-weight:700;color:var(--sub)">➕ 추가 열 매핑</span>
-            <button class="btn bo bsm" onclick="addExtraMap()">+ 추가</button>
-          </div>
-          <div id="extraMapGrid"></div>
-          <div style="font-size:11px;color:var(--sub);margin-top:5px">추가 열은 열 계산(수식)에서 <code style="background:var(--bg2);padding:1px 4px;border-radius:3px">[열이름]</code> 으로 참조할 수 있습니다.</div>
+          <div class="ci"><label><span class="col-lbl" id="lbl_line" onclick="editColLabel('line')">🔧 라인</span></label><select id="mLine" onchange="onMappingChange('mLine','pvLine',false)"></select><div class="col-prev" id="pvLine"></div></div>
         </div>
       </div>
 
@@ -771,7 +756,7 @@
       <!-- Correlation Matrix -->
       <div class="card" id="corrCard" style="display:none">
         <div class="ch">
-          <div class="ct" style="margin:0">🔗 상관관계 행렬 (대분류 간 피어슨 r)</div>
+          <div class="ct" style="margin:0">🔗 상관관계 행렬 (피어슨 r)</div>
           <button class="btn bo bsm" onclick="document.getElementById('corrCard').style.display='none'">✕</button>
         </div>
         <div id="corrPicker" style="margin-bottom:12px"></div>
@@ -996,10 +981,9 @@ let calcCols = [];
 let editMode = false;
 let manualEdits = {};
 let seasonChart = null;
-let colLabels = {date:'날짜', cat:'대분류', sdwt:'SDWT', cnt:'사용건수', amt:'사용금액'};
-let extraMaps = [];
-let _emId = 0;
+let colLabels = {date:'날짜', cat:'대분류', sdwt:'SDWT', cnt:'사용건수', amt:'사용금액', line:'라인'};
 let corrSelected = new Set();
+let corrGroupBy = 'cat';
 
 const THEMES = {
   blue:  ['#1a73e8','#34a853','#fa7b17','#ea4335','#9334e6','#00bcd4','#ff6f00','#2e7d32','#ad1457','#1565c0','#558b2f','#6a1b9a','#00838f','#4e342e','#37474f'],
@@ -1118,17 +1102,16 @@ function showPreview(selId, pvId, isNumeric){
 }
 
 function fillSelects(){
-  const MAP=[['mDate','pvDate',true],['mCat','pvCat',false],['mSdwt','pvSdwt',false],['mCount','pvCount',true],['mAmt','pvAmt',true]];
+  const MAP=[['mDate','pvDate',true],['mCat','pvCat',false],['mSdwt','pvSdwt',false],['mCount','pvCount',true],['mAmt','pvAmt',true],['mLine','pvLine',false]];
   MAP.forEach(([id])=>{
     const s=document.getElementById(id);
     s.innerHTML='<option value="">-- 선택 --</option>';
     headers.forEach(h=>{const o=document.createElement('option');o.value=h;o.textContent=h;s.appendChild(o);});
   });
-  renderExtraMapGrid();
 }
 
 function autoMap(){
-  const r={mDate:[/날짜|date|일자|ymd|년월/i],mCat:[/대분류|category|분류|품목/i],mSdwt:[/sdwt|팀|team|부서|dept/i],mCount:[/건수|count|수량|qty/i],mAmt:[/금액|amount|총액|원가|cost|price/i]};
+  const r={mDate:[/날짜|date|일자|ymd|년월/i],mCat:[/대분류|category|분류|품목/i],mSdwt:[/sdwt|팀|team|부서|dept/i],mCount:[/건수|count|수량|qty/i],mAmt:[/금액|amount|총액|원가|cost|price/i],mLine:[/라인|line|공정|호기/i]};
   Object.entries(r).forEach(([id,p])=>{const m=headers.find(h=>p.some(x=>x.test(h)));if(m)document.getElementById(id).value=m;});
   // 자동 매핑 후 미리보기 갱신
   showPreview('mDate','pvDate',true);
@@ -1136,8 +1119,9 @@ function autoMap(){
   showPreview('mSdwt','pvSdwt',false);
   showPreview('mCount','pvCount',true);
   showPreview('mAmt','pvAmt',true);
+  showPreview('mLine','pvLine',false);
 }
-function cols(){ return {date:document.getElementById('mDate').value,cat:document.getElementById('mCat').value,sdwt:document.getElementById('mSdwt').value,cnt:document.getElementById('mCount').value,amt:document.getElementById('mAmt').value}; }
+function cols(){ return {date:document.getElementById('mDate').value,cat:document.getElementById('mCat').value,sdwt:document.getElementById('mSdwt').value,cnt:document.getElementById('mCount').value,amt:document.getElementById('mAmt').value,line:document.getElementById('mLine').value}; }
 
 function onMappingChange(selId,pvId,isNum){
   showPreview(selId,pvId,isNum);
@@ -1151,7 +1135,8 @@ function applyColLabels(){
       .replace(/{cat}/g,colLabels.cat)
       .replace(/{sdwt}/g,colLabels.sdwt)
       .replace(/{cnt}/g,colLabels.cnt)
-      .replace(/{amt}/g,colLabels.amt);
+      .replace(/{amt}/g,colLabels.amt)
+      .replace(/{line}/g,colLabels.line);
   });
   // Heatmap metric select options
   const hm=document.getElementById('hmMetric');
@@ -1163,7 +1148,7 @@ function applyColLabels(){
 }
 
 /* ── 열 레이블 인라인 편집 ── */
-const COL_ICONS = {date:'📅', cat:'🏷️', sdwt:'👥', cnt:'🔢', amt:'💰'};
+const COL_ICONS = {date:'📅', cat:'🏷️', sdwt:'👥', cnt:'🔢', amt:'💰', line:'🔧'};
 function editColLabel(role){
   const span = document.getElementById('lbl_'+role);
   if(!span || span.querySelector('input')) return;
@@ -1188,65 +1173,14 @@ function editColLabel(role){
   inp.select();
 }
 
-/* ── 추가 열 매핑 ── */
-function addExtraMap(){
-  const id = ++_emId;
-  extraMaps.push({id, name:'열'+id, col:''});
-  renderExtraMapGrid();
-  // 새로 추가된 이름 입력에 포커스
-  setTimeout(()=>{
-    const inp = document.getElementById('em_name_'+id);
-    if(inp){inp.focus();inp.select();}
-  }, 50);
-}
-function removeExtraMap(id){
-  extraMaps = extraMaps.filter(e=>e.id!==id);
-  renderExtraMapGrid();
-}
-function renderExtraMapGrid(){
-  const grid = document.getElementById('extraMapGrid');
-  if(!grid) return;
-  if(extraMaps.length===0){
-    grid.innerHTML='<div style="font-size:12px;color:var(--sub);padding:4px 0">아직 추가된 열이 없습니다.</div>';
-    return;
-  }
-  grid.innerHTML = extraMaps.map(e=>`
-    <div class="extra-map-row" id="em_row_${e.id}">
-      <input class="extra-map-lbl-inp" id="em_name_${e.id}" value="${e.name.replace(/"/g,'&quot;')}"
-        placeholder="열 이름" title="이 열의 참조 이름 (수식에서 [이름]으로 사용)"
-        oninput="extraMaps.find(x=>x.id===${e.id}).name=this.value"
-        onchange="if(data)recompute()">
-      <select class="extra-map-sel" id="em_sel_${e.id}"
-        onchange="extraMaps.find(x=>x.id===${e.id}).col=this.value;showExtraPreview(${e.id});if(data)recompute()">
-        <option value="">-- CSV 열 선택 --</option>
-        ${headers.map(h=>`<option value="${h.replace(/"/g,'&quot;')}"${h===e.col?' selected':''}>${h}</option>`).join('')}
-      </select>
-      <div class="col-prev" id="em_prev_${e.id}" style="flex:0 0 auto;max-width:200px"></div>
-      <button style="background:none;border:none;color:#e53935;font-size:15px;cursor:pointer;padding:0 4px;line-height:1" title="삭제" onclick="removeExtraMap(${e.id})">✕</button>
-    </div>`).join('');
-  // 미리보기 복원
-  extraMaps.forEach(e=>{ if(e.col) showExtraPreview(e.id); });
-}
-function showExtraPreview(id){
-  const em = extraMaps.find(e=>e.id===id);
-  const el = document.getElementById('em_prev_'+id);
-  if(!em||!el) return;
-  if(!em.col||!rows.length){el.textContent='';return;}
-  const vals = rows.slice(0,3).map(r=>r[em.col]??'').filter(v=>v!=='');
-  el.textContent = vals.length ? vals.join(' / ') : '(값 없음)';
-}
 
 /* ══════════════════════════════════════
    COMPUTE
 ══════════════════════════════════════ */
 function compute(rs,c){
-  const mS=new Set(),catS=new Set(),sdwtS=new Set();
-  const mCat={},sCnt={},sAmt={},sTotal={},mAmt={},mSdwt={};
+  const mS=new Set(),catS=new Set(),sdwtS=new Set(),lineS=new Set();
+  const mCat={},sCnt={},sAmt={},sTotal={},mAmt={},mSdwt={},mLine={},lTotal={};
   let skipped=0;
-  // Extra mapped columns aggregation
-  const activeEM=extraMaps.filter(em=>em.col&&em.name.trim());
-  const extraData={};
-  activeEM.forEach(em=>{ extraData[em.name.trim()]={_total:0}; });
   rs.forEach(row=>{
     const d=pdate(row[c.date]);
     if(!d){ skipped++; return; }
@@ -1268,22 +1202,23 @@ function compute(rs,c){
     mAmt[ym]=(mAmt[ym]||0)+amt;
     mSdwt[ym][sdwt].cnt+=cnt;
     mSdwt[ym][sdwt].amt+=amt;
-    // Extra columns
-    activeEM.forEach(em=>{
-      const v=pnum(row[em.col]);
-      if(!isNaN(v)){
-        const name=em.name.trim();
-        extraData[name][ym]=(extraData[name][ym]||0)+v;
-        extraData[name]._total+=v;
+    // Line tracking
+    if(c.line){
+      const line=(row[c.line]||'').trim();
+      if(line){
+        lineS.add(line);
+        if(!mLine[ym]) mLine[ym]={};
+        if(!mLine[ym][line]) mLine[ym][line]={cnt:0,amt:0};
+        mLine[ym][line].cnt+=cnt;
+        mLine[ym][line].amt+=amt;
+        lTotal[line]=(lTotal[line]||0)+cnt;
       }
-    });
+    }
   });
-  const months=[...mS].sort(), cats=[...catS].sort(), sdwts=[...sdwtS].sort();
+  const months=[...mS].sort(), cats=[...catS].sort(), sdwts=[...sdwtS].sort(), lines=[...lineS].sort();
   const tc=rs.reduce((s,r)=>s+(c.cnt?pnum(r[c.cnt]):1),0);
   const ta=rs.reduce((s,r)=>s+(c.amt?pnum(r[c.amt]):0),0);
-  // Only include extra cols that have numeric data
-  const extraNumCols=activeEM.filter(em=>extraData[em.name.trim()]._total!==0).map(em=>em.name.trim());
-  return {months,cats,sdwts,mCat,sCnt,sAmt,sTotal,mAmt,mSdwt,tc,ta,n:rs.length,skipped,extraData,extraNumCols};
+  return {months,cats,sdwts,lines,mCat,sCnt,sAmt,sTotal,mAmt,mSdwt,mLine,lTotal,tc,ta,n:rs.length,skipped};
 }
 
 /* ══════════════════════════════════════
@@ -1314,13 +1249,6 @@ function filtered(){
 
 function recompute(){
   if(!rows.length) return;
-  // Inject extra mapping aliases into every row so [이름] works in formulas
-  extraMaps.forEach(em=>{
-    if(!em.col||!em.name.trim()) return;
-    const name=em.name.trim();
-    rows.forEach(row=>{ row[name]=row[em.col]; });
-    if(!headers.includes(name)) headers.push(name);
-  });
   frows=filtered();
   data=compute(frows,cols());
   applyManualEdits(data);
@@ -1517,12 +1445,9 @@ function renderSdwtTbl(d){
 
 function renderMonthTbl(d){
   const w=document.getElementById('tw2');
-  const eCols=d.extraNumCols||[];
   let h='<table><thead><tr><th>월</th>';
   d.cats.forEach(c=>{h+=`<th>${esc(c)}</th>`;});
-  h+='<th>합계</th>';
-  eCols.forEach(name=>{h+=`<th class="em-col">➕ ${esc(name)}</th>`;});
-  h+='</tr></thead><tbody>';
+  h+='<th>합계</th></tr></thead><tbody>';
   const cT={};d.cats.forEach(c=>cT[c]=0);let grand=0;
   d.months.forEach(m=>{
     let rt=0; h+=`<tr><td class="rh">${m}</td>`;
@@ -1535,15 +1460,11 @@ function renderMonthTbl(d){
         h+=`<td>${fmt(v)}</td>`;
       }
     });
-    grand+=rt; h+=`<td style="font-weight:700">${fmt(rt)}</td>`;
-    eCols.forEach(name=>{h+=`<td class="em-col mn">${fmt(d.extraData?.[name]?.[m]||0)}</td>`;});
-    h+='</tr>';
+    grand+=rt; h+=`<td style="font-weight:700">${fmt(rt)}</td></tr>`;
   });
   h+='<tr class="tr"><td class="rh">합계</td>';
   d.cats.forEach(c=>{h+=`<td>${fmt(cT[c])}</td>`;});
-  h+=`<td>${fmt(grand)}</td>`;
-  eCols.forEach(name=>{h+=`<td class="em-col mn">${fmt(d.extraData?.[name]?._total||0)}</td>`;});
-  h+='</tr></tbody></table>';
+  h+=`<td>${fmt(grand)}</td></tr></tbody></table>`;
   w.innerHTML=h;
 }
 
@@ -1757,7 +1678,7 @@ function parseCmd(txt){
   }
   if(/추세선|추세|trendline/.test(lo)){ toggleTrend(); return bot(`추세선을 ${showTrend?'켰습니다':'껐습니다'}.`,'추세선'); }
   if(/코호트|cohort|연도별패턴/.test(lo)){ showCohort(); return bot('코호트 분석을 표시했습니다. 연도별 월 패턴을 비교할 수 있습니다.','코호트 분석'); }
-  if(/상관관계|correlation|pearson|피어슨/.test(lo)){ showCorrelation(); return bot('대분류 간 상관관계 행렬을 표시했습니다.','상관관계 분석'); }
+  if(/상관관계|correlation|pearson|피어슨/.test(lo)){ showCorrelation(); return bot('상관관계 행렬을 표시했습니다. 상단 버튼으로 대분류/SDWT/라인 기준을 선택하세요.','상관관계 분석'); }
   if(/기여도|contribution|분해|decomp/.test(lo)){ showContrib(); return bot('월별 기여도 분해 차트를 표시했습니다.','기여도 분해'); }
   if(/변동성|volatility|변동계수/.test(lo)){ showVolatility(); return bot('변동성(CV%) 분석을 표시했습니다.','변동성 분석'); }
   if(/롤링통계|롤링|rollingstat/.test(lo)){ toggleRolling(); return bot(`롤링 통계(±1σ)를 ${showRolling?'켰습니다':'껐습니다'}.`,'롤링 통계'); }
@@ -3237,32 +3158,61 @@ function pearson(a,b){
   const den=Math.sqrt(da*db);
   return den?num/den:0;
 }
+function _corrItems(){
+  if(corrGroupBy==='sdwt') return data.sdwts;
+  if(corrGroupBy==='line') return data.lines||[];
+  return data.cats;
+}
 function _corrTotals(){
-  const t={};
-  data.cats.forEach(c=>{t[c]=data.months.reduce((s,m)=>s+(data.mCat[m]?.[c]||0),0);});
+  const items=_corrItems(); const t={};
+  if(corrGroupBy==='sdwt'){
+    items.forEach(v=>{t[v]=data.months.reduce((s,m)=>s+(data.mSdwt[m]?.[v]?.cnt||0),0);});
+  } else if(corrGroupBy==='line'){
+    items.forEach(v=>{t[v]=data.lTotal?.[v]||0;});
+  } else {
+    items.forEach(v=>{t[v]=data.months.reduce((s,m)=>s+(data.mCat[m]?.[v]||0),0);});
+  }
   return t;
+}
+function _corrSeries(val){
+  if(corrGroupBy==='sdwt') return data.months.map(m=>data.mSdwt[m]?.[val]?.cnt||0);
+  if(corrGroupBy==='line') return data.months.map(m=>data.mLine[m]?.[val]?.cnt||0);
+  return data.months.map(m=>data.mCat[m]?.[val]||0);
 }
 function showCorrelation(){
   if(!data){toast('분석을 먼저 완료해 주세요.');return;}
   if(data.months.length<3){toast('상관관계 분석에는 3개월 이상 데이터가 필요합니다.');return;}
   const card=document.getElementById('corrCard');
   card.style.display='block'; card.scrollIntoView({behavior:'smooth'});
-  // Default selection: top 15 by count (only on first open or when cats changed)
-  const tots=_corrTotals();
-  const sortedCats=[...data.cats].sort((a,b)=>tots[b]-tots[a]);
-  if(corrSelected.size===0||[...corrSelected].some(c=>!data.cats.includes(c))){
-    corrSelected=new Set(sortedCats.slice(0,15));
-  }
-  renderCorrPicker(sortedCats);
+  _corrResetSelection();
+  renderCorrPicker();
   renderCorrMatrix();
 }
-function renderCorrPicker(sortedCats){
+function _corrResetSelection(){
+  const items=_corrItems();
+  if(corrSelected.size===0||[...corrSelected].some(v=>!items.includes(v))){
+    const tots=_corrTotals();
+    corrSelected=new Set([...items].sort((a,b)=>(tots[b]||0)-(tots[a]||0)).slice(0,15));
+  }
+}
+function renderCorrPicker(){
   const el=document.getElementById('corrPicker'); if(!el) return;
-  const cats=sortedCats||[...data.cats].sort((a,b)=>{const t=_corrTotals();return t[b]-t[a];});
+  const items=_corrItems();
+  const tots=_corrTotals();
+  const sorted=[...items].sort((a,b)=>(tots[b]||0)-(tots[a]||0));
   const selN=corrSelected.size;
+  const dimLabel={cat:colLabels.cat,sdwt:colLabels.sdwt,line:colLabels.line};
+  const hasLine=(data.lines||[]).length>0;
   el.innerHTML=`
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+      <span style="font-size:12px;font-weight:700;color:var(--sub)">분석 기준:</span>
+      <button class="corr-chip${corrGroupBy==='cat'?' on':''}" onclick="setCorrGroup('cat')">${colLabels.cat}</button>
+      <button class="corr-chip${corrGroupBy==='sdwt'?' on':''}" onclick="setCorrGroup('sdwt')">${colLabels.sdwt}</button>
+      ${hasLine?`<button class="corr-chip${corrGroupBy==='line'?' on':''}" onclick="setCorrGroup('line')">${colLabels.line}</button>`:''}
+      <span style="font-size:11px;color:var(--sub);margin-left:4px">월별 시계열로 열 간 피어슨 상관계수를 계산합니다</span>
+    </div>
     <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:8px">
-      <span style="font-size:12px;font-weight:700;color:var(--sub)">${colLabels.cat} 선택</span>
+      <span style="font-size:12px;font-weight:700;color:var(--sub)">${dimLabel[corrGroupBy]} 선택</span>
       <button class="btn bo bsm" onclick="corrSelectTop(15)">상위 15개</button>
       <button class="btn bo bsm" onclick="corrSelectTop(10)">상위 10개</button>
       <button class="btn bo bsm" onclick="corrSelectAll()">전체 선택</button>
@@ -3271,20 +3221,21 @@ function renderCorrPicker(sortedCats){
       ${selN>=2?'':'<span style="font-size:11px;color:var(--warn)">⚠️ 2개 이상 선택 필요</span>'}
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:5px;max-height:110px;overflow-y:auto;padding:6px;background:#f8f9fa;border-radius:8px;border:1px solid var(--border)">
-      ${cats.map(c=>`<span class="corr-chip${corrSelected.has(c)?' on':''}" onclick="toggleCorrCat(${JSON.stringify(c)})">${esc(c)}</span>`).join('')}
+      ${sorted.map(v=>`<span class="corr-chip${corrSelected.has(v)?' on':''}" onclick="toggleCorrItem(${JSON.stringify(v)})">${esc(v)}</span>`).join('')}
     </div>`;
 }
 function renderCorrMatrix(){
   const el=document.getElementById('corrResult'); if(!el) return;
-  const sel=[...corrSelected].filter(c=>data.cats.includes(c));
+  const items=_corrItems();
+  const sel=[...corrSelected].filter(v=>items.includes(v));
   if(sel.length<2){
-    el.innerHTML='<div style="color:var(--sub);font-size:12px;padding:8px 0">2개 이상의 대분류를 선택해 주세요.</div>';
+    el.innerHTML='<div style="color:var(--sub);font-size:12px;padding:8px 0">2개 이상 선택해 주세요.</div>';
     return;
   }
   const series={};
-  sel.forEach(c=>{series[c]=data.months.map(m=>data.mCat[m]?.[c]||0);});
+  sel.forEach(v=>{series[v]=_corrSeries(v);});
   let h='<div style="overflow-x:auto"><table class="hm-table"><thead><tr><th></th>';
-  sel.forEach(c=>{h+=`<th title="${esc(c)}" style="max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.length>7?c.slice(0,6)+'…':c)}</th>`;});
+  sel.forEach(v=>{h+=`<th title="${esc(v)}" style="max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v.length>7?v.slice(0,6)+'…':v)}</th>`;});
   h+='</tr></thead><tbody>';
   sel.forEach(r=>{
     h+=`<tr><td class="hm-lbl" title="${esc(r)}">${esc(r.length>9?r.slice(0,8)+'…':r)}</td>`;
@@ -3299,16 +3250,21 @@ function renderCorrMatrix(){
     h+='</tr>';
   });
   h+='</tbody></table></div>';
-  h+='<div style="margin-top:8px;font-size:11.5px;color:var(--sub)">🔵 파란색 = 정상관 (함께 증가) | 🔴 빨간색 = 역상관 (반대로 움직임) | 색이 진할수록 강한 상관관계</div>';
+  h+=`<div style="margin-top:8px;font-size:11.5px;color:var(--sub)">기준: ${data.months.length}개월 시계열 | 🔵 정상관 (함께 증가) | 🔴 역상관 (반대로 움직임) | 색이 진할수록 강한 상관관계</div>`;
   el.innerHTML=h;
 }
-function toggleCorrCat(cat){
-  if(corrSelected.has(cat)) corrSelected.delete(cat); else corrSelected.add(cat);
+function setCorrGroup(g){
+  corrGroupBy=g; corrSelected=new Set();
+  _corrResetSelection();
+  renderCorrPicker(); renderCorrMatrix();
+}
+function toggleCorrItem(val){
+  if(corrSelected.has(val)) corrSelected.delete(val); else corrSelected.add(val);
   renderCorrPicker();
   renderCorrMatrix();
 }
 function corrSelectAll(){
-  corrSelected=new Set(data.cats);
+  corrSelected=new Set(_corrItems());
   renderCorrPicker(); renderCorrMatrix();
 }
 function corrSelectNone(){
@@ -3317,7 +3273,7 @@ function corrSelectNone(){
 }
 function corrSelectTop(n){
   const tots=_corrTotals();
-  corrSelected=new Set([...data.cats].sort((a,b)=>tots[b]-tots[a]).slice(0,n));
+  corrSelected=new Set([..._corrItems()].sort((a,b)=>(tots[b]||0)-(tots[a]||0)).slice(0,n));
   renderCorrPicker(); renderCorrMatrix();
 }
 
