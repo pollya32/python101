@@ -2124,6 +2124,153 @@ async function dlPPT(){
 }
 
 /* ══════════════════════════════════════
+   SINGLE-CARD PPT EXPORT
+══════════════════════════════════════ */
+async function dlChartPPT(title, canvasId){
+  const canvas=document.getElementById(canvasId);
+  if(!canvas){toast('차트가 없습니다.');return;}
+  const pptx=new PptxGenJS();
+  pptx.defineLayout({name:'W',width:13.33,height:7.5}); pptx.layout='W';
+  const hc='1a73e8';
+  const s=pptx.addSlide();
+  s.addShape(pptx.ShapeType.rect,{x:0,y:0,w:'100%',h:.8,fill:{color:hc}});
+  s.addText(title,{x:.4,y:.12,w:12.53,h:.56,fontSize:18,bold:true,color:'FFFFFF'});
+  s.addImage({data:canvas.toDataURL('image/png'),x:.3,y:.95,w:12.73,h:6.3});
+  if(watermarkText) s.addText(watermarkText,{x:.1,y:7.2,w:13.13,h:.2,fontSize:8,color:'aaaaaa',italic:true,align:'center'});
+  await pptx.writeFile({fileName:`${title}.pptx`});
+  toast(`📥 "${title}.pptx" 저장됨`);
+}
+async function dlTablePPT(title, wrapId){
+  const wrap=document.getElementById(wrapId);
+  const tbl=wrap?.querySelector('table');
+  if(!tbl){toast('표 데이터가 없습니다. 먼저 분석을 실행해 주세요.');return;}
+  const pptx=new PptxGenJS();
+  pptx.defineLayout({name:'W',width:13.33,height:7.5}); pptx.layout='W';
+  const hc='1a73e8';
+  const s=pptx.addSlide();
+  s.addShape(pptx.ShapeType.rect,{x:0,y:0,w:'100%',h:.8,fill:{color:hc}});
+  s.addText(title,{x:.4,y:.12,w:12.53,h:.56,fontSize:18,bold:true,color:'FFFFFF'});
+  const rows=[];
+  tbl.querySelectorAll('tr').forEach((tr,ri)=>{
+    const row=[];
+    tr.querySelectorAll('th,td').forEach(cell=>{
+      const isTh=cell.tagName==='TH';
+      const txt=cell.innerText.trim();
+      const isNum=/^[+\-]?[\d,\.%억만건원]+$/.test(txt);
+      row.push({text:txt,options:isTh
+        ?{bold:true,fill:hc,color:'FFFFFF',align:'center',fontSize:8}
+        :{fill:ri%2===0?'ffffff':'f8f9fa',fontSize:8,align:isNum?'right':'left'}
+      });
+    });
+    if(row.length) rows.push(row);
+  });
+  if(rows.length) s.addTable(rows,{x:.3,y:.95,w:12.73,fontSize:8,border:{type:'solid',pt:.5,color:'dadce0'},autoPage:true,autoPageRepeatHeader:true});
+  if(watermarkText) s.addText(watermarkText,{x:.1,y:7.2,w:13.13,h:.2,fontSize:8,color:'aaaaaa',italic:true,align:'center'});
+  await pptx.writeFile({fileName:`${title}.pptx`});
+  toast(`📥 "${title}.pptx" 저장됨`);
+}
+async function dlKPIPPT(){
+  if(!data){toast('분석을 먼저 완료해 주세요.');return;}
+  const pptx=new PptxGenJS();
+  pptx.defineLayout({name:'W',width:13.33,height:7.5}); pptx.layout='W';
+  const hc='1a73e8';
+  const s=pptx.addSlide();
+  s.addShape(pptx.ShapeType.rect,{x:0,y:0,w:'100%',h:.8,fill:{color:hc}});
+  s.addText('KPI 목표 대비 게이지',{x:.4,y:.12,w:12.53,h:.56,fontSize:18,bold:true,color:'FFFFFF'});
+  const wraps=[...document.querySelectorAll('#kpiGauges .kpi-gauge-wrap')];
+  if(!wraps.length){toast('KPI 데이터가 없습니다.');return;}
+  const rows=[[
+    {text:'지표',options:{bold:true,fill:hc,color:'FFFFFF',align:'center',fontSize:11}},
+    {text:'실적',options:{bold:true,fill:hc,color:'FFFFFF',align:'center',fontSize:11}},
+    {text:'목표',options:{bold:true,fill:hc,color:'FFFFFF',align:'center',fontSize:11}},
+    {text:'달성률',options:{bold:true,fill:hc,color:'FFFFFF',align:'center',fontSize:11}},
+  ]];
+  wraps.forEach((w,i)=>{
+    const lbl=w.querySelector('.kpi-gauge-label')?.innerText||'';
+    const val=w.querySelector('.kpi-gauge-val')?.innerText||'';
+    const pctEl=w.querySelector('.kpi-gauge-pct');
+    const pctTxt=pctEl?.innerText?.replace(/\n/g,' ')||'목표 미설정';
+    const tgt=pctTxt.includes('목표 미설정')?'미설정':pctTxt.split(' ')[1]||'';
+    const pct=pctTxt.match(/\d+%/)?.[0]||'-';
+    const isOk=parseFloat(pct)>=100;
+    const fill=i%2===0?'ffffff':'f8f9fa';
+    rows.push([
+      {text:lbl,options:{fill,fontSize:11}},
+      {text:val,options:{fill,fontSize:12,bold:true,align:'center'}},
+      {text:tgt,options:{fill,fontSize:11,align:'center'}},
+      {text:pct,options:{fill:isOk?'e6f4ea':fill,fontSize:12,bold:true,align:'center',color:isOk?'2d8f47':'202124'}},
+    ]);
+  });
+  s.addTable(rows,{x:1.0,y:1.1,w:11.33,fontSize:11,border:{type:'solid',pt:.5,color:'dadce0'}});
+  // Embed gauge images in a row below
+  const gIds=['kpiG1','kpiG2','kpiG3','kpiG4','kpiG5','kpiG6'];
+  gIds.forEach((id,i)=>{
+    const c=document.getElementById(id); if(!c) return;
+    const col=i%3, row2=Math.floor(i/3);
+    s.addImage({data:c.toDataURL(),x:.4+col*4.2,y:4.1+row2*1.7,w:2.8,h:1.4});
+  });
+  if(watermarkText) s.addText(watermarkText,{x:.1,y:7.2,w:13.13,h:.2,fontSize:8,color:'aaaaaa',italic:true,align:'center'});
+  await pptx.writeFile({fileName:'KPI 목표 대비 게이지.pptx'});
+  toast('📥 "KPI 목표 대비 게이지.pptx" 저장됨');
+}
+
+/* ── 모든 분석 카드에 📎복사 + 📥PPT 버튼 자동 주입 ── */
+function injectExportBtns(){
+  const mk=(txt,fn)=>{const b=document.createElement('button');b.className='btn bo bsm';b.textContent=txt;b.onclick=fn;return b;};
+  const inject=(cardId,copyFn,pptFn)=>{
+    const card=document.getElementById(cardId); if(!card) return;
+    const close=[...card.querySelectorAll('.ch button')].find(b=>b.textContent.trim()==='✕');
+    if(!close) return;
+    const par=close.parentNode;
+    par.insertBefore(mk('📥 PPT',pptFn),close);
+    par.insertBefore(mk('📎 복사',copyFn),close);
+  };
+  // Canvas 차트 카드
+  [
+    ['wfCard',      'wfCanvas',      '월별 금액 폭포수 차트'],
+    ['scatCard',    'scatCanvas',    'SDWT별 건수×금액 산점도'],
+    ['tmCard',      'tmCanvas',      '대분류 트리맵'],
+    ['paretoCard',  'paretoCanvas',  '대분류 파레토 분석'],
+    ['seasonCard',  'seasonCanvas',  '월별 계절성 분석'],
+    ['cohortCard',  'cohortCanvas',  '코호트 분석'],
+    ['contribCard', 'contribCanvas', '기여도 분해'],
+    ['volatCard',   'volatCanvas',   '변동성 분석'],
+    ['lineCard',    'lineBarCanvas', '라인별 분석'],
+  ].forEach(([cid,cvs,ttl])=>inject(cid,()=>copyChart(cvs,ttl),()=>dlChartPPT(ttl,cvs)));
+  // 표 카드
+  [
+    ['momCard',      'momTable',       '전월 대비 증감 현황'],
+    ['crossCard',    'crossResult',    '라인×SDWT 크로스 분석'],
+    ['eqpCrossCard', 'eqpCrossResult', 'SDWT×설비모델 크로스 분석'],
+    ['corrCard',     'corrResult',     '상관관계 행렬'],
+    ['anomListCard', 'anomListResult', '상위 이상치 목록'],
+  ].forEach(([cid,wid,ttl])=>inject(cid,()=>copyTbl(wid,ttl),()=>dlTablePPT(ttl,wid)));
+  // KPI 카드 (특수 처리)
+  inject('kpiCard',
+    ()=>copyTbl('kpiGauges','KPI 게이지'),
+    ()=>dlKPIPPT());
+  // heatmapCard: 닫기 버튼 없음 → header flex div에 추가
+  const hmCard=document.getElementById('heatmapCard');
+  if(hmCard){
+    const hd=hmCard.querySelector('.ch>div[style]')||hmCard.querySelector('.ch');
+    hd.appendChild(mk('📎 복사',()=>copyTbl('hmWrap','월×SDWT 히트맵')));
+    hd.appendChild(mk('📥 PPT',()=>dlTablePPT('월×SDWT 히트맵','hmWrap')));
+  }
+  // 기존 "📎 PPT 복사" 버튼 → "📎 복사" 로 이름 변경 + "📥 PPT" 버튼 추가
+  const PPT_MAP={'mc':{t:'월별 대분류 사용건수',type:'c'},'sc2':{t:'SDWT별 사용금액',type:'c'},'tw1':{t:'SDWT별 대분류 사용현황',type:'tbl'},'tw2':{t:'월별 대분류 상세 집계',type:'tbl'}};
+  document.querySelectorAll('button').forEach(b=>{
+    if(b.textContent.trim()!=='📎 PPT 복사') return;
+    const onclick=b.getAttribute('onclick')||'';
+    const key=Object.keys(PPT_MAP).find(k=>onclick.includes(`'${k}'`));
+    if(!key) return;
+    const cfg=PPT_MAP[key];
+    b.textContent='📎 복사';
+    const pb=mk('📥 PPT',cfg.type==='c'?()=>dlChartPPT(cfg.t,key):()=>dlTablePPT(cfg.t,key));
+    b.parentNode.insertBefore(pb,b.nextSibling);
+  });
+}
+
+/* ══════════════════════════════════════
    MULTIPLE CSV MERGE
 ══════════════════════════════════════ */
 function toggleMerge(){
@@ -4088,6 +4235,7 @@ loadDashConfig();
 applyDashLayout();
 initResizable();
 initCardResize();
+injectExportBtns();
 </script>
 </body>
 </html>
