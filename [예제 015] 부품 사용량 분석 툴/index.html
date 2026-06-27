@@ -204,6 +204,14 @@
     .hm-table td:hover { opacity:.75; outline:2px solid #333; }
     .hm-table .hm-lbl { padding:5px 10px; background:#f8f9fa; font-weight:700; color:var(--text); white-space:nowrap; text-align:left; border:1px solid var(--border); }
     .hm-metric-sel { font-size:11px; padding:3px 7px; border:1px solid var(--border); border-radius:6px; outline:none; }
+    /* Correlation picker chips */
+    .corr-chip{display:inline-flex;align-items:center;padding:3px 9px;border-radius:14px;border:1.5px solid var(--border);font-size:11px;font-weight:600;cursor:pointer;color:var(--sub);background:#f8f9fa;transition:all .15s;user-select:none;}
+    .corr-chip.on{background:var(--primary);border-color:var(--primary);color:#fff;}
+    .corr-chip:hover{border-color:var(--primary);color:var(--primary);}
+    .corr-chip.on:hover{background:var(--pd);}
+    /* Extra mapped column header in tables */
+    th.em-col{background:#e8f0fe;color:var(--primary);}
+    td.em-col{background:#f0f4ff;}
 
     /* Budget */
     .budget-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
@@ -766,6 +774,7 @@
           <div class="ct" style="margin:0">🔗 상관관계 행렬 (대분류 간 피어슨 r)</div>
           <button class="btn bo bsm" onclick="document.getElementById('corrCard').style.display='none'">✕</button>
         </div>
+        <div id="corrPicker" style="margin-bottom:12px"></div>
         <div id="corrResult" style="overflow-x:auto"></div>
       </div>
 
@@ -990,6 +999,7 @@ let seasonChart = null;
 let colLabels = {date:'날짜', cat:'대분류', sdwt:'SDWT', cnt:'사용건수', amt:'사용금액'};
 let extraMaps = [];
 let _emId = 0;
+let corrSelected = new Set();
 
 const THEMES = {
   blue:  ['#1a73e8','#34a853','#fa7b17','#ea4335','#9334e6','#00bcd4','#ff6f00','#2e7d32','#ad1457','#1565c0','#558b2f','#6a1b9a','#00838f','#4e342e','#37474f'],
@@ -1233,6 +1243,10 @@ function compute(rs,c){
   const mS=new Set(),catS=new Set(),sdwtS=new Set();
   const mCat={},sCnt={},sAmt={},sTotal={},mAmt={},mSdwt={};
   let skipped=0;
+  // Extra mapped columns aggregation
+  const activeEM=extraMaps.filter(em=>em.col&&em.name.trim());
+  const extraData={};
+  activeEM.forEach(em=>{ extraData[em.name.trim()]={_total:0}; });
   rs.forEach(row=>{
     const d=pdate(row[c.date]);
     if(!d){ skipped++; return; }
@@ -1254,11 +1268,22 @@ function compute(rs,c){
     mAmt[ym]=(mAmt[ym]||0)+amt;
     mSdwt[ym][sdwt].cnt+=cnt;
     mSdwt[ym][sdwt].amt+=amt;
+    // Extra columns
+    activeEM.forEach(em=>{
+      const v=pnum(row[em.col]);
+      if(!isNaN(v)){
+        const name=em.name.trim();
+        extraData[name][ym]=(extraData[name][ym]||0)+v;
+        extraData[name]._total+=v;
+      }
+    });
   });
   const months=[...mS].sort(), cats=[...catS].sort(), sdwts=[...sdwtS].sort();
   const tc=rs.reduce((s,r)=>s+(c.cnt?pnum(r[c.cnt]):1),0);
   const ta=rs.reduce((s,r)=>s+(c.amt?pnum(r[c.amt]):0),0);
-  return {months,cats,sdwts,mCat,sCnt,sAmt,sTotal,mAmt,mSdwt,tc,ta,n:rs.length,skipped};
+  // Only include extra cols that have numeric data
+  const extraNumCols=activeEM.filter(em=>extraData[em.name.trim()]._total!==0).map(em=>em.name.trim());
+  return {months,cats,sdwts,mCat,sCnt,sAmt,sTotal,mAmt,mSdwt,tc,ta,n:rs.length,skipped,extraData,extraNumCols};
 }
 
 /* ══════════════════════════════════════
@@ -1492,9 +1517,12 @@ function renderSdwtTbl(d){
 
 function renderMonthTbl(d){
   const w=document.getElementById('tw2');
+  const eCols=d.extraNumCols||[];
   let h='<table><thead><tr><th>월</th>';
   d.cats.forEach(c=>{h+=`<th>${esc(c)}</th>`;});
-  h+='<th>합계</th></tr></thead><tbody>';
+  h+='<th>합계</th>';
+  eCols.forEach(name=>{h+=`<th class="em-col">➕ ${esc(name)}</th>`;});
+  h+='</tr></thead><tbody>';
   const cT={};d.cats.forEach(c=>cT[c]=0);let grand=0;
   d.months.forEach(m=>{
     let rt=0; h+=`<tr><td class="rh">${m}</td>`;
@@ -1507,11 +1535,15 @@ function renderMonthTbl(d){
         h+=`<td>${fmt(v)}</td>`;
       }
     });
-    grand+=rt; h+=`<td style="font-weight:700">${fmt(rt)}</td></tr>`;
+    grand+=rt; h+=`<td style="font-weight:700">${fmt(rt)}</td>`;
+    eCols.forEach(name=>{h+=`<td class="em-col mn">${fmt(d.extraData?.[name]?.[m]||0)}</td>`;});
+    h+='</tr>';
   });
   h+='<tr class="tr"><td class="rh">합계</td>';
   d.cats.forEach(c=>{h+=`<td>${fmt(cT[c])}</td>`;});
-  h+=`<td>${fmt(grand)}</td></tr></tbody></table>`;
+  h+=`<td>${fmt(grand)}</td>`;
+  eCols.forEach(name=>{h+=`<td class="em-col mn">${fmt(d.extraData?.[name]?._total||0)}</td>`;});
+  h+='</tr></tbody></table>';
   w.innerHTML=h;
 }
 
@@ -3205,34 +3237,88 @@ function pearson(a,b){
   const den=Math.sqrt(da*db);
   return den?num/den:0;
 }
+function _corrTotals(){
+  const t={};
+  data.cats.forEach(c=>{t[c]=data.months.reduce((s,m)=>s+(data.mCat[m]?.[c]||0),0);});
+  return t;
+}
 function showCorrelation(){
   if(!data){toast('분석을 먼저 완료해 주세요.');return;}
   if(data.months.length<3){toast('상관관계 분석에는 3개월 이상 데이터가 필요합니다.');return;}
   const card=document.getElementById('corrCard');
   card.style.display='block'; card.scrollIntoView({behavior:'smooth'});
-  const cTot={};
-  data.cats.forEach(c=>{cTot[c]=data.months.reduce((s,m)=>s+(data.mCat[m]?.[c]||0),0);});
-  const topCats=[...data.cats].sort((a,b)=>cTot[b]-cTot[a]).slice(0,15);
+  // Default selection: top 15 by count (only on first open or when cats changed)
+  const tots=_corrTotals();
+  const sortedCats=[...data.cats].sort((a,b)=>tots[b]-tots[a]);
+  if(corrSelected.size===0||[...corrSelected].some(c=>!data.cats.includes(c))){
+    corrSelected=new Set(sortedCats.slice(0,15));
+  }
+  renderCorrPicker(sortedCats);
+  renderCorrMatrix();
+}
+function renderCorrPicker(sortedCats){
+  const el=document.getElementById('corrPicker'); if(!el) return;
+  const cats=sortedCats||[...data.cats].sort((a,b)=>{const t=_corrTotals();return t[b]-t[a];});
+  const selN=corrSelected.size;
+  el.innerHTML=`
+    <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:8px">
+      <span style="font-size:12px;font-weight:700;color:var(--sub)">${colLabels.cat} 선택</span>
+      <button class="btn bo bsm" onclick="corrSelectTop(15)">상위 15개</button>
+      <button class="btn bo bsm" onclick="corrSelectTop(10)">상위 10개</button>
+      <button class="btn bo bsm" onclick="corrSelectAll()">전체 선택</button>
+      <button class="btn bo bsm" onclick="corrSelectNone()">전체 해제</button>
+      <span style="font-size:11px;color:var(--primary);font-weight:700;margin-left:4px">${selN}개 선택됨</span>
+      ${selN>=2?'':'<span style="font-size:11px;color:var(--warn)">⚠️ 2개 이상 선택 필요</span>'}
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:5px;max-height:110px;overflow-y:auto;padding:6px;background:#f8f9fa;border-radius:8px;border:1px solid var(--border)">
+      ${cats.map(c=>`<span class="corr-chip${corrSelected.has(c)?' on':''}" onclick="toggleCorrCat(${JSON.stringify(c)})">${esc(c)}</span>`).join('')}
+    </div>`;
+}
+function renderCorrMatrix(){
+  const el=document.getElementById('corrResult'); if(!el) return;
+  const sel=[...corrSelected].filter(c=>data.cats.includes(c));
+  if(sel.length<2){
+    el.innerHTML='<div style="color:var(--sub);font-size:12px;padding:8px 0">2개 이상의 대분류를 선택해 주세요.</div>';
+    return;
+  }
   const series={};
-  topCats.forEach(c=>{series[c]=data.months.map(m=>data.mCat[m]?.[c]||0);});
-  let h='<table class="hm-table"><thead><tr><th></th>';
-  topCats.forEach(c=>{h+=`<th title="${esc(c)}" style="max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.length>6?c.slice(0,5)+'…':c)}</th>`;});
+  sel.forEach(c=>{series[c]=data.months.map(m=>data.mCat[m]?.[c]||0);});
+  let h='<div style="overflow-x:auto"><table class="hm-table"><thead><tr><th></th>';
+  sel.forEach(c=>{h+=`<th title="${esc(c)}" style="max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.length>7?c.slice(0,6)+'…':c)}</th>`;});
   h+='</tr></thead><tbody>';
-  topCats.forEach(r=>{
-    h+=`<tr><td class="hm-lbl" title="${esc(r)}">${esc(r.length>8?r.slice(0,7)+'…':r)}</td>`;
-    topCats.forEach(c=>{
+  sel.forEach(r=>{
+    h+=`<tr><td class="hm-lbl" title="${esc(r)}">${esc(r.length>9?r.slice(0,8)+'…':r)}</td>`;
+    sel.forEach(c=>{
       if(r===c){h+=`<td style="background:#e8eaf6;color:#333;font-weight:700">1.00</td>`;return;}
       const rv=pearson(series[r],series[c]);
       const abs=Math.abs(rv);
-      const bg=rv>0?`rgba(26,115,232,${(abs*0.75).toFixed(2)})`:`rgba(234,67,53,${(abs*0.75).toFixed(2)})`;
-      const tc=abs>0.5?'#fff':'#333';
+      const bg=rv>0?`rgba(26,115,232,${(abs*.75).toFixed(2)})`:`rgba(234,67,53,${(abs*.75).toFixed(2)})`;
+      const tc=abs>.5?'#fff':'#333';
       h+=`<td style="background:${bg};color:${tc}" title="${esc(r)} vs ${esc(c)}: r=${rv.toFixed(3)}">${rv.toFixed(2)}</td>`;
     });
     h+='</tr>';
   });
-  h+='</tbody></table>';
+  h+='</tbody></table></div>';
   h+='<div style="margin-top:8px;font-size:11.5px;color:var(--sub)">🔵 파란색 = 정상관 (함께 증가) | 🔴 빨간색 = 역상관 (반대로 움직임) | 색이 진할수록 강한 상관관계</div>';
-  document.getElementById('corrResult').innerHTML=h;
+  el.innerHTML=h;
+}
+function toggleCorrCat(cat){
+  if(corrSelected.has(cat)) corrSelected.delete(cat); else corrSelected.add(cat);
+  renderCorrPicker();
+  renderCorrMatrix();
+}
+function corrSelectAll(){
+  corrSelected=new Set(data.cats);
+  renderCorrPicker(); renderCorrMatrix();
+}
+function corrSelectNone(){
+  corrSelected=new Set();
+  renderCorrPicker(); renderCorrMatrix();
+}
+function corrSelectTop(n){
+  const tots=_corrTotals();
+  corrSelected=new Set([...data.cats].sort((a,b)=>tots[b]-tots[a]).slice(0,n));
+  renderCorrPicker(); renderCorrMatrix();
 }
 
 /* ══════════════════════════════════════
