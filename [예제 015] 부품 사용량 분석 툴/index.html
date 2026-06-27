@@ -294,6 +294,21 @@
     /* Waterfall / Scatter / Pareto */
     .wf-wrap,.scat-wrap,.pareto-wrap{position:relative;height:250px;}
 
+    /* Chart resize handle */
+    .resizable{position:relative;min-height:80px;}
+    .chart-drag-handle{
+      position:absolute;bottom:0;left:0;right:0;height:10px;
+      cursor:ns-resize;display:flex;align-items:center;justify-content:center;
+      opacity:0;transition:opacity .2s;z-index:5;
+    }
+    .resizable:hover .chart-drag-handle{opacity:1;}
+    .chart-drag-handle::before{
+      content:'';width:44px;height:4px;
+      background:var(--primary);border-radius:2px;
+      box-shadow:0 1px 4px rgba(0,0,0,.18);
+    }
+    body.is-resizing{cursor:ns-resize!important;user-select:none!important;}
+
     /* Option buttons (MA, Trend, Quarterly) */
     .opt-row{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px;}
     .opt-btn{padding:3px 10px;border:1.5px solid var(--border);border-radius:12px;background:#fff;font-size:10.5px;font-weight:600;cursor:pointer;color:var(--sub);transition:all .15s;white-space:nowrap;}
@@ -522,7 +537,7 @@
               <button class="lbl-btn" id="lblBtnM" onclick="toggleLabels()">🏷️ 수치 표기</button>
             </div>
           </div>
-          <div class="cw"><canvas id="mc"></canvas></div>
+          <div class="cw resizable"><canvas id="mc"></canvas></div>
           <div class="opt-row">
             <button class="opt-btn" id="maBtn" onclick="toggleMA()">📈 이동평균</button>
             <button class="opt-btn grn" id="trendBtn" onclick="toggleTrend()">📉 추세선</button>
@@ -560,7 +575,7 @@
               <button class="lbl-btn" id="lblBtnS" onclick="toggleLabels()">🏷️ 수치 표기</button>
             </div>
           </div>
-          <div class="cw"><canvas id="sc2"></canvas></div>
+          <div class="cw resizable"><canvas id="sc2"></canvas></div>
           <div class="topn-row">
             <span style="font-size:11px;color:var(--sub)">상위</span>
             <input class="topn-inp" type="number" id="topNS" min="1" max="50" value="10" oninput="applyTopN('s')">
@@ -594,7 +609,7 @@
           <div class="ct" style="margin:0">📊 월별 금액 폭포수 차트</div>
           <button class="btn bo bsm" onclick="document.getElementById('wfCard').style.display='none'">✕</button>
         </div>
-        <div class="wf-wrap"><canvas id="wfCanvas"></canvas></div>
+        <div class="wf-wrap resizable"><canvas id="wfCanvas"></canvas></div>
       </div>
 
       <!-- Scatter Chart -->
@@ -603,7 +618,7 @@
           <div class="ct" style="margin:0">📍 SDWT별 건수 vs 금액 산점도</div>
           <button class="btn bo bsm" onclick="document.getElementById('scatCard').style.display='none'">✕</button>
         </div>
-        <div class="scat-wrap"><canvas id="scatCanvas"></canvas></div>
+        <div class="scat-wrap resizable"><canvas id="scatCanvas"></canvas></div>
       </div>
 
       <!-- Treemap -->
@@ -612,7 +627,7 @@
           <div class="ct" style="margin:0">🗂️ 대분류 트리맵</div>
           <button class="btn bo bsm" onclick="document.getElementById('tmCard').style.display='none'">✕</button>
         </div>
-        <div class="tm-wrap"><canvas id="tmCanvas"></canvas></div>
+        <div class="tm-wrap resizable"><canvas id="tmCanvas"></canvas></div>
         <div class="tm-legend" id="tmLegend"></div>
       </div>
 
@@ -658,7 +673,7 @@
           <div class="ct" style="margin:0">📊 대분류 파레토 분석 (80/20 법칙)</div>
           <button class="btn bo bsm" onclick="document.getElementById('paretoCard').style.display='none'">✕</button>
         </div>
-        <div class="pareto-wrap"><canvas id="paretoCanvas"></canvas></div>
+        <div class="pareto-wrap resizable"><canvas id="paretoCanvas"></canvas></div>
       </div>
 
       <!-- Seasonality -->
@@ -668,7 +683,7 @@
           <button class="btn bo bsm" onclick="document.getElementById('seasonCard').style.display='none'">✕</button>
         </div>
         <div id="seasonResult"></div>
-        <div class="season-chart-wrap"><canvas id="seasonCanvas"></canvas></div>
+        <div class="season-chart-wrap resizable"><canvas id="seasonCanvas"></canvas></div>
       </div>
 
       <!-- Quality Report -->
@@ -710,7 +725,7 @@
             <button class="btn bo bsm" onclick="document.getElementById('cohortCard').style.display='none'">✕</button>
           </div>
         </div>
-        <div style="position:relative;height:260px"><canvas id="cohortCanvas"></canvas></div>
+        <div class="resizable" style="position:relative;height:260px"><canvas id="cohortCanvas"></canvas></div>
         <div id="cohortResult" style="margin-top:10px"></div>
       </div>
 
@@ -729,7 +744,7 @@
           <div class="ct" style="margin:0">📐 기여도 분해 (월별 증감 기여)</div>
           <button class="btn bo bsm" onclick="document.getElementById('contribCard').style.display='none'">✕</button>
         </div>
-        <div style="position:relative;height:270px"><canvas id="contribCanvas"></canvas></div>
+        <div class="resizable" style="position:relative;height:270px"><canvas id="contribCanvas"></canvas></div>
       </div>
 
       <!-- Volatility Analysis -->
@@ -739,7 +754,7 @@
           <button class="btn bo bsm" onclick="document.getElementById('volatCard').style.display='none'">✕</button>
         </div>
         <div id="volatResult" style="margin-bottom:12px"></div>
-        <div style="position:relative;height:260px"><canvas id="volatCanvas"></canvas></div>
+        <div class="resizable" style="position:relative;height:260px"><canvas id="volatCanvas"></canvas></div>
       </div>
 
       <!-- PPT -->
@@ -1261,6 +1276,7 @@ function renderAll(d){
   renderSummary(d); renderMChart(d,ci.m); renderSChart(d,ci.s);
   renderHeatmap(d); renderSdwtTbl(d); renderMonthTbl(d);
   renderWaterfall(d); renderScatter(d); renderTreemap(d);
+  initResizable();
 }
 
 function renderSummary(d){
@@ -3270,9 +3286,65 @@ function renderVolatScatter(stats){
   });
 }
 
+/* ══════════════════════════════════════
+   CHART RESIZE
+══════════════════════════════════════ */
+function initResizable(){
+  document.querySelectorAll('.resizable').forEach(wrap=>{
+    if(wrap.querySelector(':scope>.chart-drag-handle')) return;
+    const handle=document.createElement('div');
+    handle.className='chart-drag-handle';
+    wrap.appendChild(handle);
+    let startY,startH;
+    handle.addEventListener('mousedown',e=>{
+      e.preventDefault();
+      startY=e.clientY; startH=wrap.offsetHeight;
+      document.body.classList.add('is-resizing');
+      const onMove=e=>{
+        const h=Math.max(80,startH+e.clientY-startY);
+        wrap.style.height=h+'px';
+        wrap.querySelectorAll('canvas').forEach(c=>{
+          const chart=Chart.getChart(c);
+          if(chart) chart.resize();
+        });
+      };
+      const onUp=()=>{
+        document.body.classList.remove('is-resizing');
+        document.removeEventListener('mousemove',onMove);
+        document.removeEventListener('mouseup',onUp);
+        // treemap uses manual canvas sizing — re-render after resize
+        if(wrap.querySelector('#tmCanvas')&&data) renderTreemap(data);
+      };
+      document.addEventListener('mousemove',onMove);
+      document.addEventListener('mouseup',onUp);
+    });
+    // touch support
+    handle.addEventListener('touchstart',e=>{
+      e.preventDefault();
+      startY=e.touches[0].clientY; startH=wrap.offsetHeight;
+      const onMove=e=>{
+        const h=Math.max(80,startH+e.touches[0].clientY-startY);
+        wrap.style.height=h+'px';
+        wrap.querySelectorAll('canvas').forEach(c=>{
+          const chart=Chart.getChart(c);
+          if(chart) chart.resize();
+        });
+      };
+      const onEnd=()=>{
+        handle.removeEventListener('touchmove',onMove);
+        handle.removeEventListener('touchend',onEnd);
+        if(wrap.querySelector('#tmCanvas')&&data) renderTreemap(data);
+      };
+      handle.addEventListener('touchmove',onMove,{passive:false});
+      handle.addEventListener('touchend',onEnd);
+    },{passive:false});
+  });
+}
+
 // Initialize dashboard on load
 loadDashConfig();
 applyDashLayout();
+initResizable();
 </script>
 </body>
 </html>
