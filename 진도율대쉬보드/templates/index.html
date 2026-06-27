@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>진도율 관리 대쉬보드</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+* { box-sizing: border-box; }
+body {
+  background: #f0f2f5;
+  font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+  font-size: 14px;
+}
+/* Navbar */
+.top-bar {
+  background: linear-gradient(135deg, #0f2744 0%, #1a5276 100%);
+  color: white;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+}
+.top-bar .brand { font-size: 1.3rem; font-weight: 700; letter-spacing: -0.3px; }
+.top-bar .brand i { margin-right: 8px; color: #5dade2; }
+.top-bar .meta { font-size: 0.78rem; color: rgba(255,255,255,0.6); }
+/* Tabs */
+.main-tabs { background: white; border-bottom: 2px solid #dee2e6; padding: 0 24px; }
+.main-tabs .nav-link {
+  color: #6c757d; font-weight: 600; padding: 12px 20px; border: none;
+  border-bottom: 3px solid transparent; border-radius: 0; font-size: 0.9rem;
+}
+.main-tabs .nav-link:hover { color: #1a5276; background: transparent; }
+.main-tabs .nav-link.active { color: #1a5276; border-bottom-color: #1a5276; background: transparent; }
+.main-tabs .nav-link i { margin-right: 6px; }
+/* Cards */
+.content-wrap { padding: 20px 24px; }
+.card { border: none; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.07); }
+.card-header { background: white; border-bottom: 1px solid #f0f2f5; border-radius: 12px 12px 0 0 !important; padding: 14px 18px; }
+.section-label {
+  font-size: 0.95rem; font-weight: 700; color: #0f2744;
+  border-left: 4px solid #1a5276; padding-left: 10px; margin: 0;
+}
+/* Summary cards */
+.kpi-card {
+  background: white; border-radius: 12px; padding: 20px 24px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.07); display: flex;
+  align-items: center; gap: 20px;
+}
+.kpi-donut { position: relative; flex-shrink: 0; }
+.kpi-donut canvas { display: block; }
+.kpi-donut .donut-pct {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 0.95rem; font-weight: 800; color: #0f2744;
+  white-space: nowrap;
+}
+.kpi-info { flex: 1; min-width: 0; }
+.kpi-title { font-size: 0.8rem; color: #6c757d; font-weight: 600; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+.kpi-value { font-size: 2.4rem; font-weight: 800; line-height: 1; margin-bottom: 6px; }
+.kpi-sub { font-size: 0.78rem; color: #6c757d; }
+.kpi-bar-wrap { margin-top: 10px; }
+.kpi-bar-row { display: flex; justify-content: space-between; font-size: 0.75rem; color: #6c757d; margin-bottom: 3px; }
+.kpi-bar { height: 8px; background: #e9ecef; border-radius: 10px; overflow: hidden; }
+.kpi-bar-fill { height: 100%; border-radius: 10px; transition: width 1.2s cubic-bezier(.4,0,.2,1); }
+/* Progress items */
+.progress-item { margin-bottom: 14px; }
+.progress-item:last-child { margin-bottom: 0; }
+.pi-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
+.pi-name { font-weight: 600; color: #2c3e50; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%; }
+.pi-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.pi-qty { font-size: 0.75rem; color: #6c757d; }
+.pi-pct { font-size: 0.85rem; font-weight: 800; min-width: 42px; text-align: right; }
+.pi-bar { height: 14px; background: #e9ecef; border-radius: 7px; overflow: hidden; }
+.pi-bar-fill { height: 100%; border-radius: 7px; transition: width 1s ease; }
+.badge-status { font-size: 0.68rem; padding: 2px 7px; border-radius: 10px; font-weight: 600; }
+.bs-done  { background: #d4edda; color: #155724; }
+.bs-good  { background: #cce5ff; color: #004085; }
+.bs-warn  { background: #fff3cd; color: #856404; }
+.bs-risk  { background: #f8d7da; color: #721c24; }
+/* Paste area */
+.paste-zone {
+  border: 2.5px dashed #adb5bd; border-radius: 12px;
+  padding: 36px 20px; text-align: center; cursor: pointer;
+  transition: all 0.25s; background: white; outline: none;
+  user-select: none;
+}
+.paste-zone:hover, .paste-zone:focus { border-color: #1a5276; background: #f0f7ff; }
+.paste-zone.ready { border-color: #28a745; background: #f0fff4; }
+.paste-zone i { font-size: 2.5rem; color: #adb5bd; display: block; margin-bottom: 10px; }
+.paste-zone.ready i { color: #28a745; }
+.paste-zone h6 { color: #495057; margin-bottom: 4px; }
+.paste-zone p { color: #adb5bd; margin: 0; font-size: 0.83rem; }
+/* Preview table */
+.preview-wrap { max-height: 380px; overflow-y: auto; border-radius: 8px; border: 1px solid #dee2e6; }
+.preview-wrap table { font-size: 0.82rem; margin: 0; }
+.preview-wrap thead th { background: #1a5276 !important; color: white !important; position: sticky; top: 0; z-index: 1; font-weight: 600; padding: 8px 10px; }
+.preview-wrap tbody td { padding: 6px 10px; vertical-align: middle; }
+/* History table */
+.hist-row { cursor: pointer; }
+.hist-row:hover { background: #f0f7ff !important; }
+/* No data */
+.no-data { text-align: center; padding: 48px 20px; color: #adb5bd; }
+.no-data i { font-size: 2.5rem; display: block; margin-bottom: 10px; }
+/* Info box */
+.info-box { background: #e8f4fd; border-left: 4px solid #1a5276; border-radius: 0 8px 8px 0; padding: 14px 16px; font-size: 0.83rem; }
+.info-box ol { margin: 8px 0 8px 0; padding-left: 18px; }
+.info-box .fmt { font-weight: 600; color: #1a5276; }
+/* Col alias table */
+.alias-table { font-size: 0.8rem; }
+.alias-table td:first-child { font-weight: 700; color: #0f2744; white-space: nowrap; }
+.alias-table td:last-child { color: #5d6d7e; }
+.required-badge { background: #1a5276; color: white; font-size: 0.65rem; padding: 1px 5px; border-radius: 4px; margin-left: 4px; }
+/* Loading */
+#loadingOv {
+  display: none; position: fixed; inset: 0;
+  background: rgba(255,255,255,0.7); z-index: 9999;
+  justify-content: center; align-items: center;
+}
+/* Toast */
+.toast-container { z-index: 9998; }
+</style>
+</head>
+<body>
+
+<!-- Loading -->
+<div id="loadingOv" style="display:none;justify-content:center;align-items:center;position:fixed;inset:0;background:rgba(255,255,255,0.7);z-index:9999">
+  <div class="spinner-border text-primary" style="width:2.5rem;height:2.5rem;"></div>
+</div>
+
+<!-- Top bar -->
+<div class="top-bar">
+  <div class="brand"><i class="fas fa-chart-bar"></i>진도율 관리 대쉬보드</div>
+  <div class="d-flex align-items-center gap-3">
+    <span class="meta" id="navMeta"></span>
+    <button class="btn btn-sm btn-outline-light" onclick="loadDashboard()">
+      <i class="fas fa-sync-alt me-1"></i>새로고침
+    </button>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="main-tabs">
+  <ul class="nav" id="mainTabs">
+    <li class="nav-item">
+      <a class="nav-link active" data-bs-toggle="tab" href="#tabDash">
+        <i class="fas fa-tachometer-alt"></i>대쉬보드
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" data-bs-toggle="tab" href="#tabParts">
+        <i class="fas fa-tools"></i>부품 교체 입력
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" data-bs-toggle="tab" href="#tabImprov">
+        <i class="fas fa-rocket"></i>개선 횡전개 입력
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" data-bs-toggle="tab" href="#tabHistory">
+        <i class="fas fa-history"></i>이력 조회
+      </a>
+    </li>
+  </ul>
+</div>
+
+<div class="tab-content content-wrap">
+
+  <!-- ===== DASHBOARD TAB ===== -->
+  <div class="tab-pane fade show active" id="tabDash">
+
+    <!-- KPI row -->
+    <div class="row g-3 mb-4">
+      <div class="col-md-6">
+        <div class="kpi-card">
+          <div class="kpi-donut">
+            <canvas id="donutParts" width="90" height="90"></canvas>
+            <div class="donut-pct" id="donutPartsPct">0%</div>
+          </div>
+          <div class="kpi-info">
+            <div class="kpi-title"><i class="fas fa-tools me-1"></i>부품 교체 전체 진도율</div>
+            <div class="kpi-value text-primary" id="kpiPartsVal">-</div>
+            <div class="kpi-sub" id="kpiPartsSub"></div>
+            <div class="kpi-bar-wrap">
+              <div class="kpi-bar-row">
+                <span>완료/대상</span>
+                <span id="kpiPartsQty"></span>
+              </div>
+              <div class="kpi-bar">
+                <div class="kpi-bar-fill bg-primary" id="kpiPartsBar" style="width:0%"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="kpi-card">
+          <div class="kpi-donut">
+            <canvas id="donutImprov" width="90" height="90"></canvas>
+            <div class="donut-pct" id="donutImprovPct">0%</div>
+          </div>
+          <div class="kpi-info">
+            <div class="kpi-title"><i class="fas fa-rocket me-1"></i>개선 횡전개 전체 진도율</div>
+            <div class="kpi-value text-success" id="kpiImprovVal">-</div>
+            <div class="kpi-sub" id="kpiImprovSub"></div>
+            <div class="kpi-bar-wrap">
+              <div class="kpi-bar-row">
+                <span>완료/대상</span>
+                <span id="kpiImprovQty"></span>
+              </div>
+              <div class="kpi-bar">
+                <div class="kpi-bar-fill bg-success" id="kpiImprovBar" style="width:0%"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Detail progress bars -->
+    <div class="row g-3 mb-4">
+      <div class="col-md-6">
+        <div class="card h-100">
+          <div class="card-header"><div class="section-label"><i class="fas fa-tools me-2"></i>부품 교체 항목별 현황</div></div>
+          <div class="card-body" id="partsBars">
+            <div class="no-data"><i class="fas fa-inbox"></i>데이터가 없습니다<br><small>부품 교체 탭에서 데이터를 입력해주세요</small></div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card h-100">
+          <div class="card-header"><div class="section-label"><i class="fas fa-rocket me-2"></i>개선 횡전개 항목별 현황</div></div>
+          <div class="card-body" id="improvBars">
+            <div class="no-data"><i class="fas fa-inbox"></i>데이터가 없습니다<br><small>개선 횡전개 탭에서 데이터를 입력해주세요</small></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Comparison chart -->
+    <div class="row g-3 mb-4">
+      <div class="col-12">
+        <div class="card">
+          <div class="card-header"><div class="section-label"><i class="fas fa-chart-bar me-2"></i>항목별 진도율 비교</div></div>
+          <div class="card-body">
+            <div id="chartNoData" class="no-data" style="display:none"><i class="fas fa-chart-bar"></i>데이터를 입력하면 차트가 표시됩니다</div>
+            <canvas id="compChart" style="max-height:320px"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Trend chart -->
+    <div class="row g-3">
+      <div class="col-12">
+        <div class="card">
+          <div class="card-header"><div class="section-label"><i class="fas fa-chart-line me-2"></i>진도율 추세 (업로드 이력)</div></div>
+          <div class="card-body">
+            <div id="trendNoData" class="no-data" style="display:none"><i class="fas fa-chart-line"></i>데이터를 입력하면 추세가 표시됩니다</div>
+            <canvas id="trendChart" style="max-height:250px"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== PARTS INPUT TAB ===== -->
+  <div class="tab-pane fade" id="tabParts">
+    <div class="row g-3">
+      <div class="col-lg-8">
+        <div class="card">
+          <div class="card-header"><div class="section-label"><i class="fas fa-tools me-2"></i>부품 교체 데이터 입력</div></div>
+          <div class="card-body">
+            <div class="info-box mb-3">
+              <strong><i class="fas fa-lightbulb me-1" style="color:#f39c12"></i>엑셀 붙여넣기 방법</strong>
+              <ol>
+                <li>엑셀에서 <strong>헤더 포함</strong> 데이터 셀 선택 후 복사 (Ctrl+C)</li>
+                <li>아래 파란 영역을 클릭</li>
+                <li><kbd>Ctrl+V</kbd> 로 붙여넣기</li>
+                <li>미리보기 확인 후 <strong>저장</strong> 클릭</li>
+              </ol>
+              <div>권장 형식: <span class="fmt">순번 | 모델 | 부품명 | 대상수량 | 교체완료 | 비고</span></div>
+            </div>
+
+            <div class="paste-zone mb-3" id="pasteZoneParts" tabindex="0">
+              <i class="fas fa-clipboard"></i>
+              <h6>여기를 클릭 후 Ctrl+V 붙여넣기</h6>
+              <p>엑셀에서 복사한 데이터를 붙여넣어주세요 (첫 번째 행 = 헤더)</p>
+            </div>
+
+            <div id="partsPreview" style="display:none">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <div class="section-label">미리보기 <span class="text-muted fw-normal ms-1 fs-6" id="partsPreviewCnt"></span></div>
+              </div>
+              <div class="preview-wrap mb-3">
+                <table class="table table-sm table-hover" id="partsPreviewTbl">
+                  <thead><tr></tr></thead><tbody></tbody>
+                </table>
+              </div>
+              <div class="d-flex gap-2">
+                <button class="btn btn-primary" onclick="saveParts()"><i class="fas fa-save me-1"></i>저장</button>
+                <button class="btn btn-outline-secondary" onclick="clearParts()"><i class="fas fa-times me-1"></i>초기화</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-4">
+        <div class="card">
+          <div class="card-header"><div class="section-label">인식되는 열 이름</div></div>
+          <div class="card-body p-0">
+            <table class="table alias-table table-sm mb-0">
+              <thead class="table-light">
+                <tr><th style="width:40%">필드</th><th>인식 키워드</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>순번</td><td>순번, no, seq</td></tr>
+                <tr><td>모델</td><td>모델, model, 기종</td></tr>
+                <tr><td>부품명</td><td>부품명, 부품, part</td></tr>
+                <tr>
+                  <td>대상수량<span class="required-badge">필수</span></td>
+                  <td>대상수량, 대상, 목표, target, 계획</td>
+                </tr>
+                <tr>
+                  <td>교체완료<span class="required-badge">필수</span></td>
+                  <td>교체완료, 완료, 완료수량, completed, 실적</td>
+                </tr>
+                <tr><td>비고</td><td>비고, note, remarks</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="alert alert-warning mt-3 small">
+          <i class="fas fa-exclamation-triangle me-1"></i>
+          <strong>필수 항목</strong> (대상수량, 교체완료)이 인식되어야 진도율이 계산됩니다.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== IMPROVEMENTS INPUT TAB ===== -->
+  <div class="tab-pane fade" id="tabImprov">
+    <div class="row g-3">
+      <div class="col-lg-8">
+        <div class="card">
+          <div class="card-header"><div class="section-label"><i class="fas fa-rocket me-2"></i>개선 횡전개 데이터 입력</div></div>
+          <div class="card-body">
+            <div class="info-box mb-3">
+              <strong><i class="fas fa-lightbulb me-1" style="color:#f39c12"></i>엑셀 붙여넣기 방법</strong>
+              <ol>
+                <li>엑셀에서 <strong>헤더 포함</strong> 데이터 셀 선택 후 복사 (Ctrl+C)</li>
+                <li>아래 초록 영역을 클릭</li>
+                <li><kbd>Ctrl+V</kbd> 로 붙여넣기</li>
+                <li>미리보기 확인 후 <strong>저장</strong> 클릭</li>
+              </ol>
+              <div>권장 형식: <span class="fmt">순번 | 개선항목 | 대상처수 | 완료처수 | 담당자 | 비고</span></div>
+            </div>
+
+            <div class="paste-zone mb-3" id="pasteZoneImprov" tabindex="0" style="border-color:#28a745">
+              <i class="fas fa-clipboard" style="color:#adb5bd"></i>
+              <h6>여기를 클릭 후 Ctrl+V 붙여넣기</h6>
+              <p>엑셀에서 복사한 데이터를 붙여넣어주세요 (첫 번째 행 = 헤더)</p>
+            </div>
+
+            <div id="improvPreview" style="display:none">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <div class="section-label">미리보기 <span class="text-muted fw-normal ms-1 fs-6" id="improvPreviewCnt"></span></div>
+              </div>
+              <div class="preview-wrap mb-3">
+                <table class="table table-sm table-hover" id="improvPreviewTbl">
+                  <thead><tr></tr></thead><tbody></tbody>
+                </table>
+              </div>
+              <div class="d-flex gap-2">
+                <button class="btn btn-success" onclick="saveImprov()"><i class="fas fa-save me-1"></i>저장</button>
+                <button class="btn btn-outline-secondary" onclick="clearImprov()"><i class="fas fa-times me-1"></i>초기화</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-4">
+        <div class="card">
+          <div class="card-header"><div class="section-label">인식되는 열 이름</div></div>
+          <div class="card-body p-0">
+            <table class="table alias-table table-sm mb-0">
+              <thead class="table-light">
+                <tr><th style="width:40%">필드</th><th>인식 키워드</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>순번</td><td>순번, no, seq</td></tr>
+                <tr><td>개선항목</td><td>개선항목, 개선명, 항목, improvement</td></tr>
+                <tr>
+                  <td>대상처수<span class="required-badge" style="background:#28a745">필수</span></td>
+                  <td>대상처수, 대상처, 대상, target, 계획</td>
+                </tr>
+                <tr>
+                  <td>완료처수<span class="required-badge" style="background:#28a745">필수</span></td>
+                  <td>완료처수, 완료처, 완료, completed, 실적</td>
+                </tr>
+                <tr><td>담당자</td><td>담당자, 담당, manager</td></tr>
+                <tr><td>비고</td><td>비고, note, remarks</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="alert alert-warning mt-3 small">
+          <i class="fas fa-exclamation-triangle me-1"></i>
+          <strong>필수 항목</strong> (대상처수, 완료처수)이 인식되어야 진도율이 계산됩니다.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== HISTORY TAB ===== -->
+  <div class="tab-pane fade" id="tabHistory">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="card">
+          <div class="card-header"><div class="section-label"><i class="fas fa-tools me-2"></i>부품 교체 업로드 이력</div></div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-hover mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>업로드 일시</th>
+                    <th class="text-center">항목수</th>
+                    <th class="text-center">대상/완료</th>
+                    <th class="text-center">진도율</th>
+                    <th class="text-center">상세</th>
+                  </tr>
+                </thead>
+                <tbody id="histPartsTbl">
+                  <tr><td colspan="5" class="no-data py-4">이력이 없습니다</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card">
+          <div class="card-header"><div class="section-label"><i class="fas fa-rocket me-2"></i>개선 횡전개 업로드 이력</div></div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-hover mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>업로드 일시</th>
+                    <th class="text-center">항목수</th>
+                    <th class="text-center">대상/완료</th>
+                    <th class="text-center">진도율</th>
+                    <th class="text-center">상세</th>
+                  </tr>
+                </thead>
+                <tbody id="histImprovTbl">
+                  <tr><td colspan="5" class="no-data py-4">이력이 없습니다</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Detail Modal -->
+<div class="modal fade" id="detailModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="detailTitle">상세 데이터</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="detailBody"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+  <div id="mainToast" class="toast" role="alert">
+    <div class="toast-header">
+      <i class="fas fa-bell me-2" id="toastIcon"></i>
+      <strong class="me-auto" id="toastTitle">알림</strong>
+      <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+    </div>
+    <div class="toast-body" id="toastMsg"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+'use strict';
+
+// ─── State ───────────────────────────────────────────────
+let partsRows = [], improvRows = [];
+let chartDonutP = null, chartDonutI = null, chartComp = null, chartTrend = null;
+
+// ─── Column alias maps ────────────────────────────────────
+const PARTS_ALIASES = {
+  seq:          ['순번','no','no.','seq','#','번호'],
+  model:        ['모델','model','기종','모델명','품명'],
+  part_name:    ['부품명','부품','part','부품이름','품명','품목'],
+  target_qty:   ['대상수량','대상','목표수량','목표','target','계획','계획수량','총수량'],
+  completed_qty:['교체완료','완료','완료수량','completed','실적','교체실적','교체','처리완료'],
+  remarks:      ['비고','note','notes','remarks','메모','comment']
+};
+
+const IMPROV_ALIASES = {
+  seq:             ['순번','no','no.','seq','#','번호'],
+  improvement_item:['개선항목','개선명','개선내용','항목','improvement','개선사항','개선명칭'],
+  target_count:    ['대상처수','대상처','대상','target','목표처수','계획처수','총처수','계획'],
+  completed_count: ['완료처수','완료처','완료','completed','실적처수','처리완료','실적'],
+  manager:         ['담당자','담당','manager','담당부서','책임자'],
+  remarks:         ['비고','note','notes','remarks','메모','comment']
+};
+
+// ─── Helpers ──────────────────────────────────────────────
+function parseTSV(text) {
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim().split('\n').filter(l => l.trim());
+  if (lines.length < 2) return null;
+  const headers = lines[0].split('\t').map(h => h.trim().replace(/^"|"$/g,''));
+  const rows = lines.slice(1).map(l => l.split('\t').map(c => c.trim().replace(/^"|"$/g,'')));
+  return { headers, rows };
+}
+
+function autoMap(headers, aliases) {
+  const norm = headers.map(h => h.toLowerCase().trim());
+  const map = {};
+  for (const [field, keys] of Object.entries(aliases)) {
+    for (let i = 0; i < norm.length; i++) {
+      if (keys.some(k => norm[i] === k.toLowerCase() || norm[i].includes(k.toLowerCase()))) {
+        map[field] = i; break;
+      }
+    }
+  }
+  return map;
+}
+
+function pctColor(p) {
+  if (p >= 100) return '#28a745';
+  if (p >= 80)  return '#0d6efd';
+  if (p >= 50)  return '#fd7e14';
+  return '#dc3545';
+}
+
+function pctBadge(p) {
+  if (p >= 100) return '<span class="badge-status bs-done">완료</span>';
+  if (p >= 80)  return '<span class="badge-status bs-good">진행</span>';
+  if (p >= 50)  return '<span class="badge-status bs-warn">지연</span>';
+  return '<span class="badge-status bs-risk">위험</span>';
+}
+
+function fmtNum(n) { return (n||0).toLocaleString('ko-KR'); }
+
+function safeInt(v) {
+  const n = parseInt(String(v||'').replace(/,/g,'').trim());
+  return isNaN(n) ? 0 : n;
+}
+
+function showToast(title, msg, type='info') {
+  const t = document.getElementById('mainToast');
+  const icons = { success:'fa-check-circle text-success', danger:'fa-times-circle text-danger', info:'fa-info-circle text-info', warning:'fa-exclamation-circle text-warning' };
+  t.className = 'toast border-0 bg-dark text-white';
+  document.getElementById('toastIcon').className = 'fas ' + (icons[type]||icons.info) + ' me-2';
+  document.getElementById('toastTitle').textContent = title;
+  document.getElementById('toastMsg').textContent = msg;
+  new bootstrap.Toast(t, { delay: 3500 }).show();
+}
+
+function loading(on) {
+  document.getElementById('loadingOv').style.display = on ? 'flex' : 'none';
+}
+
+// ─── Paste handlers ───────────────────────────────────────
+function initPaste(zoneId, handler) {
+  const zone = document.getElementById(zoneId);
+  zone.addEventListener('click', () => zone.focus());
+  zone.addEventListener('paste', e => {
+    e.preventDefault();
+    handler(e.clipboardData.getData('text'));
+  });
+  zone.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'v') zone.focus();
+  });
+}
+
+function handlePartsPaste(text) {
+  const parsed = parseTSV(text);
+  if (!parsed) { showToast('오류', '데이터를 인식할 수 없습니다. 헤더를 포함해 복사해주세요.', 'danger'); return; }
+
+  const { headers, rows } = parsed;
+  const map = autoMap(headers, PARTS_ALIASES);
+
+  partsRows = rows.map(r => ({
+    model:        map.model        !== undefined ? r[map.model]        || '' : '',
+    part_name:    map.part_name    !== undefined ? r[map.part_name]    || '' : '',
+    target_qty:   map.target_qty   !== undefined ? r[map.target_qty]   || 0  : 0,
+    completed_qty:map.completed_qty !== undefined ? r[map.completed_qty]|| 0  : 0,
+    remarks:      map.remarks      !== undefined ? r[map.remarks]      || '' : ''
+  })).filter(r => r.part_name || safeInt(r.target_qty) > 0 || r.model);
+
+  if (!partsRows.length) { showToast('경고', '유효한 데이터 행이 없습니다.', 'warning'); return; }
+
+  renderPartsPreview();
+  const zone = document.getElementById('pasteZoneParts');
+  zone.classList.add('ready');
+}
+
+function handleImprovPaste(text) {
+  const parsed = parseTSV(text);
+  if (!parsed) { showToast('오류', '데이터를 인식할 수 없습니다. 헤더를 포함해 복사해주세요.', 'danger'); return; }
+
+  const { headers, rows } = parsed;
+  const map = autoMap(headers, IMPROV_ALIASES);
+
+  improvRows = rows.map(r => ({
+    improvement_item: map.improvement_item !== undefined ? r[map.improvement_item] || '' : '',
+    target_count:     map.target_count     !== undefined ? r[map.target_count]     || 0  : 0,
+    completed_count:  map.completed_count  !== undefined ? r[map.completed_count]  || 0  : 0,
+    manager:          map.manager          !== undefined ? r[map.manager]          || '' : '',
+    remarks:          map.remarks          !== undefined ? r[map.remarks]          || '' : ''
+  })).filter(r => r.improvement_item || safeInt(r.target_count) > 0);
+
+  if (!improvRows.length) { showToast('경고', '유효한 데이터 행이 없습니다.', 'warning'); return; }
+
+  renderImprovPreview();
+  const zone = document.getElementById('pasteZoneImprov');
+  zone.classList.add('ready');
+}
+
+// ─── Preview renderers ────────────────────────────────────
+function renderPartsPreview() {
+  document.getElementById('partsPreview').style.display = 'block';
+  document.getElementById('partsPreviewCnt').textContent = `총 ${partsRows.length}건`;
+  const tbl = document.getElementById('partsPreviewTbl');
+  tbl.querySelector('thead tr').innerHTML =
+    '<th>모델</th><th>부품명</th><th class="text-end">대상수량</th><th class="text-end">교체완료</th><th class="text-end">진도율</th><th>비고</th>';
+  tbl.querySelector('tbody').innerHTML = partsRows.map(r => {
+    const t = safeInt(r.target_qty), c = safeInt(r.completed_qty);
+    const p = t > 0 ? Math.round(c/t*100) : 0;
+    return `<tr>
+      <td>${r.model||''}</td><td>${r.part_name||''}</td>
+      <td class="text-end">${fmtNum(t)}</td><td class="text-end">${fmtNum(c)}</td>
+      <td class="text-end" style="color:${pctColor(p)};font-weight:700">${p}%</td>
+      <td>${r.remarks||''}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderImprovPreview() {
+  document.getElementById('improvPreview').style.display = 'block';
+  document.getElementById('improvPreviewCnt').textContent = `총 ${improvRows.length}건`;
+  const tbl = document.getElementById('improvPreviewTbl');
+  tbl.querySelector('thead tr').innerHTML =
+    '<th>개선항목</th><th class="text-end">대상처수</th><th class="text-end">완료처수</th><th class="text-end">진도율</th><th>담당자</th><th>비고</th>';
+  tbl.querySelector('tbody').innerHTML = improvRows.map(r => {
+    const t = safeInt(r.target_count), c = safeInt(r.completed_count);
+    const p = t > 0 ? Math.round(c/t*100) : 0;
+    return `<tr>
+      <td>${r.improvement_item||''}</td>
+      <td class="text-end">${fmtNum(t)}</td><td class="text-end">${fmtNum(c)}</td>
+      <td class="text-end" style="color:${pctColor(p)};font-weight:700">${p}%</td>
+      <td>${r.manager||''}</td><td>${r.remarks||''}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── Save functions ───────────────────────────────────────
+async function saveParts() {
+  if (!partsRows.length) { showToast('오류', '저장할 데이터가 없습니다', 'danger'); return; }
+  loading(true);
+  try {
+    const res = await fetch('/api/parts', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ rows: partsRows })
+    });
+    const d = await res.json();
+    if (d.success) {
+      showToast('저장 완료', `${d.count}건이 저장되었습니다`, 'success');
+      clearParts(); loadDashboard();
+    } else showToast('오류', d.error||'저장 실패', 'danger');
+  } catch(e) { showToast('오류', e.message, 'danger'); }
+  loading(false);
+}
+
+async function saveImprov() {
+  if (!improvRows.length) { showToast('오류', '저장할 데이터가 없습니다', 'danger'); return; }
+  loading(true);
+  try {
+    const res = await fetch('/api/improvements', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ rows: improvRows })
+    });
+    const d = await res.json();
+    if (d.success) {
+      showToast('저장 완료', `${d.count}건이 저장되었습니다`, 'success');
+      clearImprov(); loadDashboard();
+    } else showToast('오류', d.error||'저장 실패', 'danger');
+  } catch(e) { showToast('오류', e.message, 'danger'); }
+  loading(false);
+}
+
+function clearParts() {
+  partsRows = [];
+  document.getElementById('partsPreview').style.display = 'none';
+  document.getElementById('pasteZoneParts').classList.remove('ready');
+}
+function clearImprov() {
+  improvRows = [];
+  document.getElementById('improvPreview').style.display = 'none';
+  document.getElementById('pasteZoneImprov').classList.remove('ready');
+}
+
+// ─── Dashboard ────────────────────────────────────────────
+async function loadDashboard() {
+  try {
+    const d = await (await fetch('/api/summary')).json();
+    renderKPI(d);
+    renderProgressBars('partsBars', d.parts, 'parts');
+    renderProgressBars('improvBars', d.improvements, 'improvements');
+    renderCompChart(d.parts, d.improvements);
+    document.getElementById('navMeta').textContent =
+      '마지막 조회: ' + new Date().toLocaleTimeString('ko-KR');
+    await loadTrend();
+  } catch(e) { console.error('Dashboard error:', e); }
+}
+
+function renderKPI(d) {
+  const po = d.parts_overall || 0;
+  const io = d.improvements_overall || 0;
+
+  document.getElementById('kpiPartsVal').textContent = po + '%';
+  document.getElementById('kpiImprovVal').textContent = io + '%';
+  document.getElementById('kpiPartsBar').style.width = po + '%';
+  document.getElementById('kpiImprovBar').style.width = io + '%';
+
+  if (d.parts_batch) {
+    const tt = d.parts.reduce((s,r)=>s+(r.target_qty||0),0);
+    const tc = d.parts.reduce((s,r)=>s+(r.completed_qty||0),0);
+    document.getElementById('kpiPartsQty').textContent = fmtNum(tc)+' / '+fmtNum(tt);
+    document.getElementById('kpiPartsSub').textContent = '최종 업데이트: '+d.parts_batch.uploaded_at;
+  }
+  if (d.improvements_batch) {
+    const tt = d.improvements.reduce((s,r)=>s+(r.target_count||0),0);
+    const tc = d.improvements.reduce((s,r)=>s+(r.completed_count||0),0);
+    document.getElementById('kpiImprovQty').textContent = fmtNum(tc)+' / '+fmtNum(tt);
+    document.getElementById('kpiImprovSub').textContent = '최종 업데이트: '+d.improvements_batch.uploaded_at;
+  }
+
+  document.getElementById('donutPartsPct').textContent = po + '%';
+  document.getElementById('donutImprovPct').textContent = io + '%';
+
+  const pColor = pctColor(po), iColor = pctColor(io);
+  chartDonutP = makeDonut('donutParts', po, pColor, chartDonutP);
+  chartDonutI = makeDonut('donutImprov', io, iColor, chartDonutI);
+}
+
+function makeDonut(id, pct, color, old) {
+  if (old) old.destroy();
+  return new Chart(document.getElementById(id), {
+    type: 'doughnut',
+    data: { datasets: [{ data: [pct, Math.max(0,100-pct)], backgroundColor: [color,'#e9ecef'], borderWidth: 0 }] },
+    options: { responsive: false, cutout: '72%', plugins: { legend: { display: false }, tooltip: { enabled: false } }, animation: { duration: 900 } }
+  });
+}
+
+function renderProgressBars(containerId, items, type) {
+  const el = document.getElementById(containerId);
+  if (!items || !items.length) {
+    el.innerHTML = '<div class="no-data"><i class="fas fa-inbox"></i>데이터가 없습니다<br><small>데이터를 입력해주세요</small></div>';
+    return;
+  }
+  el.innerHTML = items.map(item => {
+    let name, t, c, p;
+    if (type === 'parts') {
+      name = [item.model, item.part_name].filter(Boolean).join(' - ');
+      t = item.target_qty||0; c = item.completed_qty||0;
+    } else {
+      name = item.improvement_item||'';
+      t = item.target_count||0; c = item.completed_count||0;
+    }
+    p = item.progress_rate || (t>0 ? Math.round(c/t*100) : 0);
+    const col = pctColor(p);
+    return `<div class="progress-item">
+      <div class="pi-header">
+        <div class="pi-name" title="${name}">${name}</div>
+        <div class="pi-right">
+          <span class="pi-qty">${fmtNum(c)} / ${fmtNum(t)}</span>
+          ${pctBadge(p)}
+          <span class="pi-pct" style="color:${col}">${p}%</span>
+        </div>
+      </div>
+      <div class="pi-bar">
+        <div class="pi-bar-fill" style="width:${Math.min(p,100)}%;background:${col}"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderCompChart(parts, improvs) {
+  if (chartComp) chartComp.destroy();
+  const hasData = (parts&&parts.length) || (improvs&&improvs.length);
+  document.getElementById('chartNoData').style.display = hasData ? 'none' : 'block';
+  document.getElementById('compChart').style.display = hasData ? 'block' : 'none';
+  if (!hasData) return;
+
+  const labels = [], data = [], colors = [];
+  (parts||[]).forEach(r => {
+    labels.push('🔧 ' + [r.model,r.part_name].filter(Boolean).join('-'));
+    data.push(r.progress_rate||0);
+    colors.push('rgba(13,110,253,0.75)');
+  });
+  (improvs||[]).forEach(r => {
+    labels.push('🚀 ' + r.improvement_item);
+    data.push(r.progress_rate||0);
+    colors.push('rgba(40,167,69,0.75)');
+  });
+
+  chartComp = new Chart(document.getElementById('compChart'), {
+    type: 'bar',
+    data: { labels, datasets: [{ label: '진도율 (%)', data, backgroundColor: colors, borderRadius: 4, borderSkipped: false }] },
+    options: {
+      indexAxis: 'y', responsive: true,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ' ' + c.parsed.x + '%' } } },
+      scales: { x: { min:0, max:100, ticks: { callback: v => v+'%' } }, y: { ticks: { font: { size: 11 } } } }
+    }
+  });
+}
+
+async function loadTrend() {
+  try {
+    const [pt, it] = await Promise.all([
+      (await fetch('/api/trend/parts')).json(),
+      (await fetch('/api/trend/improvements')).json()
+    ]);
+    renderTrend(pt, it);
+  } catch(e) {}
+}
+
+function renderTrend(partsT, improvT) {
+  if (chartTrend) chartTrend.destroy();
+  const hasData = (partsT&&partsT.length>1) || (improvT&&improvT.length>1);
+  document.getElementById('trendNoData').style.display = hasData ? 'none' : 'block';
+  document.getElementById('trendChart').style.display = hasData ? 'block' : 'none';
+  if (!hasData) return;
+
+  const allDates = [...new Set([...(partsT||[]).map(r=>r.date), ...(improvT||[]).map(r=>r.date)])].sort();
+
+  const partsMap = Object.fromEntries((partsT||[]).map(r=>[r.date,r.overall]));
+  const improvMap = Object.fromEntries((improvT||[]).map(r=>[r.date,r.overall]));
+
+  chartTrend = new Chart(document.getElementById('trendChart'), {
+    type: 'line',
+    data: {
+      labels: allDates.map(d => d.slice(0,16)),
+      datasets: [
+        { label: '부품 교체', data: allDates.map(d=>partsMap[d]||null), borderColor:'#0d6efd', backgroundColor:'rgba(13,110,253,0.1)', tension:0.3, fill:true, pointRadius:4, spanGaps:true },
+        { label: '개선 횡전개', data: allDates.map(d=>improvMap[d]||null), borderColor:'#28a745', backgroundColor:'rgba(40,167,69,0.1)', tension:0.3, fill:true, pointRadius:4, spanGaps:true }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position:'top' }, tooltip: { callbacks: { label: c => c.dataset.label+': '+c.parsed.y+'%' } } },
+      scales: { y: { min:0, max:100, ticks: { callback: v=>v+'%' } } }
+    }
+  });
+}
+
+// ─── History ──────────────────────────────────────────────
+async function loadHistory() {
+  const [ph, ih] = await Promise.all([
+    (await fetch('/api/history/parts')).json(),
+    (await fetch('/api/history/improvements')).json()
+  ]);
+  renderHistTable('histPartsTbl', ph, 'parts');
+  renderHistTable('histImprovTbl', ih, 'improvements');
+}
+
+function renderHistTable(tbodyId, rows, type) {
+  const el = document.getElementById(tbodyId);
+  if (!rows.length) { el.innerHTML = `<tr><td colspan="5" class="no-data py-4">이력이 없습니다</td></tr>`; return; }
+  el.innerHTML = rows.map(r => {
+    const p = r.overall||0, col = pctColor(p);
+    return `<tr class="hist-row" onclick="showDetail('${type}','${r.batch_id}','${r.uploaded_at}')">
+      <td>${r.uploaded_at}</td>
+      <td class="text-center">${r.items}</td>
+      <td class="text-center">${fmtNum(r.total_completed)} / ${fmtNum(r.total_target)}</td>
+      <td class="text-center" style="color:${col};font-weight:700">${p}%</td>
+      <td class="text-center"><button class="btn btn-sm btn-outline-${type==='parts'?'primary':'success'}"><i class="fas fa-search"></i></button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function showDetail(type, batchId, uploadedAt) {
+  const rows = await (await fetch(`/api/history/${type}/${batchId}`)).json();
+  const title = (type==='parts'?'부품 교체':'개선 횡전개') + ' 상세 — ' + uploadedAt;
+  document.getElementById('detailTitle').textContent = title;
+
+  let html;
+  if (type === 'parts') {
+    html = `<table class="table table-sm table-striped">
+      <thead><tr class="table-dark">
+        <th>순번</th><th>모델</th><th>부품명</th>
+        <th class="text-end">대상수량</th><th class="text-end">교체완료</th>
+        <th class="text-end">진도율</th><th>비고</th>
+      </tr></thead><tbody>
+      ${rows.map(r=>{
+        const p=r.progress_rate||0;
+        return `<tr><td>${r.seq}</td><td>${r.model}</td><td>${r.part_name}</td>
+          <td class="text-end">${fmtNum(r.target_qty)}</td>
+          <td class="text-end">${fmtNum(r.completed_qty)}</td>
+          <td class="text-end" style="color:${pctColor(p)};font-weight:700">${p}%</td>
+          <td>${r.remarks||''}</td></tr>`;
+      }).join('')}
+      </tbody></table>`;
+  } else {
+    html = `<table class="table table-sm table-striped">
+      <thead><tr class="table-dark">
+        <th>순번</th><th>개선항목</th>
+        <th class="text-end">대상처수</th><th class="text-end">완료처수</th>
+        <th class="text-end">진도율</th><th>담당자</th><th>비고</th>
+      </tr></thead><tbody>
+      ${rows.map(r=>{
+        const p=r.progress_rate||0;
+        return `<tr><td>${r.seq}</td><td>${r.improvement_item}</td>
+          <td class="text-end">${fmtNum(r.target_count)}</td>
+          <td class="text-end">${fmtNum(r.completed_count)}</td>
+          <td class="text-end" style="color:${pctColor(p)};font-weight:700">${p}%</td>
+          <td>${r.manager||''}</td><td>${r.remarks||''}</td></tr>`;
+      }).join('')}
+      </tbody></table>`;
+  }
+
+  document.getElementById('detailBody').innerHTML = '<div class="table-responsive">' + html + '</div>';
+  new bootstrap.Modal(document.getElementById('detailModal')).show();
+}
+
+// ─── Tab events ───────────────────────────────────────────
+document.querySelectorAll('[data-bs-toggle="tab"]').forEach(t => {
+  t.addEventListener('shown.bs.tab', e => {
+    const target = e.target.getAttribute('href');
+    if (target === '#tabDash') loadDashboard();
+    if (target === '#tabHistory') loadHistory();
+  });
+});
+
+// ─── Init ─────────────────────────────────────────────────
+initPaste('pasteZoneParts', handlePartsPaste);
+initPaste('pasteZoneImprov', handleImprovPaste);
+loadDashboard();
+</script>
+</body>
+</html>
