@@ -526,6 +526,40 @@
       height: 10px;
       border-radius: 50%;
     }
+
+    /* DOWNLOAD */
+    .dl-bar {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 12px;
+    }
+
+    .dl-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: #0f172a;
+      border: 1px solid #475569;
+      color: #94a3b8;
+      border-radius: 7px;
+      padding: 7px 16px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .dl-btn:hover {
+      border-color: #3b82f6;
+      color: #93c5fd;
+      background: #1e293b;
+    }
+
+    .dl-btn svg {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+    }
   </style>
 </head>
 <body>
@@ -603,6 +637,12 @@
 
     <!-- Heatmap -->
     <div class="tab-panel active" id="panel-heatmap">
+      <div class="dl-bar">
+        <button class="dl-btn" onclick="downloadHeatmap()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v8m0 0-3-3m3 3 3-3M2 12h12"/></svg>
+          PNG 저장
+        </button>
+      </div>
       <div class="heatmap-wrap">
         <canvas id="heatmapCanvas"></canvas>
       </div>
@@ -615,6 +655,12 @@
 
     <!-- Table -->
     <div class="tab-panel" id="panel-table">
+      <div class="dl-bar">
+        <button class="dl-btn" onclick="downloadCorrCSV()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v8m0 0-3-3m3 3 3-3M2 12h12"/></svg>
+          CSV 저장
+        </button>
+      </div>
       <div class="corr-table-wrap">
         <table class="corr-table" id="corrTable"></table>
       </div>
@@ -631,12 +677,24 @@
           <label>Y축 열</label>
           <select id="scatterY" onchange="drawScatter()"></select>
         </div>
+        <div class="select-group" style="justify-content:flex-end;margin-left:auto;align-self:flex-end">
+          <button class="dl-btn" onclick="downloadScatter()">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v8m0 0-3-3m3 3 3-3M2 12h12"/></svg>
+            PNG 저장
+          </button>
+        </div>
       </div>
       <canvas id="scatterCanvas" width="700" height="420"></canvas>
     </div>
 
     <!-- Insights -->
     <div class="tab-panel" id="panel-insights">
+      <div class="dl-bar">
+        <button class="dl-btn" onclick="downloadReport()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v8m0 0-3-3m3 3 3-3M2 12h12"/></svg>
+          리포트 저장 (.txt)
+        </button>
+      </div>
       <div class="insights-grid" id="insightsGrid"></div>
     </div>
 
@@ -1191,6 +1249,86 @@ function showToast(msg, isError = false) {
   t.style.color = isError ? '#fca5a5' : '#93c5fd';
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ─────────────────────────────────────────
+//  DOWNLOAD
+// ─────────────────────────────────────────
+function triggerDownload(url, filename) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+}
+
+function downloadHeatmap() {
+  const canvas = document.getElementById('heatmapCanvas');
+  triggerDownload(canvas.toDataURL('image/png'), '상관관계_히트맵.png');
+  showToast('히트맵 PNG 저장 완료');
+}
+
+function downloadScatter() {
+  const canvas = document.getElementById('scatterCanvas');
+  triggerDownload(canvas.toDataURL('image/png'), '산점도.png');
+  showToast('산점도 PNG 저장 완료');
+}
+
+function downloadCorrCSV() {
+  const k = selectedLabels.length;
+  const BOM = '﻿';
+  let csv = BOM + '열,' + selectedLabels.map(csvCell).join(',') + '\n';
+  for (let i = 0; i < k; i++) {
+    csv += csvCell(selectedLabels[i]) + ',' +
+      corrMatrix[i].map(v => isNaN(v) ? '' : v.toFixed(6)).join(',') + '\n';
+  }
+  const blob = new Blob([csv], {type: 'text/csv;charset=utf-8'});
+  triggerDownload(URL.createObjectURL(blob), '상관계수_행렬.csv');
+  showToast('상관계수 CSV 저장 완료');
+}
+
+function downloadReport() {
+  const k = selectedLabels.length;
+  const now = new Date().toLocaleString('ko-KR');
+  let txt = `엑셀 데이터 상관관계 분석 리포트\n`;
+  txt += `생성 일시: ${now}\n`;
+  txt += `${'='.repeat(50)}\n\n`;
+  txt += `[분석 열]\n`;
+  selectedLabels.forEach((l, i) => { txt += `  ${i+1}. ${l}\n`; });
+  txt += `\n[상관계수 행렬]\n`;
+
+  const colW = Math.max(...selectedLabels.map(l => l.length), 10) + 2;
+  txt += ' '.repeat(colW);
+  selectedLabels.forEach(l => { txt += l.padEnd(colW); });
+  txt += '\n';
+  for (let i = 0; i < k; i++) {
+    txt += selectedLabels[i].padEnd(colW);
+    for (let j = 0; j < k; j++) {
+      const v = corrMatrix[i][j];
+      txt += (isNaN(v) ? 'N/A' : v.toFixed(4)).padEnd(colW);
+    }
+    txt += '\n';
+  }
+
+  txt += `\n[열 쌍별 인사이트 (상관 강도 순)]\n`;
+  const pairs = [];
+  for (let i = 0; i < k; i++)
+    for (let j = i+1; j < k; j++)
+      pairs.push({i, j, v: corrMatrix[i][j]});
+  pairs.sort((a, b) => Math.abs(b.v) - Math.abs(a.v));
+  pairs.forEach(({i, j, v}) => {
+    const {label} = corrDesc(v);
+    txt += `  ${selectedLabels[i]} ↔ ${selectedLabels[j]}: ${isNaN(v) ? 'N/A' : v.toFixed(4)} (${label})\n`;
+  });
+
+  const BOM = '﻿';
+  const blob = new Blob([BOM + txt], {type: 'text/plain;charset=utf-8'});
+  triggerDownload(URL.createObjectURL(blob), '상관관계_분석_리포트.txt');
+  showToast('분석 리포트 저장 완료');
+}
+
+function csvCell(s) {
+  const str = String(s ?? '');
+  return /[,"\n]/.test(str) ? '"' + str.replace(/"/g, '""') + '"' : str;
 }
 
 // Resize scatter on window resize
