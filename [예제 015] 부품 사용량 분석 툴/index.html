@@ -348,6 +348,21 @@
     [data-dark] .calc-item { background:#252525; }
     [data-dark] .calc-name-inp, [data-dark] .calc-form-inp { background:#2a2a2a; color:#e0e0e0; border-color:#333; }
 
+    /* Editable column labels */
+    .col-lbl{cursor:pointer;border-bottom:1px dashed var(--border);padding-bottom:1px;transition:color .15s,border-color .15s;}
+    .col-lbl:hover{color:var(--primary);border-color:var(--primary);}
+    .col-lbl:hover::after{content:' ✏️';font-size:9px;}
+    .col-lbl-inp{width:100%;padding:2px 6px;border:1.5px solid var(--primary);border-radius:5px;font-size:11px;font-weight:700;color:var(--text);outline:none;background:#e8f0fe;}
+    [data-dark] .col-lbl-inp{background:#1a237e;color:#e0e0e0;}
+    /* Extra column mappings */
+    .extra-map-row{display:flex;align-items:center;gap:6px;padding:7px 9px;background:#f8f9fa;border-radius:8px;border:1px solid var(--border);margin-bottom:5px;flex-wrap:wrap;}
+    .extra-map-lbl-inp{width:90px;padding:4px 7px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;font-weight:700;outline:none;background:#fff;color:var(--text);}
+    .extra-map-lbl-inp:focus{border-color:var(--primary);}
+    .extra-map-sel{flex:1;min-width:120px;padding:4px 7px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;outline:none;background:#fff;color:var(--text);}
+    .extra-map-sel:focus{border-color:var(--primary);}
+    [data-dark] .extra-map-row{background:#252525;}
+    [data-dark] .extra-map-lbl-inp,[data-dark] .extra-map-sel{background:#2a2a2a;color:#e0e0e0;border-color:#333;}
+
     /* Prediction period */
     .pred-row { display:flex; align-items:center; gap:6px; margin-top:5px; flex-wrap:wrap; }
     .pred-inp { width:48px; padding:3px 7px; border:1.5px solid var(--border); border-radius:8px; font-size:12px; outline:none; text-align:center; background:#fff; color:var(--text); }
@@ -432,13 +447,21 @@
       <div class="hint">💡 보안 정책상 파일 첨부 없이 클립보드 붙여넣기로 입력합니다.</div>
 
       <div id="colMap" style="display:none">
-        <div class="ct" style="margin-top:16px">🔗 열 매핑</div>
+        <div class="ct" style="margin-top:16px">🔗 열 매핑 <span style="font-size:11px;font-weight:400;color:var(--sub)">(레이블 클릭 시 이름 변경)</span></div>
         <div class="cg">
-          <div class="ci"><label>📅 날짜</label><select id="mDate" onchange="showPreview('mDate','pvDate',true)"></select><div class="col-prev" id="pvDate"></div></div>
-          <div class="ci"><label>🏷️ 대분류</label><select id="mCat" onchange="showPreview('mCat','pvCat',false)"></select><div class="col-prev" id="pvCat"></div></div>
-          <div class="ci"><label>👥 SDWT</label><select id="mSdwt" onchange="showPreview('mSdwt','pvSdwt',false)"></select><div class="col-prev" id="pvSdwt"></div></div>
-          <div class="ci"><label>🔢 사용건수</label><select id="mCount" onchange="showPreview('mCount','pvCount',true)"></select><div class="col-prev" id="pvCount"></div></div>
-          <div class="ci"><label>💰 사용금액</label><select id="mAmt" onchange="showPreview('mAmt','pvAmt',true)"></select><div class="col-prev" id="pvAmt"></div></div>
+          <div class="ci"><label><span class="col-lbl" id="lbl_date" onclick="editColLabel('date')">📅 날짜</span></label><select id="mDate" onchange="showPreview('mDate','pvDate',true)"></select><div class="col-prev" id="pvDate"></div></div>
+          <div class="ci"><label><span class="col-lbl" id="lbl_cat" onclick="editColLabel('cat')">🏷️ 대분류</span></label><select id="mCat" onchange="showPreview('mCat','pvCat',false)"></select><div class="col-prev" id="pvCat"></div></div>
+          <div class="ci"><label><span class="col-lbl" id="lbl_sdwt" onclick="editColLabel('sdwt')">👥 SDWT</span></label><select id="mSdwt" onchange="showPreview('mSdwt','pvSdwt',false)"></select><div class="col-prev" id="pvSdwt"></div></div>
+          <div class="ci"><label><span class="col-lbl" id="lbl_cnt" onclick="editColLabel('cnt')">🔢 사용건수</span></label><select id="mCount" onchange="showPreview('mCount','pvCount',true)"></select><div class="col-prev" id="pvCount"></div></div>
+          <div class="ci"><label><span class="col-lbl" id="lbl_amt" onclick="editColLabel('amt')">💰 사용금액</span></label><select id="mAmt" onchange="showPreview('mAmt','pvAmt',true)"></select><div class="col-prev" id="pvAmt"></div></div>
+        </div>
+        <div style="margin-top:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px">
+            <span style="font-size:12px;font-weight:700;color:var(--sub)">➕ 추가 열 매핑</span>
+            <button class="btn bo bsm" onclick="addExtraMap()">+ 추가</button>
+          </div>
+          <div id="extraMapGrid"></div>
+          <div style="font-size:11px;color:var(--sub);margin-top:5px">추가 열은 열 계산(수식)에서 <code style="background:var(--bg2);padding:1px 4px;border-radius:3px">[열이름]</code> 으로 참조할 수 있습니다.</div>
         </div>
       </div>
 
@@ -918,6 +941,9 @@ let calcCols = [];
 let editMode = false;
 let manualEdits = {};
 let seasonChart = null;
+let colLabels = {date:'날짜', cat:'대분류', sdwt:'SDWT', cnt:'사용건수', amt:'사용금액'};
+let extraMaps = [];
+let _emId = 0;
 
 const THEMES = {
   blue:  ['#1a73e8','#34a853','#fa7b17','#ea4335','#9334e6','#00bcd4','#ff6f00','#2e7d32','#ad1457','#1565c0','#558b2f','#6a1b9a','#00838f','#4e342e','#37474f'],
@@ -1042,6 +1068,7 @@ function fillSelects(){
     s.innerHTML='<option value="">-- 선택 --</option>';
     headers.forEach(h=>{const o=document.createElement('option');o.value=h;o.textContent=h;s.appendChild(o);});
   });
+  renderExtraMapGrid();
 }
 
 function autoMap(){
@@ -1055,6 +1082,78 @@ function autoMap(){
   showPreview('mAmt','pvAmt',true);
 }
 function cols(){ return {date:document.getElementById('mDate').value,cat:document.getElementById('mCat').value,sdwt:document.getElementById('mSdwt').value,cnt:document.getElementById('mCount').value,amt:document.getElementById('mAmt').value}; }
+
+/* ── 열 레이블 인라인 편집 ── */
+const COL_ICONS = {date:'📅', cat:'🏷️', sdwt:'👥', cnt:'🔢', amt:'💰'};
+function editColLabel(role){
+  const span = document.getElementById('lbl_'+role);
+  if(!span || span.querySelector('input')) return;
+  const cur = colLabels[role];
+  const inp = document.createElement('input');
+  inp.className = 'col-lbl-inp';
+  inp.value = cur;
+  inp.title = 'Enter 또는 바깥 클릭으로 저장';
+  const commit = ()=>{
+    const v = inp.value.trim() || cur;
+    colLabels[role] = v;
+    span.textContent = COL_ICONS[role]+' '+v;
+    span.onclick = ()=>editColLabel(role);
+  };
+  inp.onblur = commit;
+  inp.onkeydown = e=>{ if(e.key==='Enter'){e.preventDefault();commit();inp.blur();} if(e.key==='Escape'){span.textContent=COL_ICONS[role]+' '+cur;span.onclick=()=>editColLabel(role);} };
+  span.textContent = '';
+  span.appendChild(inp);
+  span.onclick = null;
+  inp.focus();
+  inp.select();
+}
+
+/* ── 추가 열 매핑 ── */
+function addExtraMap(){
+  const id = ++_emId;
+  extraMaps.push({id, name:'열'+id, col:''});
+  renderExtraMapGrid();
+  // 새로 추가된 이름 입력에 포커스
+  setTimeout(()=>{
+    const inp = document.getElementById('em_name_'+id);
+    if(inp){inp.focus();inp.select();}
+  }, 50);
+}
+function removeExtraMap(id){
+  extraMaps = extraMaps.filter(e=>e.id!==id);
+  renderExtraMapGrid();
+}
+function renderExtraMapGrid(){
+  const grid = document.getElementById('extraMapGrid');
+  if(!grid) return;
+  if(extraMaps.length===0){
+    grid.innerHTML='<div style="font-size:12px;color:var(--sub);padding:4px 0">아직 추가된 열이 없습니다.</div>';
+    return;
+  }
+  grid.innerHTML = extraMaps.map(e=>`
+    <div class="extra-map-row" id="em_row_${e.id}">
+      <input class="extra-map-lbl-inp" id="em_name_${e.id}" value="${e.name.replace(/"/g,'&quot;')}"
+        placeholder="열 이름" title="이 열의 참조 이름 (수식에서 [이름]으로 사용)"
+        oninput="extraMaps.find(x=>x.id===${e.id}).name=this.value">
+      <select class="extra-map-sel" id="em_sel_${e.id}"
+        onchange="extraMaps.find(x=>x.id===${e.id}).col=this.value;showExtraPreview(${e.id})">
+        <option value="">-- CSV 열 선택 --</option>
+        ${headers.map(h=>`<option value="${h.replace(/"/g,'&quot;')}"${h===e.col?' selected':''}>${h}</option>`).join('')}
+      </select>
+      <div class="col-prev" id="em_prev_${e.id}" style="flex:0 0 auto;max-width:200px"></div>
+      <button style="background:none;border:none;color:#e53935;font-size:15px;cursor:pointer;padding:0 4px;line-height:1" title="삭제" onclick="removeExtraMap(${e.id})">✕</button>
+    </div>`).join('');
+  // 미리보기 복원
+  extraMaps.forEach(e=>{ if(e.col) showExtraPreview(e.id); });
+}
+function showExtraPreview(id){
+  const em = extraMaps.find(e=>e.id===id);
+  const el = document.getElementById('em_prev_'+id);
+  if(!em||!el) return;
+  if(!em.col||!rows.length){el.textContent='';return;}
+  const vals = rows.slice(0,3).map(r=>r[em.col]??'').filter(v=>v!=='');
+  el.textContent = vals.length ? vals.join(' / ') : '(값 없음)';
+}
 
 /* ══════════════════════════════════════
    COMPUTE
