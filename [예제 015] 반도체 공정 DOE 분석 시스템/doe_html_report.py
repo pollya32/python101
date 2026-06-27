@@ -17,7 +17,7 @@ from datetime import datetime
 # doe_semiconductor 에서 상수 가져오기
 from doe_semiconductor import (
     FACTORS, RESPONSES, WAFER_POINTS_25, WAFER_RADIUS, POINT_LABELS,
-    run_doe_analysis,
+    run_doe_analysis, generate_excel_template, load_excel_data,
 )
 
 
@@ -857,14 +857,37 @@ if __name__ == '__main__':
     parser.add_argument('--design',
         choices=['full_factorial','ccd','box_behnken','plackett_burman'],
         default='plackett_burman')
-    parser.add_argument('--data', default=None)
+    parser.add_argument('--data', default=None,
+        help='측정 데이터 파일 (.csv 또는 .xlsx)')
+    parser.add_argument('--template', action='store_true',
+        help='Excel 입력 템플릿만 생성 후 종료')
     parser.add_argument('--output', default='doe_results')
     args = parser.parse_args()
+
+    os.makedirs(args.output, exist_ok=True)
+
+    if args.template:
+        tpl = os.path.join(args.output, 'doe_input_template.xlsx')
+        generate_excel_template(design_type=args.design, output_path=tpl)
+        print(f'\n사용법:')
+        print(f'  1. {tpl} 파일을 엑셀로 열기')
+        print(f'  2. 노란색 셀에 측정값 입력 후 저장')
+        print(f'  3. python3 doe_html_report.py --data {tpl}')
+        import sys; sys.exit(0)
+
+    # xlsx 로드
+    data_path = args.data
+    if data_path and data_path.endswith('.xlsx'):
+        print(f'  Excel 데이터 로드: {data_path}')
+        loaded_df = load_excel_data(data_path)
+        tmp_csv = data_path.replace('.xlsx', '_loaded.csv')
+        loaded_df.to_csv(tmp_csv, index=False)
+        data_path = tmp_csv
 
     print('DOE 분석 실행 중...')
     result_df, analysis_results, opt_result = run_doe_analysis(
         design_type=args.design,
-        data_csv=args.data,
+        data_csv=data_path,
         output_dir=args.output,
     )
 

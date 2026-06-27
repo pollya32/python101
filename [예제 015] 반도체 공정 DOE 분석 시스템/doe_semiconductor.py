@@ -1369,6 +1369,281 @@ def run_doe_analysis(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Excel 템플릿 생성 & 로드
+# ══════════════════════════════════════════════════════════════════════════════
+def generate_excel_template(
+    design_type: str = 'plackett_burman',
+    active_factors: list = None,
+    output_path: str = 'doe_input_template.xlsx',
+) -> str:
+    """
+    실험 계획이 채워진 Excel 입력 템플릿 생성.
+    노란색 셀에 측정값을 입력한 후 --data 옵션으로 로드.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import (PatternFill, Font, Alignment, Border, Side,
+                                  numbers)
+    from openpyxl.utils import get_column_letter
+
+    used = active_factors or list(FACTORS.keys())
+    designer = DOEDesigner(FACTORS, used)
+    design_map = {
+        'full_factorial':   designer.full_factorial_2level,
+        'ccd':              designer.central_composite,
+        'box_behnken':      designer.box_behnken,
+        'plackett_burman':  designer.plackett_burman,
+    }
+    design_df = design_map.get(design_type, designer.plackett_burman)()
+    n_runs = len(design_df)
+
+    wb = Workbook()
+
+    # ── 색상 정의 ────────────────────────────────────────────────────────────
+    BLUE_FILL   = PatternFill('solid', fgColor='1565C0')
+    GRAY_FILL   = PatternFill('solid', fgColor='CFD8DC')
+    YELLOW_FILL = PatternFill('solid', fgColor='FFF9C4')
+    GREEN_FILL  = PatternFill('solid', fgColor='E8F5E9')
+    ORANGE_FILL = PatternFill('solid', fgColor='FFF3E0')
+    WHITE_FILL  = PatternFill('solid', fgColor='FFFFFF')
+    thin = Border(
+        left=Side(style='thin'), right=Side(style='thin'),
+        top=Side(style='thin'), bottom=Side(style='thin'),
+    )
+    def hdr(cell, text, fill=BLUE_FILL, font_color='FFFFFF', size=10):
+        cell.value = text
+        cell.fill  = fill
+        cell.font  = Font(bold=True, color=font_color, size=size)
+        cell.alignment = Alignment(horizontal='center', vertical='center',
+                                   wrap_text=True)
+        cell.border = thin
+    def data_cell(cell, value=None, fill=WHITE_FILL, num_fmt=None):
+        cell.value  = value
+        cell.fill   = fill
+        cell.border = thin
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+        if num_fmt:
+            cell.number_format = num_fmt
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  Sheet 1: 측정 데이터 입력
+    # ══════════════════════════════════════════════════════════════════════════
+    ws = wb.active
+    ws.title = '측정데이터입력'
+    ws.freeze_panes = 'A3'
+
+    # 행 1: 섹션 타이틀
+    actual_cols  = [f'{f}_actual' for f in used
+                    if f'{f}_actual' in design_df.columns]
+    factor_count = len(actual_cols)
+    resp_start   = 2 + factor_count          # Run + factors
+    pt_start     = resp_start + 3            # 응답 3개 뒤
+    total_cols   = pt_start + 25
+
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=1)
+    ws.merge_cells(start_row=1, start_column=2,
+                   end_row=1, end_column=1+factor_count)
+    ws.merge_cells(start_row=1, start_column=resp_start,
+                   end_row=1, end_column=resp_start+2)
+    ws.merge_cells(start_row=1, start_column=pt_start,
+                   end_row=1, end_column=pt_start+24)
+
+    hdr(ws.cell(1,1), 'Run', GRAY_FILL, '263238')
+    hdr(ws.cell(1,2), '공정 조건 (자동 입력 — 수정 금지)', GRAY_FILL, '263238')
+    hdr(ws.cell(1,resp_start), '▶ 응답 측정값 (노란색 셀에 입력)', BLUE_FILL)
+    hdr(ws.cell(1,pt_start),
+        '▶ 두께 25포인트 측정값 (Å) — 입력 시 THICKNESS/UNIFORMITY 자동 계산',
+        PatternFill('solid', fgColor='E65100'), 'FFFFFF')
+
+    # 행 2: 컬럼 헤더
+    hdr(ws.cell(2,1), 'Run No.', GRAY_FILL, '263238')
+    for ci, col in enumerate(actual_cols, start=2):
+        f = col.replace('_actual','')
+        unit = FACTORS[f]['unit']
+        hdr(ws.cell(2, ci), f'{f}\n({unit})', GRAY_FILL, '263238')
+
+    resp_headers = [
+        ('THICKNESS (Å)',   '※ 25pt 미입력 시'),
+        ('UNIFORMITY (%)',  '※ 25pt 미입력 시'),
+        ('PARTICLE (ea)',   '필수 입력'),
+    ]
+    for ci, (label, note) in enumerate(resp_headers):
+        hdr(ws.cell(2, resp_start+ci), f'{label}\n{note}',
+            PatternFill('solid', fgColor='F57F17'), '263238')
+
+    for ci, lbl in enumerate(POINT_LABELS):
+        x, y = WAFER_POINTS_25[ci]
+        r = np.sqrt(x**2+y**2)
+        hdr(ws.cell(2, pt_start+ci),
+            f'{lbl}\n({x:.0f},{y:.0f})\nr={r:.0f}',
+            ORANGE_FILL, '263238', size=8)
+
+    # 행 3~: 데이터
+    for ri, (_, row) in enumerate(design_df.iterrows(), start=3):
+        run_no = int(row.get('Run', ri-2))
+        data_cell(ws.cell(ri, 1), run_no, GRAY_FILL)
+        for ci, col in enumerate(actual_cols, start=2):
+            v = row[col]
+            data_cell(ws.cell(ri, ci), round(v, 3), WHITE_FILL, '0.000')
+        for ci in range(3):
+            data_cell(ws.cell(ri, resp_start+ci), None, YELLOW_FILL, '0.00')
+        for ci in range(25):
+            data_cell(ws.cell(ri, pt_start+ci), None, YELLOW_FILL, '0')
+
+    # 열 너비
+    ws.column_dimensions['A'].width = 8
+    for ci in range(factor_count):
+        ws.column_dimensions[get_column_letter(2+ci)].width = 11
+    for ci in range(3):
+        ws.column_dimensions[get_column_letter(resp_start+ci)].width = 14
+    for ci in range(25):
+        ws.column_dimensions[get_column_letter(pt_start+ci)].width = 9
+    ws.row_dimensions[1].height = 22
+    ws.row_dimensions[2].height = 42
+    for ri in range(3, 3+n_runs):
+        ws.row_dimensions[ri].height = 18
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  Sheet 2: 25포인트 좌표 안내
+    # ══════════════════════════════════════════════════════════════════════════
+    ws2 = wb.create_sheet('25포인트_좌표')
+    headers2 = ['Point', 'X (mm)', 'Y (mm)', 'Radius (mm)', 'Angle (°)', '위치 설명']
+    for ci, h in enumerate(headers2, 1):
+        hdr(ws2.cell(1,ci), h)
+    zone_map = {0:'Center', 1:'Inner(35mm)', 2:'Inner(35mm)', 3:'Inner(35mm)', 4:'Inner(35mm)',
+                5:'Mid-diag(75mm)', 6:'Mid-diag(75mm)', 7:'Mid-diag(75mm)', 8:'Mid-diag(75mm)',
+                9:'Mid-card(105mm)',10:'Mid-card(105mm)',11:'Mid-card(105mm)',12:'Mid-card(105mm)',
+               13:'Out-diag(120mm)',14:'Out-diag(120mm)',15:'Out-diag(120mm)',16:'Out-diag(120mm)'}
+    for i, (lbl,(x,y)) in enumerate(zip(POINT_LABELS, WAFER_POINTS_25)):
+        r    = np.sqrt(x**2+y**2)
+        ang  = np.degrees(np.arctan2(y,x))
+        zone = zone_map.get(i, f'Edge(140mm)')
+        row  = [lbl, x, y, round(r,1), round(ang,1), zone]
+        for ci, v in enumerate(row, 1):
+            data_cell(ws2.cell(i+2,ci), v,
+                      GREEN_FILL if i==0 else WHITE_FILL)
+    for ci, w in enumerate([8,10,10,12,12,18],1):
+        ws2.column_dimensions[get_column_letter(ci)].width = w
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  Sheet 3: 작성 방법 안내
+    # ══════════════════════════════════════════════════════════════════════════
+    ws3 = wb.create_sheet('작성방법안내')
+    guide = [
+        ('반도체 공정 DOE 데이터 입력 가이드', True, 'FFFFFF', '1565C0', 16),
+        ('', False, '000000', 'FFFFFF', 11),
+        ('■ 기본 사용법', True, '000000', 'E3F2FD', 12),
+        ('1. [측정데이터입력] 시트의 노란색(▶) 셀에만 값을 입력하세요.', False,'000000','FFFFFF',11),
+        ('2. 회색 셀(공정 조건)은 자동 계산값이므로 수정하지 마세요.', False,'000000','FFFFFF',11),
+        ('3. 저장 후 아래 명령어로 분석을 실행하세요.', False,'000000','FFFFFF',11),
+        ('', False, '000000', 'FFFFFF', 11),
+        ('■ 실행 명령어', True, '000000', 'E3F2FD', 12),
+        ('  python3 doe_html_report.py --data doe_input_template.xlsx', False,'E65100','FFF9C4',11),
+        ('', False, '000000', 'FFFFFF', 11),
+        ('■ 입력 우선순위', True, '000000', 'E3F2FD', 12),
+        ('방법 A (권장): 25포인트 두께(T_P01~T_P25) 모두 입력', False,'000000','FFFFFF',11),
+        ('  → THICKNESS 와 UNIFORMITY 는 자동 계산됩니다', False,'000000','FFFFFF',11),
+        ('  → PARTICLE(ea) 은 별도 입력 필요', False,'000000','FFFFFF',11),
+        ('방법 B: THICKNESS, UNIFORMITY, PARTICLE 직접 입력', False,'000000','FFFFFF',11),
+        ('  → 25포인트 열은 비워도 됩니다', False,'000000','FFFFFF',11),
+        ('', False, '000000', 'FFFFFF', 11),
+        ('■ 25포인트 계측 순서 (300mm 웨이퍼, EE=3mm)', True,'000000','E3F2FD',12),
+        ('  P01: 중심 (0, 0)', False,'000000','FFFFFF',11),
+        ('  P02~P05: r=35mm 상하좌우', False,'000000','FFFFFF',11),
+        ('  P06~P09: r=75mm 대각', False,'000000','FFFFFF',11),
+        ('  P10~P13: r=105mm 상하좌우', False,'000000','FFFFFF',11),
+        ('  P14~P17: r=120mm 대각', False,'000000','FFFFFF',11),
+        ('  P18~P25: r=140mm 8방향', False,'000000','FFFFFF',11),
+        ('', False,'000000','FFFFFF',11),
+        ('■ UNIFORMITY 계산식', True,'000000','E3F2FD',12),
+        ('  (MAX - MIN) / (2 × MEAN) × 100  (%)', False,'1565C0','FFFFFF',11),
+    ]
+    for ri, (text, bold, fcolor, bgcolor, fsize) in enumerate(guide, 1):
+        c = ws3.cell(ri, 1, text)
+        c.font   = Font(bold=bold, color=fcolor, size=fsize)
+        c.fill   = PatternFill('solid', fgColor=bgcolor)
+        c.alignment = Alignment(vertical='center')
+        ws3.row_dimensions[ri].height = 20
+    ws3.column_dimensions['A'].width = 70
+
+    wb.save(output_path)
+    print(f'  Excel 템플릿 생성: {output_path}')
+    print(f'  → [{n_runs}개 Run] 노란색 셀에 측정값 입력 후 저장하세요.')
+    return output_path
+
+
+def load_excel_data(path: str) -> pd.DataFrame:
+    """
+    generate_excel_template() 으로 생성한 Excel 파일에서
+    측정 데이터를 읽어 result_df 형태로 반환.
+    25포인트가 입력되면 THICKNESS/UNIFORMITY 자동 계산.
+    """
+    df = pd.read_excel(path, sheet_name='측정데이터입력', header=1)
+
+    # 헤더 정규화: 멀티라인, 단위 제거 → 핵심 키워드만 남김
+    rename_map = {}
+    for col in df.columns:
+        raw = str(col).split('\n')[0].strip()
+        # "Run No." → "Run"
+        if 'Run' in raw:
+            rename_map[col] = 'Run'
+            continue
+        # "THICKNESS (Å)\n..." → "THICKNESS"
+        for resp in ['THICKNESS', 'UNIFORMITY', 'PARTICLE']:
+            if resp in raw.upper():
+                rename_map[col] = resp
+                break
+        else:
+            # 인자: "AR\n(sccm)" → "AR_raw"
+            for f in FACTORS:
+                if raw.startswith(f) or raw == f:
+                    rename_map[col] = f'{f}_raw'
+                    break
+            else:
+                # 25포인트: "P01\n(0,0)\nr=0" → "T_P01"
+                for lbl in POINT_LABELS:
+                    if lbl in raw:
+                        rename_map[col] = f'T_{lbl}'
+                        break
+    df = df.rename(columns=rename_map)
+
+    # 25포인트가 채워진 경우 THICKNESS/UNIFORMITY 재계산
+    pt_cols_present = [f'T_{lbl}' for lbl in POINT_LABELS
+                       if f'T_{lbl}' in df.columns]
+    if len(pt_cols_present) == 25:
+        pt_data = df[pt_cols_present].apply(
+            pd.to_numeric, errors='coerce').values.astype(float)
+        filled = ~np.isnan(pt_data).all(axis=1)
+        if filled.any():
+            safe = np.where(np.isnan(pt_data), 0, pt_data)
+            means = safe.mean(axis=1)
+            maxs  = safe.max(axis=1)
+            mins  = safe.min(axis=1)
+            # 25포인트가 채워진 행만 덮어쓰기
+            df.loc[filled, 'THICKNESS']  = means[filled]
+            df.loc[filled, 'UNIFORMITY'] = (
+                (maxs[filled] - mins[filled]) /
+                (2 * means[filled] + 1e-9) * 100
+            )
+
+    # 인자 coded/actual 컬럼 복원
+    for f in FACTORS:
+        raw_col = f'{f}_raw'
+        if raw_col in df.columns:
+            df[f'{f}_actual'] = pd.to_numeric(df[raw_col], errors='coerce')
+            lo, hi = FACTORS[f]['low'], FACTORS[f]['high']
+            df[f] = 2 * (df[f'{f}_actual'] - lo) / (hi - lo) - 1
+
+    # 응답 숫자 변환
+    for col in ['THICKNESS', 'UNIFORMITY', 'PARTICLE']:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    df = df.dropna(subset=['Run'])
+    df['Run'] = df['Run'].astype(int)
+    return df
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  데이터 입력 인터페이스
 # ══════════════════════════════════════════════════════════════════════════════
 def input_actual_data(design_df: pd.DataFrame) -> pd.DataFrame:
@@ -1426,17 +1701,45 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--data', default=None,
-        help='실제 측정 데이터 CSV 파일 경로',
+        help='실제 측정 데이터 파일 경로 (.csv 또는 .xlsx)',
     )
     parser.add_argument(
         '--output', default=OUTPUT_DIR,
         help='결과 저장 폴더',
     )
     parser.add_argument(
+        '--template', action='store_true',
+        help='Excel 입력 템플릿 생성 후 종료 (측정값 입력용)',
+    )
+    parser.add_argument(
         '--interactive', action='store_true',
         help='실제 실험 데이터 수동 입력 모드',
     )
     args = parser.parse_args()
+
+    if args.template:
+        used = args.factors or list(FACTORS.keys())
+        os.makedirs(args.output, exist_ok=True)
+        tpl_path = os.path.join(args.output, 'doe_input_template.xlsx')
+        generate_excel_template(
+            design_type=args.design,
+            active_factors=used,
+            output_path=tpl_path,
+        )
+        print(f'\n사용법:')
+        print(f'  1. {tpl_path} 를 엑셀로 열기')
+        print(f'  2. 노란색 셀에 측정값 입력 후 저장')
+        print(f'  3. python3 doe_semiconductor.py --data {tpl_path}')
+        import sys; sys.exit(0)
+
+    # xlsx 파일 지원
+    data_path = args.data
+    if data_path and data_path.endswith('.xlsx'):
+        print(f'  Excel 데이터 로드: {data_path}')
+        loaded_df = load_excel_data(data_path)
+        tmp_csv = data_path.replace('.xlsx', '_loaded.csv')
+        loaded_df.to_csv(tmp_csv, index=False)
+        data_path = tmp_csv
 
     if args.interactive:
         # 인터랙티브 입력 모드
@@ -1457,6 +1760,6 @@ if __name__ == '__main__':
         run_doe_analysis(
             active_factors=args.factors,
             design_type=args.design,
-            data_csv=args.data,
+            data_csv=data_path,
             output_dir=args.output,
         )
