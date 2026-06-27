@@ -408,6 +408,22 @@
     .col-lbl:hover::after{content:' ✏️';font-size:9px;}
     .col-lbl-inp{width:100%;padding:2px 6px;border:1.5px solid var(--primary);border-radius:5px;font-size:11px;font-weight:700;color:var(--text);outline:none;background:#e8f0fe;}
     [data-dark] .col-lbl-inp{background:#1a237e;color:#e0e0e0;}
+    /* MoM 증감 */
+    .mom-up{color:#ea4335;font-weight:700;}
+    .mom-dn{color:#34a853;font-weight:700;}
+    .mom-nc{color:var(--sub);}
+    /* KPI 게이지 */
+    .kpi-gauge-wrap{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:140px;padding:12px 16px;background:#f8f9fa;border-radius:10px;border:1.5px solid var(--border);}
+    .kpi-gauge-label{font-size:11px;font-weight:700;color:var(--sub);text-align:center;line-height:1.3;}
+    .kpi-gauge-val{font-size:18px;font-weight:700;color:var(--primary);}
+    .kpi-gauge-pct{font-size:11px;color:var(--sub);}
+    .kpi-inp-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:#f8f9fa;border-radius:8px;margin-bottom:10px;}
+    .kpi-inp-row label{font-size:11px;font-weight:700;color:var(--sub);white-space:nowrap;}
+    .kpi-inp{padding:5px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12.5px;outline:none;width:140px;}
+    .kpi-inp:focus{border-color:var(--primary);}
+    [data-dark] .kpi-gauge-wrap{background:#252525;}
+    [data-dark] .kpi-inp-row{background:#252525;}
+    [data-dark] .kpi-inp{background:#2a2a2a;color:#e0e0e0;border-color:#333;}
 
     /* Prediction period */
     .pred-row { display:flex; align-items:center; gap:6px; margin-top:5px; flex-wrap:wrap; }
@@ -782,6 +798,71 @@
         <div class="resizable" style="position:relative;height:260px"><canvas id="volatCanvas"></canvas></div>
       </div>
 
+      <!-- Line Analysis Card -->
+      <div class="card" id="lineCard" style="display:none">
+        <div class="ch">
+          <div class="ct" data-col-template="🔧 {line}별 분석" style="margin:0">🔧 라인별 분석</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select id="lineMetric" class="hm-metric-sel" onchange="renderLineBar();renderLineHeatmap()">
+              <option value="cnt">사용건수</option>
+              <option value="amt">사용금액</option>
+            </select>
+            <button class="btn bo bsm" onclick="document.getElementById('lineCard').style.display='none'">✕</button>
+          </div>
+        </div>
+        <div class="resizable" style="position:relative;height:260px;margin-bottom:14px"><canvas id="lineBarCanvas"></canvas></div>
+        <div style="font-size:12px;font-weight:700;color:var(--primary);margin:8px 0 6px">🌡️ 라인 × 월 히트맵</div>
+        <div class="hm-wrap" id="lineHmWrap"></div>
+      </div>
+
+      <!-- MoM Change Table -->
+      <div class="card" id="momCard" style="display:none">
+        <div class="ch">
+          <div class="ct" style="margin:0">📈 전월 대비 증감 현황</div>
+          <button class="btn bo bsm" onclick="document.getElementById('momCard').style.display='none'">✕</button>
+        </div>
+        <div class="tw" id="momTable"></div>
+      </div>
+
+      <!-- Line × SDWT Cross Analysis -->
+      <div class="card" id="crossCard" style="display:none">
+        <div class="ch">
+          <div class="ct" data-col-template="🔀 {line} × {sdwt} 크로스 분석" style="margin:0">🔀 라인 × SDWT 크로스 분석</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select id="crossMetric" class="hm-metric-sel" onchange="renderCross()">
+              <option value="cnt">사용건수</option>
+              <option value="amt">사용금액</option>
+            </select>
+            <button class="btn bo bsm" onclick="document.getElementById('crossCard').style.display='none'">✕</button>
+          </div>
+        </div>
+        <div class="hm-wrap" id="crossResult"></div>
+      </div>
+
+      <!-- KPI Gauge -->
+      <div class="card" id="kpiCard" style="display:none">
+        <div class="ch">
+          <div class="ct" style="margin:0">🎯 KPI 목표 대비 게이지</div>
+          <button class="btn bo bsm" onclick="document.getElementById('kpiCard').style.display='none'">✕</button>
+        </div>
+        <div id="kpiSettings"></div>
+        <div id="kpiGauges" style="display:flex;flex-wrap:wrap;gap:14px;justify-content:center;margin-top:6px"></div>
+      </div>
+
+      <!-- Top-N Anomaly List -->
+      <div class="card" id="anomListCard" style="display:none">
+        <div class="ch">
+          <div class="ct" style="margin:0">🚨 상위 이상치 목록 (행 단위, σ 기반)</div>
+          <div style="display:flex;align-items:center;gap:7px">
+            <span style="font-size:11px;color:var(--sub)">상위</span>
+            <input class="topn-inp" type="number" id="anomTopN" min="5" max="200" value="20" oninput="renderAnomalyRows()">
+            <span style="font-size:11px;color:var(--sub)">건</span>
+            <button class="btn bo bsm" onclick="document.getElementById('anomListCard').style.display='none'">✕</button>
+          </div>
+        </div>
+        <div class="tw" id="anomListResult"></div>
+      </div>
+
       <!-- PPT -->
       <div class="card" id="exportCard" style="text-align:center;padding:26px">
         <p style="font-size:13px;color:var(--sub);margin-bottom:14px">분석 결과를 PPT·Excel로 내보내거나 메일로 공유합니다.</p>
@@ -814,6 +895,13 @@
           <button class="btn bo bsm" onclick="showCorrelation()">🔗 상관관계</button>
           <button class="btn bo bsm" onclick="showContrib()">📐 기여도 분해</button>
           <button class="btn bo bsm" onclick="showVolatility()">📉 변동성 분석</button>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:10px">
+          <button class="btn bo bsm" onclick="showLineCard()">🔧 라인별 분석</button>
+          <button class="btn bo bsm" onclick="showMoM()">📈 전월 대비 증감</button>
+          <button class="btn bo bsm" onclick="showCross()">🔀 라인×SDWT 크로스</button>
+          <button class="btn bo bsm" onclick="showKPICard()">🎯 KPI 게이지</button>
+          <button class="btn bo bsm" onclick="showAnomalyList()">🚨 이상치 목록</button>
         </div>
         <div class="wm-row">
           <span style="font-size:11.5px;font-weight:700;color:var(--sub);white-space:nowrap">🔖 워터마크</span>
@@ -853,6 +941,11 @@
       <div class="qc" onclick="q('기여도 분해')">📐 기여도</div>
       <div class="qc" onclick="q('변동성 분석')">📉 변동성</div>
       <div class="qc" onclick="q('롤링통계')">📊 롤링통계</div>
+      <div class="qc" onclick="q('라인별 분석')">🔧 라인분석</div>
+      <div class="qc" onclick="q('전월 대비 증감')">📈 전월증감</div>
+      <div class="qc" onclick="q('크로스 분석')">🔀 크로스</div>
+      <div class="qc" onclick="q('KPI 게이지')">🎯 KPI</div>
+      <div class="qc" onclick="q('이상치 목록')">🚨 이상치목록</div>
       <div class="qc" onclick="q('다크모드')">🌙 다크</div>
       <div class="qc" onclick="q('필터 초기화')">🔄 필터 해제</div>
       <div class="qc" onclick="q('도움말')">❓ 도움말</div>
@@ -1679,6 +1772,11 @@ function parseCmd(txt){
   if(/추세선|추세|trendline/.test(lo)){ toggleTrend(); return bot(`추세선을 ${showTrend?'켰습니다':'껐습니다'}.`,'추세선'); }
   if(/코호트|cohort|연도별패턴/.test(lo)){ showCohort(); return bot('코호트 분석을 표시했습니다. 연도별 월 패턴을 비교할 수 있습니다.','코호트 분석'); }
   if(/상관관계|correlation|pearson|피어슨/.test(lo)){ showCorrelation(); return bot('상관관계 행렬을 표시했습니다. 상단 버튼으로 대분류/SDWT/라인 기준을 선택하세요.','상관관계 분석'); }
+  if(/라인별분석|라인분석|라인별/.test(lo)){ showLineCard(); return bot('라인별 분석 카드를 표시했습니다.','라인별 분석'); }
+  if(/전월대비|전월증감|증감현황|mom/.test(lo)){ showMoM(); return bot('전월 대비 증감 테이블을 표시했습니다.','전월 대비 증감'); }
+  if(/크로스분석|크로스|라인sdwt|라인.*sdwt|sdwt.*라인/.test(lo)){ showCross(); return bot('라인 × SDWT 크로스 분석을 표시했습니다.','크로스 분석'); }
+  if(/kpi|게이지|목표대비kpi|kpi게이지/.test(lo)){ showKPICard(); return bot('KPI 목표 대비 게이지를 열었습니다. 목표값을 입력하면 달성률을 표시합니다.','KPI 게이지'); }
+  if(/이상치목록|이상치리스트|상위이상치/.test(lo)){ showAnomalyList(); return bot('행 단위 이상치 목록을 표시했습니다. σ 이탈도 순으로 정렬됩니다.','이상치 목록'); }
   if(/기여도|contribution|분해|decomp/.test(lo)){ showContrib(); return bot('월별 기여도 분해 차트를 표시했습니다.','기여도 분해'); }
   if(/변동성|volatility|변동계수/.test(lo)){ showVolatility(); return bot('변동성(CV%) 분석을 표시했습니다.','변동성 분석'); }
   if(/롤링통계|롤링|rollingstat/.test(lo)){ toggleRolling(); return bot(`롤링 통계(±1σ)를 ${showRolling?'켰습니다':'껐습니다'}.`,'롤링 통계'); }
@@ -3391,6 +3489,294 @@ function renderVolatScatter(stats){
     },
     plugins:[ChartDataLabels]
   });
+}
+
+/* ══════════════════════════════════════
+   LINE ANALYSIS
+══════════════════════════════════════ */
+let lineBarChart = null;
+function showLineCard(){
+  if(!data){toast('분석을 먼저 완료해 주세요.');return;}
+  const c=cols();
+  if(!c.line||!data.lines||data.lines.length===0){toast('라인 열을 먼저 매핑해 주세요.');return;}
+  const card=document.getElementById('lineCard');
+  card.style.display='block'; card.scrollIntoView({behavior:'smooth'});
+  renderLineBar();
+  renderLineHeatmap();
+}
+function renderLineBar(){
+  if(!data||!data.lines) return;
+  const metric=document.getElementById('lineMetric')?.value||'cnt';
+  if(lineBarChart){lineBarChart.destroy();lineBarChart=null;}
+  const lines=data.lines;
+  const vals=lines.map(l=>data.months.reduce((s,m)=>s+(data.mLine[m]?.[l]?.[metric]||0),0));
+  const sorted=[...lines.map((l,i)=>({l,v:vals[i]}))].sort((a,b)=>b.v-a.v);
+  const labels=sorted.map(x=>x.l), dvals=sorted.map(x=>x.v);
+  const ctx=document.getElementById('lineBarCanvas')?.getContext('2d'); if(!ctx) return;
+  lineBarChart=new Chart(ctx,{
+    type:'bar',
+    data:{labels,datasets:[{label:metric==='cnt'?colLabels.cnt:colLabels.amt,data:dvals,
+      backgroundColor:labels.map((_,i)=>C[i%C.length]+'cc'),
+      borderColor:labels.map((_,i)=>C[i%C.length]),borderWidth:2}]},
+    options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:x=>` ${fmt(x.raw)}${metric==='cnt'?'건':'원'}`}},
+        datalabels:{display:true,color:'#fff',font:{size:10,weight:'bold'},formatter:v=>v>0?fmt(v):null,anchor:'center',align:'center',clamp:true}
+      },
+      scales:{x:{beginAtZero:true,ticks:{callback:v=>fmt(v)}},y:{grid:{display:false}}}
+    },
+    plugins:[ChartDataLabels]
+  });
+}
+function renderLineHeatmap(){
+  if(!data||!data.lines) return;
+  const metric=document.getElementById('lineMetric')?.value||'cnt';
+  const lines=data.lines, months=data.months;
+  const allVals=lines.flatMap(l=>months.map(m=>data.mLine[m]?.[l]?.[metric]||0));
+  const maxV=Math.max(...allVals,1);
+  let h='<table class="hm-table"><thead><tr><th>라인</th>';
+  months.forEach(m=>{h+=`<th>${m.slice(2)}</th>`;});
+  h+='<th>합계</th></tr></thead><tbody>';
+  lines.forEach(l=>{
+    const tot=months.reduce((s,m)=>s+(data.mLine[m]?.[l]?.[metric]||0),0);
+    h+=`<tr><td class="hm-lbl">${esc(l)}</td>`;
+    months.forEach(m=>{
+      const v=data.mLine[m]?.[l]?.[metric]||0;
+      const a=(v/maxV*0.75).toFixed(2);
+      const bg=v>0?`rgba(26,115,232,${a})`:'transparent';
+      const tc=v/maxV>.5?'#fff':'#333';
+      h+=`<td style="background:${bg};color:${tc}" title="${esc(l)} ${m}: ${fmt(v)}">${v>0?fmt(v):''}</td>`;
+    });
+    h+=`<td style="font-weight:700;background:#e8f0fe">${fmt(tot)}</td></tr>`;
+  });
+  h+='</tbody></table>';
+  document.getElementById('lineHmWrap').innerHTML=h;
+}
+
+/* ══════════════════════════════════════
+   MOM CHANGE TABLE
+══════════════════════════════════════ */
+function showMoM(){
+  if(!data){toast('분석을 먼저 완료해 주세요.');return;}
+  const card=document.getElementById('momCard');
+  card.style.display='block'; card.scrollIntoView({behavior:'smooth'});
+  renderMoM();
+}
+function renderMoM(){
+  const months=data.months;
+  const el=document.getElementById('momTable');
+  if(months.length<2){el.innerHTML='<div style="color:var(--sub);font-size:12px;padding:8px">2개월 이상 데이터가 필요합니다.</div>';return;}
+  const mCnt=months.map(m=>Object.values(data.mCat[m]||{}).reduce((a,b)=>a+b,0));
+  const mAmt=months.map(m=>data.mAmt[m]||0);
+  let h=`<table><thead><tr>
+    <th>월</th>
+    <th>${colLabels.cnt}</th><th>전월 대비</th><th>증감률</th>
+    <th>${colLabels.amt}(원)</th><th>전월 대비</th><th>증감률</th>
+  </tr></thead><tbody>`;
+  months.forEach((m,i)=>{
+    const cnt=mCnt[i], amt=mAmt[i];
+    let cntChg='—',cntPct='—',amtChg='—',amtPct='—';
+    let cCls='mom-nc', aCls='mom-nc';
+    if(i>0){
+      const dc=cnt-mCnt[i-1], da=amt-mAmt[i-1];
+      const pc=mCnt[i-1]?dc/mCnt[i-1]*100:0;
+      const pa=mAmt[i-1]?da/mAmt[i-1]*100:0;
+      cCls=dc>0?'mom-up':dc<0?'mom-dn':'mom-nc';
+      aCls=da>0?'mom-up':da<0?'mom-dn':'mom-nc';
+      cntChg=(dc>=0?'+':'')+fmt(dc);
+      cntPct=(pc>=0?'+':'')+pc.toFixed(1)+'%';
+      amtChg=(da>=0?'+':'')+fmt(da);
+      amtPct=(pa>=0?'+':'')+pa.toFixed(1)+'%';
+    }
+    h+=`<tr>
+      <td class="rh">${m}</td>
+      <td class="mn">${fmt(cnt)}</td>
+      <td class="mn ${cCls}">${cntChg}</td>
+      <td class="mn ${cCls}">${cntPct}</td>
+      <td class="mn">${fmt(amt)}</td>
+      <td class="mn ${aCls}">${amtChg}</td>
+      <td class="mn ${aCls}">${amtPct}</td>
+    </tr>`;
+  });
+  h+='</tbody></table>';
+  el.innerHTML=h;
+}
+
+/* ══════════════════════════════════════
+   LINE × SDWT CROSS ANALYSIS
+══════════════════════════════════════ */
+function showCross(){
+  if(!data){toast('분석을 먼저 완료해 주세요.');return;}
+  const c=cols();
+  if(!c.line||!data.lines||data.lines.length===0){toast('라인 열을 먼저 매핑해 주세요.');return;}
+  const card=document.getElementById('crossCard');
+  card.style.display='block'; card.scrollIntoView({behavior:'smooth'});
+  renderCross();
+}
+function renderCross(){
+  if(!data||!data.lines) return;
+  const metric=document.getElementById('crossMetric')?.value||'cnt';
+  const c=cols();
+  const lines=data.lines, sdwts=data.sdwts;
+  const mat={};
+  lines.forEach(l=>{mat[l]={};});
+  const lineTot={}, sdwtTot={};
+  lines.forEach(l=>lineTot[l]=0);
+  sdwts.forEach(s=>sdwtTot[s]=0);
+  frows.forEach(row=>{
+    const l=(row[c.line]||'').trim(); if(!l||!mat[l]) return;
+    const s=(row[c.sdwt]||'').trim()||'미지정';
+    const v=metric==='cnt'?(c.cnt?pnum(row[c.cnt]):1):(c.amt?pnum(row[c.amt]):0);
+    mat[l][s]=(mat[l][s]||0)+v;
+    lineTot[l]+=v;
+    sdwtTot[s]=(sdwtTot[s]||0)+v;
+  });
+  const allVals=lines.flatMap(l=>sdwts.map(s=>mat[l][s]||0));
+  const maxV=Math.max(...allVals,1);
+  let h='<table class="hm-table"><thead><tr><th>라인 \\ SDWT</th>';
+  sdwts.forEach(s=>{h+=`<th title="${esc(s)}">${esc(s.length>6?s.slice(0,5)+'…':s)}</th>`;});
+  h+='<th>합계</th></tr></thead><tbody>';
+  lines.forEach(l=>{
+    h+=`<tr><td class="hm-lbl">${esc(l)}</td>`;
+    sdwts.forEach(s=>{
+      const v=mat[l][s]||0;
+      const a=(v/maxV*0.72).toFixed(2);
+      const bg=v>0?`rgba(52,168,83,${a})`:'transparent';
+      const tc=v/maxV>.5?'#fff':'#333';
+      h+=`<td style="background:${bg};color:${tc}" title="${esc(l)} × ${esc(s)}: ${fmt(v)}">${v>0?fmt(v):''}</td>`;
+    });
+    h+=`<td style="font-weight:700;background:#e6f4ea">${fmt(lineTot[l])}</td></tr>`;
+  });
+  h+='<tr class="tr"><td class="rh">합계</td>';
+  sdwts.forEach(s=>{h+=`<td>${fmt(sdwtTot[s]||0)}</td>`;});
+  const grand=lines.reduce((a,l)=>a+lineTot[l],0);
+  h+=`<td>${fmt(grand)}</td></tr></tbody></table>`;
+  document.getElementById('crossResult').innerHTML=h;
+}
+
+/* ══════════════════════════════════════
+   KPI GAUGE
+══════════════════════════════════════ */
+let kpiCharts=[];
+let kpiTargets={cnt:0,amt:0};
+function showKPICard(){
+  if(!data){toast('분석을 먼저 완료해 주세요.');return;}
+  const card=document.getElementById('kpiCard');
+  card.style.display='block'; card.scrollIntoView({behavior:'smooth'});
+  renderKPISettings();
+  renderKPIGauges();
+}
+function renderKPISettings(){
+  const el=document.getElementById('kpiSettings'); if(!el) return;
+  el.innerHTML=`<div class="kpi-inp-row">
+    <label>월 ${colLabels.cnt} 목표</label>
+    <input class="kpi-inp" type="number" id="kpiCntTarget" placeholder="예: 5000" value="${kpiTargets.cnt||''}"
+      oninput="kpiTargets.cnt=pnum(this.value);renderKPIGauges()">
+    <label>월 ${colLabels.amt} 목표 (원)</label>
+    <input class="kpi-inp" type="number" id="kpiAmtTarget" placeholder="예: 10000000" value="${kpiTargets.amt||''}"
+      oninput="kpiTargets.amt=pnum(this.value);renderKPIGauges()">
+  </div>`;
+}
+function renderKPIGauges(){
+  kpiCharts.forEach(c=>c.destroy()); kpiCharts=[];
+  const el=document.getElementById('kpiGauges'); if(!el||!data) return;
+  const months=data.months; const n=months.length; if(!n){el.innerHTML='';return;}
+  const totalCnt=months.reduce((s,m)=>s+Object.values(data.mCat[m]||{}).reduce((a,b)=>a+b,0),0);
+  const totalAmt=months.reduce((s,m)=>s+(data.mAmt[m]||0),0);
+  const avgCnt=Math.round(totalCnt/n), avgAmt=Math.round(totalAmt/n);
+  const lastM=months[n-1];
+  const lastCnt=Object.values(data.mCat[lastM]||{}).reduce((a,b)=>a+b,0);
+  const lastAmt=data.mAmt[lastM]||0;
+  const items=[
+    {id:'kpiG1',label:`누적 ${colLabels.cnt}`,actual:totalCnt,target:kpiTargets.cnt*n,unit:'건',color:'#1a73e8'},
+    {id:'kpiG2',label:`누적 ${colLabels.amt}`,actual:totalAmt,target:kpiTargets.amt*n,unit:'원',color:'#34a853'},
+    {id:'kpiG3',label:`월 평균 ${colLabels.cnt}`,actual:avgCnt,target:kpiTargets.cnt,unit:'건',color:'#fa7b17'},
+    {id:'kpiG4',label:`월 평균 ${colLabels.amt}`,actual:avgAmt,target:kpiTargets.amt,unit:'원',color:'#9334e6'},
+    {id:'kpiG5',label:`최근월 ${colLabels.cnt} (${lastM})`,actual:lastCnt,target:kpiTargets.cnt,unit:'건',color:'#00bcd4'},
+    {id:'kpiG6',label:`최근월 ${colLabels.amt} (${lastM})`,actual:lastAmt,target:kpiTargets.amt,unit:'원',color:'#ad1457'},
+  ];
+  el.innerHTML=items.map(it=>{
+    const pctNum=it.target>0?Math.round(it.actual/it.target*100):null;
+    const over=pctNum!==null&&pctNum>100;
+    return `<div class="kpi-gauge-wrap">
+      <div class="kpi-gauge-label">${it.label}</div>
+      <div style="position:relative;width:140px;height:80px"><canvas id="${it.id}" width="140" height="80"></canvas></div>
+      <div class="kpi-gauge-val" style="color:${over?'#ea4335':it.color}">${fmt(it.actual)}${it.unit}</div>
+      <div class="kpi-gauge-pct">${pctNum!==null?`목표 ${fmt(it.target)}${it.unit}<br><strong style="color:${over?'#ea4335':pctNum>=80?'#34a853':'#fa7b17'}">${pctNum}%</strong>`:'목표 미설정'}</div>
+    </div>`;
+  }).join('');
+  items.forEach(it=>{
+    const pct=it.target>0?Math.min(it.actual/it.target,1):0;
+    const over=it.target>0&&it.actual>it.target;
+    const ctx=document.getElementById(it.id)?.getContext('2d'); if(!ctx) return;
+    const fillColor=over?'#ea4335':it.color;
+    const ch=new Chart(ctx,{
+      type:'doughnut',
+      data:{datasets:[{data:[pct,Math.max(0,1-pct)],
+        backgroundColor:[fillColor,'#e8f0fe'],borderWidth:0,
+        circumference:180,rotation:-90}]},
+      options:{responsive:false,maintainAspectRatio:false,cutout:'70%',
+        plugins:{legend:{display:false},tooltip:{enabled:false},datalabels:{display:false}}},
+      plugins:[ChartDataLabels]
+    });
+    kpiCharts.push(ch);
+  });
+}
+
+/* ══════════════════════════════════════
+   TOP-N ANOMALY LIST
+══════════════════════════════════════ */
+function showAnomalyList(){
+  if(!data){toast('분석을 먼저 완료해 주세요.');return;}
+  const card=document.getElementById('anomListCard');
+  card.style.display='block'; card.scrollIntoView({behavior:'smooth'});
+  renderAnomalyRows();
+}
+function renderAnomalyRows(){
+  if(!data) return;
+  const topN=parseInt(document.getElementById('anomTopN')?.value)||20;
+  const c=cols();
+  // Per-category stats (monthly aggregates)
+  const catAvg={}, catStd={};
+  data.cats.forEach(cat=>{
+    const vals=data.months.map(m=>data.mCat[m]?.[cat]||0);
+    const avg=vals.reduce((a,b)=>a+b,0)/vals.length;
+    const std=Math.sqrt(vals.reduce((a,b)=>a+(b-avg)**2,0)/vals.length);
+    catAvg[cat]=avg; catStd[cat]=std;
+  });
+  const scored=frows.map(row=>{
+    const d2=pdate(row[c.date]); if(!d2) return null;
+    const cat=(row[c.cat]||'').trim()||'미분류';
+    const sdwt=(row[c.sdwt]||'').trim()||'미지정';
+    const line=c.line?(row[c.line]||'').trim():'';
+    const cnt=c.cnt?pnum(row[c.cnt]):1;
+    const amt=c.amt?pnum(row[c.amt]):0;
+    const avg=catAvg[cat]||0, std=catStd[cat]||0;
+    const sigma=std>0?Math.abs(cnt-avg)/std:0;
+    return {ym:`${d2.y}-${d2.mo}`,cat,sdwt,line,cnt,amt,sigma};
+  }).filter(Boolean).sort((a,b)=>b.sigma-a.sigma).slice(0,topN);
+  const el=document.getElementById('anomListResult');
+  if(!scored.length){el.innerHTML='<div style="color:var(--sub);font-size:12px;padding:8px">이상치 데이터가 없습니다.</div>';return;}
+  const hasLine=!!c.line;
+  let h=`<table><thead><tr><th>월</th><th>${colLabels.cat}</th><th>${colLabels.sdwt}</th>`;
+  if(hasLine) h+=`<th>${colLabels.line}</th>`;
+  h+=`<th>${colLabels.cnt}</th><th>${colLabels.amt}(원)</th><th>σ 이탈도</th><th>판정</th></tr></thead><tbody>`;
+  scored.forEach(r=>{
+    const level=r.sigma>=3?'🔴 심각':r.sigma>=2?'🟠 경고':'🟡 주의';
+    const bg=r.sigma>=3?'background:rgba(234,67,53,.09)':r.sigma>=2?'background:rgba(250,123,23,.09)':'';
+    h+=`<tr style="${bg}">
+      <td class="rh">${r.ym}</td>
+      <td>${esc(r.cat)}</td>
+      <td>${esc(r.sdwt)}</td>`;
+    if(hasLine) h+=`<td>${esc(r.line)}</td>`;
+    h+=`<td class="mn">${fmt(r.cnt)}</td>
+      <td class="mn">${fmt(r.amt)}</td>
+      <td class="mn" style="font-weight:700;color:${r.sigma>=3?'#ea4335':r.sigma>=2?'#fa7b17':'#e65100'}">${r.sigma.toFixed(2)}σ</td>
+      <td>${level}</td>
+    </tr>`;
+  });
+  h+='</tbody></table>';
+  el.innerHTML=h;
 }
 
 /* ══════════════════════════════════════
