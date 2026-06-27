@@ -517,6 +517,7 @@
           <div class="ci"><label><span class="col-lbl" id="lbl_cnt" onclick="editColLabel('cnt')">🔢 사용건수</span></label><select id="mCount" onchange="onMappingChange('mCount','pvCount',true)"></select><div class="col-prev" id="pvCount"></div></div>
           <div class="ci"><label><span class="col-lbl" id="lbl_amt" onclick="editColLabel('amt')">💰 사용금액</span></label><select id="mAmt" onchange="onMappingChange('mAmt','pvAmt',true)"></select><div class="col-prev" id="pvAmt"></div></div>
           <div class="ci"><label><span class="col-lbl" id="lbl_line" onclick="editColLabel('line')">🔧 라인</span></label><select id="mLine" onchange="onMappingChange('mLine','pvLine',false)"></select><div class="col-prev" id="pvLine"></div></div>
+          <div class="ci"><label><span class="col-lbl" id="lbl_eqp" onclick="editColLabel('eqp')">⚙️ 설비모델</span></label><select id="mEqp" onchange="onMappingChange('mEqp','pvEqp',false)"></select><div class="col-prev" id="pvEqp"></div></div>
         </div>
       </div>
 
@@ -802,7 +803,13 @@
       <div class="card" id="lineCard" style="display:none">
         <div class="ch">
           <div class="ct" data-col-template="🔧 {line}별 분석" style="margin:0">🔧 라인별 분석</div>
-          <div style="display:flex;align-items:center;gap:8px">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <div class="ctb" id="lineTypeBtns">
+              <button class="cb active" onclick="setLineChart('bar',this)">막대</button>
+              <button class="cb" onclick="setLineChart('line',this)">꺾은선</button>
+              <button class="cb" onclick="setLineChart('doughnut',this)">도넛</button>
+              <button class="cb" onclick="setLineChart('radar',this)">레이더</button>
+            </div>
             <select id="lineMetric" class="hm-metric-sel" onchange="renderLineBar();renderLineHeatmap()">
               <option value="cnt">사용건수</option>
               <option value="amt">사용금액</option>
@@ -863,6 +870,21 @@
         <div class="tw" id="anomListResult"></div>
       </div>
 
+      <!-- SDWT × 설비모델 Cross -->
+      <div class="card" id="eqpCrossCard" style="display:none">
+        <div class="ch">
+          <div class="ct" data-col-template="⚙️ {sdwt} × {eqp} 크로스 분석" style="margin:0">⚙️ SDWT × 설비모델 크로스 분석</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select id="eqpCrossMetric" class="hm-metric-sel" onchange="renderEqpCross()">
+              <option value="cnt">사용건수</option>
+              <option value="amt">사용금액</option>
+            </select>
+            <button class="btn bo bsm" onclick="document.getElementById('eqpCrossCard').style.display='none'">✕</button>
+          </div>
+        </div>
+        <div class="hm-wrap" id="eqpCrossResult"></div>
+      </div>
+
       <!-- PPT -->
       <div class="card" id="exportCard" style="text-align:center;padding:26px">
         <p style="font-size:13px;color:var(--sub);margin-bottom:14px">분석 결과를 PPT·Excel로 내보내거나 메일로 공유합니다.</p>
@@ -900,6 +922,7 @@
           <button class="btn bo bsm" onclick="showLineCard()">🔧 라인별 분석</button>
           <button class="btn bo bsm" onclick="showMoM()">📈 전월 대비 증감</button>
           <button class="btn bo bsm" onclick="showCross()">🔀 라인×SDWT 크로스</button>
+          <button class="btn bo bsm" onclick="showEqpCross()">⚙️ SDWT×설비 크로스</button>
           <button class="btn bo bsm" onclick="showKPICard()">🎯 KPI 게이지</button>
           <button class="btn bo bsm" onclick="showAnomalyList()">🚨 이상치 목록</button>
         </div>
@@ -944,6 +967,7 @@
       <div class="qc" onclick="q('라인별 분석')">🔧 라인분석</div>
       <div class="qc" onclick="q('전월 대비 증감')">📈 전월증감</div>
       <div class="qc" onclick="q('크로스 분석')">🔀 크로스</div>
+      <div class="qc" onclick="q('설비 크로스 분석')">⚙️ 설비크로스</div>
       <div class="qc" onclick="q('KPI 게이지')">🎯 KPI</div>
       <div class="qc" onclick="q('이상치 목록')">🚨 이상치목록</div>
       <div class="qc" onclick="q('다크모드')">🌙 다크</div>
@@ -1074,9 +1098,12 @@ let calcCols = [];
 let editMode = false;
 let manualEdits = {};
 let seasonChart = null;
-let colLabels = {date:'날짜', cat:'대분류', sdwt:'SDWT', cnt:'사용건수', amt:'사용금액', line:'라인'};
-let corrSelected = new Set();
-let corrGroupBy = 'cat';
+let colLabels = {date:'날짜', cat:'대분류', sdwt:'SDWT', cnt:'사용건수', amt:'사용금액', line:'라인', eqp:'설비모델'};
+let corrRowBy = 'cat';
+let corrColBy = 'sdwt';
+let corrRowSel = new Set();
+let corrColSel = new Set();
+let lineChartType = 'bar';
 
 const THEMES = {
   blue:  ['#1a73e8','#34a853','#fa7b17','#ea4335','#9334e6','#00bcd4','#ff6f00','#2e7d32','#ad1457','#1565c0','#558b2f','#6a1b9a','#00838f','#4e342e','#37474f'],
@@ -1195,7 +1222,7 @@ function showPreview(selId, pvId, isNumeric){
 }
 
 function fillSelects(){
-  const MAP=[['mDate','pvDate',true],['mCat','pvCat',false],['mSdwt','pvSdwt',false],['mCount','pvCount',true],['mAmt','pvAmt',true],['mLine','pvLine',false]];
+  const MAP=[['mDate','pvDate',true],['mCat','pvCat',false],['mSdwt','pvSdwt',false],['mCount','pvCount',true],['mAmt','pvAmt',true],['mLine','pvLine',false],['mEqp','pvEqp',false]];
   MAP.forEach(([id])=>{
     const s=document.getElementById(id);
     s.innerHTML='<option value="">-- 선택 --</option>';
@@ -1204,7 +1231,7 @@ function fillSelects(){
 }
 
 function autoMap(){
-  const r={mDate:[/날짜|date|일자|ymd|년월/i],mCat:[/대분류|category|분류|품목/i],mSdwt:[/sdwt|팀|team|부서|dept/i],mCount:[/건수|count|수량|qty/i],mAmt:[/금액|amount|총액|원가|cost|price/i],mLine:[/라인|line|공정|호기/i]};
+  const r={mDate:[/날짜|date|일자|ymd|년월/i],mCat:[/대분류|category|분류|품목/i],mSdwt:[/sdwt|팀|team|부서|dept/i],mCount:[/건수|count|수량|qty/i],mAmt:[/금액|amount|총액|원가|cost|price/i],mLine:[/라인|line|공정|호기/i],mEqp:[/설비모델|모델|model|equipment|설비|기종/i]};
   Object.entries(r).forEach(([id,p])=>{const m=headers.find(h=>p.some(x=>x.test(h)));if(m)document.getElementById(id).value=m;});
   // 자동 매핑 후 미리보기 갱신
   showPreview('mDate','pvDate',true);
@@ -1213,8 +1240,9 @@ function autoMap(){
   showPreview('mCount','pvCount',true);
   showPreview('mAmt','pvAmt',true);
   showPreview('mLine','pvLine',false);
+  showPreview('mEqp','pvEqp',false);
 }
-function cols(){ return {date:document.getElementById('mDate').value,cat:document.getElementById('mCat').value,sdwt:document.getElementById('mSdwt').value,cnt:document.getElementById('mCount').value,amt:document.getElementById('mAmt').value,line:document.getElementById('mLine').value}; }
+function cols(){ return {date:document.getElementById('mDate').value,cat:document.getElementById('mCat').value,sdwt:document.getElementById('mSdwt').value,cnt:document.getElementById('mCount').value,amt:document.getElementById('mAmt').value,line:document.getElementById('mLine').value,eqp:document.getElementById('mEqp').value}; }
 
 function onMappingChange(selId,pvId,isNum){
   showPreview(selId,pvId,isNum);
@@ -1229,7 +1257,8 @@ function applyColLabels(){
       .replace(/{sdwt}/g,colLabels.sdwt)
       .replace(/{cnt}/g,colLabels.cnt)
       .replace(/{amt}/g,colLabels.amt)
-      .replace(/{line}/g,colLabels.line);
+      .replace(/{line}/g,colLabels.line)
+      .replace(/{eqp}/g,colLabels.eqp);
   });
   // Heatmap metric select options
   const hm=document.getElementById('hmMetric');
@@ -1241,7 +1270,7 @@ function applyColLabels(){
 }
 
 /* ── 열 레이블 인라인 편집 ── */
-const COL_ICONS = {date:'📅', cat:'🏷️', sdwt:'👥', cnt:'🔢', amt:'💰', line:'🔧'};
+const COL_ICONS = {date:'📅', cat:'🏷️', sdwt:'👥', cnt:'🔢', amt:'💰', line:'🔧', eqp:'⚙️'};
 function editColLabel(role){
   const span = document.getElementById('lbl_'+role);
   if(!span || span.querySelector('input')) return;
@@ -1271,8 +1300,8 @@ function editColLabel(role){
    COMPUTE
 ══════════════════════════════════════ */
 function compute(rs,c){
-  const mS=new Set(),catS=new Set(),sdwtS=new Set(),lineS=new Set();
-  const mCat={},sCnt={},sAmt={},sTotal={},mAmt={},mSdwt={},mLine={},lTotal={};
+  const mS=new Set(),catS=new Set(),sdwtS=new Set(),lineS=new Set(),eqpS=new Set();
+  const mCat={},sCnt={},sAmt={},sTotal={},mAmt={},mSdwt={},mLine={},lTotal={},mEqp={},eqpTotal={};
   let skipped=0;
   rs.forEach(row=>{
     const d=pdate(row[c.date]);
@@ -1307,11 +1336,26 @@ function compute(rs,c){
         lTotal[line]=(lTotal[line]||0)+cnt;
       }
     }
+    // Equipment model tracking
+    if(c.eqp){
+      const eqp=(row[c.eqp]||'').trim();
+      if(eqp){
+        eqpS.add(eqp);
+        if(!mEqp[ym]) mEqp[ym]={};
+        if(!mEqp[ym][eqp]) mEqp[ym][eqp]={cnt:0,amt:0};
+        mEqp[ym][eqp].cnt+=cnt;
+        mEqp[ym][eqp].amt+=amt;
+        eqpTotal[eqp]=(eqpTotal[eqp]||0)+cnt;
+        // Track sdwt×eqp for cross analysis
+        if(!mEqp[ym][eqp].sdwt) mEqp[ym][eqp].sdwt={};
+        mEqp[ym][eqp].sdwt[sdwt]=(mEqp[ym][eqp].sdwt[sdwt]||0)+cnt;
+      }
+    }
   });
-  const months=[...mS].sort(), cats=[...catS].sort(), sdwts=[...sdwtS].sort(), lines=[...lineS].sort();
+  const months=[...mS].sort(), cats=[...catS].sort(), sdwts=[...sdwtS].sort(), lines=[...lineS].sort(), eqps=[...eqpS].sort();
   const tc=rs.reduce((s,r)=>s+(c.cnt?pnum(r[c.cnt]):1),0);
   const ta=rs.reduce((s,r)=>s+(c.amt?pnum(r[c.amt]):0),0);
-  return {months,cats,sdwts,lines,mCat,sCnt,sAmt,sTotal,mAmt,mSdwt,mLine,lTotal,tc,ta,n:rs.length,skipped};
+  return {months,cats,sdwts,lines,eqps,mCat,sCnt,sAmt,sTotal,mAmt,mSdwt,mLine,lTotal,mEqp,eqpTotal,tc,ta,n:rs.length,skipped};
 }
 
 /* ══════════════════════════════════════
@@ -1771,9 +1815,10 @@ function parseCmd(txt){
   }
   if(/추세선|추세|trendline/.test(lo)){ toggleTrend(); return bot(`추세선을 ${showTrend?'켰습니다':'껐습니다'}.`,'추세선'); }
   if(/코호트|cohort|연도별패턴/.test(lo)){ showCohort(); return bot('코호트 분석을 표시했습니다. 연도별 월 패턴을 비교할 수 있습니다.','코호트 분석'); }
-  if(/상관관계|correlation|pearson|피어슨/.test(lo)){ showCorrelation(); return bot('상관관계 행렬을 표시했습니다. 상단 버튼으로 대분류/SDWT/라인 기준을 선택하세요.','상관관계 분석'); }
-  if(/라인별분석|라인분석|라인별/.test(lo)){ showLineCard(); return bot('라인별 분석 카드를 표시했습니다.','라인별 분석'); }
+  if(/상관관계|correlation|pearson|피어슨/.test(lo)){ showCorrelation(); return bot('상관관계 행렬을 표시했습니다. 행(Row)과 열(Col) 각각 기준 차원과 항목을 선택하면 피어슨 상관계수 행렬이 계산됩니다.','상관관계 분석'); }
+  if(/라인별분석|라인분석|라인별/.test(lo)){ showLineCard(); return bot('라인별 분석 카드를 표시했습니다. 막대/꺾은선/도넛/레이더 차트 유형을 선택할 수 있습니다.','라인별 분석'); }
   if(/전월대비|전월증감|증감현황|mom/.test(lo)){ showMoM(); return bot('전월 대비 증감 테이블을 표시했습니다.','전월 대비 증감'); }
+  if(/설비.*크로스|sdwt.*설비|설비.*sdwt|eqp.*cross|설비크로스/.test(lo)){ showEqpCross(); return bot('SDWT × 설비모델 크로스 분석을 표시했습니다.','SDWT×설비 크로스'); }
   if(/크로스분석|크로스|라인sdwt|라인.*sdwt|sdwt.*라인/.test(lo)){ showCross(); return bot('라인 × SDWT 크로스 분석을 표시했습니다.','크로스 분석'); }
   if(/kpi|게이지|목표대비kpi|kpi게이지/.test(lo)){ showKPICard(); return bot('KPI 목표 대비 게이지를 열었습니다. 목표값을 입력하면 달성률을 표시합니다.','KPI 게이지'); }
   if(/이상치목록|이상치리스트|상위이상치/.test(lo)){ showAnomalyList(); return bot('행 단위 이상치 목록을 표시했습니다. σ 이탈도 순으로 정렬됩니다.','이상치 목록'); }
@@ -3256,94 +3301,116 @@ function pearson(a,b){
   const den=Math.sqrt(da*db);
   return den?num/den:0;
 }
-function _corrItems(){
-  if(corrGroupBy==='sdwt') return data.sdwts;
-  if(corrGroupBy==='line') return data.lines||[];
-  return data.cats;
+/* 차원별 항목 목록 */
+function _corrItemsFor(dim){
+  if(dim==='sdwt') return data.sdwts||[];
+  if(dim==='line') return data.lines||[];
+  if(dim==='eqp')  return data.eqps||[];
+  return data.cats||[];
 }
-function _corrTotals(){
-  const items=_corrItems(); const t={};
-  if(corrGroupBy==='sdwt'){
-    items.forEach(v=>{t[v]=data.months.reduce((s,m)=>s+(data.mSdwt[m]?.[v]?.cnt||0),0);});
-  } else if(corrGroupBy==='line'){
-    items.forEach(v=>{t[v]=data.lTotal?.[v]||0;});
-  } else {
-    items.forEach(v=>{t[v]=data.months.reduce((s,m)=>s+(data.mCat[m]?.[v]||0),0);});
-  }
-  return t;
-}
-function _corrSeries(val){
-  if(corrGroupBy==='sdwt') return data.months.map(m=>data.mSdwt[m]?.[val]?.cnt||0);
-  if(corrGroupBy==='line') return data.months.map(m=>data.mLine[m]?.[val]?.cnt||0);
+/* 차원별 항목의 월별 시계열 */
+function _corrSeriesFor(dim,val){
+  if(dim==='sdwt') return data.months.map(m=>data.mSdwt[m]?.[val]?.cnt||0);
+  if(dim==='line') return data.months.map(m=>data.mLine[m]?.[val]?.cnt||0);
+  if(dim==='eqp')  return data.months.map(m=>data.mEqp[m]?.[val]?.cnt||0);
   return data.months.map(m=>data.mCat[m]?.[val]||0);
+}
+/* 차원별 항목 합계 */
+function _corrTotalsFor(dim){
+  const items=_corrItemsFor(dim); const t={};
+  items.forEach(v=>{t[v]=_corrSeriesFor(dim,v).reduce((a,b)=>a+b,0);});
+  return t;
 }
 function showCorrelation(){
   if(!data){toast('분석을 먼저 완료해 주세요.');return;}
   if(data.months.length<3){toast('상관관계 분석에는 3개월 이상 데이터가 필요합니다.');return;}
   const card=document.getElementById('corrCard');
   card.style.display='block'; card.scrollIntoView({behavior:'smooth'});
-  _corrResetSelection();
+  /* 선택 항목 초기화 */
+  const _autoSel=(dim,sel)=>{
+    if(sel.size===0||[...sel].some(v=>!_corrItemsFor(dim).includes(v))){
+      const tots=_corrTotalsFor(dim);
+      const top=[..._corrItemsFor(dim)].sort((a,b)=>(tots[b]||0)-(tots[a]||0)).slice(0,10);
+      sel.clear(); top.forEach(v=>sel.add(v));
+    }
+  };
+  _autoSel(corrRowBy,corrRowSel);
+  _autoSel(corrColBy,corrColSel);
   renderCorrPicker();
   renderCorrMatrix();
 }
-function _corrResetSelection(){
-  const items=_corrItems();
-  if(corrSelected.size===0||[...corrSelected].some(v=>!items.includes(v))){
-    const tots=_corrTotals();
-    corrSelected=new Set([...items].sort((a,b)=>(tots[b]||0)-(tots[a]||0)).slice(0,15));
-  }
+function _corrDimLabel(dim){
+  if(dim==='sdwt') return colLabels.sdwt;
+  if(dim==='line') return colLabels.line;
+  if(dim==='eqp')  return colLabels.eqp;
+  return colLabels.cat;
+}
+function _corrPickerHtml(axis){
+  const dim=axis==='row'?corrRowBy:corrColBy;
+  const sel=axis==='row'?corrRowSel:corrColSel;
+  const items=_corrItemsFor(dim);
+  const tots=_corrTotalsFor(dim);
+  const sorted=[...items].sort((a,b)=>(tots[b]||0)-(tots[a]||0));
+  const hasDim=d=>_corrItemsFor(d).length>0;
+  const dims=['cat','sdwt','line','eqp'].filter(d=>hasDim(d));
+  const selFn=axis==='row'?'setCorrRowGroup':'setCorrColGroup';
+  const toggleFn=axis==='row'?'toggleCorrRow':'toggleCorrCol';
+  const topFn=axis==='row'?'corrRowTop':'corrColTop';
+  const allFn=axis==='row'?'corrRowAll':'corrColAll';
+  const noneFn=axis==='row'?'corrRowNone':'corrColNone';
+  const axisLabel=axis==='row'?'행(Row)':'열(Col)';
+  return `
+    <div style="flex:1;min-width:200px;background:#f8f9fa;border-radius:10px;padding:10px;border:1px solid var(--border)">
+      <div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:7px">${axisLabel} 기준</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">
+        ${dims.map(d=>`<button class="corr-chip${dim===d?' on':''}" onclick="${selFn}('${d}')">${_corrDimLabel(d)}</button>`).join('')}
+      </div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">
+        <button class="btn bo bsm" onclick="${topFn}(10)">상위10</button>
+        <button class="btn bo bsm" onclick="${allFn}()">전체</button>
+        <button class="btn bo bsm" onclick="${noneFn}()">해제</button>
+        <span style="font-size:11px;color:var(--primary);font-weight:700">${sel.size}개</span>
+        ${sel.size<1?'<span style="font-size:11px;color:var(--warn)">⚠️ 1개 이상</span>':''}
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;max-height:90px;overflow-y:auto">
+        ${sorted.map(v=>`<span class="corr-chip${sel.has(v)?' on':''}" onclick="${toggleFn}(${JSON.stringify(v)})">${esc(v)}</span>`).join('')}
+      </div>
+    </div>`;
 }
 function renderCorrPicker(){
   const el=document.getElementById('corrPicker'); if(!el) return;
-  const items=_corrItems();
-  const tots=_corrTotals();
-  const sorted=[...items].sort((a,b)=>(tots[b]||0)-(tots[a]||0));
-  const selN=corrSelected.size;
-  const dimLabel={cat:colLabels.cat,sdwt:colLabels.sdwt,line:colLabels.line};
-  const hasLine=(data.lines||[]).length>0;
   el.innerHTML=`
-    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px">
-      <span style="font-size:12px;font-weight:700;color:var(--sub)">분석 기준:</span>
-      <button class="corr-chip${corrGroupBy==='cat'?' on':''}" onclick="setCorrGroup('cat')">${colLabels.cat}</button>
-      <button class="corr-chip${corrGroupBy==='sdwt'?' on':''}" onclick="setCorrGroup('sdwt')">${colLabels.sdwt}</button>
-      ${hasLine?`<button class="corr-chip${corrGroupBy==='line'?' on':''}" onclick="setCorrGroup('line')">${colLabels.line}</button>`:''}
-      <span style="font-size:11px;color:var(--sub);margin-left:4px">월별 시계열로 열 간 피어슨 상관계수를 계산합니다</span>
-    </div>
-    <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:8px">
-      <span style="font-size:12px;font-weight:700;color:var(--sub)">${dimLabel[corrGroupBy]} 선택</span>
-      <button class="btn bo bsm" onclick="corrSelectTop(15)">상위 15개</button>
-      <button class="btn bo bsm" onclick="corrSelectTop(10)">상위 10개</button>
-      <button class="btn bo bsm" onclick="corrSelectAll()">전체 선택</button>
-      <button class="btn bo bsm" onclick="corrSelectNone()">전체 해제</button>
-      <span style="font-size:11px;color:var(--primary);font-weight:700;margin-left:4px">${selN}개 선택됨</span>
-      ${selN>=2?'':'<span style="font-size:11px;color:var(--warn)">⚠️ 2개 이상 선택 필요</span>'}
-    </div>
-    <div style="display:flex;flex-wrap:wrap;gap:5px;max-height:110px;overflow-y:auto;padding:6px;background:#f8f9fa;border-radius:8px;border:1px solid var(--border)">
-      ${sorted.map(v=>`<span class="corr-chip${corrSelected.has(v)?' on':''}" onclick="toggleCorrItem(${JSON.stringify(v)})">${esc(v)}</span>`).join('')}
-    </div>`;
+    <div style="font-size:11.5px;color:var(--sub);margin-bottom:8px">행과 열 각각 분석 기준 차원과 항목을 선택하면, 그 조합의 월별 피어슨 상관계수 행렬을 계산합니다.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">${_corrPickerHtml('row')}${_corrPickerHtml('col')}</div>`;
 }
 function renderCorrMatrix(){
   const el=document.getElementById('corrResult'); if(!el) return;
-  const items=_corrItems();
-  const sel=[...corrSelected].filter(v=>items.includes(v));
-  if(sel.length<2){
-    el.innerHTML='<div style="color:var(--sub);font-size:12px;padding:8px 0">2개 이상 선택해 주세요.</div>';
+  const rowItems=_corrItemsFor(corrRowBy);
+  const colItems=_corrItemsFor(corrColBy);
+  const rowSel=[...corrRowSel].filter(v=>rowItems.includes(v));
+  const colSel=[...corrColSel].filter(v=>colItems.includes(v));
+  if(rowSel.length<1||colSel.length<1){
+    el.innerHTML='<div style="color:var(--sub);font-size:12px;padding:8px 0">행/열 각각 1개 이상 선택해 주세요.</div>';
     return;
   }
-  const series={};
-  sel.forEach(v=>{series[v]=_corrSeries(v);});
-  let h='<div style="overflow-x:auto"><table class="hm-table"><thead><tr><th></th>';
-  sel.forEach(v=>{h+=`<th title="${esc(v)}" style="max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v.length>7?v.slice(0,6)+'…':v)}</th>`;});
+  const rowSeries={}, colSeries={};
+  rowSel.forEach(v=>{rowSeries[v]=_corrSeriesFor(corrRowBy,v);});
+  colSel.forEach(v=>{colSeries[v]=_corrSeriesFor(corrColBy,v);});
+  let h='<div style="overflow-x:auto"><table class="hm-table"><thead><tr>';
+  h+=`<th>${_corrDimLabel(corrRowBy)} \\ ${_corrDimLabel(corrColBy)}</th>`;
+  colSel.forEach(c=>{h+=`<th title="${esc(c)}" style="max-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.length>7?c.slice(0,6)+'…':c)}</th>`;});
   h+='</tr></thead><tbody>';
-  sel.forEach(r=>{
+  rowSel.forEach(r=>{
     h+=`<tr><td class="hm-lbl" title="${esc(r)}">${esc(r.length>9?r.slice(0,8)+'…':r)}</td>`;
-    sel.forEach(c=>{
-      if(r===c){h+=`<td style="background:#e8eaf6;color:#333;font-weight:700">1.00</td>`;return;}
-      const rv=pearson(series[r],series[c]);
+    colSel.forEach(c=>{
+      let rv;
+      if(corrRowBy===corrColBy&&r===c){rv=1;}
+      else{rv=pearson(rowSeries[r],colSeries[c]);}
       const abs=Math.abs(rv);
-      const bg=rv>0?`rgba(26,115,232,${(abs*.75).toFixed(2)})`:`rgba(234,67,53,${(abs*.75).toFixed(2)})`;
-      const tc=abs>.5?'#fff':'#333';
-      h+=`<td style="background:${bg};color:${tc}" title="${esc(r)} vs ${esc(c)}: r=${rv.toFixed(3)}">${rv.toFixed(2)}</td>`;
+      const bg=rv>=0.999?'#e8eaf6':rv>0?`rgba(26,115,232,${(abs*.75).toFixed(2)})`:`rgba(234,67,53,${(abs*.75).toFixed(2)})`;
+      const tc=rv>=0.999?'#333':abs>.5?'#fff':'#333';
+      const fw=rv>=0.999?'700':'normal';
+      h+=`<td style="background:${bg};color:${tc};font-weight:${fw}" title="${esc(r)} vs ${esc(c)}: r=${rv.toFixed(3)}">${rv.toFixed(2)}</td>`;
     });
     h+='</tr>';
   });
@@ -3351,29 +3418,16 @@ function renderCorrMatrix(){
   h+=`<div style="margin-top:8px;font-size:11.5px;color:var(--sub)">기준: ${data.months.length}개월 시계열 | 🔵 정상관 (함께 증가) | 🔴 역상관 (반대로 움직임) | 색이 진할수록 강한 상관관계</div>`;
   el.innerHTML=h;
 }
-function setCorrGroup(g){
-  corrGroupBy=g; corrSelected=new Set();
-  _corrResetSelection();
-  renderCorrPicker(); renderCorrMatrix();
-}
-function toggleCorrItem(val){
-  if(corrSelected.has(val)) corrSelected.delete(val); else corrSelected.add(val);
-  renderCorrPicker();
-  renderCorrMatrix();
-}
-function corrSelectAll(){
-  corrSelected=new Set(_corrItems());
-  renderCorrPicker(); renderCorrMatrix();
-}
-function corrSelectNone(){
-  corrSelected=new Set();
-  renderCorrPicker(); renderCorrMatrix();
-}
-function corrSelectTop(n){
-  const tots=_corrTotals();
-  corrSelected=new Set([..._corrItems()].sort((a,b)=>(tots[b]||0)-(tots[a]||0)).slice(0,n));
-  renderCorrPicker(); renderCorrMatrix();
-}
+function setCorrRowGroup(g){corrRowBy=g;corrRowSel=new Set();const tots=_corrTotalsFor(g);[..._corrItemsFor(g)].sort((a,b)=>(tots[b]||0)-(tots[a]||0)).slice(0,10).forEach(v=>corrRowSel.add(v));renderCorrPicker();renderCorrMatrix();}
+function setCorrColGroup(g){corrColBy=g;corrColSel=new Set();const tots=_corrTotalsFor(g);[..._corrItemsFor(g)].sort((a,b)=>(tots[b]||0)-(tots[a]||0)).slice(0,10).forEach(v=>corrColSel.add(v));renderCorrPicker();renderCorrMatrix();}
+function toggleCorrRow(val){if(corrRowSel.has(val))corrRowSel.delete(val);else corrRowSel.add(val);renderCorrPicker();renderCorrMatrix();}
+function toggleCorrCol(val){if(corrColSel.has(val))corrColSel.delete(val);else corrColSel.add(val);renderCorrPicker();renderCorrMatrix();}
+function corrRowAll(){corrRowSel=new Set(_corrItemsFor(corrRowBy));renderCorrPicker();renderCorrMatrix();}
+function corrColAll(){corrColSel=new Set(_corrItemsFor(corrColBy));renderCorrPicker();renderCorrMatrix();}
+function corrRowNone(){corrRowSel=new Set();renderCorrPicker();renderCorrMatrix();}
+function corrColNone(){corrColSel=new Set();renderCorrPicker();renderCorrMatrix();}
+function corrRowTop(n){const tots=_corrTotalsFor(corrRowBy);corrRowSel=new Set([..._corrItemsFor(corrRowBy)].sort((a,b)=>(tots[b]||0)-(tots[a]||0)).slice(0,n));renderCorrPicker();renderCorrMatrix();}
+function corrColTop(n){const tots=_corrTotalsFor(corrColBy);corrColSel=new Set([..._corrItemsFor(corrColBy)].sort((a,b)=>(tots[b]||0)-(tots[a]||0)).slice(0,n));renderCorrPicker();renderCorrMatrix();}
 
 /* ══════════════════════════════════════
    CONTRIBUTION DECOMPOSITION
@@ -3504,29 +3558,96 @@ function showLineCard(){
   renderLineBar();
   renderLineHeatmap();
 }
+function setLineChart(type, btn){
+  lineChartType=type;
+  document.querySelectorAll('#lineTypeBtns .cb').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  renderLineBar();
+}
 function renderLineBar(){
   if(!data||!data.lines) return;
   const metric=document.getElementById('lineMetric')?.value||'cnt';
   if(lineBarChart){lineBarChart.destroy();lineBarChart=null;}
   const lines=data.lines;
-  const vals=lines.map(l=>data.months.reduce((s,m)=>s+(data.mLine[m]?.[l]?.[metric]||0),0));
-  const sorted=[...lines.map((l,i)=>({l,v:vals[i]}))].sort((a,b)=>b.v-a.v);
-  const labels=sorted.map(x=>x.l), dvals=sorted.map(x=>x.v);
+  const months=data.months;
   const ctx=document.getElementById('lineBarCanvas')?.getContext('2d'); if(!ctx) return;
-  lineBarChart=new Chart(ctx,{
-    type:'bar',
-    data:{labels,datasets:[{label:metric==='cnt'?colLabels.cnt:colLabels.amt,data:dvals,
-      backgroundColor:labels.map((_,i)=>C[i%C.length]+'cc'),
-      borderColor:labels.map((_,i)=>C[i%C.length]),borderWidth:2}]},
-    options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',
-      plugins:{legend:{display:false},
-        tooltip:{callbacks:{label:x=>` ${fmt(x.raw)}${metric==='cnt'?'건':'원'}`}},
-        datalabels:{display:true,color:'#fff',font:{size:10,weight:'bold'},formatter:v=>v>0?fmt(v):null,anchor:'center',align:'center',clamp:true}
+  const metricLabel=metric==='cnt'?colLabels.cnt:colLabels.amt;
+  const suffix=metric==='cnt'?'건':'원';
+
+  if(lineChartType==='bar'){
+    const vals=lines.map(l=>months.reduce((s,m)=>s+(data.mLine[m]?.[l]?.[metric]||0),0));
+    const sorted=[...lines.map((l,i)=>({l,v:vals[i]}))].sort((a,b)=>b.v-a.v);
+    const labels=sorted.map(x=>x.l), dvals=sorted.map(x=>x.v);
+    lineBarChart=new Chart(ctx,{
+      type:'bar',
+      data:{labels,datasets:[{label:metricLabel,data:dvals,
+        backgroundColor:labels.map((_,i)=>C[i%C.length]+'cc'),
+        borderColor:labels.map((_,i)=>C[i%C.length]),borderWidth:2}]},
+      options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',
+        plugins:{legend:{display:false},
+          tooltip:{callbacks:{label:x=>` ${fmt(x.raw)}${suffix}`}},
+          datalabels:{display:true,color:'#fff',font:{size:10,weight:'bold'},formatter:v=>v>0?fmt(v):null,anchor:'center',align:'center',clamp:true}
+        },
+        scales:{x:{beginAtZero:true,ticks:{callback:v=>fmt(v)}},y:{grid:{display:false}}}
       },
-      scales:{x:{beginAtZero:true,ticks:{callback:v=>fmt(v)}},y:{grid:{display:false}}}
-    },
-    plugins:[ChartDataLabels]
-  });
+      plugins:[ChartDataLabels]
+    });
+  } else if(lineChartType==='line'){
+    lineBarChart=new Chart(ctx,{
+      type:'line',
+      data:{labels:months,datasets:lines.map((l,i)=>({
+        label:l,
+        data:months.map(m=>data.mLine[m]?.[l]?.[metric]||0),
+        borderColor:C[i%C.length],backgroundColor:C[i%C.length]+'44',
+        borderWidth:2,pointRadius:3,tension:.3,fill:false,
+        datalabels:{display:false}
+      }))},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{position:'bottom',labels:{font:{size:10}}},
+          tooltip:{callbacks:{label:x=>` ${x.dataset.label}: ${fmt(x.raw)}${suffix}`}},
+          datalabels:{display:false}
+        },
+        scales:{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>fmt(v)}}}
+      },
+      plugins:[ChartDataLabels]
+    });
+  } else if(lineChartType==='doughnut'){
+    const vals=lines.map(l=>months.reduce((s,m)=>s+(data.mLine[m]?.[l]?.[metric]||0),0));
+    lineBarChart=new Chart(ctx,{
+      type:'doughnut',
+      data:{labels:lines,datasets:[{data:vals,
+        backgroundColor:lines.map((_,i)=>C[i%C.length]+'cc'),
+        borderColor:lines.map((_,i)=>C[i%C.length]),borderWidth:2}]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{position:'right',labels:{font:{size:10}}},
+          tooltip:{callbacks:{label:x=>` ${x.label}: ${fmt(x.raw)}${suffix}`}},
+          datalabels:{display:true,color:'#fff',font:{size:10,weight:'bold'},
+            formatter:(v,ctx2)=>{const tot=ctx2.dataset.data.reduce((a,b)=>a+b,0);return tot>0?(v/tot*100).toFixed(1)+'%':null;},
+            anchor:'center',align:'center',clamp:true}
+        }
+      },
+      plugins:[ChartDataLabels]
+    });
+  } else if(lineChartType==='radar'){
+    lineBarChart=new Chart(ctx,{
+      type:'radar',
+      data:{labels:months,datasets:lines.map((l,i)=>({
+        label:l,
+        data:months.map(m=>data.mLine[m]?.[l]?.[metric]||0),
+        borderColor:C[i%C.length],backgroundColor:C[i%C.length]+'33',
+        borderWidth:2,pointRadius:3,
+        datalabels:{display:false}
+      }))},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{position:'bottom',labels:{font:{size:10}}},
+          tooltip:{callbacks:{label:x=>` ${x.dataset.label}: ${fmt(x.raw)}${suffix}`}},
+          datalabels:{display:false}
+        },
+        scales:{r:{beginAtZero:true,ticks:{callback:v=>fmt(v),font:{size:9}}}}
+      },
+      plugins:[ChartDataLabels]
+    });
+  }
 }
 function renderLineHeatmap(){
   if(!data||!data.lines) return;
@@ -3652,6 +3773,59 @@ function renderCross(){
   const grand=lines.reduce((a,l)=>a+lineTot[l],0);
   h+=`<td>${fmt(grand)}</td></tr></tbody></table>`;
   document.getElementById('crossResult').innerHTML=h;
+}
+
+/* ══════════════════════════════════════
+   SDWT × EQP CROSS ANALYSIS
+══════════════════════════════════════ */
+function showEqpCross(){
+  if(!data){toast('분석을 먼저 완료해 주세요.');return;}
+  const c=cols();
+  if(!c.eqp||!data.eqps||data.eqps.length===0){toast('설비모델 열을 먼저 매핑해 주세요.');return;}
+  if(!data.sdwts||data.sdwts.length===0){toast('SDWT 열을 먼저 매핑해 주세요.');return;}
+  const card=document.getElementById('eqpCrossCard');
+  card.style.display='block'; card.scrollIntoView({behavior:'smooth'});
+  renderEqpCross();
+}
+function renderEqpCross(){
+  if(!data||!data.eqps||!data.sdwts) return;
+  const metric=document.getElementById('eqpCrossMetric')?.value||'cnt';
+  const c=cols();
+  const sdwts=data.sdwts, eqps=data.eqps;
+  const mat={}, sdwtTot={}, eqpTot={};
+  sdwts.forEach(s=>{mat[s]={};sdwtTot[s]=0;});
+  eqps.forEach(e=>{eqpTot[e]=0;});
+  frows.forEach(row=>{
+    const s=(row[c.sdwt]||'').trim()||'미지정';
+    const e=(row[c.eqp]||'').trim(); if(!e) return;
+    if(!mat[s]) mat[s]={};
+    const v=metric==='cnt'?(c.cnt?pnum(row[c.cnt]):1):(c.amt?pnum(row[c.amt]):0);
+    mat[s][e]=(mat[s][e]||0)+v;
+    sdwtTot[s]=(sdwtTot[s]||0)+v;
+    eqpTot[e]=(eqpTot[e]||0)+v;
+  });
+  const sortedEqps=[...eqps].sort((a,b)=>(eqpTot[b]||0)-(eqpTot[a]||0)).slice(0,20);
+  const allVals=sdwts.flatMap(s=>sortedEqps.map(e=>mat[s][e]||0));
+  const maxV=Math.max(...allVals,1);
+  let h=`<table class="hm-table"><thead><tr><th>${colLabels.sdwt} \\ ${colLabels.eqp}</th>`;
+  sortedEqps.forEach(e=>{h+=`<th title="${esc(e)}">${esc(e.length>6?e.slice(0,5)+'…':e)}</th>`;});
+  h+='<th>합계</th></tr></thead><tbody>';
+  sdwts.forEach(s=>{
+    h+=`<tr><td class="hm-lbl">${esc(s)}</td>`;
+    sortedEqps.forEach(e=>{
+      const v=mat[s][e]||0;
+      const a=(v/maxV*0.72).toFixed(2);
+      const bg=v>0?`rgba(147,52,234,${a})`:'transparent';
+      const tc=v/maxV>.5?'#fff':'#333';
+      h+=`<td style="background:${bg};color:${tc}" title="${esc(s)} × ${esc(e)}: ${fmt(v)}">${v>0?fmt(v):''}</td>`;
+    });
+    h+=`<td style="font-weight:700;background:#f3e8fd">${fmt(sdwtTot[s]||0)}</td></tr>`;
+  });
+  h+='<tr class="tr"><td class="rh">합계</td>';
+  sortedEqps.forEach(e=>{h+=`<td>${fmt(eqpTot[e]||0)}</td>`;});
+  const grand=sdwts.reduce((a,s)=>a+(sdwtTot[s]||0),0);
+  h+=`<td>${fmt(grand)}</td></tr></tbody></table>`;
+  document.getElementById('eqpCrossResult').innerHTML=h;
 }
 
 /* ══════════════════════════════════════
