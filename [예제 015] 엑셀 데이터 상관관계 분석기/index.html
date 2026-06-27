@@ -1,0 +1,1202 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>엑셀 데이터 상관관계 분석기</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', 'Malgun Gothic', sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+
+    header {
+      background: linear-gradient(135deg, #1e3a5f 0%, #0f2d4a 100%);
+      border-bottom: 1px solid #1e40af44;
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    header .icon {
+      font-size: 28px;
+    }
+
+    header h1 {
+      font-size: 22px;
+      font-weight: 700;
+      color: #93c5fd;
+    }
+
+    header p {
+      font-size: 13px;
+      color: #64748b;
+      margin-top: 2px;
+    }
+
+    .main {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 28px 24px;
+    }
+
+    /* STEP CARDS */
+    .step-card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    .step-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .step-badge {
+      background: #1d4ed8;
+      color: #bfdbfe;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 20px;
+      letter-spacing: 0.5px;
+    }
+
+    .step-title h2 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #cbd5e1;
+    }
+
+    /* PASTE AREA */
+    .paste-zone {
+      position: relative;
+    }
+
+    .paste-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: #1d4ed8;
+      color: #bfdbfe;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 14px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.2s;
+      z-index: 1;
+    }
+
+    .paste-btn:hover { background: #2563eb; }
+
+    #rawInput {
+      width: 100%;
+      height: 180px;
+      background: #0f172a;
+      border: 2px dashed #334155;
+      border-radius: 8px;
+      color: #94a3b8;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      padding: 14px;
+      resize: vertical;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    #rawInput:focus { border-color: #3b82f6; color: #e2e8f0; }
+    #rawInput::placeholder { color: #475569; }
+
+    .paste-hint {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #475569;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .parse-btn {
+      margin-top: 14px;
+      background: linear-gradient(135deg, #1d4ed8, #2563eb);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 24px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+
+    .parse-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    .parse-btn:active { transform: translateY(0); }
+
+    /* DATA PREVIEW */
+    #previewSection { display: none; }
+
+    .preview-wrap {
+      overflow-x: auto;
+      max-height: 260px;
+      border-radius: 8px;
+      border: 1px solid #334155;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    thead th {
+      background: #1e3a5f;
+      color: #93c5fd;
+      padding: 9px 12px;
+      text-align: left;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      white-space: nowrap;
+    }
+
+    tbody tr:nth-child(odd) { background: #0f172a; }
+    tbody tr:nth-child(even) { background: #131f2e; }
+
+    tbody td {
+      padding: 7px 12px;
+      color: #94a3b8;
+      border-bottom: 1px solid #1e293b;
+      white-space: nowrap;
+    }
+
+    .row-count {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #475569;
+    }
+
+    /* COLUMN SELECTION */
+    #columnSection { display: none; }
+
+    .col-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .col-chip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 8px 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+      user-select: none;
+    }
+
+    .col-chip:hover { border-color: #3b82f6; }
+
+    .col-chip.selected {
+      background: #1e3a5f;
+      border-color: #3b82f6;
+      color: #93c5fd;
+    }
+
+    .col-chip input[type="checkbox"] {
+      accent-color: #3b82f6;
+      width: 15px;
+      height: 15px;
+    }
+
+    .col-chip .col-name {
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .col-chip .col-type {
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 10px;
+      font-weight: 600;
+    }
+
+    .col-chip .col-type.numeric {
+      background: #14532d;
+      color: #86efac;
+    }
+
+    .col-chip .col-type.text {
+      background: #451a03;
+      color: #fdba74;
+    }
+
+    .selection-actions {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .btn-sm {
+      background: transparent;
+      border: 1px solid #475569;
+      color: #94a3b8;
+      border-radius: 6px;
+      padding: 5px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-sm:hover { border-color: #3b82f6; color: #93c5fd; }
+
+    .analyze-btn {
+      background: linear-gradient(135deg, #059669, #10b981);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 12px 28px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+      width: 100%;
+    }
+
+    .analyze-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    .analyze-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+    /* RESULTS */
+    #resultSection { display: none; }
+
+    .result-tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid #334155;
+      padding-bottom: 0;
+    }
+
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: #64748b;
+      padding: 10px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+      margin-bottom: -1px;
+    }
+
+    .tab-btn.active {
+      color: #93c5fd;
+      border-bottom-color: #3b82f6;
+    }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* HEATMAP */
+    .heatmap-wrap {
+      overflow-x: auto;
+    }
+
+    #heatmapCanvas {
+      display: block;
+      margin: 0 auto;
+      border-radius: 8px;
+    }
+
+    /* CORR TABLE */
+    .corr-table-wrap {
+      overflow-x: auto;
+      border-radius: 8px;
+      border: 1px solid #334155;
+    }
+
+    .corr-table th {
+      background: #1e3a5f;
+      color: #93c5fd;
+      padding: 10px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+      text-align: center;
+      position: sticky;
+      top: 0;
+    }
+
+    .corr-table th:first-child { text-align: left; }
+
+    .corr-table td {
+      padding: 8px 14px;
+      font-size: 12px;
+      text-align: center;
+      border-bottom: 1px solid #1e293b;
+      white-space: nowrap;
+      font-family: 'Courier New', monospace;
+      font-weight: 600;
+    }
+
+    .corr-table td:first-child {
+      text-align: left;
+      color: #93c5fd;
+      font-family: 'Segoe UI', sans-serif;
+      font-weight: 600;
+    }
+
+    /* SCATTER */
+    .scatter-controls {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .select-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .select-group label {
+      font-size: 11px;
+      color: #64748b;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .select-group select {
+      background: #0f172a;
+      border: 1px solid #334155;
+      color: #e2e8f0;
+      border-radius: 6px;
+      padding: 7px 12px;
+      font-size: 13px;
+      outline: none;
+      cursor: pointer;
+      min-width: 160px;
+    }
+
+    .select-group select:focus { border-color: #3b82f6; }
+
+    #scatterCanvas {
+      display: block;
+      margin: 0 auto;
+      border-radius: 8px;
+      background: #0f172a;
+    }
+
+    /* INSIGHTS */
+    .insights-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 14px;
+    }
+
+    .insight-card {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 16px;
+    }
+
+    .insight-pair {
+      font-size: 13px;
+      font-weight: 700;
+      color: #93c5fd;
+      margin-bottom: 6px;
+    }
+
+    .insight-corr {
+      font-size: 26px;
+      font-weight: 800;
+      margin-bottom: 6px;
+      font-family: 'Courier New', monospace;
+    }
+
+    .insight-label {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 12px;
+      display: inline-block;
+    }
+
+    .label-strong-pos { background: #14532d; color: #86efac; }
+    .label-moderate-pos { background: #1c4532; color: #6ee7b7; }
+    .label-weak-pos { background: #1a3a2a; color: #6ee7b7; }
+    .label-none { background: #1e293b; color: #64748b; }
+    .label-weak-neg { background: #3b1f1f; color: #fca5a5; }
+    .label-moderate-neg { background: #4c1d1d; color: #fca5a5; }
+    .label-strong-neg { background: #7f1d1d; color: #fca5a5; }
+
+    /* TOAST */
+    .toast {
+      position: fixed;
+      bottom: 28px;
+      right: 28px;
+      background: #1e293b;
+      border: 1px solid #3b82f6;
+      color: #93c5fd;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: all 0.3s;
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* LOADING */
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #334155;
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .no-data-msg {
+      text-align: center;
+      color: #475569;
+      padding: 40px;
+      font-size: 14px;
+    }
+
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .section-header h3 {
+      font-size: 13px;
+      color: #64748b;
+      font-weight: 600;
+    }
+
+    .legend {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+      justify-content: center;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: #64748b;
+    }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="icon">📊</div>
+  <div>
+    <h1>엑셀 데이터 상관관계 분석기</h1>
+    <p>엑셀에서 복사한 데이터를 붙여넣어 열 간 상관관계를 분석하세요</p>
+  </div>
+</header>
+
+<div class="main">
+
+  <!-- STEP 1 -->
+  <div class="step-card">
+    <div class="step-title">
+      <span class="step-badge">STEP 1</span>
+      <h2>데이터 붙여넣기</h2>
+    </div>
+    <div class="paste-zone">
+      <button class="paste-btn" onclick="pasteFromClipboard()">📋 클립보드에서 붙여넣기</button>
+      <textarea id="rawInput"
+        placeholder="엑셀에서 데이터를 복사(Ctrl+C)한 후 여기에 붙여넣기(Ctrl+V) 하세요.&#10;&#10;첫 번째 행은 자동으로 헤더(열 이름)로 인식됩니다.&#10;&#10;예시:&#10;이름	나이	키	몸무게	성적&#10;홍길동	25	175	70	85&#10;김영희	23	163	55	92"></textarea>
+    </div>
+    <div class="paste-hint">
+      <span>💡</span>
+      <span>엑셀에서 데이터 범위를 선택 후 Ctrl+C → 위 텍스트 영역 클릭 → Ctrl+V</span>
+    </div>
+    <br />
+    <button class="parse-btn" onclick="parseData()">데이터 불러오기 →</button>
+  </div>
+
+  <!-- STEP 2: Preview -->
+  <div class="step-card" id="previewSection">
+    <div class="step-title">
+      <span class="step-badge">STEP 2</span>
+      <h2>데이터 미리보기</h2>
+    </div>
+    <div class="preview-wrap">
+      <table id="previewTable"></table>
+    </div>
+    <p class="row-count" id="rowCount"></p>
+  </div>
+
+  <!-- STEP 3: Column Selection -->
+  <div class="step-card" id="columnSection">
+    <div class="step-title">
+      <span class="step-badge">STEP 3</span>
+      <h2>분석할 열 선택 <span style="font-size:12px;color:#475569;font-weight:400">(숫자형 열만 상관관계 분석 가능)</span></h2>
+    </div>
+    <div class="selection-actions">
+      <button class="btn-sm" onclick="selectAllNumeric()">숫자 열 전체 선택</button>
+      <button class="btn-sm" onclick="deselectAll()">전체 해제</button>
+    </div>
+    <div class="col-grid" id="colGrid"></div>
+    <button class="analyze-btn" id="analyzeBtn" onclick="analyze()" disabled>
+      상관관계 분석 시작
+    </button>
+  </div>
+
+  <!-- STEP 4: Results -->
+  <div class="step-card" id="resultSection">
+    <div class="step-title">
+      <span class="step-badge">STEP 4</span>
+      <h2>분석 결과</h2>
+    </div>
+
+    <div class="result-tabs">
+      <button class="tab-btn active" onclick="switchTab('heatmap', this)">🟦 히트맵</button>
+      <button class="tab-btn" onclick="switchTab('table', this)">📋 상관계수 표</button>
+      <button class="tab-btn" onclick="switchTab('scatter', this)">⚫ 산점도</button>
+      <button class="tab-btn" onclick="switchTab('insights', this)">💡 인사이트</button>
+    </div>
+
+    <!-- Heatmap -->
+    <div class="tab-panel active" id="panel-heatmap">
+      <div class="heatmap-wrap">
+        <canvas id="heatmapCanvas"></canvas>
+      </div>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-dot" style="background:#1e40af"></div>강한 음의 상관 (-1)</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#334155"></div>상관 없음 (0)</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#dc2626"></div>강한 양의 상관 (+1)</div>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="tab-panel" id="panel-table">
+      <div class="corr-table-wrap">
+        <table class="corr-table" id="corrTable"></table>
+      </div>
+    </div>
+
+    <!-- Scatter -->
+    <div class="tab-panel" id="panel-scatter">
+      <div class="scatter-controls">
+        <div class="select-group">
+          <label>X축 열</label>
+          <select id="scatterX" onchange="drawScatter()"></select>
+        </div>
+        <div class="select-group">
+          <label>Y축 열</label>
+          <select id="scatterY" onchange="drawScatter()"></select>
+        </div>
+      </div>
+      <canvas id="scatterCanvas" width="700" height="420"></canvas>
+    </div>
+
+    <!-- Insights -->
+    <div class="tab-panel" id="panel-insights">
+      <div class="insights-grid" id="insightsGrid"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ─────────────────────────────────────────
+//  STATE
+// ─────────────────────────────────────────
+let headers = [];
+let rows = [];       // array of arrays (string)
+let numericCols = []; // indices of numeric columns
+let selectedCols = []; // indices selected by user
+let corrMatrix = [];
+let selectedLabels = [];
+
+// ─────────────────────────────────────────
+//  CLIPBOARD
+// ─────────────────────────────────────────
+async function pasteFromClipboard() {
+  try {
+    const text = await navigator.clipboard.readText();
+    document.getElementById('rawInput').value = text;
+    showToast('클립보드 내용을 불여넣었습니다');
+  } catch(e) {
+    showToast('클립보드 접근 권한이 없습니다. Ctrl+V 를 사용해주세요.', true);
+  }
+}
+
+// ─────────────────────────────────────────
+//  PARSE
+// ─────────────────────────────────────────
+function parseData() {
+  const raw = document.getElementById('rawInput').value.trim();
+  if (!raw) { showToast('데이터를 먼저 붙여넣어 주세요.', true); return; }
+
+  const lines = raw.split(/\r?\n/).filter(l => l.trim() !== '');
+  if (lines.length < 2) { showToast('최소 헤더 행 + 1개 데이터 행이 필요합니다.', true); return; }
+
+  const sep = detectSep(lines[0]);
+  headers = splitLine(lines[0], sep);
+  rows = lines.slice(1).map(l => splitLine(l, sep));
+
+  // detect numeric columns
+  numericCols = headers.map((_, ci) => {
+    const vals = rows.map(r => r[ci]).filter(v => v !== '' && v !== undefined);
+    return vals.length > 0 && vals.every(v => !isNaN(parseNum(v)));
+  });
+
+  renderPreview();
+  renderColumnSelector();
+  document.getElementById('previewSection').style.display = 'block';
+  document.getElementById('columnSection').style.display = 'block';
+  document.getElementById('resultSection').style.display = 'none';
+  showToast(`${rows.length}개 행, ${headers.length}개 열 로드 완료`);
+}
+
+function detectSep(line) {
+  const tabs = (line.match(/\t/g) || []).length;
+  const commas = (line.match(/,/g) || []).length;
+  return tabs >= commas ? '\t' : ',';
+}
+
+function splitLine(line, sep) {
+  if (sep === '\t') return line.split('\t').map(s => s.trim());
+  // simple CSV split (handles quoted fields)
+  const result = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { inQ = !inQ; continue; }
+    if (c === ',' && !inQ) { result.push(cur.trim()); cur = ''; continue; }
+    cur += c;
+  }
+  result.push(cur.trim());
+  return result;
+}
+
+function parseNum(v) {
+  return parseFloat(String(v).replace(/,/g, '').replace(/\s/g,''));
+}
+
+// ─────────────────────────────────────────
+//  PREVIEW TABLE
+// ─────────────────────────────────────────
+function renderPreview() {
+  const table = document.getElementById('previewTable');
+  const previewRows = rows.slice(0, 10);
+
+  let html = '<thead><tr>';
+  headers.forEach(h => { html += `<th>${escape(h)}</th>`; });
+  html += '</tr></thead><tbody>';
+  previewRows.forEach(row => {
+    html += '<tr>';
+    headers.forEach((_, ci) => {
+      html += `<td>${escape(row[ci] ?? '')}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody>';
+  table.innerHTML = html;
+
+  const cnt = document.getElementById('rowCount');
+  cnt.textContent = `전체 ${rows.length}행 ${rows.length > 10 ? '(상위 10행 표시)' : ''}`;
+}
+
+// ─────────────────────────────────────────
+//  COLUMN SELECTOR
+// ─────────────────────────────────────────
+function renderColumnSelector() {
+  const grid = document.getElementById('colGrid');
+  grid.innerHTML = '';
+  selectedCols = [];
+
+  headers.forEach((h, ci) => {
+    const isNum = numericCols[ci];
+    const chip = document.createElement('div');
+    chip.className = 'col-chip' + (isNum ? '' : ' disabled');
+    chip.dataset.ci = ci;
+    chip.innerHTML = `
+      <input type="checkbox" id="col_${ci}" ${isNum ? '' : 'disabled'} onchange="toggleCol(${ci}, this)" />
+      <span class="col-name">${escape(h)}</span>
+      <span class="col-type ${isNum ? 'numeric' : 'text'}">${isNum ? '숫자' : '텍스트'}</span>
+    `;
+    chip.addEventListener('click', (e) => {
+      if (!isNum) return;
+      if (e.target.tagName === 'INPUT') return;
+      const cb = document.getElementById(`col_${ci}`);
+      cb.checked = !cb.checked;
+      toggleCol(ci, cb);
+    });
+    grid.appendChild(chip);
+  });
+}
+
+function toggleCol(ci, cb) {
+  const chip = document.querySelector(`.col-chip[data-ci="${ci}"]`);
+  if (cb.checked) {
+    selectedCols.push(ci);
+    chip.classList.add('selected');
+  } else {
+    selectedCols = selectedCols.filter(c => c !== ci);
+    chip.classList.remove('selected');
+  }
+  updateAnalyzeBtn();
+}
+
+function selectAllNumeric() {
+  headers.forEach((_, ci) => {
+    if (numericCols[ci]) {
+      const cb = document.getElementById(`col_${ci}`);
+      if (cb && !cb.checked) { cb.checked = true; toggleCol(ci, cb); }
+    }
+  });
+}
+
+function deselectAll() {
+  headers.forEach((_, ci) => {
+    const cb = document.getElementById(`col_${ci}`);
+    if (cb && cb.checked) { cb.checked = false; toggleCol(ci, cb); }
+  });
+}
+
+function updateAnalyzeBtn() {
+  const btn = document.getElementById('analyzeBtn');
+  const ok = selectedCols.length >= 2;
+  btn.disabled = !ok;
+  btn.textContent = ok
+    ? `상관관계 분석 시작 (${selectedCols.length}개 열)`
+    : `상관관계 분석 시작 (열을 2개 이상 선택해주세요)`;
+}
+
+// ─────────────────────────────────────────
+//  CORRELATION
+// ─────────────────────────────────────────
+function pearson(xs, ys) {
+  const n = xs.length;
+  if (n === 0) return NaN;
+  const mx = xs.reduce((a,b) => a+b, 0) / n;
+  const my = ys.reduce((a,b) => a+b, 0) / n;
+  let num = 0, dx2 = 0, dy2 = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = xs[i] - mx, dy = ys[i] - my;
+    num += dx * dy; dx2 += dx*dx; dy2 += dy*dy;
+  }
+  const denom = Math.sqrt(dx2 * dy2);
+  return denom === 0 ? 0 : num / denom;
+}
+
+function getNumericValues(ci) {
+  return rows.map(r => parseNum(r[ci]));
+}
+
+function analyze() {
+  const cols = [...new Set(selectedCols)].sort((a,b) => a-b);
+  selectedLabels = cols.map(ci => headers[ci]);
+  const data = cols.map(ci => getNumericValues(ci));
+
+  const k = cols.length;
+  corrMatrix = Array.from({length: k}, () => new Array(k).fill(0));
+  for (let i = 0; i < k; i++)
+    for (let j = 0; j < k; j++)
+      corrMatrix[i][j] = pearson(data[i], data[j]);
+
+  document.getElementById('resultSection').style.display = 'block';
+  document.getElementById('resultSection').scrollIntoView({behavior: 'smooth', block: 'start'});
+
+  renderHeatmap();
+  renderCorrTable();
+  renderScatterSelects(cols);
+  renderInsights();
+}
+
+// ─────────────────────────────────────────
+//  HEATMAP
+// ─────────────────────────────────────────
+function corrColor(v) {
+  // -1 → blue, 0 → dark, +1 → red
+  if (isNaN(v)) return '#1e293b';
+  if (v > 0) {
+    const t = v;
+    return lerpColor('#334155', '#ef4444', t);
+  } else {
+    const t = -v;
+    return lerpColor('#334155', '#3b82f6', t);
+  }
+}
+
+function lerpColor(a, b, t) {
+  const pa = parseInt(a.slice(1), 16);
+  const pb = parseInt(b.slice(1), 16);
+  const ra = (pa >> 16) & 0xff, ga = (pa >> 8) & 0xff, ba = pa & 0xff;
+  const rb = (pb >> 16) & 0xff, gb = (pb >> 8) & 0xff, bb = pb & 0xff;
+  const r = Math.round(ra + (rb - ra) * t);
+  const g = Math.round(ga + (gb - ga) * t);
+  const bl = Math.round(ba + (bb - ba) * t);
+  return `rgb(${r},${g},${bl})`;
+}
+
+function renderHeatmap() {
+  const k = selectedLabels.length;
+  const CELL = Math.max(60, Math.min(100, Math.floor(640 / k)));
+  const LABEL_W = 120;
+  const PAD = 16;
+  const W = LABEL_W + k * CELL + PAD;
+  const H = LABEL_W + k * CELL + PAD;
+
+  const canvas = document.getElementById('heatmapCanvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(0, 0, W, H);
+
+  // column labels (top)
+  ctx.save();
+  ctx.font = `${Math.min(13, CELL * 0.18)}px Segoe UI, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.textAlign = 'center';
+  for (let j = 0; j < k; j++) {
+    const x = LABEL_W + j * CELL + CELL / 2;
+    ctx.save();
+    ctx.translate(x, LABEL_W - 6);
+    ctx.rotate(-Math.PI / 4);
+    ctx.fillText(truncate(selectedLabels[j], 14), 0, 0);
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // row labels (left)
+  ctx.font = `${Math.min(12, CELL * 0.16)}px Segoe UI, sans-serif`;
+  ctx.fillStyle = '#93c5fd';
+  ctx.textAlign = 'right';
+  for (let i = 0; i < k; i++) {
+    const y = LABEL_W + i * CELL + CELL / 2 + 4;
+    ctx.fillText(truncate(selectedLabels[i], 16), LABEL_W - 6, y);
+  }
+
+  // cells
+  for (let i = 0; i < k; i++) {
+    for (let j = 0; j < k; j++) {
+      const v = corrMatrix[i][j];
+      const x = LABEL_W + j * CELL;
+      const y = LABEL_W + i * CELL;
+
+      ctx.fillStyle = corrColor(v);
+      ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
+
+      // value text
+      const fontSize = Math.max(9, Math.min(13, CELL * 0.17));
+      ctx.font = `bold ${fontSize}px Courier New, monospace`;
+      ctx.fillStyle = Math.abs(v) > 0.4 ? '#fff' : '#94a3b8';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(isNaN(v) ? 'N/A' : v.toFixed(2), x + CELL / 2, y + CELL / 2);
+    }
+  }
+
+  ctx.textBaseline = 'alphabetic';
+}
+
+// ─────────────────────────────────────────
+//  CORRELATION TABLE
+// ─────────────────────────────────────────
+function renderCorrTable() {
+  const k = selectedLabels.length;
+  let html = '<thead><tr><th>열</th>';
+  selectedLabels.forEach(l => { html += `<th>${escape(l)}</th>`; });
+  html += '</tr></thead><tbody>';
+
+  for (let i = 0; i < k; i++) {
+    html += `<tr><td>${escape(selectedLabels[i])}</td>`;
+    for (let j = 0; j < k; j++) {
+      const v = corrMatrix[i][j];
+      const color = cellTextColor(v);
+      html += `<td style="color:${color}">${isNaN(v) ? 'N/A' : v.toFixed(4)}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody>';
+  document.getElementById('corrTable').innerHTML = html;
+}
+
+function cellTextColor(v) {
+  if (isNaN(v)) return '#475569';
+  if (v >= 0.7) return '#86efac';
+  if (v >= 0.4) return '#6ee7b7';
+  if (v > 0.1) return '#5eead4';
+  if (v >= -0.1) return '#64748b';
+  if (v >= -0.4) return '#fca5a5';
+  if (v >= -0.7) return '#f87171';
+  return '#ef4444';
+}
+
+// ─────────────────────────────────────────
+//  SCATTER PLOT
+// ─────────────────────────────────────────
+function renderScatterSelects(cols) {
+  const sx = document.getElementById('scatterX');
+  const sy = document.getElementById('scatterY');
+  sx.innerHTML = '';
+  sy.innerHTML = '';
+  cols.forEach((ci, idx) => {
+    sx.innerHTML += `<option value="${idx}">${escape(headers[ci])}</option>`;
+    sy.innerHTML += `<option value="${idx}">${escape(headers[ci])}</option>`;
+  });
+  if (cols.length >= 2) sy.selectedIndex = 1;
+  drawScatter();
+}
+
+function drawScatter() {
+  const xi = parseInt(document.getElementById('scatterX').value);
+  const yi = parseInt(document.getElementById('scatterY').value);
+  if (isNaN(xi) || isNaN(yi)) return;
+
+  const cols = [...new Set(selectedCols)].sort((a,b) => a-b);
+  const xci = cols[xi], yci = cols[yi];
+  const xVals = rows.map(r => parseNum(r[xci]));
+  const yVals = rows.map(r => parseNum(r[yci]));
+  const xLabel = headers[xci], yLabel = headers[yci];
+  const corr = corrMatrix[xi][yi];
+
+  const canvas = document.getElementById('scatterCanvas');
+  const dpr = window.devicePixelRatio || 1;
+  const W = Math.min(700, window.innerWidth - 80);
+  const H = 420;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const PAD = {top: 30, right: 30, bottom: 60, left: 70};
+  const pw = W - PAD.left - PAD.right;
+  const ph = H - PAD.top - PAD.bottom;
+
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(0, 0, W, H);
+
+  const valid = xVals.map((x, i) => ({x, y: yVals[i]})).filter(p => !isNaN(p.x) && !isNaN(p.y));
+  if (valid.length === 0) return;
+
+  const xs = valid.map(p => p.x), ys = valid.map(p => p.y);
+  const xMin = Math.min(...xs), xMax = Math.max(...xs);
+  const yMin = Math.min(...ys), yMax = Math.max(...ys);
+  const xRange = xMax - xMin || 1, yRange = yMax - yMin || 1;
+
+  const toCanvasX = v => PAD.left + ((v - xMin) / xRange) * pw;
+  const toCanvasY = v => PAD.top + ph - ((v - yMin) / yRange) * ph;
+
+  // grid
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 5; i++) {
+    const gy = PAD.top + (ph / 5) * i;
+    ctx.beginPath(); ctx.moveTo(PAD.left, gy); ctx.lineTo(PAD.left + pw, gy); ctx.stroke();
+    const gx = PAD.left + (pw / 5) * i;
+    ctx.beginPath(); ctx.moveTo(gx, PAD.top); ctx.lineTo(gx, PAD.top + ph); ctx.stroke();
+  }
+
+  // axes
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(PAD.left, PAD.top);
+  ctx.lineTo(PAD.left, PAD.top + ph);
+  ctx.lineTo(PAD.left + pw, PAD.top + ph);
+  ctx.stroke();
+
+  // trend line
+  const n = valid.length;
+  const mx = xs.reduce((a,b)=>a+b,0)/n, my = ys.reduce((a,b)=>a+b,0)/n;
+  let num=0,den=0;
+  xs.forEach((x,i)=>{const dx=x-mx,dy=ys[i]-my;num+=dx*dy;den+=dx*dx;});
+  if (den > 0) {
+    const slope = num/den, intercept = my - slope*mx;
+    const tx1 = xMin, ty1 = slope*tx1+intercept;
+    const tx2 = xMax, ty2 = slope*tx2+intercept;
+    ctx.strokeStyle = '#f59e0b44';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6,4]);
+    ctx.beginPath();
+    ctx.moveTo(toCanvasX(tx1), toCanvasY(ty1));
+    ctx.lineTo(toCanvasX(tx2), toCanvasY(ty2));
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // points
+  const dotColor = corr > 0.3 ? '#3b82f6' : corr < -0.3 ? '#ef4444' : '#64748b';
+  valid.forEach(p => {
+    ctx.beginPath();
+    ctx.arc(toCanvasX(p.x), toCanvasY(p.y), 4, 0, Math.PI * 2);
+    ctx.fillStyle = dotColor + 'cc';
+    ctx.fill();
+    ctx.strokeStyle = dotColor;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+
+  // axis labels
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '12px Segoe UI, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(xLabel, PAD.left + pw / 2, H - 14);
+
+  ctx.save();
+  ctx.translate(16, PAD.top + ph / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText(yLabel, 0, 0);
+  ctx.restore();
+
+  // tick labels
+  ctx.font = '10px Segoe UI, sans-serif';
+  ctx.fillStyle = '#475569';
+  for (let i = 0; i <= 5; i++) {
+    const v = xMin + (xRange / 5) * i;
+    ctx.textAlign = 'center';
+    ctx.fillText(fmt(v), toCanvasX(v), PAD.top + ph + 18);
+    const vy = yMin + (yRange / 5) * (5 - i);
+    ctx.textAlign = 'right';
+    ctx.fillText(fmt(vy), PAD.left - 6, toCanvasY(vy) + 4);
+  }
+
+  // corr badge
+  ctx.font = 'bold 13px Courier New, monospace';
+  ctx.fillStyle = corr > 0 ? '#86efac' : '#fca5a5';
+  ctx.textAlign = 'right';
+  ctx.fillText(`r = ${corr.toFixed(4)}`, W - PAD.right, PAD.top + 16);
+}
+
+// ─────────────────────────────────────────
+//  INSIGHTS
+// ─────────────────────────────────────────
+function renderInsights() {
+  const k = selectedLabels.length;
+  const pairs = [];
+  for (let i = 0; i < k; i++)
+    for (let j = i+1; j < k; j++)
+      pairs.push({i, j, v: corrMatrix[i][j]});
+
+  pairs.sort((a, b) => Math.abs(b.v) - Math.abs(a.v));
+
+  const grid = document.getElementById('insightsGrid');
+  if (pairs.length === 0) { grid.innerHTML = '<div class="no-data-msg">분석 가능한 쌍이 없습니다</div>'; return; }
+
+  grid.innerHTML = pairs.map(({i, j, v}) => {
+    const {label, cls, color} = corrDesc(v);
+    return `
+      <div class="insight-card">
+        <div class="insight-pair">${escape(selectedLabels[i])} ↔ ${escape(selectedLabels[j])}</div>
+        <div class="insight-corr" style="color:${color}">${isNaN(v) ? 'N/A' : v.toFixed(4)}</div>
+        <span class="insight-label ${cls}">${label}</span>
+      </div>`;
+  }).join('');
+}
+
+function corrDesc(v) {
+  if (isNaN(v)) return {label: '계산 불가', cls: 'label-none', color: '#475569'};
+  const a = Math.abs(v);
+  if (v > 0) {
+    if (a >= 0.7) return {label: '강한 양의 상관관계', cls: 'label-strong-pos', color: '#86efac'};
+    if (a >= 0.4) return {label: '보통 양의 상관관계', cls: 'label-moderate-pos', color: '#6ee7b7'};
+    if (a >= 0.1) return {label: '약한 양의 상관관계', cls: 'label-weak-pos', color: '#5eead4'};
+    return {label: '상관관계 없음', cls: 'label-none', color: '#64748b'};
+  } else {
+    if (a >= 0.7) return {label: '강한 음의 상관관계', cls: 'label-strong-neg', color: '#ef4444'};
+    if (a >= 0.4) return {label: '보통 음의 상관관계', cls: 'label-moderate-neg', color: '#f87171'};
+    if (a >= 0.1) return {label: '약한 음의 상관관계', cls: 'label-weak-neg', color: '#fca5a5'};
+    return {label: '상관관계 없음', cls: 'label-none', color: '#64748b'};
+  }
+}
+
+// ─────────────────────────────────────────
+//  TABS
+// ─────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById(`panel-${name}`).classList.add('active');
+  if (name === 'heatmap') renderHeatmap();
+  if (name === 'scatter') drawScatter();
+}
+
+// ─────────────────────────────────────────
+//  UTILS
+// ─────────────────────────────────────────
+function escape(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function truncate(s, n) {
+  return s.length > n ? s.slice(0, n-1) + '…' : s;
+}
+
+function fmt(v) {
+  if (Math.abs(v) >= 10000 || (Math.abs(v) < 0.01 && v !== 0)) return v.toExponential(1);
+  return parseFloat(v.toFixed(2)).toString();
+}
+
+function showToast(msg, isError = false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.borderColor = isError ? '#ef4444' : '#3b82f6';
+  t.style.color = isError ? '#fca5a5' : '#93c5fd';
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// Resize scatter on window resize
+window.addEventListener('resize', () => {
+  if (document.getElementById('panel-scatter').classList.contains('active')) drawScatter();
+});
+</script>
+</body>
+</html>
