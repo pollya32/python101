@@ -323,7 +323,7 @@
 <header>
   <div class="logo">⚡</div>
   <div>
-    <h1>FDC RAW DATA 이상감지 시스템 <span class="chip">v1.0</span></h1>
+    <h1>FDC RAW DATA 이상감지 시스템 <span class="chip">v1.1</span></h1>
     <p>직전 SLOT 데이터 기반 실시간 이상감지 · 엑셀 붙여넣기 입력</p>
   </div>
 </header>
@@ -338,10 +338,11 @@
       필수 열 (순서 무관):
       <strong>날짜</strong> &nbsp;|&nbsp; <strong>EQP ID</strong> &nbsp;|&nbsp;
       <strong>LOTID</strong> &nbsp;|&nbsp; <strong>SLOT</strong> &nbsp;|&nbsp;
-      <strong>PARAMETER</strong> &nbsp;|&nbsp; <strong>REAL DATA</strong>
+      <strong>CH</strong> &nbsp;|&nbsp; <strong>PARAMETER</strong> &nbsp;|&nbsp; <strong>REAL DATA</strong>
+      &nbsp;<span style="color:var(--yellow)">(CH 열이 없으면 자동으로 빈값 처리)</span>
     </div>
     <textarea id="dataInput"
-      placeholder="날짜&#9;EQP ID&#9;LOTID&#9;SLOT&#9;PARAMETER&#9;REAL DATA&#10;2024-01-15 08:00&#9;EQP01&#9;LOT001&#9;1&#9;TEMP&#9;250.3&#10;..."></textarea>
+      placeholder="날짜&#9;EQP ID&#9;LOTID&#9;SLOT&#9;CH&#9;PARAMETER&#9;REAL DATA&#10;2024-01-15 08:00&#9;EQP01&#9;LOT001&#9;1&#9;CH1&#9;TEMP&#9;250.3&#10;..."></textarea>
 
     <div class="controls">
       <div class="ctrl-group">
@@ -389,7 +390,7 @@
           <table>
             <thead>
               <tr>
-                <th>날짜</th><th>EQP ID</th><th>LOTID</th><th>SLOT</th>
+                <th>날짜</th><th>EQP ID</th><th>LOTID</th><th>SLOT</th><th>CH</th>
                 <th>PARAMETER</th><th>REAL DATA</th><th>직전값</th>
                 <th>변화량</th><th>임계값</th><th>상태</th>
               </tr>
@@ -408,6 +409,8 @@
         <div class="filter-row">
           <label>EQP ID</label>
           <select id="fEqp"    onchange="applyFilter()"><option value="">전체</option></select>
+          <label>CH</label>
+          <select id="fCh"     onchange="applyFilter()"><option value="">전체</option></select>
           <label>PARAMETER</label>
           <select id="fParam"  onchange="applyFilter()"><option value="">전체</option></select>
           <label>상태</label>
@@ -424,7 +427,7 @@
           <table>
             <thead>
               <tr>
-                <th>날짜</th><th>EQP ID</th><th>LOTID</th><th>SLOT</th>
+                <th>날짜</th><th>EQP ID</th><th>LOTID</th><th>SLOT</th><th>CH</th>
                 <th>PARAMETER</th><th>REAL DATA</th><th>직전값</th>
                 <th>변화량</th><th>상태</th>
               </tr>
@@ -454,6 +457,7 @@ const COL_ALIASES = {
   'EQP ID':     ['eqp id','eqpid','eqp_id','장비id','equipment','equip'],
   'LOTID':      ['lotid','lot id','lot_id','lot','로트'],
   'SLOT':       ['slot','slot no','slot_no','슬롯'],
+  'CH':         ['ch','channel','채널','ch no','ch_no','챔버'],
   'PARAMETER':  ['parameter','param','파라미터','항목','측정항목'],
   'REAL DATA':  ['real data','realdata','real_data','value','값','실측값','측정값','data']
 };
@@ -472,12 +476,17 @@ function parseExcel(text) {
 
   const headers = lines[0].split('\t');
   const idx = {};
+
+  // 필수 열
   const required = ['날짜','EQP ID','LOTID','SLOT','PARAMETER','REAL DATA'];
   required.forEach(col => {
     const i = findColIdx(headers, col);
     if (i < 0) throw new Error(`필수 열 "${col}" 을 찾을 수 없습니다.\n현재 열: ${headers.map(h=>h.trim()).join(', ')}`);
     idx[col] = i;
   });
+
+  // 선택 열: CH (없으면 -1)
+  idx['CH'] = findColIdx(headers, 'CH');
 
   const data = [];
   for (let r = 1; r < lines.length; r++) {
@@ -491,6 +500,7 @@ function parseExcel(text) {
       'EQP ID':    (cells[idx['EQP ID']]   || '').trim(),
       'LOTID':     (cells[idx['LOTID']]     || '').trim(),
       'SLOT':      (cells[idx['SLOT']]      || '').trim(),
+      'CH':        idx['CH'] >= 0 ? (cells[idx['CH']] || '').trim() : '',
       'PARAMETER': (cells[idx['PARAMETER']] || '').trim(),
       'REAL DATA': (cells[idx['REAL DATA']] || '').trim(),
       _val:  val,
@@ -503,12 +513,12 @@ function parseExcel(text) {
 
 /* ═══════════════════════════════════════════════════════
    ANOMALY DETECTION
-   그룹: EQP ID + LOTID + PARAMETER  /  정렬: SLOT 번호
+   그룹: EQP ID + LOTID + CH + PARAMETER  /  정렬: SLOT 번호
 ══════════════════════════════════════════════════════ */
 function detectAnomalies(data, threshold) {
   const groups = {};
   data.forEach(row => {
-    const key = `${row['EQP ID']}|||${row['LOTID']}|||${row['PARAMETER']}`;
+    const key = `${row['EQP ID']}|||${row['LOTID']}|||${row['CH']}|||${row['PARAMETER']}`;
     (groups[key] = groups[key] || []).push(row);
   });
 
@@ -548,6 +558,7 @@ function renderSummary(results) {
   const anom   = results.filter(r => r.isAnom).length;
   const rate   = total ? ((anom/total)*100).toFixed(1) : '0.0';
   const eqps   = new Set(results.map(r => r['EQP ID'])).size;
+  const chs    = new Set(results.map(r => r['CH']).filter(Boolean)).size;
   const params = new Set(results.map(r => r['PARAMETER'])).size;
 
   document.getElementById('summaryGrid').innerHTML = `
@@ -556,6 +567,7 @@ function renderSummary(results) {
     <div class="s-card c-green"> <div class="val">${(total-anom).toLocaleString()}</div><div class="lbl">정상 건수</div></div>
     <div class="s-card c-yellow"><div class="val">${rate}%</div>              <div class="lbl">이상 비율</div></div>
     <div class="s-card c-blue">  <div class="val">${eqps}</div>               <div class="lbl">EQP 수</div></div>
+    ${chs > 0 ? `<div class="s-card c-blue"><div class="val">${chs}</div><div class="lbl">CH 수</div></div>` : ''}
     <div class="s-card c-blue">  <div class="val">${params}</div>             <div class="lbl">PARAMETER 수</div></div>
   `;
 }
@@ -570,10 +582,11 @@ function renderBanner(results) {
   } else {
     const maxDiff = Math.max(...anoms.map(r => r.diff));
     const worst   = anoms.find(r => r.diff === maxDiff);
+    const chInfo  = worst['CH'] ? ` / CH ${worst['CH']}` : '';
     el.innerHTML  = `<div class="alert-bar danger"><span class="alert-icon">⚠️</span>
       <span><strong>${anoms.length}건의 이상</strong>이 감지되었습니다.
       최대 변화량: <strong>${maxDiff.toFixed(4)}</strong>
-      (${worst['EQP ID']} / ${worst['PARAMETER']} / SLOT&nbsp;${worst['SLOT']})</span></div>`;
+      (${worst['EQP ID']}${chInfo} / ${worst['PARAMETER']} / SLOT&nbsp;${worst['SLOT']})</span></div>`;
   }
 }
 
@@ -613,23 +626,27 @@ function renderCharts(results) {
     panel.appendChild(wrap);
     panelEl.appendChild(panel);
 
-    /* Data grouped by EQP + LOT */
+    /* 데이터 그룹: EQP + LOT + CH */
     const paramRows = results.filter(r => r['PARAMETER'] === param);
-    const gkeys = [...new Set(paramRows.map(r => `${r['EQP ID']}|${r['LOTID']}`))]
+    const gkeys = [...new Set(paramRows.map(r => `${r['EQP ID']}|${r['LOTID']}|${r['CH']}`))]
     const allSlots = [...new Set(paramRows.map(r => r._slot))].sort((a,b)=>a-b);
 
     const datasets = gkeys.map((gk, gi) => {
-      const [eqp, lot] = gk.split('|');
-      const rows = paramRows.filter(r => r['EQP ID']===eqp && r['LOTID']===lot);
+      const [eqp, lot, ch] = gk.split('|');
+      const rows = paramRows.filter(r =>
+        r['EQP ID']===eqp && r['LOTID']===lot && r['CH']===ch
+      );
       const bySlot = Object.fromEntries(rows.map(r=>[r._slot, r]));
       const color  = PALETTE[gi % PALETTE.length];
 
-      const vals      = allSlots.map(s => bySlot[s] ? bySlot[s]._val : null);
-      const isAnom    = allSlots.map(s => bySlot[s]?.isAnom ?? false);
-      const rowsArr   = allSlots.map(s => bySlot[s] ?? null);
+      const vals    = allSlots.map(s => bySlot[s] ? bySlot[s]._val : null);
+      const isAnom  = allSlots.map(s => bySlot[s]?.isAnom ?? false);
+      const rowsArr = allSlots.map(s => bySlot[s] ?? null);
+
+      const label = ch ? `${eqp} / ${lot} / ${ch}` : `${eqp} / ${lot}`;
 
       return {
-        label: `${eqp} / ${lot}`,
+        label,
         data:  vals,
         _rows: rowsArr,
         borderColor:        color,
@@ -711,7 +728,7 @@ function renderTables(results) {
   const anomTbody = document.getElementById('anomTbody');
   anomTbody.innerHTML = '';
   if (!anoms.length) {
-    anomTbody.innerHTML = `<tr><td colspan="10" class="no-data">✅ 이상감지된 데이터가 없습니다.</td></tr>`;
+    anomTbody.innerHTML = `<tr><td colspan="11" class="no-data">✅ 이상감지된 데이터가 없습니다.</td></tr>`;
   } else {
     anoms.forEach(row => {
       const tr = document.createElement('tr');
@@ -727,6 +744,7 @@ function renderTables(results) {
     const tr = document.createElement('tr');
     if (row.isAnom) tr.className = 'anom-row';
     tr.dataset.eqp    = row['EQP ID'];
+    tr.dataset.ch     = row['CH'];
     tr.dataset.param  = row['PARAMETER'];
     tr.dataset.status = row.isAnom ? 'anom' : 'ok';
     tr.innerHTML = rowHTML(row, false);
@@ -743,14 +761,16 @@ function rowHTML(row, isAnomalyTable) {
 
   if (isAnomalyTable) {
     return `
-      <td>${row['날짜']}</td><td>${row['EQP ID']}</td><td>${row['LOTID']}</td><td>${row['SLOT']}</td>
+      <td>${row['날짜']}</td><td>${row['EQP ID']}</td><td>${row['LOTID']}</td>
+      <td>${row['SLOT']}</td><td>${row['CH']}</td>
       <td>${row['PARAMETER']}</td><td><strong>${row['REAL DATA']}</strong></td>
       <td>${prevStr}</td>
       <td class="diff-anom">${diffStr}</td>
       <td>${row.threshold}</td><td>${statusBadge}</td>`;
   }
   return `
-    <td>${row['날짜']}</td><td>${row['EQP ID']}</td><td>${row['LOTID']}</td><td>${row['SLOT']}</td>
+    <td>${row['날짜']}</td><td>${row['EQP ID']}</td><td>${row['LOTID']}</td>
+    <td>${row['SLOT']}</td><td>${row['CH']}</td>
     <td>${row['PARAMETER']}</td><td>${row['REAL DATA']}</td>
     <td>${prevStr}</td>
     <td class="${row.isAnom?'diff-anom':''}">${diffStr}</td>
@@ -760,19 +780,23 @@ function rowHTML(row, isAnomalyTable) {
 /* -- Filters -- */
 function populateFilters(results) {
   const eqps   = [...new Set(results.map(r=>r['EQP ID']))].sort();
-  const params  = [...new Set(results.map(r=>r['PARAMETER']))].sort();
-  const mkOpts  = arr => '<option value="">전체</option>' + arr.map(v=>`<option>${v}</option>`).join('');
+  const chs    = [...new Set(results.map(r=>r['CH']).filter(Boolean))].sort();
+  const params = [...new Set(results.map(r=>r['PARAMETER']))].sort();
+  const mkOpts = arr => '<option value="">전체</option>' + arr.map(v=>`<option>${v}</option>`).join('');
   document.getElementById('fEqp').innerHTML   = mkOpts(eqps);
+  document.getElementById('fCh').innerHTML    = mkOpts(chs);
   document.getElementById('fParam').innerHTML = mkOpts(params);
 }
 
 function applyFilter() {
   const eqp    = document.getElementById('fEqp').value;
+  const ch     = document.getElementById('fCh').value;
   const param  = document.getElementById('fParam').value;
   const status = document.getElementById('fStatus').value;
   document.querySelectorAll('#fullTbody tr').forEach(tr => {
-    const show = (!eqp || tr.dataset.eqp===eqp)
-              && (!param || tr.dataset.param===param)
+    const show = (!eqp    || tr.dataset.eqp===eqp)
+              && (!ch     || tr.dataset.ch===ch)
+              && (!param  || tr.dataset.param===param)
               && (!status || tr.dataset.status===status);
     tr.style.display = show ? '' : 'none';
   });
@@ -785,9 +809,9 @@ function exportCSV(type) {
   const rows = type === 'anomaly' ? gResults.filter(r=>r.isAnom) : gResults;
   if (!rows.length) { toast('내보낼 데이터가 없습니다.', 'err'); return; }
 
-  const hdr = ['날짜','EQP ID','LOTID','SLOT','PARAMETER','REAL DATA','직전값','변화량','임계값','상태'];
+  const hdr  = ['날짜','EQP ID','LOTID','SLOT','CH','PARAMETER','REAL DATA','직전값','변화량','임계값','상태'];
   const body = rows.map(r => [
-    r['날짜'], r['EQP ID'], r['LOTID'], r['SLOT'], r['PARAMETER'], r['REAL DATA'],
+    r['날짜'], r['EQP ID'], r['LOTID'], r['SLOT'], r['CH'], r['PARAMETER'], r['REAL DATA'],
     r.prevVal!=null ? r.prevVal.toFixed(4) : '',
     r.diff!=null    ? r.diff.toFixed(4)    : '',
     r.threshold,
@@ -843,35 +867,49 @@ function clearAll() {
 ══════════════════════════════════════════════════════ */
 function loadSample() {
   document.getElementById('dataInput').value = [
-    '날짜\tEQP ID\tLOTID\tSLOT\tPARAMETER\tREAL DATA',
-    // EQP01 / LOT001 / TEMP  (SLOT 3→4: +14.4 이상, SLOT 4→5: -13.7 이상)
-    '2024-01-15 08:00\tEQP01\tLOT001\t1\tTEMP\t250.3',
-    '2024-01-15 08:01\tEQP01\tLOT001\t2\tTEMP\t251.1',
-    '2024-01-15 08:02\tEQP01\tLOT001\t3\tTEMP\t250.8',
-    '2024-01-15 08:03\tEQP01\tLOT001\t4\tTEMP\t265.2',
-    '2024-01-15 08:04\tEQP01\tLOT001\t5\tTEMP\t251.5',
-    '2024-01-15 08:05\tEQP01\tLOT001\t6\tTEMP\t250.9',
-    // EQP01 / LOT001 / FLOW  (SLOT 4→5: +15.4 이상)
-    '2024-01-15 08:00\tEQP01\tLOT001\t1\tFLOW\t100.5',
-    '2024-01-15 08:01\tEQP01\tLOT001\t2\tFLOW\t101.2',
-    '2024-01-15 08:02\tEQP01\tLOT001\t3\tFLOW\t99.8',
-    '2024-01-15 08:03\tEQP01\tLOT001\t4\tFLOW\t100.3',
-    '2024-01-15 08:04\tEQP01\tLOT001\t5\tFLOW\t115.7',
-    '2024-01-15 08:05\tEQP01\tLOT001\t6\tFLOW\t102.1',
-    // EQP02 / LOT002 / TEMP  (SLOT 4→5: +30.3 이상)
-    '2024-01-15 08:00\tEQP02\tLOT002\t1\tTEMP\t248.5',
-    '2024-01-15 08:01\tEQP02\tLOT002\t2\tTEMP\t249.2',
-    '2024-01-15 08:02\tEQP02\tLOT002\t3\tTEMP\t249.0',
-    '2024-01-15 08:03\tEQP02\tLOT002\t4\tTEMP\t249.8',
-    '2024-01-15 08:04\tEQP02\tLOT002\t5\tTEMP\t280.1',
-    '2024-01-15 08:05\tEQP02\tLOT002\t6\tTEMP\t250.3',
-    // EQP02 / LOT002 / FLOW  (정상)
-    '2024-01-15 08:00\tEQP02\tLOT002\t1\tFLOW\t98.5',
-    '2024-01-15 08:01\tEQP02\tLOT002\t2\tFLOW\t99.1',
-    '2024-01-15 08:02\tEQP02\tLOT002\t3\tFLOW\t98.8',
-    '2024-01-15 08:03\tEQP02\tLOT002\t4\tFLOW\t99.2',
-    '2024-01-15 08:04\tEQP02\tLOT002\t5\tFLOW\t99.0',
-    '2024-01-15 08:05\tEQP02\tLOT002\t6\tFLOW\t98.7',
+    '날짜\tEQP ID\tLOTID\tSLOT\tCH\tPARAMETER\tREAL DATA',
+    // EQP01 / LOT001 / CH1 / TEMP  (SLOT 3→4: +14.4 이상)
+    '2024-01-15 08:00\tEQP01\tLOT001\t1\tCH1\tTEMP\t250.3',
+    '2024-01-15 08:01\tEQP01\tLOT001\t2\tCH1\tTEMP\t251.1',
+    '2024-01-15 08:02\tEQP01\tLOT001\t3\tCH1\tTEMP\t250.8',
+    '2024-01-15 08:03\tEQP01\tLOT001\t4\tCH1\tTEMP\t265.2',
+    '2024-01-15 08:04\tEQP01\tLOT001\t5\tCH1\tTEMP\t251.5',
+    '2024-01-15 08:05\tEQP01\tLOT001\t6\tCH1\tTEMP\t250.9',
+    // EQP01 / LOT001 / CH2 / TEMP  (정상)
+    '2024-01-15 08:00\tEQP01\tLOT001\t1\tCH2\tTEMP\t248.9',
+    '2024-01-15 08:01\tEQP01\tLOT001\t2\tCH2\tTEMP\t249.3',
+    '2024-01-15 08:02\tEQP01\tLOT001\t3\tCH2\tTEMP\t249.1',
+    '2024-01-15 08:03\tEQP01\tLOT001\t4\tCH2\tTEMP\t249.7',
+    '2024-01-15 08:04\tEQP01\tLOT001\t5\tCH2\tTEMP\t249.4',
+    '2024-01-15 08:05\tEQP01\tLOT001\t6\tCH2\tTEMP\t249.0',
+    // EQP01 / LOT001 / CH1 / FLOW  (SLOT 4→5: +15.4 이상)
+    '2024-01-15 08:00\tEQP01\tLOT001\t1\tCH1\tFLOW\t100.5',
+    '2024-01-15 08:01\tEQP01\tLOT001\t2\tCH1\tFLOW\t101.2',
+    '2024-01-15 08:02\tEQP01\tLOT001\t3\tCH1\tFLOW\t99.8',
+    '2024-01-15 08:03\tEQP01\tLOT001\t4\tCH1\tFLOW\t100.3',
+    '2024-01-15 08:04\tEQP01\tLOT001\t5\tCH1\tFLOW\t115.7',
+    '2024-01-15 08:05\tEQP01\tLOT001\t6\tCH1\tFLOW\t102.1',
+    // EQP02 / LOT002 / CH1 / TEMP  (SLOT 4→5: +30.3 이상)
+    '2024-01-15 08:00\tEQP02\tLOT002\t1\tCH1\tTEMP\t248.5',
+    '2024-01-15 08:01\tEQP02\tLOT002\t2\tCH1\tTEMP\t249.2',
+    '2024-01-15 08:02\tEQP02\tLOT002\t3\tCH1\tTEMP\t249.0',
+    '2024-01-15 08:03\tEQP02\tLOT002\t4\tCH1\tTEMP\t249.8',
+    '2024-01-15 08:04\tEQP02\tLOT002\t5\tCH1\tTEMP\t280.1',
+    '2024-01-15 08:05\tEQP02\tLOT002\t6\tCH1\tTEMP\t250.3',
+    // EQP02 / LOT002 / CH2 / TEMP  (정상)
+    '2024-01-15 08:00\tEQP02\tLOT002\t1\tCH2\tTEMP\t247.8',
+    '2024-01-15 08:01\tEQP02\tLOT002\t2\tCH2\tTEMP\t248.1',
+    '2024-01-15 08:02\tEQP02\tLOT002\t3\tCH2\tTEMP\t247.9',
+    '2024-01-15 08:03\tEQP02\tLOT002\t4\tCH2\tTEMP\t248.5',
+    '2024-01-15 08:04\tEQP02\tLOT002\t5\tCH2\tTEMP\t248.2',
+    '2024-01-15 08:05\tEQP02\tLOT002\t6\tCH2\tTEMP\t247.6',
+    // EQP02 / LOT002 / CH1 / FLOW  (정상)
+    '2024-01-15 08:00\tEQP02\tLOT002\t1\tCH1\tFLOW\t98.5',
+    '2024-01-15 08:01\tEQP02\tLOT002\t2\tCH1\tFLOW\t99.1',
+    '2024-01-15 08:02\tEQP02\tLOT002\t3\tCH1\tFLOW\t98.8',
+    '2024-01-15 08:03\tEQP02\tLOT002\t4\tCH1\tFLOW\t99.2',
+    '2024-01-15 08:04\tEQP02\tLOT002\t5\tCH1\tFLOW\t99.0',
+    '2024-01-15 08:05\tEQP02\tLOT002\t6\tCH1\tFLOW\t98.7',
   ].join('\n');
   document.getElementById('threshold').value = '10';
   toast('샘플 데이터가 로드되었습니다.', 'ok');
