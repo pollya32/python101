@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FDC RAW DATA 이상감지 시스템</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg0: #0d1117;
+      --bg1: #161b22;
+      --bg2: #1c2128;
+      --bd:  #30363d;
+      --tx1: #e6edf3;
+      --tx2: #8b949e;
+      --blue:   #388bfd;
+      --red:    #f85149;
+      --green:  #3fb950;
+      --yellow: #d29922;
+      --orange: #db6d28;
+      --purple: #a371f7;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans KR', sans-serif;
+      background: var(--bg0);
+      color: var(--tx1);
+      min-height: 100vh;
+    }
+
+    /* ── Header ─────────────────────────────────────── */
+    header {
+      background: linear-gradient(135deg, var(--bg2) 0%, var(--bg0) 100%);
+      border-bottom: 1px solid var(--bd);
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    header .logo { font-size: 30px; }
+    header h1   { font-size: 20px; font-weight: 700; }
+    header p    { font-size: 12px; color: var(--tx2); margin-top: 3px; }
+    .chip {
+      background: var(--blue);
+      color: #fff;
+      padding: 2px 9px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .5px;
+    }
+
+    /* ── Layout ─────────────────────────────────────── */
+    main { max-width: 1440px; margin: 0 auto; padding: 24px 32px; }
+
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--bd);
+      border-radius: 10px;
+      padding: 20px 24px;
+      margin-bottom: 20px;
+    }
+    .card-title {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* ── Input area ──────────────────────────────────── */
+    .hint {
+      font-size: 12px;
+      color: var(--tx2);
+      background: var(--bg1);
+      border-left: 3px solid var(--blue);
+      border-radius: 4px;
+      padding: 8px 12px;
+      margin-bottom: 10px;
+      line-height: 1.7;
+    }
+    .hint strong { color: var(--tx1); }
+
+    textarea {
+      width: 100%;
+      height: 170px;
+      background: var(--bg1);
+      border: 1px solid var(--bd);
+      border-radius: 6px;
+      color: var(--tx1);
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 12px;
+      padding: 12px;
+      resize: vertical;
+      outline: none;
+      transition: border-color .2s;
+      line-height: 1.5;
+    }
+    textarea:focus { border-color: var(--blue); }
+    textarea::placeholder { color: var(--tx2); opacity: .55; }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 14px;
+      margin-top: 14px;
+    }
+    .ctrl-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--tx2);
+    }
+    input[type="number"], select {
+      background: var(--bg1);
+      border: 1px solid var(--bd);
+      border-radius: 6px;
+      color: var(--tx1);
+      padding: 6px 10px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    input[type="number"] { width: 90px; }
+    input:focus, select:focus { border-color: var(--blue); }
+
+    .btn {
+      padding: 7px 16px;
+      border-radius: 6px;
+      border: none;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .15s, transform .1s;
+      white-space: nowrap;
+    }
+    .btn:hover  { opacity: .82; }
+    .btn:active { transform: scale(.97); }
+    .btn-primary   { background: var(--blue);  color: #fff; }
+    .btn-secondary { background: var(--bg1);   color: var(--tx1); border: 1px solid var(--bd); }
+    .btn-sm { padding: 4px 12px; font-size: 11px; }
+
+    /* ── Summary cards ───────────────────────────────── */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+    .s-card {
+      background: var(--bg2);
+      border: 1px solid var(--bd);
+      border-radius: 10px;
+      padding: 16px;
+      text-align: center;
+    }
+    .s-card .val { font-size: 30px; font-weight: 700; line-height: 1; margin-bottom: 6px; }
+    .s-card .lbl { font-size: 11px; color: var(--tx2); }
+    .c-blue   .val { color: var(--blue); }
+    .c-red    .val { color: var(--red); }
+    .c-green  .val { color: var(--green); }
+    .c-yellow .val { color: var(--yellow); }
+
+    /* ── Alerts ──────────────────────────────────────── */
+    .alert-bar {
+      border-radius: 8px;
+      padding: 11px 16px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+    }
+    .alert-bar.danger  { background: rgba(248,81,73,.10); border: 1px solid rgba(248,81,73,.30); }
+    .alert-bar.safe    { background: rgba(63,185,80,.10); border: 1px solid rgba(63,185,80,.30); }
+    .alert-icon { font-size: 18px; flex-shrink: 0; }
+
+    /* ── Chart tabs ──────────────────────────────────── */
+    .tab-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .tab-btn {
+      padding: 5px 14px;
+      border-radius: 20px;
+      border: 1px solid var(--bd);
+      background: var(--bg1);
+      color: var(--tx2);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .tab-btn:hover      { border-color: var(--blue); color: var(--tx1); }
+    .tab-btn.active     { background: var(--blue); color: #fff; border-color: var(--blue); }
+    .tab-panel          { display: none; }
+    .tab-panel.active   { display: block; }
+    .chart-wrap         { position: relative; height: 340px; }
+
+    /* ── Table ───────────────────────────────────────── */
+    .tbl-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .tbl-header .title { font-size: 14px; font-weight: 600; }
+    .cnt-badge {
+      background: var(--bg1);
+      border: 1px solid var(--bd);
+      color: var(--tx2);
+      padding: 1px 9px;
+      border-radius: 10px;
+      font-size: 11px;
+    }
+    .filter-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-left: auto;
+    }
+    .filter-row label { font-size: 12px; color: var(--tx2); }
+    .filter-row select { padding: 4px 8px; font-size: 12px; }
+
+    .tbl-scroll { max-height: 400px; overflow-y: auto; }
+    .tbl-wrap   { border-radius: 6px; border: 1px solid var(--bd); overflow-x: auto; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    thead { background: var(--bg1); position: sticky; top: 0; z-index: 5; }
+    th {
+      padding: 9px 12px;
+      text-align: left;
+      font-weight: 600;
+      color: var(--tx2);
+      border-bottom: 1px solid var(--bd);
+      white-space: nowrap;
+    }
+    td { padding: 7px 12px; border-bottom: 1px solid rgba(48,54,61,.5); white-space: nowrap; }
+    tr:last-child td { border-bottom: none; }
+    tr.anom-row  { background: rgba(248,81,73,.08); }
+    tr.anom-row:hover  { background: rgba(248,81,73,.14); }
+    tr:not(.anom-row):hover { background: rgba(255,255,255,.03); }
+
+    .badge-anom  {
+      display: inline-block;
+      background: var(--red);
+      color: #fff;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 700;
+    }
+    .badge-ok {
+      display: inline-block;
+      background: rgba(63,185,80,.18);
+      color: var(--green);
+      border: 1px solid rgba(63,185,80,.3);
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 700;
+    }
+    .diff-anom { color: var(--red); font-weight: 700; }
+
+    .no-data { text-align: center; padding: 36px; color: var(--tx2); font-size: 13px; }
+
+    /* ── Legend ──────────────────────────────────────── */
+    .legend {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 10px;
+      font-size: 12px;
+      color: var(--tx2);
+    }
+    .legend-item { display: flex; align-items: center; gap: 6px; }
+    .l-dot  { width: 10px; height: 10px; border-radius: 50%; }
+    .l-tri  { width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 11px solid var(--red); }
+
+    /* ── Toast ───────────────────────────────────────── */
+    #toast-box {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .toast {
+      background: var(--bg2);
+      border: 1px solid var(--bd);
+      border-radius: 8px;
+      padding: 11px 15px;
+      font-size: 13px;
+      max-width: 340px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      animation: fadeIn .25s ease;
+    }
+    .toast.err { border-color: var(--red);   background: rgba(248,81,73,.1); }
+    .toast.ok  { border-color: var(--green); background: rgba(63,185,80,.1); }
+    @keyframes fadeIn { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; } }
+
+    @media (max-width: 700px) {
+      main   { padding: 14px; }
+      header { padding: 14px; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="toast-box"></div>
+
+<header>
+  <div class="logo">⚡</div>
+  <div>
+    <h1>FDC RAW DATA 이상감지 시스템 <span class="chip">v1.0</span></h1>
+    <p>직전 SLOT 데이터 기반 실시간 이상감지 · 엑셀 붙여넣기 입력</p>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── 데이터 입력 ───────────────────────────────── -->
+  <div class="card">
+    <div class="card-title">📋 데이터 입력</div>
+    <div class="hint">
+      엑셀에서 데이터를 선택 후 <strong>Ctrl+C</strong> 복사 → 아래 영역에 <strong>Ctrl+V</strong> 붙여넣기<br>
+      필수 열 (순서 무관):
+      <strong>날짜</strong> &nbsp;|&nbsp; <strong>EQP ID</strong> &nbsp;|&nbsp;
+      <strong>LOTID</strong> &nbsp;|&nbsp; <strong>SLOT</strong> &nbsp;|&nbsp;
+      <strong>PARAMETER</strong> &nbsp;|&nbsp; <strong>REAL DATA</strong>
+    </div>
+    <textarea id="dataInput"
+      placeholder="날짜&#9;EQP ID&#9;LOTID&#9;SLOT&#9;PARAMETER&#9;REAL DATA&#10;2024-01-15 08:00&#9;EQP01&#9;LOT001&#9;1&#9;TEMP&#9;250.3&#10;..."></textarea>
+
+    <div class="controls">
+      <div class="ctrl-group">
+        <span>이상감지 임계값:</span>
+        <input type="number" id="threshold" value="10" min="0" step="0.1">
+        <span style="font-size:11px;color:var(--tx2)">(직전 SLOT 대비 변화량 기준)</span>
+      </div>
+      <button class="btn btn-primary" onclick="runAnalysis()">🔍 분석 시작</button>
+      <button class="btn btn-secondary" onclick="loadSample()">📊 샘플 데이터</button>
+      <button class="btn btn-secondary" onclick="clearAll()">🗑 초기화</button>
+    </div>
+  </div>
+
+  <!-- ── 결과 영역 ─────────────────────────────────── -->
+  <div id="results" style="display:none">
+
+    <!-- 요약 -->
+    <div class="summary-grid" id="summaryGrid"></div>
+
+    <!-- 이상 배너 -->
+    <div id="alertBanner"></div>
+
+    <!-- 그래프 -->
+    <div class="card">
+      <div class="card-title">📈 PARAMETER 별 그래프</div>
+      <div class="legend">
+        <div class="legend-item"><div class="l-dot" style="background:var(--blue)"></div> 정상</div>
+        <div class="legend-item"><div class="l-tri"></div> 이상감지</div>
+      </div>
+      <div class="tab-row"  id="chartTabs"></div>
+      <div id="chartPanels"></div>
+    </div>
+
+    <!-- 이상감지 목록 -->
+    <div class="card">
+      <div class="tbl-header">
+        <span class="title">🚨 이상감지 목록</span>
+        <span class="cnt-badge" id="anomCnt">0건</span>
+        <div style="margin-left:auto">
+          <button class="btn btn-secondary btn-sm" onclick="exportCSV('anomaly')">⬇ CSV 다운로드</button>
+        </div>
+      </div>
+      <div class="tbl-scroll">
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>날짜</th><th>EQP ID</th><th>LOTID</th><th>SLOT</th>
+                <th>PARAMETER</th><th>REAL DATA</th><th>직전값</th>
+                <th>변화량</th><th>임계값</th><th>상태</th>
+              </tr>
+            </thead>
+            <tbody id="anomTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 전체 데이터 -->
+    <div class="card">
+      <div class="tbl-header">
+        <span class="title">📋 전체 데이터</span>
+        <span class="cnt-badge" id="totalCnt">0건</span>
+        <div class="filter-row">
+          <label>EQP ID</label>
+          <select id="fEqp"    onchange="applyFilter()"><option value="">전체</option></select>
+          <label>PARAMETER</label>
+          <select id="fParam"  onchange="applyFilter()"><option value="">전체</option></select>
+          <label>상태</label>
+          <select id="fStatus" onchange="applyFilter()">
+            <option value="">전체</option>
+            <option value="anom">이상</option>
+            <option value="ok">정상</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="exportCSV('all')">⬇ CSV</button>
+        </div>
+      </div>
+      <div class="tbl-scroll">
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>날짜</th><th>EQP ID</th><th>LOTID</th><th>SLOT</th>
+                <th>PARAMETER</th><th>REAL DATA</th><th>직전값</th>
+                <th>변화량</th><th>상태</th>
+              </tr>
+            </thead>
+            <tbody id="fullTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /results -->
+</main>
+
+<script>
+/* ═══════════════════════════════════════════════════════
+   STATE
+══════════════════════════════════════════════════════ */
+let gResults = [];
+let gCharts  = {};
+let gThreshold = 10;
+
+/* ═══════════════════════════════════════════════════════
+   COLUMN ALIAS MAP  (한글 / 영어 모두 지원)
+══════════════════════════════════════════════════════ */
+const COL_ALIASES = {
+  '날짜':       ['날짜','date','datetime','일시','time','측정일시'],
+  'EQP ID':     ['eqp id','eqpid','eqp_id','장비id','equipment','equip'],
+  'LOTID':      ['lotid','lot id','lot_id','lot','로트'],
+  'SLOT':       ['slot','slot no','slot_no','슬롯'],
+  'PARAMETER':  ['parameter','param','파라미터','항목','측정항목'],
+  'REAL DATA':  ['real data','realdata','real_data','value','값','실측값','측정값','data']
+};
+
+function findColIdx(headers, key) {
+  const aliases = COL_ALIASES[key] || [key.toLowerCase()];
+  return headers.findIndex(h => aliases.includes(h.toLowerCase().trim()));
+}
+
+/* ═══════════════════════════════════════════════════════
+   PARSE
+══════════════════════════════════════════════════════ */
+function parseExcel(text) {
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) throw new Error('헤더 포함 2행 이상 필요합니다.');
+
+  const headers = lines[0].split('\t');
+  const idx = {};
+  const required = ['날짜','EQP ID','LOTID','SLOT','PARAMETER','REAL DATA'];
+  required.forEach(col => {
+    const i = findColIdx(headers, col);
+    if (i < 0) throw new Error(`필수 열 "${col}" 을 찾을 수 없습니다.\n현재 열: ${headers.map(h=>h.trim()).join(', ')}`);
+    idx[col] = i;
+  });
+
+  const data = [];
+  for (let r = 1; r < lines.length; r++) {
+    const line = lines[r].trim();
+    if (!line) continue;
+    const cells = lines[r].split('\t');
+    const val = parseFloat((cells[idx['REAL DATA']] || '').trim().replace(/,/g,''));
+    if (isNaN(val)) continue;
+    data.push({
+      '날짜':       (cells[idx['날짜']]      || '').trim(),
+      'EQP ID':    (cells[idx['EQP ID']]   || '').trim(),
+      'LOTID':     (cells[idx['LOTID']]     || '').trim(),
+      'SLOT':      (cells[idx['SLOT']]      || '').trim(),
+      'PARAMETER': (cells[idx['PARAMETER']] || '').trim(),
+      'REAL DATA': (cells[idx['REAL DATA']] || '').trim(),
+      _val:  val,
+      _slot: parseInt((cells[idx['SLOT']] || '').trim()) || 0
+    });
+  }
+  if (!data.length) throw new Error('유효한 숫자 데이터(REAL DATA)가 없습니다.');
+  return data;
+}
+
+/* ═══════════════════════════════════════════════════════
+   ANOMALY DETECTION
+   그룹: EQP ID + LOTID + PARAMETER  /  정렬: SLOT 번호
+══════════════════════════════════════════════════════ */
+function detectAnomalies(data, threshold) {
+  const groups = {};
+  data.forEach(row => {
+    const key = `${row['EQP ID']}|||${row['LOTID']}|||${row['PARAMETER']}`;
+    (groups[key] = groups[key] || []).push(row);
+  });
+
+  Object.values(groups).forEach(g => g.sort((a,b) => a._slot - b._slot));
+
+  const results = [];
+  Object.values(groups).forEach(group => {
+    group.forEach((row, i) => {
+      const res = { ...row, isAnom: false, diff: null, prevVal: null, threshold };
+      if (i > 0) {
+        const prev = group[i-1];
+        const diff = Math.abs(row._val - prev._val);
+        res.diff    = diff;
+        res.prevVal = prev._val;
+        res.isAnom  = diff > threshold;
+      }
+      results.push(res);
+    });
+  });
+  return results;
+}
+
+/* ═══════════════════════════════════════════════════════
+   RENDER
+══════════════════════════════════════════════════════ */
+function renderAll(results) {
+  renderSummary(results);
+  renderBanner(results);
+  renderCharts(results);
+  renderTables(results);
+  populateFilters(results);
+}
+
+/* -- Summary cards -- */
+function renderSummary(results) {
+  const total  = results.length;
+  const anom   = results.filter(r => r.isAnom).length;
+  const rate   = total ? ((anom/total)*100).toFixed(1) : '0.0';
+  const eqps   = new Set(results.map(r => r['EQP ID'])).size;
+  const params = new Set(results.map(r => r['PARAMETER'])).size;
+
+  document.getElementById('summaryGrid').innerHTML = `
+    <div class="s-card c-blue">  <div class="val">${total.toLocaleString()}</div><div class="lbl">총 데이터 수</div></div>
+    <div class="s-card c-red">   <div class="val">${anom.toLocaleString()}</div> <div class="lbl">이상감지 건수</div></div>
+    <div class="s-card c-green"> <div class="val">${(total-anom).toLocaleString()}</div><div class="lbl">정상 건수</div></div>
+    <div class="s-card c-yellow"><div class="val">${rate}%</div>              <div class="lbl">이상 비율</div></div>
+    <div class="s-card c-blue">  <div class="val">${eqps}</div>               <div class="lbl">EQP 수</div></div>
+    <div class="s-card c-blue">  <div class="val">${params}</div>             <div class="lbl">PARAMETER 수</div></div>
+  `;
+}
+
+/* -- Alert banner -- */
+function renderBanner(results) {
+  const anoms = results.filter(r => r.isAnom);
+  const el = document.getElementById('alertBanner');
+  if (!anoms.length) {
+    el.innerHTML = `<div class="alert-bar safe"><span class="alert-icon">✅</span>
+      이상감지 없음 — 모든 데이터가 임계값(${gThreshold}) 이내입니다.</div>`;
+  } else {
+    const maxDiff = Math.max(...anoms.map(r => r.diff));
+    const worst   = anoms.find(r => r.diff === maxDiff);
+    el.innerHTML  = `<div class="alert-bar danger"><span class="alert-icon">⚠️</span>
+      <span><strong>${anoms.length}건의 이상</strong>이 감지되었습니다.
+      최대 변화량: <strong>${maxDiff.toFixed(4)}</strong>
+      (${worst['EQP ID']} / ${worst['PARAMETER']} / SLOT&nbsp;${worst['SLOT']})</span></div>`;
+  }
+}
+
+/* -- Charts -- */
+const PALETTE = [
+  '#388bfd','#3fb950','#d29922','#db6d28',
+  '#a371f7','#39c5cf','#f78166','#ffa657','#d2a8ff','#7ee787'
+];
+
+function renderCharts(results) {
+  Object.values(gCharts).forEach(c => c.destroy());
+  gCharts = {};
+
+  const params  = [...new Set(results.map(r => r['PARAMETER']))];
+  const tabsEl  = document.getElementById('chartTabs');
+  const panelEl = document.getElementById('chartPanels');
+  tabsEl.innerHTML = panelEl.innerHTML = '';
+
+  params.forEach((param, pi) => {
+    /* Tab */
+    const tab = document.createElement('button');
+    tab.className = 'tab-btn' + (pi === 0 ? ' active' : '');
+    tab.textContent = param;
+    tab.dataset.param = param;
+    tab.onclick = () => switchTab(param);
+    tabsEl.appendChild(tab);
+
+    /* Panel */
+    const panel = document.createElement('div');
+    panel.className = 'tab-panel' + (pi === 0 ? ' active' : '');
+    panel.dataset.param = param;
+    const canvas = document.createElement('canvas');
+    canvas.id = `cv_${pi}`;
+    const wrap = document.createElement('div');
+    wrap.className = 'chart-wrap';
+    wrap.appendChild(canvas);
+    panel.appendChild(wrap);
+    panelEl.appendChild(panel);
+
+    /* Data grouped by EQP + LOT */
+    const paramRows = results.filter(r => r['PARAMETER'] === param);
+    const gkeys = [...new Set(paramRows.map(r => `${r['EQP ID']}|${r['LOTID']}`))]
+    const allSlots = [...new Set(paramRows.map(r => r._slot))].sort((a,b)=>a-b);
+
+    const datasets = gkeys.map((gk, gi) => {
+      const [eqp, lot] = gk.split('|');
+      const rows = paramRows.filter(r => r['EQP ID']===eqp && r['LOTID']===lot);
+      const bySlot = Object.fromEntries(rows.map(r=>[r._slot, r]));
+      const color  = PALETTE[gi % PALETTE.length];
+
+      const vals      = allSlots.map(s => bySlot[s] ? bySlot[s]._val : null);
+      const isAnom    = allSlots.map(s => bySlot[s]?.isAnom ?? false);
+      const rowsArr   = allSlots.map(s => bySlot[s] ?? null);
+
+      return {
+        label: `${eqp} / ${lot}`,
+        data:  vals,
+        _rows: rowsArr,
+        borderColor:        color,
+        backgroundColor:    color,
+        pointBackgroundColor: isAnom.map((a,i) => vals[i]!==null ? (a?'#f85149':color) : 'transparent'),
+        pointBorderColor:     isAnom.map((a,i) => vals[i]!==null ? (a?'#ff6b6b':color) : 'transparent'),
+        pointRadius:          isAnom.map((a,i) => vals[i]!==null ? (a?9:4) : 0),
+        pointHoverRadius:     isAnom.map((a,i) => vals[i]!==null ? (a?13:7) : 0),
+        pointStyle:           isAnom.map((a,i) => vals[i]!==null ? (a?'triangle':'circle') : 'circle'),
+        borderWidth: 2,
+        tension: 0.3,
+        fill: false,
+        spanGaps: true
+      };
+    });
+
+    setTimeout(() => {
+      const ctx = canvas.getContext('2d');
+      gCharts[param] = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: allSlots.map(s=>`SLOT ${s}`),
+          datasets
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: {
+              labels: { color:'#e6edf3', font:{size:11}, usePointStyle:true, padding:14 }
+            },
+            tooltip: {
+              backgroundColor: '#1c2128',
+              borderColor: '#30363d',
+              borderWidth: 1,
+              titleColor: '#e6edf3',
+              bodyColor:  '#8b949e',
+              callbacks: {
+                label(item) {
+                  const row = datasets[item.datasetIndex]._rows[item.dataIndex];
+                  if (!row || item.parsed.y === null) return null;
+                  const lines = [` ${item.dataset.label}: ${item.parsed.y}`];
+                  if (row.diff !== null) lines.push(` 변화량: ${row.diff.toFixed(4)}  (임계값: ${row.threshold})`);
+                  if (row.isAnom) lines.push(' ⚠️ 이상감지!');
+                  return lines;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              ticks: { color:'#8b949e', font:{size:11} },
+              grid:  { color:'rgba(48,54,61,.45)' }
+            },
+            y: {
+              ticks: { color:'#8b949e', font:{size:11} },
+              grid:  { color:'rgba(48,54,61,.45)' },
+              title: { display:true, text:param, color:'#8b949e', font:{size:12} }
+            }
+          }
+        }
+      });
+    }, 0);
+  });
+}
+
+function switchTab(param) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.param===param));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.dataset.param===param));
+}
+
+/* -- Tables -- */
+function renderTables(results) {
+  const anoms = results.filter(r => r.isAnom);
+  document.getElementById('anomCnt').textContent  = `${anoms.length}건`;
+  document.getElementById('totalCnt').textContent = `${results.length}건`;
+
+  const anomTbody = document.getElementById('anomTbody');
+  anomTbody.innerHTML = '';
+  if (!anoms.length) {
+    anomTbody.innerHTML = `<tr><td colspan="10" class="no-data">✅ 이상감지된 데이터가 없습니다.</td></tr>`;
+  } else {
+    anoms.forEach(row => {
+      const tr = document.createElement('tr');
+      tr.className = 'anom-row';
+      tr.innerHTML = rowHTML(row, true);
+      anomTbody.appendChild(tr);
+    });
+  }
+
+  const fullTbody = document.getElementById('fullTbody');
+  fullTbody.innerHTML = '';
+  results.forEach(row => {
+    const tr = document.createElement('tr');
+    if (row.isAnom) tr.className = 'anom-row';
+    tr.dataset.eqp    = row['EQP ID'];
+    tr.dataset.param  = row['PARAMETER'];
+    tr.dataset.status = row.isAnom ? 'anom' : 'ok';
+    tr.innerHTML = rowHTML(row, false);
+    fullTbody.appendChild(tr);
+  });
+}
+
+function rowHTML(row, isAnomalyTable) {
+  const diffStr = row.diff !== null ? row.diff.toFixed(4) : '-';
+  const prevStr = row.prevVal !== null ? row.prevVal.toFixed(4) : '-';
+  const statusBadge = row.isAnom
+    ? '<span class="badge-anom">⚠ 이상</span>'
+    : '<span class="badge-ok">정상</span>';
+
+  if (isAnomalyTable) {
+    return `
+      <td>${row['날짜']}</td><td>${row['EQP ID']}</td><td>${row['LOTID']}</td><td>${row['SLOT']}</td>
+      <td>${row['PARAMETER']}</td><td><strong>${row['REAL DATA']}</strong></td>
+      <td>${prevStr}</td>
+      <td class="diff-anom">${diffStr}</td>
+      <td>${row.threshold}</td><td>${statusBadge}</td>`;
+  }
+  return `
+    <td>${row['날짜']}</td><td>${row['EQP ID']}</td><td>${row['LOTID']}</td><td>${row['SLOT']}</td>
+    <td>${row['PARAMETER']}</td><td>${row['REAL DATA']}</td>
+    <td>${prevStr}</td>
+    <td class="${row.isAnom?'diff-anom':''}">${diffStr}</td>
+    <td>${statusBadge}</td>`;
+}
+
+/* -- Filters -- */
+function populateFilters(results) {
+  const eqps   = [...new Set(results.map(r=>r['EQP ID']))].sort();
+  const params  = [...new Set(results.map(r=>r['PARAMETER']))].sort();
+  const mkOpts  = arr => '<option value="">전체</option>' + arr.map(v=>`<option>${v}</option>`).join('');
+  document.getElementById('fEqp').innerHTML   = mkOpts(eqps);
+  document.getElementById('fParam').innerHTML = mkOpts(params);
+}
+
+function applyFilter() {
+  const eqp    = document.getElementById('fEqp').value;
+  const param  = document.getElementById('fParam').value;
+  const status = document.getElementById('fStatus').value;
+  document.querySelectorAll('#fullTbody tr').forEach(tr => {
+    const show = (!eqp || tr.dataset.eqp===eqp)
+              && (!param || tr.dataset.param===param)
+              && (!status || tr.dataset.status===status);
+    tr.style.display = show ? '' : 'none';
+  });
+}
+
+/* ═══════════════════════════════════════════════════════
+   EXPORT CSV
+══════════════════════════════════════════════════════ */
+function exportCSV(type) {
+  const rows = type === 'anomaly' ? gResults.filter(r=>r.isAnom) : gResults;
+  if (!rows.length) { toast('내보낼 데이터가 없습니다.', 'err'); return; }
+
+  const hdr = ['날짜','EQP ID','LOTID','SLOT','PARAMETER','REAL DATA','직전값','변화량','임계값','상태'];
+  const body = rows.map(r => [
+    r['날짜'], r['EQP ID'], r['LOTID'], r['SLOT'], r['PARAMETER'], r['REAL DATA'],
+    r.prevVal!=null ? r.prevVal.toFixed(4) : '',
+    r.diff!=null    ? r.diff.toFixed(4)    : '',
+    r.threshold,
+    r.isAnom ? '이상' : '정상'
+  ]);
+
+  const csv = [hdr,...body].map(row=>row.map(v=>`"${v}"`).join(',')).join('\n');
+  const url = URL.createObjectURL(new Blob(['﻿'+csv], {type:'text/csv;charset=utf-8;'}));
+  const a   = Object.assign(document.createElement('a'), {href:url, download:`fdc_${type}_${today()}.csv`});
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('CSV 다운로드 완료!', 'ok');
+}
+function today() { return new Date().toISOString().slice(0,10); }
+
+/* ═══════════════════════════════════════════════════════
+   MAIN ENTRY
+══════════════════════════════════════════════════════ */
+function runAnalysis() {
+  const text = document.getElementById('dataInput').value.trim();
+  if (!text) { toast('데이터를 입력하세요.', 'err'); return; }
+
+  const thr = parseFloat(document.getElementById('threshold').value);
+  if (isNaN(thr) || thr < 0) { toast('임계값은 0 이상의 숫자여야 합니다.', 'err'); return; }
+  gThreshold = thr;
+
+  try {
+    const data = parseExcel(text);
+    gResults   = detectAnomalies(data, thr);
+    renderAll(gResults);
+
+    const res = document.getElementById('results');
+    res.style.display = 'block';
+    res.scrollIntoView({ behavior:'smooth', block:'start' });
+
+    const anomCnt = gResults.filter(r=>r.isAnom).length;
+    toast(`분석 완료 — 총 ${gResults.length}건 / 이상 ${anomCnt}건`, anomCnt ? 'err' : 'ok');
+  } catch(e) {
+    toast(e.message, 'err');
+  }
+}
+
+function clearAll() {
+  document.getElementById('dataInput').value = '';
+  document.getElementById('results').style.display = 'none';
+  gResults = [];
+  Object.values(gCharts).forEach(c=>c.destroy());
+  gCharts = {};
+}
+
+/* ═══════════════════════════════════════════════════════
+   SAMPLE DATA
+══════════════════════════════════════════════════════ */
+function loadSample() {
+  document.getElementById('dataInput').value = [
+    '날짜\tEQP ID\tLOTID\tSLOT\tPARAMETER\tREAL DATA',
+    // EQP01 / LOT001 / TEMP  (SLOT 3→4: +14.4 이상, SLOT 4→5: -13.7 이상)
+    '2024-01-15 08:00\tEQP01\tLOT001\t1\tTEMP\t250.3',
+    '2024-01-15 08:01\tEQP01\tLOT001\t2\tTEMP\t251.1',
+    '2024-01-15 08:02\tEQP01\tLOT001\t3\tTEMP\t250.8',
+    '2024-01-15 08:03\tEQP01\tLOT001\t4\tTEMP\t265.2',
+    '2024-01-15 08:04\tEQP01\tLOT001\t5\tTEMP\t251.5',
+    '2024-01-15 08:05\tEQP01\tLOT001\t6\tTEMP\t250.9',
+    // EQP01 / LOT001 / FLOW  (SLOT 4→5: +15.4 이상)
+    '2024-01-15 08:00\tEQP01\tLOT001\t1\tFLOW\t100.5',
+    '2024-01-15 08:01\tEQP01\tLOT001\t2\tFLOW\t101.2',
+    '2024-01-15 08:02\tEQP01\tLOT001\t3\tFLOW\t99.8',
+    '2024-01-15 08:03\tEQP01\tLOT001\t4\tFLOW\t100.3',
+    '2024-01-15 08:04\tEQP01\tLOT001\t5\tFLOW\t115.7',
+    '2024-01-15 08:05\tEQP01\tLOT001\t6\tFLOW\t102.1',
+    // EQP02 / LOT002 / TEMP  (SLOT 4→5: +30.3 이상)
+    '2024-01-15 08:00\tEQP02\tLOT002\t1\tTEMP\t248.5',
+    '2024-01-15 08:01\tEQP02\tLOT002\t2\tTEMP\t249.2',
+    '2024-01-15 08:02\tEQP02\tLOT002\t3\tTEMP\t249.0',
+    '2024-01-15 08:03\tEQP02\tLOT002\t4\tTEMP\t249.8',
+    '2024-01-15 08:04\tEQP02\tLOT002\t5\tTEMP\t280.1',
+    '2024-01-15 08:05\tEQP02\tLOT002\t6\tTEMP\t250.3',
+    // EQP02 / LOT002 / FLOW  (정상)
+    '2024-01-15 08:00\tEQP02\tLOT002\t1\tFLOW\t98.5',
+    '2024-01-15 08:01\tEQP02\tLOT002\t2\tFLOW\t99.1',
+    '2024-01-15 08:02\tEQP02\tLOT002\t3\tFLOW\t98.8',
+    '2024-01-15 08:03\tEQP02\tLOT002\t4\tFLOW\t99.2',
+    '2024-01-15 08:04\tEQP02\tLOT002\t5\tFLOW\t99.0',
+    '2024-01-15 08:05\tEQP02\tLOT002\t6\tFLOW\t98.7',
+  ].join('\n');
+  document.getElementById('threshold').value = '10';
+  toast('샘플 데이터가 로드되었습니다.', 'ok');
+}
+
+/* ═══════════════════════════════════════════════════════
+   TOAST
+══════════════════════════════════════════════════════ */
+function toast(msg, type='') {
+  const box = document.getElementById('toast-box');
+  const el  = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.innerHTML = `<span>${type==='err'?'❌':type==='ok'?'✅':'ℹ️'}</span><span>${msg}</span>`;
+  box.appendChild(el);
+  setTimeout(() => el.remove(), 4500);
+}
+</script>
+</body>
+</html>
