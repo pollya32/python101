@@ -160,6 +160,7 @@
           <option value="pct">③ 변화율% |(현재−직전)/직전|×100</option>
           <option value="slope_diff">④ 기울기 변화량 (2차 차분)</option>
           <option value="slope_win">⑤ 이동창 기울기 (회귀)</option>
+          <option value="daily_avg">⑥ 일별 평균 차이 (당일 평균 vs 전일 평균)</option>
         </select>
       </div>
       <!-- 임계값 -->
@@ -363,6 +364,7 @@ const METHOD_META = {
   pct:       {thr:'임계값(%):', unit:'직전 대비 변화율%',  ref:'직전값',     diff:'변화율(%)',      winRow:false},
   slope_diff:{thr:'임계값:', unit:'기울기 변화량(2차 차분)',ref:'직전 기울기',diff:'기울기 변화량',  winRow:false},
   slope_win: {thr:'임계값:', unit:'창 기울기 변화량',      ref:'직전 창 기울기',diff:'창 기울기 변화량',winRow:true},
+  daily_avg: {thr:'임계값:', unit:'전일 대비 일 평균 변화량', ref:'전일 평균',   diff:'일 평균 차이',  winRow:false},
 };
 
 function onMethodChange() {
@@ -444,6 +446,16 @@ function parseExcel(text) {
    ANOMALY DETECTION
    그룹: EQP ID + LOTID + CH + PARAMETER, 정렬: SLOT
 ══════════════════════════════════════════════════════ */
+function getDayKey(row) {
+  if (row._time) {
+    const d=new Date(row._time);
+    const p=n=>String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+  }
+  const m=String(row['날짜']).match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+  return m?`${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`:String(row['날짜']).slice(0,10);
+}
+
 function linRegSlope(vals) {
   const n=vals.length; if(n<2) return 0;
   const meanX=(n-1)/2;
@@ -469,6 +481,21 @@ function detectAnomalies(data, threshold, method, winSize) {
       const vals=group.map(r=>r._val);
       gMean=vals.reduce((a,b)=>a+b,0)/vals.length;
       gStd=Math.sqrt(vals.reduce((a,b)=>a+(b-gMean)**2,0)/vals.length);
+    }
+
+    // 일별 평균 사전 계산 (daily_avg 방식)
+    let dayKeys=[], dayAvgMap={};
+    if (method==='daily_avg') {
+      const dayBucket={};
+      group.forEach(row=>{
+        const dk=getDayKey(row);
+        (dayBucket[dk]=dayBucket[dk]||[]).push(row._val);
+      });
+      dayKeys=Object.keys(dayBucket).sort();
+      dayKeys.forEach(dk=>{
+        const vals=dayBucket[dk];
+        dayAvgMap[dk]=vals.reduce((a,b)=>a+b,0)/vals.length;
+      });
     }
 
     group.forEach((row,i)=>{
@@ -517,6 +544,17 @@ function detectAnomalies(data, threshold, method, winSize) {
             res.isAnom=res.diff>threshold;
           }
           res._slopeCurr=slopeCurr;
+        }
+      } else if (method==='daily_avg') {
+        // 당일 평균과 전일 평균을 비교
+        const dk=getDayKey(row);
+        const di=dayKeys.indexOf(dk);
+        if (di>0) {
+          const prevDk=dayKeys[di-1];
+          res.prevVal=dayAvgMap[prevDk];
+          res.diff=Math.abs(dayAvgMap[dk]-dayAvgMap[prevDk]);
+          res.isAnom=res.diff>threshold;
+          res._dayAvg=dayAvgMap[dk];
         }
       }
       results.push(res);
@@ -903,7 +941,7 @@ function renderTables(results) {
   });
 }
 
-const METHOD_LABEL={abs:'절대값',sigma:'σ배수',pct:'변화율%',slope_diff:'기울기변화',slope_win:'이동창기울기'};
+const METHOD_LABEL={abs:'절대값',sigma:'σ배수',pct:'변화율%',slope_diff:'기울기변화',slope_win:'이동창기울기',daily_avg:'일별평균차이'};
 
 function rowHTML(row,isAnomTable){
   const diffStr=row.diff!=null?row.diff.toFixed(4):'-';
