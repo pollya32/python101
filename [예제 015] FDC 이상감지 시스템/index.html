@@ -215,7 +215,7 @@
     <!-- 그래프 -->
     <div class="card">
       <div class="card-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;">
-        <span>📈 PARAMETER 별 산점도 (X축: 날짜)</span>
+        <span>📈 PARAMETER 별 공정 추이 차트 (X축: 날짜)</span>
         <div style="display:flex;align-items:center;gap:16px;margin-left:auto;flex-wrap:wrap;">
           <div class="ctrl-group">
             <input type="checkbox" id="showDataLabels" onchange="toggleDataLabels()">
@@ -668,7 +668,7 @@ function renderRanking(results) {
   });
 }
 
-/* ── Scatter Charts (시계열 X축) ── */
+/* ── SPC 관리도 스타일 라인 차트 ── */
 const PALETTE=['#388bfd','#3fb950','#d29922','#db6d28','#a371f7','#39c5cf','#f78166','#ffa657','#d2a8ff','#7ee787'];
 
 function renderCharts(results, stats) {
@@ -704,7 +704,6 @@ function renderCharts(results, stats) {
     const gkeys=[...new Set(paramRows.map(r=>`${r['EQP ID']}|${r['LOTID']}|${r['CH']}`))]
     const datasets=[];
 
-    // 시간 파싱 가능 여부 확인 (fallback: slot 인덱스)
     const hasTime = paramRows.some(r=>r._time!==null);
 
     gkeys.forEach((gk,gi)=>{
@@ -719,20 +718,26 @@ function renderCharts(results, stats) {
         y: r._val
       }));
 
+      /* 라인 차트: 정상=작은 원, 이상=큰 삼각형(빨강) */
       datasets.push({
-        type:'scatter',
+        type:'line',
         label,
         data: pts,
         _rows: rows,
-        backgroundColor: rows.map(r=>r.isAnom?'#f85149':color),
-        borderColor:     rows.map(r=>r.isAnom?'#ff6b6b':color),
-        pointRadius:     rows.map(r=>r.isAnom?10:5),
-        pointHoverRadius:rows.map(r=>r.isAnom?13:8),
-        pointStyle:      rows.map(r=>r.isAnom?'triangle':'circle'),
-        borderWidth:1.5,
+        borderColor: color,
+        borderWidth: 1.8,
+        fill: false,
+        tension: 0,
+        pointRadius:          rows.map(r=>r.isAnom?10:4),
+        pointHoverRadius:     rows.map(r=>r.isAnom?13:7),
+        pointBackgroundColor: rows.map(r=>r.isAnom?'#f85149':color),
+        pointBorderColor:     rows.map(r=>r.isAnom?'#ff4040':color),
+        pointStyle:           rows.map(r=>r.isAnom?'triangle':'circle'),
+        pointBorderWidth:     rows.map(r=>r.isAnom?2:1),
+        spanGaps: true,
       });
 
-      /* SPC lines */
+      /* SPC 관리한계선 */
       if (showSPC) {
         const s=stats.find(x=>x.eqp===eqp && x.ch===ch && x.param===param);
         if (s && s.std>0) {
@@ -740,16 +745,20 @@ function renderCharts(results, stats) {
           const slotNums=rows.map(r=>r._slot);
           const xMin=hasTime?new Date(Math.min(...times)):Math.min(...slotNums);
           const xMax=hasTime?new Date(Math.max(...times)):Math.max(...slotNums);
-          const mkLine=(y,clr,dash)=>({
+          const mkLine=(y,clr,dash,lbl)=>({
             type:'line',
-            label:`_spc_${label}`,
+            label:`_spc_${lbl}_${label}`,
             data:[{x:xMin,y},{x:xMax,y}],
-            borderColor:clr,borderDash:dash,
-            pointRadius:0,borderWidth:1.5,fill:false,tension:0
+            borderColor:clr,
+            borderDash:dash,
+            pointRadius:0,
+            borderWidth:1.5,
+            fill:false,
+            tension:0,
           });
-          datasets.push(mkLine(s.ucl,'rgba(248,81,73,0.55)',[6,3]));
-          datasets.push(mkLine(s.mean,'rgba(139,148,158,0.55)',[4,2]));
-          if (s.lcl>0) datasets.push(mkLine(s.lcl,'rgba(248,81,73,0.55)',[6,3]));
+          datasets.push(mkLine(s.ucl, 'rgba(248,81,73,0.65)', [6,3], 'UCL'));
+          datasets.push(mkLine(s.mean,'rgba(139,148,158,0.55)',[4,2], 'AVG'));
+          if (s.lcl>0) datasets.push(mkLine(s.lcl,'rgba(248,81,73,0.65)',[6,3],'LCL'));
         }
       }
     });
@@ -757,11 +766,12 @@ function renderCharts(results, stats) {
     setTimeout(()=>{
       const ctx=canvas.getContext('2d');
       gCharts[param]=new Chart(ctx,{
-        type:'scatter',
+        type:'line',
         plugins:[ChartDataLabels],
         data:{datasets},
         options:{
           responsive:true, maintainAspectRatio:false,
+          interaction:{mode:'index', intersect:false},
           plugins:{
             legend:{labels:{
               color:'#e6edf3',font:{size:11},usePointStyle:true,padding:14,
@@ -775,13 +785,13 @@ function renderCharts(results, stats) {
                   const item=items[0];
                   if (!item) return '';
                   const row=item.dataset._rows?.[item.dataIndex];
-                  return row?row['날짜']:(hasTime?fmtTime(item.raw.x):`SLOT ${item.raw.x}`);
+                  return row?`${row['날짜']}  (SLOT ${row['SLOT']})`:item.label||'';
                 },
                 label(item){
                   if (item.dataset.label?.startsWith('_spc_')) return null;
                   const row=item.dataset._rows?.[item.dataIndex];
                   if (!row) return ` ${item.dataset.label}: ${item.raw.y}`;
-                  const lines=[` ${item.dataset.label}: ${item.raw.y}`];
+                  const lines=[` ${item.dataset.label}: ${row['REAL DATA']}`];
                   if (row.diff!==null) lines.push(` 편차/변화량: ${row.diff.toFixed(4)}`);
                   if (row.isAnom) lines.push(' ⚠️ 이상감지!');
                   return lines;
@@ -794,7 +804,7 @@ function renderCharts(results, stats) {
               font:{size:9,weight:'bold'},
               anchor:'end',
               align:'top',
-              offset:2,
+              offset:3,
               clip:true,
               formatter:(val,ctx)=>{
                 const row=ctx.dataset._rows?.[ctx.dataIndex];
@@ -808,7 +818,7 @@ function renderCharts(results, stats) {
               time:{
                 tooltipFormat:'yyyy-MM-dd HH:mm',
                 displayFormats:{
-                  millisecond:'HH:mm:ss.SSS',
+                  millisecond:'HH:mm:ss',
                   second:'HH:mm:ss',
                   minute:'MM/dd HH:mm',
                   hour:'MM/dd HH:mm',
@@ -819,7 +829,7 @@ function renderCharts(results, stats) {
                   year:'yyyy'
                 }
               },
-              ticks:{color:'#8b949e',font:{size:10},maxTicksLimit:8},
+              ticks:{color:'#8b949e',font:{size:10},maxTicksLimit:10},
               grid:{color:'rgba(48,54,61,.45)'},
               title:{display:true,text:'날짜/시간',color:'#8b949e',font:{size:12}}
             } : {
