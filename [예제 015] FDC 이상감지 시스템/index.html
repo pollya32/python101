@@ -119,6 +119,19 @@
     .toast.ok{border-color:var(--green);background:rgba(63,185,80,.1);}
     @keyframes fadeIn{from{opacity:0;transform:translateX(30px)}to{opacity:1}}
 
+    /* ── 테이블 정렬 ── */
+    th.sortable{cursor:pointer;user-select:none;white-space:nowrap;}
+    th.sortable::after{content:' ⇅';color:var(--tx2);font-size:9px;opacity:.45;}
+    th.sortable[data-dir="asc"]::after{content:' ▲';color:var(--blue);opacity:1;}
+    th.sortable[data-dir="desc"]::after{content:' ▼';color:var(--blue);opacity:1;}
+    th.sortable:hover{color:var(--tx1);}
+
+    /* ── 드릴다운 배너 ── */
+    .drilldown-bar{display:flex;align-items:center;gap:10px;padding:8px 14px;background:rgba(56,139,253,.1);border:1px solid rgba(56,139,253,.3);border-radius:6px;font-size:12px;margin-bottom:10px;}
+    .drilldown-bar strong{color:var(--blue);}
+    .drilldown-clear{background:none;border:1px solid rgba(56,139,253,.4);border-radius:4px;color:var(--blue);font-size:11px;padding:2px 8px;cursor:pointer;margin-left:auto;}
+    .drilldown-clear:hover{background:rgba(56,139,253,.15);}
+
     /* ── 파일 드롭존 ── */
     .dropzone{border:2px dashed var(--bd);border-radius:8px;padding:13px 16px;text-align:center;color:var(--tx2);font-size:13px;cursor:pointer;transition:border-color .2s,background .2s;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:10px;}
     .dropzone:hover,.dropzone.drag-over{border-color:var(--blue);background:rgba(56,139,253,.06);color:var(--tx1);}
@@ -284,13 +297,25 @@
           <button class="btn btn-secondary btn-sm" onclick="exportCSV('anomaly')">⬇ CSV 다운로드</button>
         </div>
       </div>
+      <div id="drilldownBar" class="drilldown-bar" style="display:none">
+        <span>🔍 드릴다운 필터 적용:</span>
+        <strong id="drilldownLabel"></strong>
+        <button class="drilldown-clear" onclick="clearDrillDown()">× 필터 해제</button>
+      </div>
       <div class="tbl-scroll"><div class="tbl-wrap">
         <table>
           <thead><tr>
-            <th>날짜</th><th>EQP ID</th><th>LOTID</th><th>SLOT</th><th>CH</th>
-            <th>PARAMETER</th><th>REAL DATA</th>
-            <th class="th-ref">직전값</th><th class="th-diff">변화량</th>
-            <th>임계값</th><th>방식</th><th>상태</th>
+            <th class="sortable" onclick="sortTable('anom',0)">날짜</th>
+            <th class="sortable" onclick="sortTable('anom',1)">EQP ID</th>
+            <th class="sortable" onclick="sortTable('anom',2)">LOTID</th>
+            <th class="sortable" onclick="sortTable('anom',3)">SLOT</th>
+            <th class="sortable" onclick="sortTable('anom',4)">CH</th>
+            <th class="sortable" onclick="sortTable('anom',5)">PARAMETER</th>
+            <th class="sortable" onclick="sortTable('anom',6)">REAL DATA</th>
+            <th class="sortable th-ref" onclick="sortTable('anom',7)">직전값</th>
+            <th class="sortable th-diff" onclick="sortTable('anom',8)">변화량</th>
+            <th class="sortable" onclick="sortTable('anom',9)">임계값</th>
+            <th>방식</th><th>상태</th>
           </tr></thead>
           <tbody id="anomTbody"></tbody>
         </table>
@@ -319,9 +344,16 @@
       <div class="tbl-scroll"><div class="tbl-wrap">
         <table>
           <thead><tr>
-            <th>날짜</th><th>EQP ID</th><th>LOTID</th><th>SLOT</th><th>CH</th>
-            <th>PARAMETER</th><th>REAL DATA</th>
-            <th class="th-ref">직전값</th><th class="th-diff">변화량</th><th>상태</th>
+            <th class="sortable" onclick="sortTable('full',0)">날짜</th>
+            <th class="sortable" onclick="sortTable('full',1)">EQP ID</th>
+            <th class="sortable" onclick="sortTable('full',2)">LOTID</th>
+            <th class="sortable" onclick="sortTable('full',3)">SLOT</th>
+            <th class="sortable" onclick="sortTable('full',4)">CH</th>
+            <th class="sortable" onclick="sortTable('full',5)">PARAMETER</th>
+            <th class="sortable" onclick="sortTable('full',6)">REAL DATA</th>
+            <th class="sortable th-ref" onclick="sortTable('full',7)">직전값</th>
+            <th class="sortable th-diff" onclick="sortTable('full',8)">변화량</th>
+            <th class="sortable" onclick="sortTable('full',9)">상태</th>
           </tr></thead>
           <tbody id="fullTbody"></tbody>
         </table>
@@ -1007,6 +1039,7 @@ function renderTables(results) {
     anoms.forEach(row=>{
       const tr=document.createElement('tr');
       tr.className='anom-row';
+      tr.dataset.eqp=row['EQP ID']; tr.dataset.param=row['PARAMETER'];
       tr.innerHTML=rowHTML(row,true);
       anomTbody.appendChild(tr);
     });
@@ -1231,12 +1264,92 @@ function renderHeatmap(results) {
         ? 'rgba(63,185,80,0.25)'
         : `rgba(248,${Math.round(81*(1-t))},${Math.round(73*t+80*(1-t))},${(0.2+t*0.7).toFixed(2)})`;
       const lbl = d.rate === 0 ? 'OK' : `${d.rate.toFixed(1)}%`;
-      html += `<td class="hm-cell" style="background:${bg}" title="${e} / ${p}: 이상 ${d.anom}건 / 전체 ${d.total}건 (${d.rate.toFixed(1)}%)">${lbl}</td>`;
+      const esc = s => s.replace(/'/g,"\\'");
+      html += `<td class="hm-cell" style="background:${bg};cursor:pointer" onclick="drillDown('${esc(e)}','${esc(p)}')" title="${e} / ${p}: 이상 ${d.anom}건 / 전체 ${d.total}건 (${d.rate.toFixed(1)}%) — 클릭하여 드릴다운">${lbl}</td>`;
     });
     html += `</tr>`;
   });
   html += `</tbody></table>`;
   document.getElementById('heatmapTable').innerHTML = html;
+}
+
+/* ══════════════════════════════════════════════════════
+   테이블 정렬
+══════════════════════════════════════════════════════ */
+const gSortState = {};
+
+function sortTable(tblId, colIdx) {
+  const tbodyId = tblId === 'anom' ? 'anomTbody' : 'fullTbody';
+  if (!gSortState[tblId]) gSortState[tblId] = {col:-1, dir:1};
+  const state = gSortState[tblId];
+  state.dir = state.col === colIdx ? state.dir * -1 : 1;
+  state.col = colIdx;
+
+  // 헤더 인디케이터 갱신
+  const thead = document.getElementById(tbodyId).closest('table').querySelector('thead');
+  thead.querySelectorAll('th').forEach((th,i) => {
+    delete th.dataset.dir;
+    if (i === colIdx) th.dataset.dir = state.dir === 1 ? 'asc' : 'desc';
+  });
+
+  // 행 정렬 (숫자/문자 자동 판별, 숨겨진 행 유지)
+  const tbody = document.getElementById(tbodyId);
+  const rows = [...tbody.querySelectorAll('tr')].filter(tr => tr.cells.length > 1);
+  rows.sort((a, b) => {
+    const av = a.cells[colIdx]?.textContent.trim() ?? '';
+    const bv = b.cells[colIdx]?.textContent.trim() ?? '';
+    const an = parseFloat(av.replace(/[^0-9.\-]/g, ''));
+    const bn = parseFloat(bv.replace(/[^0-9.\-]/g, ''));
+    if (!isNaN(an) && !isNaN(bn)) return (an - bn) * state.dir;
+    return av.localeCompare(bv, 'ko') * state.dir;
+  });
+  rows.forEach(tr => tbody.appendChild(tr));
+}
+
+/* ══════════════════════════════════════════════════════
+   히트맵 드릴다운
+══════════════════════════════════════════════════════ */
+function drillDown(eqp, param) {
+  // 전체 데이터 테이블 필터
+  const fEqp = document.getElementById('fEqp');
+  const fParam = document.getElementById('fParam');
+  if ([...fEqp.options].some(o=>o.value===eqp))   fEqp.value   = eqp;
+  if ([...fParam.options].some(o=>o.value===param)) fParam.value = param;
+  applyFilter();
+
+  // 이상감지 목록 필터
+  filterAnomTable(eqp, param);
+
+  // 드릴다운 배너 표시
+  document.getElementById('drilldownBar').style.display  = 'flex';
+  document.getElementById('drilldownLabel').textContent  = `${eqp}  /  ${param}`;
+
+  // 이상감지 목록으로 스크롤
+  document.getElementById('drilldownBar').scrollIntoView({behavior:'smooth', block:'start'});
+  toast(`드릴다운: ${eqp} / ${param}`, 'ok');
+}
+
+function clearDrillDown() {
+  document.getElementById('fEqp').value   = '';
+  document.getElementById('fParam').value = '';
+  applyFilter();
+  filterAnomTable('', '');
+  document.getElementById('drilldownBar').style.display = 'none';
+  // 원본 이상 건수 복원
+  const total = [...document.querySelectorAll('#anomTbody tr')].filter(tr=>tr.cells.length>1).length;
+  document.getElementById('anomCnt').textContent = `${total}건`;
+}
+
+function filterAnomTable(eqp, param) {
+  let visible = 0;
+  document.querySelectorAll('#anomTbody tr').forEach(tr => {
+    if (tr.cells.length <= 1) return;
+    const show = (!eqp || tr.dataset.eqp === eqp) && (!param || tr.dataset.param === param);
+    tr.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  const suffix = (eqp || param) ? ' (필터)' : '';
+  document.getElementById('anomCnt').textContent = `${visible}건${suffix}`;
 }
 
 /* ══════════════════════════════════════════════════════
