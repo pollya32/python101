@@ -196,6 +196,24 @@
           <option value="daily_avg">⑥ 일별 평균 차이 (당일 평균 vs 전일 평균)</option>
           <option value="ewma">⑦ EWMA 관리도 (지수가중 이동평균 · 소수점 드리프트)</option>
           <option value="cusum">⑧ CUSUM 관리도 (누적합 · 초정밀 시프트 감지)</option>
+          <optgroup label="─── SPC 규칙 기반 ───">
+          <option value="run_bias">⑨ 런 규칙 — 연속 편향 (연속 N개 평균 한쪽)</option>
+          <option value="run_trend">⑩ 런 규칙 — 단조 트렌드 (연속 N개 증가/감소)</option>
+          <option value="spc_rules">⑪ SPC 복합 규칙 (2/3→2σ · 4/5→1σ 서양전기)</option>
+          </optgroup>
+          <optgroup label="─── 강건 통계 기반 ───">
+          <option value="iqr">⑫ IQR 박스플롯 이상치 (Q3+k·IQR 초과)</option>
+          <option value="mad">⑬ Modified Z-score (MAD 기반 · 이상치 강건)</option>
+          </optgroup>
+          <optgroup label="─── 제조 공정 특화 ───">
+          <option value="wtw">⑭ Wafer-to-Wafer 편차 (SLOT별 반복 이탈)</option>
+          <option value="ch_match">⑮ Chamber Matching 편차 (CH간 불균형)</option>
+          <option value="lot2lot">⑯ Lot-to-Lot 평균 이탈</option>
+          </optgroup>
+          <optgroup label="─── 변화점 감지 ───">
+          <option value="t_step">⑰ t-검정 계단 변화 감지 (평균 level shift)</option>
+          <option value="f_var">⑱ F-검정 분산 급변 감지 (노이즈 급증)</option>
+          </optgroup>
         </select>
       </div>
       <!-- 임계값 -->
@@ -443,6 +461,16 @@ const METHOD_META = {
   daily_avg: {thr:'임계값:', unit:'전일 대비 일 평균 변화량', ref:'전일 평균',   diff:'일 평균 차이',  winRow:false},
   ewma:      {thr:'L (관리한계폭):', unit:'EWMA 편차 > L×σ×√(λ/(2−λ))',ref:'직전 EWMA 값', diff:'EWMA 편차',    winRow:false, ewmaRow:true,  thrDef:2.7},
   cusum:     {thr:'h (결정구간·σ):', unit:'CUSUM 누적합 > h (σ 단위)',   ref:'직전 CUSUM',  diff:'CUSUM 통계량', winRow:false, cusumRow:true, thrDef:4.0},
+  run_bias:  {thr:'연속 건수 N:',    unit:'연속 N개 이상 평균 한쪽 편향',  ref:'그룹 평균',   diff:'연속 편향 수', winRow:false, thrDef:9},
+  run_trend: {thr:'연속 건수 N:',    unit:'연속 N개 증가 또는 감소',       ref:'직전값',      diff:'트렌드 길이', winRow:false, thrDef:6},
+  spc_rules: {thr:'Rule-A σ배수:',  unit:'2/3>Nσ OR 4/5>1σ 복합(동측)', ref:'그룹 평균',   diff:'σ 편차',      winRow:false, thrDef:2},
+  iqr:       {thr:'k (IQR 배수):',  unit:'Q3+k·IQR 초과 또는 Q1−k·IQR 미달', ref:'IQR 중심', diff:'IQR 이탈량', winRow:false, thrDef:1.5},
+  mad:       {thr:'임계값 (변환Z):',unit:'0.6745×|x−중앙값|/MAD 초과',   ref:'중앙값',      diff:'Modified Z', winRow:false, thrDef:3.5},
+  wtw:       {thr:'임계값:',         unit:'SLOT별 평균과 전체 평균의 차이', ref:'전체 평균',   diff:'SLOT 편차',   winRow:false, thrDef:3},
+  ch_match:  {thr:'임계값:',         unit:'CH 평균과 전체 CH 평균의 차이', ref:'CH간 평균',   diff:'CH 편차',     winRow:false, thrDef:3},
+  lot2lot:   {thr:'임계값:',         unit:'전 LOT 대비 현 LOT 평균 변화량',ref:'전 LOT 평균', diff:'LOT 평균 차', winRow:false},
+  t_step:    {thr:'t-통계량 임계값:',unit:'윈도우 전·후 평균 차 t-검정',  ref:'전반 창 평균',diff:'t-통계량',    winRow:true,  thrDef:2.0},
+  f_var:     {thr:'F-비율 임계값:',  unit:'윈도우 전·후 분산비 F-검정',   ref:'전반 창 분산',diff:'F-비율',      winRow:true,  thrDef:3.0},
 };
 
 function onMethodChange() {
@@ -570,11 +598,56 @@ function detectAnomalies(data, threshold, method, winSize, ewmaLambda=0.2, cusum
   });
   Object.values(groups).forEach(g=>g.sort((a,b)=>a._slot-b._slot));
 
+  // ⑭ WTW: EQP+CH+PARAM별 SLOT 평균 (cross-LOT)
+  const wtwMap={};
+  if (method==='wtw') {
+    const g2={};
+    data.forEach(r=>{const k=`${r['EQP ID']}|||${r['CH']}|||${r['PARAMETER']}`;(g2[k]=g2[k]||[]).push(r);});
+    Object.entries(g2).forEach(([k,rows])=>{
+      const vals=rows.map(r=>r._val);
+      const mean=vals.reduce((a,b)=>a+b,0)/vals.length;
+      const slotB={};
+      rows.forEach(r=>{(slotB[r['SLOT']]=slotB[r['SLOT']]||[]).push(r._val);});
+      const slotAvg={};
+      Object.entries(slotB).forEach(([s,vs])=>{slotAvg[s]=vs.reduce((a,b)=>a+b,0)/vs.length;});
+      wtwMap[k]={mean,slotAvg};
+    });
+  }
+  // ⑮ CH Matching: EQP+LOT+PARAM별 CH 평균
+  const chMatchMap={};
+  if (method==='ch_match') {
+    const g2={};
+    data.forEach(r=>{const k=`${r['EQP ID']}|||${r['LOTID']}|||${r['PARAMETER']}`;(g2[k]=g2[k]||[]).push(r);});
+    Object.entries(g2).forEach(([k,rows])=>{
+      const chB={};
+      rows.forEach(r=>{const ch=r['CH']||'';(chB[ch]=chB[ch]||[]).push(r._val);});
+      const chAvg={};
+      Object.entries(chB).forEach(([ch,vs])=>{chAvg[ch]=vs.reduce((a,b)=>a+b,0)/vs.length;});
+      const allA=Object.values(chAvg);
+      chMatchMap[k]={chAvg,oMean:allA.reduce((a,b)=>a+b,0)/allA.length};
+    });
+  }
+  // ⑯ Lot-to-Lot: EQP+CH+PARAM별 LOT 순서 및 평균
+  const lot2lotMap={};
+  if (method==='lot2lot') {
+    const g2={};
+    data.forEach(r=>{const k=`${r['EQP ID']}|||${r['CH']}|||${r['PARAMETER']}`;(g2[k]=g2[k]||[]).push(r);});
+    Object.entries(g2).forEach(([k,rows])=>{
+      const lotOrder=[];
+      rows.forEach(r=>{if(!lotOrder.includes(r['LOTID']))lotOrder.push(r['LOTID']);});
+      const lotB={};
+      rows.forEach(r=>{(lotB[r['LOTID']]=lotB[r['LOTID']]||[]).push(r._val);});
+      const lotAvg={};
+      lotOrder.forEach(lot=>{const vs=lotB[lot]||[];lotAvg[lot]=vs.reduce((a,b)=>a+b,0)/vs.length;});
+      lot2lotMap[k]={lotOrder,lotAvg};
+    });
+  }
+
   const results=[];
   Object.values(groups).forEach(group=>{
     // σ 사전 계산 (sigma / ewma / cusum 공통)
     let gMean=0, gStd=0;
-    if (['sigma','ewma','cusum'].includes(method)) {
+    if (['sigma','ewma','cusum','run_bias','spc_rules'].includes(method)) {
       const vals=group.map(r=>r._val);
       gMean=vals.reduce((a,b)=>a+b,0)/vals.length;
       gStd=Math.sqrt(vals.reduce((a,b)=>a+(b-gMean)**2,0)/vals.length);
@@ -584,6 +657,29 @@ function detectAnomalies(data, threshold, method, winSize, ewmaLambda=0.2, cusum
     let ewmaZ=gMean;
     // CUSUM 누적합 (그룹마다 초기화)
     let cusumCp=0, cusumCm=0;
+
+    // ⑨⑩ 런 규칙 상태 (그룹마다 초기화)
+    let runBiasCnt=0, runBiasDir=0, runTrendCnt=0, runTrendDir=0;
+    // ⑪ SPC 복합 규칙 이력 버퍼 (최근 5개)
+    const spcBuf=[];
+    // ⑫ IQR 경계 사전 계산
+    let iqrLow=-Infinity, iqrHigh=Infinity;
+    if (method==='iqr') {
+      const sv=[...group.map(r=>r._val)].sort((a,b)=>a-b);
+      const q1=sv[Math.floor(sv.length*0.25)], q3=sv[Math.floor(sv.length*0.75)];
+      iqrLow=q1-threshold*(q3-q1); iqrHigh=q3+threshold*(q3-q1);
+    }
+    // ⑬ MAD 중앙값·척도 사전 계산
+    let madMed=0, madS=1;
+    if (method==='mad') {
+      const sv=[...group.map(r=>r._val)].sort((a,b)=>a-b);
+      const n=sv.length;
+      madMed=n%2===0?(sv[n/2-1]+sv[n/2])/2:sv[Math.floor(n/2)];
+      const devs=sv.map(v=>Math.abs(v-madMed)).sort((a,b)=>a-b);
+      const nd=devs.length;
+      const m=nd%2===0?(devs[nd/2-1]+devs[nd/2])/2:devs[Math.floor(nd/2)];
+      madS=m>0?m:1;
+    }
 
     // 일별 평균 사전 계산 (daily_avg 방식)
     let dayKeys=[], dayAvgMap={};
@@ -675,6 +771,94 @@ function detectAnomalies(data, threshold, method, winSize, ewmaLambda=0.2, cusum
         res.diff=Math.max(cusumCp,cusumCm);
         res.isAnom=cusumCp>threshold||cusumCm>threshold;
         res._cusumCp=cusumCp; res._cusumCm=cusumCm;
+      // ⑨ 런 규칙 — 연속 편향
+      } else if (method==='run_bias') {
+        const side=row._val>=gMean?1:-1;
+        if (side===runBiasDir) runBiasCnt++; else {runBiasDir=side;runBiasCnt=1;}
+        res.prevVal=gMean; res.diff=runBiasCnt; res.isAnom=runBiasCnt>=threshold;
+      // ⑩ 런 규칙 — 단조 트렌드
+      } else if (method==='run_trend') {
+        if (i>0) {
+          res.prevVal=group[i-1]._val;
+          const dir=row._val>group[i-1]._val?1:row._val<group[i-1]._val?-1:0;
+          if (dir!==0) { if(dir===runTrendDir)runTrendCnt++; else{runTrendDir=dir;runTrendCnt=1;} }
+          res.diff=runTrendCnt; res.isAnom=runTrendCnt>=threshold;
+        }
+      // ⑪ SPC 복합 규칙 (서양전기 Rule 2 & 4)
+      } else if (method==='spc_rules') {
+        const z=gStd>0?(row._val-gMean)/gStd:0;
+        spcBuf.push({z,side:row._val>=gMean?1:-1});
+        if(spcBuf.length>5)spcBuf.shift();
+        res.prevVal=gMean; res.diff=Math.abs(z);
+        let rA=false,rB=false;
+        if(spcBuf.length>=3){const l3=spcBuf.slice(-3);rA=[1,-1].some(s=>l3.filter(p=>p.side===s&&Math.abs(p.z)>threshold).length>=2);}
+        if(spcBuf.length>=5){rB=[1,-1].some(s=>spcBuf.filter(p=>p.side===s&&Math.abs(p.z)>1).length>=4);}
+        res.isAnom=rA||rB;
+      // ⑫ IQR 박스플롯 이상치
+      } else if (method==='iqr') {
+        res.prevVal=(iqrLow+iqrHigh)/2;
+        res.diff=row._val<iqrLow?iqrLow-row._val:row._val>iqrHigh?row._val-iqrHigh:0;
+        res.isAnom=row._val<iqrLow||row._val>iqrHigh;
+      // ⑬ Modified Z-score (MAD)
+      } else if (method==='mad') {
+        const mz=0.6745*Math.abs(row._val-madMed)/madS;
+        res.prevVal=madMed; res.diff=mz; res.isAnom=mz>threshold;
+      // ⑭ Wafer-to-Wafer 편차
+      } else if (method==='wtw') {
+        const wk=`${row['EQP ID']}|||${row['CH']}|||${row['PARAMETER']}`;
+        const wd=wtwMap[wk];
+        if(wd){
+          const sa=wd.slotAvg[row['SLOT']]??wd.mean;
+          res.prevVal=wd.mean; res.diff=Math.abs(sa-wd.mean); res.isAnom=res.diff>threshold;
+        }
+      // ⑮ Chamber Matching 편차
+      } else if (method==='ch_match') {
+        const ck=`${row['EQP ID']}|||${row['LOTID']}|||${row['PARAMETER']}`;
+        const cd=chMatchMap[ck];
+        if(cd){
+          const ca=cd.chAvg[row['CH']||'']??cd.oMean;
+          res.prevVal=cd.oMean; res.diff=Math.abs(ca-cd.oMean); res.isAnom=res.diff>threshold;
+        }
+      // ⑯ Lot-to-Lot 평균 이탈
+      } else if (method==='lot2lot') {
+        const lk=`${row['EQP ID']}|||${row['CH']}|||${row['PARAMETER']}`;
+        const ld=lot2lotMap[lk];
+        if(ld){
+          const li=ld.lotOrder.indexOf(row['LOTID']);
+          if(li>0){
+            const prev=ld.lotOrder[li-1];
+            res.prevVal=ld.lotAvg[prev]; res.diff=Math.abs(ld.lotAvg[row['LOTID']]-ld.lotAvg[prev]);
+            res.isAnom=res.diff>threshold;
+          }
+        }
+      // ⑰ t-검정 계단 변화 감지
+      } else if (method==='t_step') {
+        const W=Math.max(2,winSize);
+        if(i>=W){
+          const bef=group.slice(Math.max(0,i-W),i).map(r=>r._val);
+          const aft=group.slice(i,Math.min(group.length,i+W)).map(r=>r._val);
+          if(bef.length>=2&&aft.length>=2){
+            const mB=bef.reduce((a,b)=>a+b,0)/bef.length, mA=aft.reduce((a,b)=>a+b,0)/aft.length;
+            const vB=bef.reduce((a,v)=>a+(v-mB)**2,0)/(bef.length-1);
+            const vA=aft.reduce((a,v)=>a+(v-mA)**2,0)/(aft.length-1);
+            const se=Math.sqrt(vB/bef.length+vA/aft.length);
+            res.prevVal=mB; res.diff=se>0?Math.abs(mB-mA)/se:0; res.isAnom=res.diff>threshold;
+          }
+        }
+      // ⑱ F-검정 분산 급변 감지
+      } else if (method==='f_var') {
+        const W=Math.max(2,winSize);
+        if(i>=W){
+          const bef=group.slice(Math.max(0,i-W),i).map(r=>r._val);
+          const aft=group.slice(i,Math.min(group.length,i+W)).map(r=>r._val);
+          if(bef.length>=2&&aft.length>=2){
+            const mB=bef.reduce((a,b)=>a+b,0)/bef.length, mA=aft.reduce((a,b)=>a+b,0)/aft.length;
+            const vB=bef.reduce((a,v)=>a+(v-mB)**2,0)/(bef.length-1);
+            const vA=aft.reduce((a,v)=>a+(v-mA)**2,0)/(aft.length-1);
+            const F=vB>0&&vA>0?Math.max(vB,vA)/Math.min(vB,vA):0;
+            res.prevVal=vB; res.diff=F; res.isAnom=F>threshold;
+          }
+        }
       }
       results.push(res);
     });
@@ -1058,7 +1242,7 @@ function renderTables(results) {
   });
 }
 
-const METHOD_LABEL={abs:'절대값',sigma:'σ배수',pct:'변화율%',slope_diff:'기울기변화',slope_win:'이동창기울기',daily_avg:'일별평균차이',ewma:'EWMA',cusum:'CUSUM'};
+const METHOD_LABEL={abs:'절대값',sigma:'σ배수',pct:'변화율%',slope_diff:'기울기변화',slope_win:'이동창기울기',daily_avg:'일별평균차이',ewma:'EWMA',cusum:'CUSUM',run_bias:'연속편향',run_trend:'단조트렌드',spc_rules:'SPC복합',iqr:'IQR',mad:'ModZ',wtw:'WTW편차',ch_match:'CH매칭',lot2lot:'Lot2Lot',t_step:'t-검정',f_var:'F-검정'};
 
 function rowHTML(row,isAnomTable){
   const diffStr=row.diff!=null?row.diff.toFixed(4):'-';
