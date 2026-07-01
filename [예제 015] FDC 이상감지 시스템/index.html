@@ -161,6 +161,8 @@
           <option value="slope_diff">④ 기울기 변화량 (2차 차분)</option>
           <option value="slope_win">⑤ 이동창 기울기 (회귀)</option>
           <option value="daily_avg">⑥ 일별 평균 차이 (당일 평균 vs 전일 평균)</option>
+          <option value="ewma">⑦ EWMA 관리도 (지수가중 이동평균 · 소수점 드리프트)</option>
+          <option value="cusum">⑧ CUSUM 관리도 (누적합 · 초정밀 시프트 감지)</option>
         </select>
       </div>
       <!-- 임계값 -->
@@ -174,6 +176,18 @@
         <span>창 크기 (W):</span>
         <input type="number" id="winSize" value="3" min="2" max="20" step="1">
         <span style="font-size:11px;color:var(--tx2)">SLOT 수</span>
+      </div>
+      <!-- λ (EWMA 전용) -->
+      <div class="ctrl-group" id="ewmaRow" style="display:none">
+        <span>λ (민감도):</span>
+        <input type="number" id="ewmaLambda" value="0.2" min="0.01" max="0.5" step="0.01">
+        <span style="font-size:11px;color:var(--tx2)">0.05=초민감 · 0.3=표준</span>
+      </div>
+      <!-- k (CUSUM 전용) -->
+      <div class="ctrl-group" id="cusumRow" style="display:none">
+        <span>k (허용편차·σ):</span>
+        <input type="number" id="cusumK" value="0.5" min="0.1" max="2" step="0.1">
+        <span style="font-size:11px;color:var(--tx2)">보통 0.5</span>
       </div>
       <!-- SPC -->
       <div class="ctrl-group">
@@ -365,6 +379,8 @@ const METHOD_META = {
   slope_diff:{thr:'임계값:', unit:'기울기 변화량(2차 차분)',ref:'직전 기울기',diff:'기울기 변화량',  winRow:false},
   slope_win: {thr:'임계값:', unit:'창 기울기 변화량',      ref:'직전 창 기울기',diff:'창 기울기 변화량',winRow:true},
   daily_avg: {thr:'임계값:', unit:'전일 대비 일 평균 변화량', ref:'전일 평균',   diff:'일 평균 차이',  winRow:false},
+  ewma:      {thr:'L (관리한계폭):', unit:'EWMA 편차 > L×σ×√(λ/(2−λ))',ref:'직전 EWMA 값', diff:'EWMA 편차',    winRow:false, ewmaRow:true,  thrDef:2.7},
+  cusum:     {thr:'h (결정구간·σ):', unit:'CUSUM 누적합 > h (σ 단위)',   ref:'직전 CUSUM',  diff:'CUSUM 통계량', winRow:false, cusumRow:true, thrDef:4.0},
 };
 
 function onMethodChange() {
@@ -372,7 +388,9 @@ function onMethodChange() {
   const meta = METHOD_META[m];
   document.getElementById('thrLabel').textContent = meta.thr;
   document.getElementById('thrUnit').textContent  = meta.unit;
-  document.getElementById('winRow').style.display = meta.winRow?'flex':'none';
+  document.getElementById('winRow').style.display   = meta.winRow   ? 'flex':'none';
+  document.getElementById('ewmaRow').style.display  = meta.ewmaRow  ? 'flex':'none';
+  document.getElementById('cusumRow').style.display = meta.cusumRow ? 'flex':'none';
   if (meta.thrDef !== undefined) document.getElementById('threshold').value = meta.thrDef;
   document.querySelectorAll('.th-ref').forEach(th=>th.textContent=meta.ref);
   document.querySelectorAll('.th-diff').forEach(th=>th.textContent=meta.diff);
@@ -482,7 +500,7 @@ function linRegSlope(vals) {
   return den?num/den:0;
 }
 
-function detectAnomalies(data, threshold, method, winSize) {
+function detectAnomalies(data, threshold, method, winSize, ewmaLambda=0.2, cusumK=0.5) {
   const groups={};
   data.forEach(row=>{
     const key=`${row['EQP ID']}|||${row['LOTID']}|||${row['CH']}|||${row['PARAMETER']}`;
@@ -492,13 +510,18 @@ function detectAnomalies(data, threshold, method, winSize) {
 
   const results=[];
   Object.values(groups).forEach(group=>{
-    // σ 사전 계산
+    // σ 사전 계산 (sigma / ewma / cusum 공통)
     let gMean=0, gStd=0;
-    if (method==='sigma') {
+    if (['sigma','ewma','cusum'].includes(method)) {
       const vals=group.map(r=>r._val);
       gMean=vals.reduce((a,b)=>a+b,0)/vals.length;
       gStd=Math.sqrt(vals.reduce((a,b)=>a+(b-gMean)**2,0)/vals.length);
     }
+
+    // EWMA 상태 (그룹마다 초기화)
+    let ewmaZ=gMean;
+    // CUSUM 누적합 (그룹마다 초기화)
+    let cusumCp=0, cusumCm=0;
 
     // 일별 평균 사전 계산 (daily_avg 방식)
     let dayKeys=[], dayAvgMap={};
@@ -573,6 +596,23 @@ function detectAnomalies(data, threshold, method, winSize) {
           res.isAnom=res.diff>threshold;
           res._dayAvg=dayAvgMap[dk];
         }
+      } else if (method==='ewma') {
+        const zPrev=ewmaZ;
+        ewmaZ=ewmaLambda*row._val+(1-ewmaLambda)*ewmaZ;
+        const ewmaUCL=threshold*gStd*Math.sqrt(ewmaLambda/(2-ewmaLambda));
+        res.prevVal=zPrev;
+        res.diff=Math.abs(ewmaZ-gMean);
+        res.isAnom=gStd>0 && res.diff>ewmaUCL;
+        res._ewmaZ=ewmaZ;
+      } else if (method==='cusum') {
+        const xStd=gStd>0?(row._val-gMean)/gStd:0;
+        const prevCp=cusumCp, prevCm=cusumCm;
+        cusumCp=Math.max(0,cusumCp+xStd-cusumK);
+        cusumCm=Math.max(0,cusumCm-xStd-cusumK);
+        res.prevVal=Math.max(prevCp,prevCm);
+        res.diff=Math.max(cusumCp,cusumCm);
+        res.isAnom=cusumCp>threshold||cusumCm>threshold;
+        res._cusumCp=cusumCp; res._cusumCm=cusumCm;
       }
       results.push(res);
     });
@@ -953,7 +993,7 @@ function renderTables(results) {
   });
 }
 
-const METHOD_LABEL={abs:'절대값',sigma:'σ배수',pct:'변화율%',slope_diff:'기울기변화',slope_win:'이동창기울기',daily_avg:'일별평균차이'};
+const METHOD_LABEL={abs:'절대값',sigma:'σ배수',pct:'변화율%',slope_diff:'기울기변화',slope_win:'이동창기울기',daily_avg:'일별평균차이',ewma:'EWMA',cusum:'CUSUM'};
 
 function rowHTML(row,isAnomTable){
   const diffStr=row.diff!=null?row.diff.toFixed(4):'-';
@@ -1029,7 +1069,9 @@ function runAnalysis(){
   gThreshold=thr;
   try {
     const data=parseExcel(text);
-    gResults=detectAnomalies(data,thr,method,winSize);
+    const lambdaEWMA=parseFloat(document.getElementById('ewmaLambda').value)||0.2;
+    const kCUSUM=parseFloat(document.getElementById('cusumK').value)||0.5;
+    gResults=detectAnomalies(data,thr,method,winSize,lambdaEWMA,kCUSUM);
     onMethodChange();
     renderAll(gResults);
     const res=document.getElementById('results');
