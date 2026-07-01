@@ -119,6 +119,17 @@
     .toast.ok{border-color:var(--green);background:rgba(63,185,80,.1);}
     @keyframes fadeIn{from{opacity:0;transform:translateX(30px)}to{opacity:1}}
 
+    /* ── 파일 드롭존 ── */
+    .dropzone{border:2px dashed var(--bd);border-radius:8px;padding:13px 16px;text-align:center;color:var(--tx2);font-size:13px;cursor:pointer;transition:border-color .2s,background .2s;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:10px;}
+    .dropzone:hover,.dropzone.drag-over{border-color:var(--blue);background:rgba(56,139,253,.06);color:var(--tx1);}
+
+    /* ── 히트맵 ── */
+    .heatmap-scroll{overflow-x:auto;}
+    .heatmap-table{border-collapse:separate;border-spacing:3px;font-size:11px;}
+    .heatmap-table th{padding:5px 10px;color:var(--tx2);font-weight:600;white-space:nowrap;}
+    .hm-cell{min-width:62px;height:30px;text-align:center;border-radius:4px;font-size:10px;font-weight:700;vertical-align:middle;cursor:default;}
+    .hm-cell:hover{filter:brightness(1.2);}
+
     @media(max-width:700px){main{padding:14px;}header{padding:14px;}}
   </style>
 </head>
@@ -128,8 +139,8 @@
 <header>
   <div class="logo">⚡</div>
   <div>
-    <h1>FDC RAW DATA 이상감지 시스템 <span class="chip">v3.0</span></h1>
-    <p>열 선택 매핑 · 5가지 감지 방식 · 시계열 스캐터 그래프 · SPC 관리한계 · 통계분석 · 이상 랭킹</p>
+    <h1>FDC RAW DATA 이상감지 시스템 <span class="chip">v3.6</span></h1>
+    <p>파일 업로드 · 열 매핑 · 8가지 감지 방식(EWMA·CUSUM) · SPC 관리도 · 히트맵 · 이상 랭킹 · 설정 자동저장</p>
   </div>
 </header>
 
@@ -140,6 +151,15 @@
     <div class="hint">
       엑셀에서 <strong>Ctrl+C</strong> 복사 → 아래에 <strong>Ctrl+V</strong> 붙여넣기<br>
       첫 번째 행을 헤더로 인식하며, 아래 <strong>컬럼 매핑</strong>에서 각 열을 직접 지정할 수 있습니다.
+    </div>
+    <div class="dropzone"
+         onclick="document.getElementById('fileInput').click()"
+         ondragover="event.preventDefault();this.classList.add('drag-over')"
+         ondragleave="this.classList.remove('drag-over')"
+         ondrop="event.preventDefault();this.classList.remove('drag-over');handleFileDrop(event)">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
+      <span>CSV / TSV 파일을 여기에 드래그하거나 클릭하여 선택하세요</span>
+      <input type="file" id="fileInput" accept=".csv,.tsv,.txt" style="display:none" onchange="handleFileDrop(event)">
     </div>
     <textarea id="dataInput" oninput="onDataChange()"
       placeholder="날짜&#9;EQP ID&#9;LOTID&#9;SLOT&#9;CH&#9;PARAMETER&#9;REAL DATA&#10;2024-01-15 08:00&#9;EQP01&#9;LOT001&#9;1&#9;CH1&#9;TEMP&#9;250.3&#10;..."></textarea>
@@ -227,6 +247,12 @@
       <div class="rank-grid" id="rankGrid"></div>
     </div>
 
+    <!-- 이상률 히트맵 -->
+    <div class="card" id="heatmapCard">
+      <div class="card-title">🌡️ EQP × PARAMETER 이상률 히트맵</div>
+      <div class="heatmap-scroll" id="heatmapTable"></div>
+    </div>
+
     <!-- 그래프 -->
     <div class="card">
       <div class="card-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;">
@@ -277,6 +303,10 @@
         <span class="title">📋 전체 데이터</span>
         <span class="cnt-badge" id="totalCnt">0건</span>
         <div class="filter-row">
+          <label>날짜</label>
+          <input type="date" id="fDateFrom" onchange="applyFilter()" style="padding:4px 8px;font-size:12px;width:auto">
+          <span style="font-size:12px;color:var(--tx2)">~</span>
+          <input type="date" id="fDateTo"   onchange="applyFilter()" style="padding:4px 8px;font-size:12px;width:auto">
           <label>EQP ID</label><select id="fEqp"    onchange="applyFilter()"><option value="">전체</option></select>
           <label>CH</label>    <select id="fCh"     onchange="applyFilter()"><option value="">전체</option></select>
           <label>PARAMETER</label><select id="fParam"onchange="applyFilter()"><option value="">전체</option></select>
@@ -652,6 +682,7 @@ function renderAll(results) {
   renderBanner(results);
   renderStats(stats);
   renderRanking(results);
+  renderHeatmap(results);
   renderCharts(results, stats);
   renderTables(results);
   populateFilters(results);
@@ -988,6 +1019,7 @@ function renderTables(results) {
     if (row.isAnom) tr.className='anom-row';
     tr.dataset.eqp=row['EQP ID']; tr.dataset.ch=row['CH'];
     tr.dataset.param=row['PARAMETER']; tr.dataset.status=row.isAnom?'anom':'ok';
+    tr.dataset.date=String(row['날짜']).slice(0,10);
     tr.innerHTML=rowHTML(row,false);
     fullTbody.appendChild(tr);
   });
@@ -1027,9 +1059,11 @@ function populateFilters(results){
 function applyFilter(){
   const eqp=document.getElementById('fEqp').value,ch=document.getElementById('fCh').value,
         param=document.getElementById('fParam').value,status=document.getElementById('fStatus').value;
+  const df=document.getElementById('fDateFrom').value, dt=document.getElementById('fDateTo').value;
   document.querySelectorAll('#fullTbody tr').forEach(tr=>{
     const show=(!eqp||tr.dataset.eqp===eqp)&&(!ch||tr.dataset.ch===ch)
-              &&(!param||tr.dataset.param===param)&&(!status||tr.dataset.status===status);
+              &&(!param||tr.dataset.param===param)&&(!status||tr.dataset.status===status)
+              &&(!df||tr.dataset.date>=df)&&(!dt||tr.dataset.date<=dt);
     tr.style.display=show?'':'none';
   });
 }
@@ -1078,6 +1112,7 @@ function runAnalysis(){
     res.style.display='block';
     res.scrollIntoView({behavior:'smooth',block:'start'});
     const ac=gResults.filter(r=>r.isAnom).length;
+    saveSettings();
     toast(`분석 완료 — 총 ${gResults.length}건 / 이상 ${ac}건`,ac?'err':'ok');
   } catch(e){toast(e.message,'err');console.error(e);}
 }
@@ -1089,6 +1124,8 @@ function clearAll(){
   document.getElementById('showDataLabels').checked=false;
   document.getElementById('chartHeight').value=360;
   document.getElementById('chartHeightVal').textContent='360px';
+  document.getElementById('fDateFrom').value='';
+  document.getElementById('fDateTo').value='';
   gResults=[]; gHeaders=[];
   Object.values(gCharts).forEach(c=>c.destroy());     gCharts={};
   Object.values(gRankCharts).forEach(c=>c.destroy()); gRankCharts={};
@@ -1144,6 +1181,92 @@ function loadSample(){
   onDataChange(); // 컬럼 매핑 자동 표시
   toast('샘플 데이터가 로드되었습니다.','ok');
 }
+
+/* ══════════════════════════════════════════════════════
+   파일 업로드
+══════════════════════════════════════════════════════ */
+function handleFileDrop(e) {
+  const file = (e.dataTransfer?.files || e.target?.files)?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    document.getElementById('dataInput').value = ev.target.result;
+    onDataChange();
+    toast(`${file.name} 로드 완료 — 컬럼 매핑을 확인 후 분석하세요`, 'ok');
+  };
+  reader.onerror = () => toast('파일 읽기 실패', 'err');
+  reader.readAsText(file, 'UTF-8');
+}
+
+/* ══════════════════════════════════════════════════════
+   EQP × PARAMETER 이상률 히트맵
+══════════════════════════════════════════════════════ */
+function renderHeatmap(results) {
+  const eqps   = [...new Set(results.map(r=>r['EQP ID']))].sort();
+  const params = [...new Set(results.map(r=>r['PARAMETER']))].sort();
+
+  const cell = (e,p) => {
+    const rows  = results.filter(r=>r['EQP ID']===e && r['PARAMETER']===p);
+    const anom  = rows.filter(r=>r.isAnom).length;
+    return {total:rows.length, anom, rate: rows.length ? anom/rows.length*100 : -1};
+  };
+
+  const rates = eqps.flatMap(e=>params.map(p=>cell(e,p).rate)).filter(r=>r>=0);
+  const maxRate = Math.max(...rates, 0.01);
+
+  let html = `<table class="heatmap-table"><thead><tr>
+    <th style="text-align:left">EQP \\ PARAM</th>
+    ${params.map(p=>`<th>${p}</th>`).join('')}</tr></thead><tbody>`;
+
+  eqps.forEach(e => {
+    html += `<tr><th style="text-align:left">${e}</th>`;
+    params.forEach(p => {
+      const d = cell(e, p);
+      if (d.total === 0) {
+        html += `<td class="hm-cell" style="background:var(--bg1);color:var(--tx2)">—</td>`;
+        return;
+      }
+      const t  = d.rate / maxRate;
+      const bg = d.rate === 0
+        ? 'rgba(63,185,80,0.25)'
+        : `rgba(248,${Math.round(81*(1-t))},${Math.round(73*t+80*(1-t))},${(0.2+t*0.7).toFixed(2)})`;
+      const lbl = d.rate === 0 ? 'OK' : `${d.rate.toFixed(1)}%`;
+      html += `<td class="hm-cell" style="background:${bg}" title="${e} / ${p}: 이상 ${d.anom}건 / 전체 ${d.total}건 (${d.rate.toFixed(1)}%)">${lbl}</td>`;
+    });
+    html += `</tr>`;
+  });
+  html += `</tbody></table>`;
+  document.getElementById('heatmapTable').innerHTML = html;
+}
+
+/* ══════════════════════════════════════════════════════
+   설정 자동 저장 / 불러오기 (localStorage)
+══════════════════════════════════════════════════════ */
+function saveSettings() {
+  try {
+    localStorage.setItem('fdcSettings', JSON.stringify({
+      method:    document.getElementById('detectMethod').value,
+      threshold: document.getElementById('threshold').value,
+      winSize:   document.getElementById('winSize').value,
+      lambda:    document.getElementById('ewmaLambda').value,
+      cusumK:    document.getElementById('cusumK').value,
+      showSPC:   document.getElementById('showSPC').checked,
+    }));
+  } catch(e) {}
+}
+function loadSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem('fdcSettings') || '{}');
+    if (s.method)             document.getElementById('detectMethod').value = s.method;
+    if (s.threshold)          document.getElementById('threshold').value    = s.threshold;
+    if (s.winSize)            document.getElementById('winSize').value      = s.winSize;
+    if (s.lambda)             document.getElementById('ewmaLambda').value   = s.lambda;
+    if (s.cusumK)             document.getElementById('cusumK').value       = s.cusumK;
+    if (s.showSPC !== undefined) document.getElementById('showSPC').checked = s.showSPC;
+    onMethodChange();
+  } catch(e) {}
+}
+loadSettings();
 
 /* ══════════════════════════════════════════════════════
    TOAST
