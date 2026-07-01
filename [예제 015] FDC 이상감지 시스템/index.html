@@ -6,6 +6,7 @@
   <title>FDC RAW DATA 이상감지 시스템</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
     :root{
@@ -229,12 +230,6 @@
           </div>
         </div>
       </div>
-      <div class="legend">
-        <div class="legend-item"><div class="l-dot" style="background:var(--blue)"></div>정상</div>
-        <div class="legend-item"><div class="l-tri"></div>이상감지</div>
-        <div class="legend-item"><div class="l-dash" style="border-color:var(--red);opacity:.6"></div>UCL/LCL</div>
-        <div class="legend-item"><div class="l-dash" style="border-color:var(--tx2)"></div>평균</div>
-      </div>
       <div class="tab-row"  id="chartTabs"></div>
       <div id="chartPanels"></div>
     </div>
@@ -388,9 +383,11 @@ onMethodChange();
 ══════════════════════════════════════════════════════ */
 function tryParseTime(str) {
   if (!str) return null;
-  const s = str.trim().replace(/\./g,'-').replace(' ','T');
+  let s = str.trim();
+  s = s.replace(/[./]/g, '-');                                          // . / → -
+  s = s.replace(/(\d{4}-\d{1,2}-\d{1,2})\s+(\d{1,2}:\d{2})/, '$1T$2'); // space → T
   const d = new Date(s);
-  return isNaN(d.getTime())?null:d.getTime();
+  return isNaN(d.getTime()) ? null : d.getTime();
 }
 function fmtTime(ms) {
   if (!ms) return '';
@@ -718,7 +715,7 @@ function renderCharts(results, stats) {
       const label=ch?`${eqp}/${lot}/${ch}`:`${eqp}/${lot}`;
 
       const pts=rows.map(r=>({
-        x: hasTime && r._time!=null ? r._time : r._slot,
+        x: hasTime && r._time!=null ? new Date(r._time) : r._slot,
         y: r._val
       }));
 
@@ -739,8 +736,10 @@ function renderCharts(results, stats) {
       if (showSPC) {
         const s=stats.find(x=>x.eqp===eqp && x.ch===ch && x.param===param);
         if (s && s.std>0) {
-          const xs=pts.map(p=>p.x);
-          const xMin=Math.min(...xs), xMax=Math.max(...xs);
+          const times=rows.filter(r=>r._time!=null).map(r=>r._time);
+          const slotNums=rows.map(r=>r._slot);
+          const xMin=hasTime?new Date(Math.min(...times)):Math.min(...slotNums);
+          const xMax=hasTime?new Date(Math.max(...times)):Math.max(...slotNums);
           const mkLine=(y,clr,dash)=>({
             type:'line',
             label:`_spc_${label}`,
@@ -804,14 +803,30 @@ function renderCharts(results, stats) {
             }
           },
           scales:{
-            x:{
-              type:'linear',
-              ticks:{
-                color:'#8b949e',font:{size:10},maxTicksLimit:8,
-                callback: hasTime ? v=>fmtTick(v) : v=>`SLOT ${v}`
+            x: hasTime ? {
+              type:'time',
+              time:{
+                tooltipFormat:'yyyy-MM-dd HH:mm',
+                displayFormats:{
+                  millisecond:'HH:mm:ss.SSS',
+                  second:'HH:mm:ss',
+                  minute:'MM/dd HH:mm',
+                  hour:'MM/dd HH:mm',
+                  day:'yy/MM/dd',
+                  week:'yy/MM/dd',
+                  month:'yyyy/MM',
+                  quarter:'yyyy/MM',
+                  year:'yyyy'
+                }
               },
+              ticks:{color:'#8b949e',font:{size:10},maxTicksLimit:8},
               grid:{color:'rgba(48,54,61,.45)'},
-              title:{display:true,text:hasTime?'날짜/시간':'SLOT',color:'#8b949e',font:{size:12}}
+              title:{display:true,text:'날짜/시간',color:'#8b949e',font:{size:12}}
+            } : {
+              type:'linear',
+              ticks:{color:'#8b949e',font:{size:10},callback:v=>`SLOT ${v}`},
+              grid:{color:'rgba(48,54,61,.45)'},
+              title:{display:true,text:'SLOT',color:'#8b949e',font:{size:12}}
             },
             y:{
               ticks:{color:'#8b949e',font:{size:11}},
