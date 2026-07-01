@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>FDC RAW DATA 이상감지 시스템</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
     :root{
@@ -212,7 +213,22 @@
 
     <!-- 그래프 -->
     <div class="card">
-      <div class="card-title">📈 PARAMETER 별 산점도 (X축: 시계열)</div>
+      <div class="card-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;">
+        <span>📈 PARAMETER 별 산점도 (X축: 날짜)</span>
+        <div style="display:flex;align-items:center;gap:16px;margin-left:auto;flex-wrap:wrap;">
+          <div class="ctrl-group">
+            <input type="checkbox" id="showDataLabels" onchange="toggleDataLabels()">
+            <label for="showDataLabels" style="cursor:pointer;font-size:12px;color:var(--tx1)">데이터 레이블 표시</label>
+          </div>
+          <div class="ctrl-group" style="gap:6px">
+            <span style="font-size:12px">높이:</span>
+            <input type="range" id="chartHeight" min="200" max="800" value="360" step="20"
+                   style="width:110px;accent-color:var(--blue);cursor:pointer"
+                   oninput="updateChartHeight(this.value)">
+            <span id="chartHeightVal" style="font-size:12px;color:var(--tx2);min-width:38px">360px</span>
+          </div>
+        </div>
+      </div>
       <div class="legend">
         <div class="legend-item"><div class="l-dot" style="background:var(--blue)"></div>정상</div>
         <div class="legend-item"><div class="l-tri"></div>이상감지</div>
@@ -697,12 +713,12 @@ function renderCharts(results, stats) {
     gkeys.forEach((gk,gi)=>{
       const [eqp,lot,ch]=gk.split('|');
       const rows=paramRows.filter(r=>r['EQP ID']===eqp && r['LOTID']===lot && r['CH']===ch);
-      rows.sort((a,b)=>a._slot-b._slot);
+      rows.sort((a,b)=> hasTime ? ((a._time??a._slot)-(b._time??b._slot)) : a._slot-b._slot);
       const color=PALETTE[gi%PALETTE.length];
       const label=ch?`${eqp}/${lot}/${ch}`:`${eqp}/${lot}`;
 
-      const pts=rows.map((r,idx)=>({
-        x: hasTime && r._time!==null ? r._time : r._slot,
+      const pts=rows.map(r=>({
+        x: hasTime && r._time!=null ? r._time : r._slot,
         y: r._val
       }));
 
@@ -743,6 +759,7 @@ function renderCharts(results, stats) {
       const ctx=canvas.getContext('2d');
       gCharts[param]=new Chart(ctx,{
         type:'scatter',
+        plugins:[ChartDataLabels],
         data:{datasets},
         options:{
           responsive:true, maintainAspectRatio:false,
@@ -771,6 +788,19 @@ function renderCharts(results, stats) {
                   return lines;
                 }
               }
+            },
+            datalabels:{
+              display: false,
+              color: ctx=>ctx.dataset._rows?.[ctx.dataIndex]?.isAnom?'#f85149':'#8b949e',
+              font:{size:9,weight:'bold'},
+              anchor:'end',
+              align:'top',
+              offset:2,
+              clip:true,
+              formatter:(val,ctx)=>{
+                const row=ctx.dataset._rows?.[ctx.dataIndex];
+                return row?`S${row['SLOT']}`:'';
+              }
             }
           },
           scales:{
@@ -798,6 +828,23 @@ function renderCharts(results, stats) {
 function switchTab(param){
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.param===param));
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.dataset.param===param));
+}
+
+function updateChartHeight(h) {
+  document.getElementById('chartHeightVal').textContent=h+'px';
+  document.querySelectorAll('#chartPanels .chart-wrap').forEach(w=>w.style.height=h+'px');
+  Object.values(gCharts).forEach(c=>c.resize());
+}
+
+function toggleDataLabels() {
+  const show=document.getElementById('showDataLabels').checked;
+  Object.values(gCharts).forEach(chart=>{
+    chart.options.plugins.datalabels.display=ctx=>{
+      if (!show) return false;
+      return !ctx.dataset.label?.startsWith('_spc_');
+    };
+    chart.update();
+  });
 }
 
 /* ── Tables ── */
@@ -922,6 +969,9 @@ function clearAll(){
   document.getElementById('dataInput').value='';
   document.getElementById('colMapWrap').style.display='none';
   document.getElementById('results').style.display='none';
+  document.getElementById('showDataLabels').checked=false;
+  document.getElementById('chartHeight').value=360;
+  document.getElementById('chartHeightVal').textContent='360px';
   gResults=[]; gHeaders=[];
   Object.values(gCharts).forEach(c=>c.destroy());     gCharts={};
   Object.values(gRankCharts).forEach(c=>c.destroy()); gRankCharts={};
