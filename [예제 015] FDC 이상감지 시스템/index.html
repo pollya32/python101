@@ -386,8 +386,25 @@ onMethodChange();
 function tryParseTime(str) {
   if (!str) return null;
   let s = str.trim();
-  s = s.replace(/[./]/g, '-');                                          // . / → -
-  s = s.replace(/(\d{4}-\d{1,2}-\d{1,2})\s+(\d{1,2}:\d{2})/, '$1T$2'); // space → T
+
+  // 한국어 날짜 형식: 2024년 01월 15일 08시 00분
+  const kr = s.match(/(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일(?:\s*(\d{1,2})시\s*(\d{1,2})분)?/);
+  if (kr) {
+    const d = new Date(+kr[1], +kr[2]-1, +kr[3], +(kr[4]||0), +(kr[5]||0));
+    if (!isNaN(d.getTime())) return d.getTime();
+  }
+
+  // MM/DD/YYYY (미국식) 또는 DD/MM/YYYY 방지: YYYY 가 앞에 없을 때
+  const usDate = s.match(/^(\d{1,2})[/](\d{1,2})[/](\d{4})(.*)/);
+  if (usDate) {
+    const rest = usDate[4].trim().replace(/\s+/, 'T');
+    const d = new Date(`${usDate[3]}-${usDate[1].padStart(2,'0')}-${usDate[2].padStart(2,'0')}${rest?'T'+rest:''}`);
+    if (!isNaN(d.getTime())) return d.getTime();
+  }
+
+  // YYYY[-./]MM[-./]DD [HH:MM[:SS]]
+  s = s.replace(/[./]/g, '-');
+  s = s.replace(/(\d{4}-\d{1,2}-\d{1,2})\s+(\d{1,2}:\d{2})/, '$1T$2');
   const d = new Date(s);
   return isNaN(d.getTime()) ? null : d.getTime();
 }
@@ -742,7 +759,10 @@ function renderCharts(results, stats) {
     const gkeys=[...new Set(paramRows.map(r=>`${r['EQP ID']}|${r['LOTID']}|${r['CH']}`))]
     const datasets=[];
 
-    const hasTime = paramRows.some(r=>r._time!==null);
+    const allTimes=paramRows.filter(r=>r._time!=null).map(r=>r._time);
+    const hasTime=allTimes.length>0;
+    const tRef=hasTime?Math.min(...allTimes):0;
+    const tRange=hasTime?(Math.max(...allTimes)-tRef)/86400000:0;
 
     gkeys.forEach((gk,gi)=>{
       const [eqp,lot,ch]=gk.split('|');
@@ -752,7 +772,7 @@ function renderCharts(results, stats) {
       const label=ch?`${eqp}/${lot}/${ch}`:`${eqp}/${lot}`;
 
       const pts=rows.map(r=>({
-        x: hasTime && r._time!=null ? new Date(r._time) : r._slot,
+        x: hasTime && r._time!=null ? (r._time-tRef)/1000 : r._slot,
         y: r._val
       }));
 
@@ -781,8 +801,8 @@ function renderCharts(results, stats) {
         if (s && s.std>0) {
           const times=rows.filter(r=>r._time!=null).map(r=>r._time);
           const slotNums=rows.map(r=>r._slot);
-          const xMin=hasTime?new Date(Math.min(...times)):Math.min(...slotNums);
-          const xMax=hasTime?new Date(Math.max(...times)):Math.max(...slotNums);
+          const xMin=hasTime?(Math.min(...times)-tRef)/1000:Math.min(...slotNums);
+          const xMax=hasTime?(Math.max(...times)-tRef)/1000:Math.max(...slotNums);
           const mkLine=(y,clr,dash,lbl)=>({
             type:'line',
             label:`_spc_${lbl}_${label}`,
@@ -851,30 +871,22 @@ function renderCharts(results, stats) {
             }
           },
           scales:{
-            x: hasTime ? {
-              type:'time',
-              time:{
-                tooltipFormat:'yyyy-MM-dd HH:mm',
-                displayFormats:{
-                  millisecond:'HH:mm:ss',
-                  second:'HH:mm:ss',
-                  minute:'MM/dd HH:mm',
-                  hour:'MM/dd HH:mm',
-                  day:'yy/MM/dd',
-                  week:'yy/MM/dd',
-                  month:'yyyy/MM',
-                  quarter:'yyyy/MM',
-                  year:'yyyy'
-                }
-              },
-              ticks:{color:'#8b949e',font:{size:10},maxTicksLimit:10},
-              grid:{color:'rgba(48,54,61,.45)'},
-              title:{display:true,text:'날짜/시간',color:'#8b949e',font:{size:12}}
-            } : {
+            x:{
               type:'linear',
-              ticks:{color:'#8b949e',font:{size:10},callback:v=>`SLOT ${v}`},
+              ticks:{
+                color:'#8b949e',font:{size:10},maxTicksLimit:10,
+                callback: hasTime
+                  ? v=>{
+                      const d=new Date(tRef+v*1000);
+                      const p=n=>String(n).padStart(2,'0');
+                      if(tRange>1)
+                        return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}\n${p(d.getHours())}:${p(d.getMinutes())}`;
+                      return `${p(d.getMonth()+1)}/${p(d.getDate())}\n${p(d.getHours())}:${p(d.getMinutes())}`;
+                    }
+                  : v=>`SLOT ${v}`
+              },
               grid:{color:'rgba(48,54,61,.45)'},
-              title:{display:true,text:'SLOT',color:'#8b949e',font:{size:12}}
+              title:{display:true,text:hasTime?'날짜/시간':'SLOT',color:'#8b949e',font:{size:12}}
             },
             y:{
               ticks:{color:'#8b949e',font:{size:11}},
