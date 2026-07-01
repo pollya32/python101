@@ -6,109 +6,118 @@
   <title>FDC RAW DATA 이상감지 시스템</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --bg0:#0d1117; --bg1:#161b22; --bg2:#1c2128; --bd:#30363d;
-      --tx1:#e6edf3; --tx2:#8b949e;
-      --blue:#388bfd; --red:#f85149; --green:#3fb950;
-      --yellow:#d29922; --orange:#db6d28; --purple:#a371f7;
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    :root{
+      --bg0:#0d1117;--bg1:#161b22;--bg2:#1c2128;--bd:#30363d;
+      --tx1:#e6edf3;--tx2:#8b949e;
+      --blue:#388bfd;--red:#f85149;--green:#3fb950;--yellow:#d29922;--purple:#a371f7;
     }
-    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif; background:var(--bg0); color:var(--tx1); min-height:100vh; }
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif;background:var(--bg0);color:var(--tx1);min-height:100vh;}
 
-    header { background:linear-gradient(135deg,var(--bg2),var(--bg0)); border-bottom:1px solid var(--bd); padding:20px 32px; display:flex; align-items:center; gap:14px; }
-    header .logo { font-size:30px; }
-    header h1 { font-size:20px; font-weight:700; }
-    header p  { font-size:12px; color:var(--tx2); margin-top:3px; }
-    .chip { background:var(--blue); color:#fff; padding:2px 9px; border-radius:12px; font-size:10px; font-weight:700; }
+    header{background:linear-gradient(135deg,var(--bg2),var(--bg0));border-bottom:1px solid var(--bd);padding:20px 32px;display:flex;align-items:center;gap:14px;}
+    header .logo{font-size:30px;}
+    header h1{font-size:20px;font-weight:700;}
+    header p{font-size:12px;color:var(--tx2);margin-top:3px;}
+    .chip{background:var(--blue);color:#fff;padding:2px 9px;border-radius:12px;font-size:10px;font-weight:700;}
 
-    main { max-width:1440px; margin:0 auto; padding:24px 32px; }
-    .card { background:var(--bg2); border:1px solid var(--bd); border-radius:10px; padding:20px 24px; margin-bottom:20px; }
-    .card-title { font-size:14px; font-weight:600; margin-bottom:14px; display:flex; align-items:center; gap:8px; }
+    main{max-width:1440px;margin:0 auto;padding:24px 32px;}
+    .card{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:20px 24px;margin-bottom:20px;}
+    .card-title{font-size:14px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:8px;}
 
-    .hint { font-size:12px; color:var(--tx2); background:var(--bg1); border-left:3px solid var(--blue); border-radius:4px; padding:8px 12px; margin-bottom:10px; line-height:1.7; }
-    .hint strong { color:var(--tx1); }
-    textarea { width:100%; height:170px; background:var(--bg1); border:1px solid var(--bd); border-radius:6px; color:var(--tx1); font-family:'Consolas','Monaco',monospace; font-size:12px; padding:12px; resize:vertical; outline:none; transition:border-color .2s; line-height:1.5; }
-    textarea:focus { border-color:var(--blue); }
-    textarea::placeholder { color:var(--tx2); opacity:.55; }
+    .hint{font-size:12px;color:var(--tx2);background:var(--bg1);border-left:3px solid var(--blue);border-radius:4px;padding:8px 12px;margin-bottom:10px;line-height:1.7;}
+    .hint strong{color:var(--tx1);}
+    textarea{width:100%;height:160px;background:var(--bg1);border:1px solid var(--bd);border-radius:6px;color:var(--tx1);font-family:'Consolas','Monaco',monospace;font-size:12px;padding:12px;resize:vertical;outline:none;transition:border-color .2s;line-height:1.5;}
+    textarea:focus{border-color:var(--blue);}
+    textarea::placeholder{color:var(--tx2);opacity:.55;}
 
-    .controls { display:flex; flex-wrap:wrap; align-items:center; gap:14px; margin-top:14px; }
-    .ctrl-group { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--tx2); }
-    input[type="number"], select { background:var(--bg1); border:1px solid var(--bd); border-radius:6px; color:var(--tx1); padding:6px 10px; font-size:13px; outline:none; transition:border-color .2s; }
-    input[type="number"] { width:90px; }
-    input:focus, select:focus { border-color:var(--blue); }
-    input[type="checkbox"] { accent-color:var(--blue); width:14px; height:14px; cursor:pointer; }
+    /* ── 컬럼 매핑 ── */
+    .cm-wrap{margin-top:12px;background:var(--bg1);border:1px solid var(--bd);border-radius:8px;padding:14px 16px;}
+    .cm-header{font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+    .cm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;}
+    .cm-item{display:flex;flex-direction:column;gap:4px;}
+    .cm-label{font-size:11px;color:var(--tx2);}
+    .cm-req{color:var(--red);}
+    .cm-select{background:var(--bg2);border:1px solid var(--bd);border-radius:6px;color:var(--tx1);padding:5px 8px;font-size:12px;outline:none;}
+    .cm-select:focus{border-color:var(--blue);}
 
-    .btn { padding:7px 16px; border-radius:6px; border:none; font-size:13px; font-weight:600; cursor:pointer; transition:opacity .15s,transform .1s; white-space:nowrap; }
-    .btn:hover { opacity:.82; } .btn:active { transform:scale(.97); }
-    .btn-primary   { background:var(--blue); color:#fff; }
-    .btn-secondary { background:var(--bg1); color:var(--tx1); border:1px solid var(--bd); }
-    .btn-sm { padding:4px 12px; font-size:11px; }
+    .controls{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:14px;}
+    .ctrl-group{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx2);}
+    input[type="number"],select{background:var(--bg1);border:1px solid var(--bd);border-radius:6px;color:var(--tx1);padding:6px 10px;font-size:13px;outline:none;transition:border-color .2s;}
+    input[type="number"]{width:90px;}
+    input:focus,select:focus{border-color:var(--blue);}
+    input[type="checkbox"]{accent-color:var(--blue);width:14px;height:14px;cursor:pointer;}
+    .btn{padding:7px 16px;border-radius:6px;border:none;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s,transform .1s;white-space:nowrap;}
+    .btn:hover{opacity:.82;}.btn:active{transform:scale(.97);}
+    .btn-primary{background:var(--blue);color:#fff;}
+    .btn-secondary{background:var(--bg1);color:var(--tx1);border:1px solid var(--bd);}
+    .btn-sm{padding:4px 12px;font-size:11px;}
 
-    .summary-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; margin-bottom:20px; }
-    .s-card { background:var(--bg2); border:1px solid var(--bd); border-radius:10px; padding:16px; text-align:center; }
-    .s-card .val { font-size:30px; font-weight:700; line-height:1; margin-bottom:6px; }
-    .s-card .lbl { font-size:11px; color:var(--tx2); }
-    .c-blue .val{color:var(--blue);} .c-red .val{color:var(--red);} .c-green .val{color:var(--green);} .c-yellow .val{color:var(--yellow);}
+    /* ── Summary ── */
+    .summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:20px;}
+    .s-card{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px;text-align:center;}
+    .s-card .val{font-size:30px;font-weight:700;line-height:1;margin-bottom:6px;}
+    .s-card .lbl{font-size:11px;color:var(--tx2);}
+    .c-blue .val{color:var(--blue);}.c-red .val{color:var(--red);}.c-green .val{color:var(--green);}.c-yellow .val{color:var(--yellow);}
 
-    .alert-bar { border-radius:8px; padding:11px 16px; margin-bottom:20px; display:flex; align-items:center; gap:10px; font-size:13px; }
-    .alert-bar.danger { background:rgba(248,81,73,.10); border:1px solid rgba(248,81,73,.30); }
-    .alert-bar.safe   { background:rgba(63,185,80,.10);  border:1px solid rgba(63,185,80,.30); }
-    .alert-icon { font-size:18px; flex-shrink:0; }
+    .alert-bar{border-radius:8px;padding:11px 16px;margin-bottom:20px;display:flex;align-items:center;gap:10px;font-size:13px;}
+    .alert-bar.danger{background:rgba(248,81,73,.10);border:1px solid rgba(248,81,73,.30);}
+    .alert-bar.safe{background:rgba(63,185,80,.10);border:1px solid rgba(63,185,80,.30);}
+    .alert-icon{font-size:18px;flex-shrink:0;}
 
-    /* Chart tabs */
-    .tab-row { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
-    .tab-btn { padding:5px 14px; border-radius:20px; border:1px solid var(--bd); background:var(--bg1); color:var(--tx2); font-size:12px; cursor:pointer; transition:all .15s; }
-    .tab-btn:hover { border-color:var(--blue); color:var(--tx1); }
-    .tab-btn.active { background:var(--blue); color:#fff; border-color:var(--blue); }
-    .tab-panel { display:none; } .tab-panel.active { display:block; }
-    .chart-wrap { position:relative; height:340px; }
+    /* ── Chart tabs ── */
+    .tab-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;}
+    .tab-btn{padding:5px 14px;border-radius:20px;border:1px solid var(--bd);background:var(--bg1);color:var(--tx2);font-size:12px;cursor:pointer;transition:all .15s;}
+    .tab-btn:hover{border-color:var(--blue);color:var(--tx1);}
+    .tab-btn.active{background:var(--blue);color:#fff;border-color:var(--blue);}
+    .tab-panel{display:none;}.tab-panel.active{display:block;}
+    .chart-wrap{position:relative;height:360px;}
 
-    /* Table */
-    .tbl-header { display:flex; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
-    .tbl-header .title { font-size:14px; font-weight:600; }
-    .cnt-badge { background:var(--bg1); border:1px solid var(--bd); color:var(--tx2); padding:1px 9px; border-radius:10px; font-size:11px; }
-    .filter-row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-left:auto; }
-    .filter-row label { font-size:12px; color:var(--tx2); }
-    .filter-row select { padding:4px 8px; font-size:12px; }
-    .tbl-scroll { max-height:400px; overflow-y:auto; }
-    .tbl-wrap { border-radius:6px; border:1px solid var(--bd); overflow-x:auto; }
-    table { width:100%; border-collapse:collapse; font-size:12px; }
-    thead { background:var(--bg1); position:sticky; top:0; z-index:5; }
-    th { padding:9px 12px; text-align:left; font-weight:600; color:var(--tx2); border-bottom:1px solid var(--bd); white-space:nowrap; }
-    td { padding:7px 12px; border-bottom:1px solid rgba(48,54,61,.5); white-space:nowrap; }
-    tr:last-child td { border-bottom:none; }
-    tr.anom-row { background:rgba(248,81,73,.08); }
-    tr.anom-row:hover { background:rgba(248,81,73,.14); }
-    tr:not(.anom-row):hover { background:rgba(255,255,255,.03); }
-    .badge-anom { display:inline-block; background:var(--red); color:#fff; padding:2px 8px; border-radius:10px; font-size:10px; font-weight:700; }
-    .badge-ok   { display:inline-block; background:rgba(63,185,80,.18); color:var(--green); border:1px solid rgba(63,185,80,.3); padding:2px 8px; border-radius:10px; font-size:10px; font-weight:700; }
-    .diff-anom { color:var(--red); font-weight:700; }
-    .no-data { text-align:center; padding:36px; color:var(--tx2); font-size:13px; }
+    /* ── Table ── */
+    .tbl-header{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
+    .tbl-header .title{font-size:14px;font-weight:600;}
+    .cnt-badge{background:var(--bg1);border:1px solid var(--bd);color:var(--tx2);padding:1px 9px;border-radius:10px;font-size:11px;}
+    .filter-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-left:auto;}
+    .filter-row label{font-size:12px;color:var(--tx2);}
+    .filter-row select{padding:4px 8px;font-size:12px;}
+    .tbl-scroll{max-height:400px;overflow-y:auto;}
+    .tbl-wrap{border-radius:6px;border:1px solid var(--bd);overflow-x:auto;}
+    table{width:100%;border-collapse:collapse;font-size:12px;}
+    thead{background:var(--bg1);position:sticky;top:0;z-index:5;}
+    th{padding:9px 12px;text-align:left;font-weight:600;color:var(--tx2);border-bottom:1px solid var(--bd);white-space:nowrap;}
+    td{padding:7px 12px;border-bottom:1px solid rgba(48,54,61,.5);white-space:nowrap;}
+    tr:last-child td{border-bottom:none;}
+    tr.anom-row{background:rgba(248,81,73,.08);}
+    tr.anom-row:hover{background:rgba(248,81,73,.14);}
+    tr:not(.anom-row):hover{background:rgba(255,255,255,.03);}
+    .badge-anom{display:inline-block;background:var(--red);color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;}
+    .badge-ok{display:inline-block;background:rgba(63,185,80,.18);color:var(--green);border:1px solid rgba(63,185,80,.3);padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;}
+    .diff-anom{color:var(--red);font-weight:700;}
+    .no-data{text-align:center;padding:36px;color:var(--tx2);font-size:13px;}
 
-    .legend { display:flex; gap:16px; margin-bottom:10px; font-size:12px; color:var(--tx2); }
-    .legend-item { display:flex; align-items:center; gap:6px; }
-    .l-dot { width:10px; height:10px; border-radius:50%; }
-    .l-dash { width:18px; height:2px; border-top:2px dashed; }
-    .l-tri { width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent; border-bottom:11px solid var(--red); }
+    .legend{display:flex;gap:16px;margin-bottom:10px;font-size:12px;color:var(--tx2);flex-wrap:wrap;}
+    .legend-item{display:flex;align-items:center;gap:6px;}
+    .l-dot{width:10px;height:10px;border-radius:50%;}
+    .l-tri{width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:11px solid var(--red);}
+    .l-dash{width:18px;height:0;border-top:2px dashed;}
 
     /* ── 통계 테이블 ── */
-    .stat-val { color:var(--blue); font-weight:600; }
-    .stat-anom { color:var(--red); font-weight:600; }
+    .stat-val{color:var(--blue);font-weight:600;}
+    .stat-anom{color:var(--red);font-weight:600;}
 
-    /* ── 랭킹 그리드 ── */
-    .rank-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }
-    .rank-item { background:var(--bg1); border:1px solid var(--bd); border-radius:8px; padding:14px; }
-    .rank-item-title { font-size:12px; font-weight:600; color:var(--tx2); margin-bottom:10px; }
-    .rank-chart-wrap { position:relative; height:160px; }
+    /* ── 랭킹 ── */
+    .rank-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;}
+    .rank-item{background:var(--bg1);border:1px solid var(--bd);border-radius:8px;padding:14px;}
+    .rank-item-title{font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:10px;}
+    .rank-chart-wrap{position:relative;height:160px;}
 
     /* ── Toast ── */
-    #toast-box { position:fixed; top:20px; right:20px; z-index:9999; display:flex; flex-direction:column; gap:8px; }
-    .toast { background:var(--bg2); border:1px solid var(--bd); border-radius:8px; padding:11px 15px; font-size:13px; max-width:340px; display:flex; align-items:center; gap:9px; animation:fadeIn .25s ease; }
-    .toast.err { border-color:var(--red);   background:rgba(248,81,73,.1); }
-    .toast.ok  { border-color:var(--green); background:rgba(63,185,80,.1); }
-    @keyframes fadeIn { from{opacity:0;transform:translateX(30px)} to{opacity:1} }
+    #toast-box{position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;}
+    .toast{background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:11px 15px;font-size:13px;max-width:340px;display:flex;align-items:center;gap:9px;animation:fadeIn .25s ease;}
+    .toast.err{border-color:var(--red);background:rgba(248,81,73,.1);}
+    .toast.ok{border-color:var(--green);background:rgba(63,185,80,.1);}
+    @keyframes fadeIn{from{opacity:0;transform:translateX(30px)}to{opacity:1}}
 
-    @media(max-width:700px){ main{padding:14px;} header{padding:14px;} }
+    @media(max-width:700px){main{padding:14px;}header{padding:14px;}}
   </style>
 </head>
 <body>
@@ -117,8 +126,8 @@
 <header>
   <div class="logo">⚡</div>
   <div>
-    <h1>FDC RAW DATA 이상감지 시스템 <span class="chip">v2.0</span></h1>
-    <p>직전 SLOT 기반 이상감지 · SPC 관리한계 · 통계 분석 · 이상 집중 랭킹</p>
+    <h1>FDC RAW DATA 이상감지 시스템 <span class="chip">v3.0</span></h1>
+    <p>열 선택 매핑 · 5가지 감지 방식 · 시계열 스캐터 그래프 · SPC 관리한계 · 통계분석 · 이상 랭킹</p>
   </div>
 </header>
 
@@ -127,35 +136,46 @@
   <div class="card">
     <div class="card-title">📋 데이터 입력</div>
     <div class="hint">
-      엑셀에서 <strong>Ctrl+C</strong> 복사 → 아래 영역에 <strong>Ctrl+V</strong> 붙여넣기<br>
-      필수 열 (순서 무관):
-      <strong>날짜</strong> | <strong>EQP ID</strong> | <strong>LOTID</strong> | <strong>SLOT</strong> |
-      <strong>CH</strong> | <strong>PARAMETER</strong> | <strong>REAL DATA</strong>
-      &nbsp;<span style="color:var(--yellow)">(CH 없으면 자동 빈값 처리)</span>
+      엑셀에서 <strong>Ctrl+C</strong> 복사 → 아래에 <strong>Ctrl+V</strong> 붙여넣기<br>
+      첫 번째 행을 헤더로 인식하며, 아래 <strong>컬럼 매핑</strong>에서 각 열을 직접 지정할 수 있습니다.
     </div>
-    <textarea id="dataInput"
+    <textarea id="dataInput" oninput="onDataChange()"
       placeholder="날짜&#9;EQP ID&#9;LOTID&#9;SLOT&#9;CH&#9;PARAMETER&#9;REAL DATA&#10;2024-01-15 08:00&#9;EQP01&#9;LOT001&#9;1&#9;CH1&#9;TEMP&#9;250.3&#10;..."></textarea>
+
+    <!-- 컬럼 매핑 UI -->
+    <div class="cm-wrap" id="colMapWrap" style="display:none">
+      <div class="cm-header">🔗 컬럼 매핑 &nbsp;<span style="font-weight:400">(데이터 열 이름을 각 필드에 연결하세요 — 자동 감지됨)</span></div>
+      <div class="cm-grid" id="colMapGrid"></div>
+    </div>
 
     <div class="controls">
       <!-- 감지 방식 -->
       <div class="ctrl-group">
         <span>감지 방식:</span>
         <select id="detectMethod" onchange="onMethodChange()">
-          <option value="abs">절대값 차이 (|현재 − 직전|)</option>
-          <option value="sigma">σ 배수 (|현재 − 평균| > N×σ)</option>
-          <option value="pct">변화율 % (|(현재−직전)/직전|×100)</option>
+          <option value="abs">① 절대값 차이 |현재−직전|</option>
+          <option value="sigma">② σ 배수 |현재−평균| > N×σ</option>
+          <option value="pct">③ 변화율% |(현재−직전)/직전|×100</option>
+          <option value="slope_diff">④ 기울기 변화량 (2차 차분)</option>
+          <option value="slope_win">⑤ 이동창 기울기 (회귀)</option>
         </select>
       </div>
       <!-- 임계값 -->
       <div class="ctrl-group">
         <span id="thrLabel">임계값:</span>
         <input type="number" id="threshold" value="10" min="0" step="0.1">
-        <span id="thrUnit" style="font-size:11px;color:var(--tx2)">직전 대비 절대 변화량</span>
+        <span id="thrUnit" style="font-size:11px;color:var(--tx2)"></span>
       </div>
-      <!-- SPC 라인 -->
+      <!-- 창 크기 (slope_win 전용) -->
+      <div class="ctrl-group" id="winRow" style="display:none">
+        <span>창 크기 (W):</span>
+        <input type="number" id="winSize" value="3" min="2" max="20" step="1">
+        <span style="font-size:11px;color:var(--tx2)">SLOT 수</span>
+      </div>
+      <!-- SPC -->
       <div class="ctrl-group">
         <input type="checkbox" id="showSPC">
-        <label for="showSPC" style="cursor:pointer;font-size:13px">SPC 관리한계선 표시 (±3σ)</label>
+        <label for="showSPC" style="cursor:pointer;font-size:13px">SPC ±3σ 관리한계선</label>
       </div>
       <button class="btn btn-primary"   onclick="runAnalysis()">🔍 분석 시작</button>
       <button class="btn btn-secondary" onclick="loadSample()">📊 샘플 데이터</button>
@@ -165,51 +185,45 @@
 
   <!-- 결과 -->
   <div id="results" style="display:none">
-
     <div class="summary-grid" id="summaryGrid"></div>
     <div id="alertBanner"></div>
 
-    <!-- ── 통계 요약 ── -->
+    <!-- 통계 요약 -->
     <div class="card">
       <div class="card-title">📊 통계 요약 (EQP / CH / PARAMETER 별)</div>
-      <div class="tbl-scroll">
-        <div class="tbl-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>EQP ID</th><th>CH</th><th>PARAMETER</th><th>건수</th>
-                <th>평균</th><th>표준편차</th><th>최솟값</th><th>최댓값</th>
-                <th>범위</th><th>CV%</th>
-                <th>UCL(+3σ)</th><th>LCL(−3σ)</th>
-                <th>이상 건수</th><th>이상률</th>
-              </tr>
-            </thead>
-            <tbody id="statsTbody"></tbody>
-          </table>
-        </div>
-      </div>
+      <div class="tbl-scroll"><div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>EQP ID</th><th>CH</th><th>PARAMETER</th><th>건수</th>
+            <th>평균</th><th>표준편차</th><th>최솟값</th><th>최댓값</th>
+            <th>범위</th><th>CV%</th><th>UCL(+3σ)</th><th>LCL(−3σ)</th>
+            <th>이상 건수</th><th>이상률</th>
+          </tr></thead>
+          <tbody id="statsTbody"></tbody>
+        </table>
+      </div></div>
     </div>
 
-    <!-- ── 이상 집중 랭킹 ── -->
+    <!-- 이상 랭킹 -->
     <div class="card">
       <div class="card-title">🏆 이상감지 집중 랭킹</div>
       <div class="rank-grid" id="rankGrid"></div>
     </div>
 
-    <!-- ── 그래프 ── -->
+    <!-- 그래프 -->
     <div class="card">
-      <div class="card-title">📈 PARAMETER 별 그래프</div>
+      <div class="card-title">📈 PARAMETER 별 산점도 (X축: 시계열)</div>
       <div class="legend">
-        <div class="legend-item"><div class="l-dot" style="background:var(--blue)"></div> 정상</div>
-        <div class="legend-item"><div class="l-tri"></div> 이상감지</div>
-        <div class="legend-item"><div class="l-dash" style="border-color:var(--red);opacity:.6"></div> UCL/LCL</div>
-        <div class="legend-item"><div class="l-dash" style="border-color:var(--tx2)"></div> 평균</div>
+        <div class="legend-item"><div class="l-dot" style="background:var(--blue)"></div>정상</div>
+        <div class="legend-item"><div class="l-tri"></div>이상감지</div>
+        <div class="legend-item"><div class="l-dash" style="border-color:var(--red);opacity:.6"></div>UCL/LCL</div>
+        <div class="legend-item"><div class="l-dash" style="border-color:var(--tx2)"></div>평균</div>
       </div>
       <div class="tab-row"  id="chartTabs"></div>
       <div id="chartPanels"></div>
     </div>
 
-    <!-- ── 이상감지 목록 ── -->
+    <!-- 이상감지 목록 -->
     <div class="card">
       <div class="tbl-header">
         <span class="title">🚨 이상감지 목록</span>
@@ -223,32 +237,25 @@
           <thead><tr>
             <th>날짜</th><th>EQP ID</th><th>LOTID</th><th>SLOT</th><th>CH</th>
             <th>PARAMETER</th><th>REAL DATA</th>
-            <th class="th-ref">직전값</th>
-            <th class="th-diff">변화량</th>
-            <th>임계값</th><th>상태</th>
+            <th class="th-ref">직전값</th><th class="th-diff">변화량</th>
+            <th>임계값</th><th>방식</th><th>상태</th>
           </tr></thead>
           <tbody id="anomTbody"></tbody>
         </table>
       </div></div>
     </div>
 
-    <!-- ── 전체 데이터 ── -->
+    <!-- 전체 데이터 -->
     <div class="card">
       <div class="tbl-header">
         <span class="title">📋 전체 데이터</span>
         <span class="cnt-badge" id="totalCnt">0건</span>
         <div class="filter-row">
-          <label>EQP ID</label>
-          <select id="fEqp"    onchange="applyFilter()"><option value="">전체</option></select>
-          <label>CH</label>
-          <select id="fCh"     onchange="applyFilter()"><option value="">전체</option></select>
-          <label>PARAMETER</label>
-          <select id="fParam"  onchange="applyFilter()"><option value="">전체</option></select>
-          <label>상태</label>
-          <select id="fStatus" onchange="applyFilter()">
-            <option value="">전체</option>
-            <option value="anom">이상</option>
-            <option value="ok">정상</option>
+          <label>EQP ID</label><select id="fEqp"    onchange="applyFilter()"><option value="">전체</option></select>
+          <label>CH</label>    <select id="fCh"     onchange="applyFilter()"><option value="">전체</option></select>
+          <label>PARAMETER</label><select id="fParam"onchange="applyFilter()"><option value="">전체</option></select>
+          <label>상태</label>  <select id="fStatus" onchange="applyFilter()">
+            <option value="">전체</option><option value="anom">이상</option><option value="ok">정상</option>
           </select>
           <button class="btn btn-secondary btn-sm" onclick="exportCSV('all')">⬇ CSV</button>
         </div>
@@ -258,130 +265,245 @@
           <thead><tr>
             <th>날짜</th><th>EQP ID</th><th>LOTID</th><th>SLOT</th><th>CH</th>
             <th>PARAMETER</th><th>REAL DATA</th>
-            <th class="th-ref">직전값</th>
-            <th class="th-diff">변화량</th>
-            <th>상태</th>
+            <th class="th-ref">직전값</th><th class="th-diff">변화량</th><th>상태</th>
           </tr></thead>
           <tbody id="fullTbody"></tbody>
         </table>
       </div></div>
     </div>
-
-  </div><!-- /results -->
+  </div>
 </main>
 
 <script>
-/* ══════════════════════ STATE ══════════════════════ */
-let gResults = [], gCharts = {}, gRankCharts = {}, gThreshold = 10;
+/* ══════════════════════════════════════════════════════
+   STATE
+══════════════════════════════════════════════════════ */
+let gResults=[], gCharts={}, gRankCharts={}, gThreshold=10, gHeaders=[];
 
-/* ══════════════════════ COLUMN ALIASES ══════════════════════ */
+/* ══════════════════════════════════════════════════════
+   COLUMN ALIAS MAP (자동 감지용)
+══════════════════════════════════════════════════════ */
 const COL_ALIASES = {
-  '날짜':      ['날짜','date','datetime','일시','time','측정일시'],
-  'EQP ID':   ['eqp id','eqpid','eqp_id','장비id','equipment','equip'],
-  'LOTID':    ['lotid','lot id','lot_id','lot','로트'],
-  'SLOT':     ['slot','slot no','slot_no','슬롯'],
-  'CH':       ['ch','channel','채널','ch no','ch_no','챔버'],
-  'PARAMETER':['parameter','param','파라미터','항목','측정항목'],
-  'REAL DATA':['real data','realdata','real_data','value','값','실측값','측정값','data']
+  '날짜':      ['날짜','date','datetime','일시','time','측정일시','timestamp'],
+  'EQP ID':   ['eqp id','eqpid','eqp_id','장비id','equipment','equip','eqp'],
+  'LOTID':    ['lotid','lot id','lot_id','lot','로트','lot no'],
+  'SLOT':     ['slot','slot no','slot_no','슬롯','wafer'],
+  'CH':       ['ch','channel','채널','ch no','ch_no','챔버','chamber'],
+  'PARAMETER':['parameter','param','파라미터','항목','측정항목','item'],
+  'REAL DATA':['real data','realdata','real_data','value','값','실측값','측정값','data','result']
 };
 function findColIdx(headers, key) {
-  const aliases = COL_ALIASES[key] || [key.toLowerCase()];
-  return headers.findIndex(h => aliases.includes(h.toLowerCase().trim()));
+  const a = COL_ALIASES[key]||[key.toLowerCase()];
+  return headers.findIndex(h=>a.includes(h.toLowerCase().trim()));
 }
 
-/* ══════════════════════ UI: 방식 변경 ══════════════════════ */
+/* ══════════════════════════════════════════════════════
+   FIELD CONFIG (컬럼 매핑 UI)
+══════════════════════════════════════════════════════ */
+const FIELDS = [
+  {id:'map_date', label:'날짜 (Date)',       key:'날짜',      required:true},
+  {id:'map_eqp',  label:'EQP ID',           key:'EQP ID',   required:true},
+  {id:'map_lot',  label:'LOTID',            key:'LOTID',    required:true},
+  {id:'map_slot', label:'SLOT',             key:'SLOT',     required:true},
+  {id:'map_ch',   label:'CH (채널 · 선택)', key:'CH',       required:false},
+  {id:'map_param',label:'PARAMETER',        key:'PARAMETER',required:true},
+  {id:'map_value',label:'REAL DATA',        key:'REAL DATA',required:true},
+];
+
+function onDataChange() {
+  const text = document.getElementById('dataInput').value.trim();
+  const wrap = document.getElementById('colMapWrap');
+  if (!text) { wrap.style.display='none'; gHeaders=[]; return; }
+  const firstLine = text.split(/\r?\n/)[0];
+  const headers   = firstLine.split('\t').map(h=>h.trim());
+  if (headers.length < 2) { wrap.style.display='none'; return; }
+  gHeaders = headers;
+  showColMap(headers);
+}
+
+function showColMap(headers) {
+  document.getElementById('colMapWrap').style.display='block';
+  const grid = document.getElementById('colMapGrid');
+  grid.innerHTML = FIELDS.map(f => {
+    const auto = findColIdx(headers, f.key);
+    const noneOpt = !f.required ? `<option value="-1" ${auto<0?'selected':''}>— 없음 —</option>` : '';
+    const opts = headers.map((h,i)=>`<option value="${i}" ${i===auto?'selected':''}>${h||`열 ${i+1}`}</option>`).join('');
+    return `<div class="cm-item">
+      <label class="cm-label">${f.label}${f.required?'<span class="cm-req"> *</span>':''}</label>
+      <select id="${f.id}" class="cm-select">${noneOpt}${opts}</select>
+    </div>`;
+  }).join('');
+}
+
+function getColMap() {
+  return FIELDS.reduce((m,f)=>{
+    const el=document.getElementById(f.id);
+    m[f.key]=el?parseInt(el.value):-1;
+    return m;
+  },{});
+}
+
+/* ══════════════════════════════════════════════════════
+   METHOD UI
+══════════════════════════════════════════════════════ */
+const METHOD_META = {
+  abs:       {thr:'임계값:', unit:'직전 대비 절대 변화량', ref:'직전값',     diff:'변화량',        winRow:false},
+  sigma:     {thr:'N (σ배수):', unit:'|현재−평균| > N×σ', ref:'그룹 평균',  diff:'평균 편차',      winRow:false, thrDef:3},
+  pct:       {thr:'임계값(%):', unit:'직전 대비 변화율%',  ref:'직전값',     diff:'변화율(%)',      winRow:false},
+  slope_diff:{thr:'임계값:', unit:'기울기 변화량(2차 차분)',ref:'직전 기울기',diff:'기울기 변화량',  winRow:false},
+  slope_win: {thr:'임계값:', unit:'창 기울기 변화량',      ref:'직전 창 기울기',diff:'창 기울기 변화량',winRow:true},
+};
+
 function onMethodChange() {
   const m = document.getElementById('detectMethod').value;
-  const labels = {
-    abs:   ['임계값:',  '직전 대비 절대 변화량'],
-    sigma: ['N (σ 배수):','예) 3 → 평균±3σ 초과 시 이상'],
-    pct:   ['임계값(%):','직전 대비 변화율(%)']
-  };
-  document.getElementById('thrLabel').textContent = labels[m][0];
-  document.getElementById('thrUnit').textContent  = labels[m][1];
-  if (m === 'sigma') document.getElementById('threshold').value = 3;
-  // update table column headers
-  const refTxt  = m === 'sigma' ? '그룹 평균' : '직전값';
-  const diffTxt = m === 'abs' ? '변화량' : m === 'sigma' ? '평균 편차' : '변화율(%)';
-  document.querySelectorAll('.th-ref').forEach(th => th.textContent = refTxt);
-  document.querySelectorAll('.th-diff').forEach(th => th.textContent = diffTxt);
+  const meta = METHOD_META[m];
+  document.getElementById('thrLabel').textContent = meta.thr;
+  document.getElementById('thrUnit').textContent  = meta.unit;
+  document.getElementById('winRow').style.display = meta.winRow?'flex':'none';
+  if (meta.thrDef !== undefined) document.getElementById('threshold').value = meta.thrDef;
+  document.querySelectorAll('.th-ref').forEach(th=>th.textContent=meta.ref);
+  document.querySelectorAll('.th-diff').forEach(th=>th.textContent=meta.diff);
+}
+// 초기 UI 설정
+onMethodChange();
+
+/* ══════════════════════════════════════════════════════
+   PARSE
+══════════════════════════════════════════════════════ */
+function tryParseTime(str) {
+  if (!str) return null;
+  const s = str.trim().replace(/\./g,'-').replace(' ','T');
+  const d = new Date(s);
+  return isNaN(d.getTime())?null:d.getTime();
+}
+function fmtTime(ms) {
+  if (!ms) return '';
+  const d = new Date(ms);
+  const pad = n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function fmtTick(ms) {
+  const d = new Date(ms);
+  const pad = n=>String(n).padStart(2,'0');
+  return `${pad(d.getMonth()+1)}/${pad(d.getDate())}\n${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/* ══════════════════════ PARSE ══════════════════════ */
 function parseExcel(text) {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) throw new Error('헤더 포함 2행 이상 필요합니다.');
-  const headers = lines[0].split('\t');
-  const idx = {};
-  ['날짜','EQP ID','LOTID','SLOT','PARAMETER','REAL DATA'].forEach(col => {
-    const i = findColIdx(headers, col);
-    if (i < 0) throw new Error(`필수 열 "${col}" 을 찾을 수 없습니다.\n현재 열: ${headers.map(h=>h.trim()).join(', ')}`);
-    idx[col] = i;
-  });
-  idx['CH'] = findColIdx(headers, 'CH');
+
+  const colMap = getColMap();
+  // 필수 열 검증
+  const requiredFields = FIELDS.filter(f=>f.required);
+  for (const f of requiredFields) {
+    if (colMap[f.key] < 0) throw new Error(`필드 "${f.label}" 의 열이 지정되지 않았습니다.`);
+  }
+
+  const get = (cells, idx) => idx>=0 && idx<cells.length ? cells[idx].trim() : '';
 
   const data = [];
-  for (let r = 1; r < lines.length; r++) {
-    const line = lines[r].trim();
+  for (let r=1;r<lines.length;r++) {
+    const line=lines[r].trim();
     if (!line) continue;
     const cells = lines[r].split('\t');
-    const val = parseFloat((cells[idx['REAL DATA']] || '').trim().replace(/,/g,''));
+    const rawVal = get(cells, colMap['REAL DATA']).replace(/,/g,'');
+    const val = parseFloat(rawVal);
     if (isNaN(val)) continue;
+    const dateStr = get(cells, colMap['날짜']);
     data.push({
-      '날짜':      (cells[idx['날짜']]      || '').trim(),
-      'EQP ID':   (cells[idx['EQP ID']]   || '').trim(),
-      'LOTID':    (cells[idx['LOTID']]     || '').trim(),
-      'SLOT':     (cells[idx['SLOT']]      || '').trim(),
-      'CH':       idx['CH'] >= 0 ? (cells[idx['CH']] || '').trim() : '',
-      'PARAMETER':(cells[idx['PARAMETER']] || '').trim(),
-      'REAL DATA':(cells[idx['REAL DATA']] || '').trim(),
+      '날짜':      dateStr,
+      'EQP ID':   get(cells, colMap['EQP ID']),
+      'LOTID':    get(cells, colMap['LOTID']),
+      'SLOT':     get(cells, colMap['SLOT']),
+      'CH':       colMap['CH']>=0 ? get(cells, colMap['CH']) : '',
+      'PARAMETER':get(cells, colMap['PARAMETER']),
+      'REAL DATA':rawVal,
       _val:  val,
-      _slot: parseInt((cells[idx['SLOT']] || '').trim()) || 0
+      _slot: parseInt(get(cells, colMap['SLOT']))||0,
+      _time: tryParseTime(dateStr),
     });
   }
   if (!data.length) throw new Error('유효한 숫자 데이터(REAL DATA)가 없습니다.');
   return data;
 }
 
-/* ══════════════════════ ANOMALY DETECTION ══════════════════════ */
-function detectAnomalies(data, threshold, method) {
-  const groups = {};
-  data.forEach(row => {
-    const key = `${row['EQP ID']}|||${row['LOTID']}|||${row['CH']}|||${row['PARAMETER']}`;
-    (groups[key] = groups[key] || []).push(row);
-  });
-  Object.values(groups).forEach(g => g.sort((a,b) => a._slot - b._slot));
+/* ══════════════════════════════════════════════════════
+   ANOMALY DETECTION
+   그룹: EQP ID + LOTID + CH + PARAMETER, 정렬: SLOT
+══════════════════════════════════════════════════════ */
+function linRegSlope(vals) {
+  const n=vals.length; if(n<2) return 0;
+  const meanX=(n-1)/2;
+  const meanY=vals.reduce((a,b)=>a+b,0)/n;
+  const num=vals.reduce((s,y,i)=>s+(i-meanX)*(y-meanY),0);
+  const den=vals.reduce((s,_,i)=>s+(i-meanX)**2,0);
+  return den?num/den:0;
+}
 
-  const results = [];
-  Object.values(groups).forEach(group => {
-    // σ 방식: 그룹 평균/표준편차 사전 계산
-    let gMean = 0, gStd = 0;
-    if (method === 'sigma') {
-      const vals = group.map(r => r._val);
-      gMean = vals.reduce((s,v)=>s+v,0) / vals.length;
-      gStd  = Math.sqrt(vals.reduce((s,v)=>s+(v-gMean)**2,0) / vals.length);
+function detectAnomalies(data, threshold, method, winSize) {
+  const groups={};
+  data.forEach(row=>{
+    const key=`${row['EQP ID']}|||${row['LOTID']}|||${row['CH']}|||${row['PARAMETER']}`;
+    (groups[key]=groups[key]||[]).push(row);
+  });
+  Object.values(groups).forEach(g=>g.sort((a,b)=>a._slot-b._slot));
+
+  const results=[];
+  Object.values(groups).forEach(group=>{
+    // σ 사전 계산
+    let gMean=0, gStd=0;
+    if (method==='sigma') {
+      const vals=group.map(r=>r._val);
+      gMean=vals.reduce((a,b)=>a+b,0)/vals.length;
+      gStd=Math.sqrt(vals.reduce((a,b)=>a+(b-gMean)**2,0)/vals.length);
     }
 
-    group.forEach((row, i) => {
-      const res = { ...row, isAnom:false, diff:null, prevVal:null, threshold, method, gMean, gStd };
+    group.forEach((row,i)=>{
+      const res={...row, isAnom:false, diff:null, prevVal:null, threshold, method, gMean, gStd};
 
-      if (method === 'abs') {
-        if (i > 0) {
-          const prev = group[i-1];
-          res.prevVal = prev._val;
-          res.diff    = Math.abs(row._val - prev._val);
-          res.isAnom  = res.diff > threshold;
+      if (method==='abs') {
+        if (i>0) {
+          const prev=group[i-1];
+          res.prevVal=prev._val;
+          res.diff=Math.abs(row._val-prev._val);
+          res.isAnom=res.diff>threshold;
         }
-      } else if (method === 'sigma') {
-        res.prevVal = gMean;
-        res.diff    = Math.abs(row._val - gMean);
-        res.isAnom  = gStd > 0 && res.diff > threshold * gStd;
-      } else if (method === 'pct') {
-        if (i > 0) {
-          const prev = group[i-1];
-          res.prevVal = prev._val;
-          res.diff    = prev._val !== 0 ? Math.abs((row._val - prev._val) / prev._val) * 100 : 0;
-          res.isAnom  = res.diff > threshold;
+      } else if (method==='sigma') {
+        res.prevVal=gMean;
+        res.diff=Math.abs(row._val-gMean);
+        res.isAnom=gStd>0 && res.diff>threshold*gStd;
+      } else if (method==='pct') {
+        if (i>0) {
+          const prev=group[i-1];
+          res.prevVal=prev._val;
+          res.diff=prev._val!==0?Math.abs((row._val-prev._val)/prev._val)*100:0;
+          res.isAnom=res.diff>threshold;
+        }
+      } else if (method==='slope_diff') {
+        // 기울기 변화량: 2차 차분
+        if (i>=2) {
+          const slopeCurr=row._val - group[i-1]._val;
+          const slopePrev=group[i-1]._val - group[i-2]._val;
+          res.prevVal=slopePrev;      // 직전 기울기
+          res.diff=Math.abs(slopeCurr-slopePrev);
+          res.isAnom=res.diff>threshold;
+        } else if (i===1) {
+          // 기울기는 계산되나 변화량은 이전 기울기 없음
+          res.prevVal=null;
+          res.diff=null;
+        }
+      } else if (method==='slope_win') {
+        // 이동창 선형회귀 기울기 비교
+        const W=Math.max(2, winSize);
+        if (i>=W-1) {
+          const slopeCurr=linRegSlope(group.slice(i-W+1,i+1).map(r=>r._val));
+          if (i>=W) {
+            const slopePrev=linRegSlope(group.slice(i-W,i).map(r=>r._val));
+            res.prevVal=slopePrev;
+            res.diff=Math.abs(slopeCurr-slopePrev);
+            res.isAnom=res.diff>threshold;
+          }
+          res._slopeCurr=slopeCurr;
         }
       }
       results.push(res);
@@ -390,32 +512,35 @@ function detectAnomalies(data, threshold, method) {
   return results;
 }
 
-/* ══════════════════════ STATS ══════════════════════ */
+/* ══════════════════════════════════════════════════════
+   STATS
+══════════════════════════════════════════════════════ */
 function calcStats(results) {
-  const groups = {};
-  results.forEach(r => {
-    const key = `${r['EQP ID']}|||${r['CH']}|||${r['PARAMETER']}`;
-    (groups[key] = groups[key] || []).push(r);
+  const groups={};
+  results.forEach(r=>{
+    const k=`${r['EQP ID']}|||${r['CH']}|||${r['PARAMETER']}`;
+    (groups[k]=groups[k]||[]).push(r);
   });
-  return Object.entries(groups).map(([key, rows]) => {
-    const [eqp, ch, param] = key.split('|||');
-    const vals = rows.map(r => r._val);
-    const n    = vals.length;
-    const mean = vals.reduce((a,b)=>a+b,0)/n;
-    const std  = Math.sqrt(vals.reduce((a,b)=>a+(b-mean)**2,0)/n);
-    const min  = Math.min(...vals);
-    const max  = Math.max(...vals);
-    const ac   = rows.filter(r=>r.isAnom).length;
-    return { eqp, ch, param, n, mean, std, min, max,
-             range:max-min, cv:mean!==0?Math.abs(std/mean*100):0,
-             ucl:mean+3*std, lcl:mean-3*std, anomCount:ac, anomRate:ac/n*100 };
-  }).sort((a,b) => b.anomCount - a.anomCount);
+  return Object.entries(groups).map(([k,rows])=>{
+    const [eqp,ch,param]=k.split('|||');
+    const vals=rows.map(r=>r._val);
+    const n=vals.length;
+    const mean=vals.reduce((a,b)=>a+b,0)/n;
+    const std=Math.sqrt(vals.reduce((a,b)=>a+(b-mean)**2,0)/n);
+    const min=Math.min(...vals), max=Math.max(...vals);
+    const ac=rows.filter(r=>r.isAnom).length;
+    return {eqp,ch,param,n,mean,std,min,max,range:max-min,
+            cv:mean!==0?Math.abs(std/mean*100):0,
+            ucl:mean+3*std, lcl:mean-3*std, anomCount:ac, anomRate:ac/n*100};
+  }).sort((a,b)=>b.anomCount-a.anomCount);
 }
 
-/* ══════════════════════ RENDER ALL ══════════════════════ */
+/* ══════════════════════════════════════════════════════
+   RENDER ALL
+══════════════════════════════════════════════════════ */
 function renderAll(results) {
-  const stats = calcStats(results);
-  renderSummary(results, stats);
+  const stats=calcStats(results);
+  renderSummary(results);
   renderBanner(results);
   renderStats(stats);
   renderRanking(results);
@@ -425,235 +550,222 @@ function renderAll(results) {
 }
 
 /* ── Summary ── */
-function renderSummary(results, stats) {
-  const total  = results.length;
-  const anom   = results.filter(r => r.isAnom).length;
-  const rate   = total ? ((anom/total)*100).toFixed(1) : '0.0';
-  const eqps   = new Set(results.map(r=>r['EQP ID'])).size;
-  const chs    = new Set(results.map(r=>r['CH']).filter(Boolean)).size;
-  const params = new Set(results.map(r=>r['PARAMETER'])).size;
-  document.getElementById('summaryGrid').innerHTML = `
-    <div class="s-card c-blue">  <div class="val">${total.toLocaleString()}</div><div class="lbl">총 데이터 수</div></div>
-    <div class="s-card c-red">   <div class="val">${anom.toLocaleString()}</div> <div class="lbl">이상감지 건수</div></div>
-    <div class="s-card c-green"> <div class="val">${(total-anom).toLocaleString()}</div><div class="lbl">정상 건수</div></div>
+function renderSummary(results) {
+  const total=results.length, anom=results.filter(r=>r.isAnom).length;
+  const rate=total?((anom/total)*100).toFixed(1):'0.0';
+  const eqps=new Set(results.map(r=>r['EQP ID'])).size;
+  const chs=new Set(results.map(r=>r['CH']).filter(Boolean)).size;
+  const params=new Set(results.map(r=>r['PARAMETER'])).size;
+  document.getElementById('summaryGrid').innerHTML=`
+    <div class="s-card c-blue"> <div class="val">${total.toLocaleString()}</div><div class="lbl">총 데이터 수</div></div>
+    <div class="s-card c-red">  <div class="val">${anom.toLocaleString()}</div> <div class="lbl">이상감지 건수</div></div>
+    <div class="s-card c-green"><div class="val">${(total-anom).toLocaleString()}</div><div class="lbl">정상 건수</div></div>
     <div class="s-card c-yellow"><div class="val">${rate}%</div><div class="lbl">이상 비율</div></div>
-    <div class="s-card c-blue">  <div class="val">${eqps}</div><div class="lbl">EQP 수</div></div>
+    <div class="s-card c-blue"> <div class="val">${eqps}</div><div class="lbl">EQP 수</div></div>
     ${chs>0?`<div class="s-card c-blue"><div class="val">${chs}</div><div class="lbl">CH 수</div></div>`:''}
-    <div class="s-card c-blue">  <div class="val">${params}</div><div class="lbl">PARAMETER 수</div></div>`;
+    <div class="s-card c-blue"> <div class="val">${params}</div><div class="lbl">PARAMETER 수</div></div>`;
 }
 
-/* ── Alert Banner ── */
+/* ── Banner ── */
 function renderBanner(results) {
-  const anoms = results.filter(r => r.isAnom);
-  const el = document.getElementById('alertBanner');
+  const anoms=results.filter(r=>r.isAnom);
+  const el=document.getElementById('alertBanner');
   if (!anoms.length) {
-    el.innerHTML = `<div class="alert-bar safe"><span class="alert-icon">✅</span>이상감지 없음 — 모든 데이터가 임계값(${gThreshold}) 이내입니다.</div>`;
+    el.innerHTML=`<div class="alert-bar safe"><span class="alert-icon">✅</span>이상감지 없음 — 모든 데이터가 임계값(${gThreshold}) 이내입니다.</div>`;
   } else {
-    const maxDiff = Math.max(...anoms.map(r=>r.diff));
-    const worst   = anoms.find(r=>r.diff===maxDiff);
-    const chInfo  = worst['CH'] ? ` / CH ${worst['CH']}` : '';
-    el.innerHTML  = `<div class="alert-bar danger"><span class="alert-icon">⚠️</span>
+    const maxDiff=Math.max(...anoms.map(r=>r.diff??0));
+    const worst=anoms.find(r=>r.diff===maxDiff);
+    const chInfo=worst['CH']?` / CH ${worst['CH']}`:'';
+    el.innerHTML=`<div class="alert-bar danger"><span class="alert-icon">⚠️</span>
       <span><strong>${anoms.length}건의 이상</strong> 감지됨. 최대 편차: <strong>${maxDiff.toFixed(4)}</strong>
       (${worst['EQP ID']}${chInfo} / ${worst['PARAMETER']} / SLOT&nbsp;${worst['SLOT']})</span></div>`;
   }
 }
 
-/* ── 통계 테이블 ── */
+/* ── Stats table ── */
 function renderStats(stats) {
-  const tbody = document.getElementById('statsTbody');
-  tbody.innerHTML = '';
-  stats.forEach(s => {
-    const tr = document.createElement('tr');
-    if (s.anomCount > 0) tr.className = 'anom-row';
-    tr.innerHTML = `
+  const tbody=document.getElementById('statsTbody');
+  tbody.innerHTML='';
+  if (!stats.length) {
+    tbody.innerHTML=`<tr><td colspan="14" class="no-data">데이터 없음</td></tr>`;
+    return;
+  }
+  stats.forEach(s=>{
+    const tr=document.createElement('tr');
+    if (s.anomCount>0) tr.className='anom-row';
+    tr.innerHTML=`
       <td>${s.eqp}</td><td>${s.ch||'-'}</td><td>${s.param}</td>
       <td class="stat-val">${s.n}</td>
       <td class="stat-val">${s.mean.toFixed(4)}</td>
       <td>${s.std.toFixed(4)}</td>
-      <td>${s.min.toFixed(4)}</td>
-      <td>${s.max.toFixed(4)}</td>
-      <td>${s.range.toFixed(4)}</td>
-      <td>${s.cv.toFixed(2)}</td>
+      <td>${s.min.toFixed(4)}</td><td>${s.max.toFixed(4)}</td>
+      <td>${s.range.toFixed(4)}</td><td>${s.cv.toFixed(2)}</td>
       <td style="color:var(--red)">${s.ucl.toFixed(4)}</td>
-      <td style="color:var(--blue)">${s.lcl > 0 ? s.lcl.toFixed(4) : '-'}</td>
+      <td style="color:var(--blue)">${s.lcl>0?s.lcl.toFixed(4):'-'}</td>
       <td class="${s.anomCount>0?'stat-anom':'stat-val'}">${s.anomCount}</td>
       <td class="${s.anomRate>0?'stat-anom':''}">${s.anomRate.toFixed(1)}%</td>`;
     tbody.appendChild(tr);
   });
-  if (!stats.length) tbody.innerHTML = `<tr><td colspan="14" class="no-data">데이터 없음</td></tr>`;
 }
 
-/* ── 이상 집중 랭킹 ── */
-const RANK_DIMS = [
-  { key:'EQP ID',    label:'EQP별 이상 건수' },
-  { key:'CH',        label:'CH별 이상 건수' },
-  { key:'PARAMETER', label:'PARAMETER별 이상 건수' },
-  { key:'SLOT',      label:'SLOT별 이상 건수' }
+/* ── Ranking ── */
+const RANK_DIMS=[
+  {key:'EQP ID',label:'EQP별 이상 건수'},
+  {key:'CH',    label:'CH별 이상 건수'},
+  {key:'PARAMETER',label:'PARAMETER별 이상 건수'},
+  {key:'SLOT',  label:'SLOT별 이상 건수'},
 ];
-
 function renderRanking(results) {
-  Object.values(gRankCharts).forEach(c => c.destroy());
-  gRankCharts = {};
-
-  const anoms = results.filter(r => r.isAnom);
-  const grid  = document.getElementById('rankGrid');
-  grid.innerHTML = '';
-
-  RANK_DIMS.forEach(({ key, label }) => {
-    const counts = {};
-    anoms.forEach(r => {
-      const v = (key === 'SLOT' ? `SLOT ${r['SLOT']}` : r[key]) || '(없음)';
-      counts[v] = (counts[v] || 0) + 1;
+  Object.values(gRankCharts).forEach(c=>c.destroy()); gRankCharts={};
+  const anoms=results.filter(r=>r.isAnom);
+  const grid=document.getElementById('rankGrid');
+  grid.innerHTML='';
+  RANK_DIMS.forEach(({key,label})=>{
+    const counts={};
+    anoms.forEach(r=>{
+      const v=(key==='SLOT'?`SLOT ${r['SLOT']}`:r[key])||'(없음)';
+      counts[v]=(counts[v]||0)+1;
     });
-    const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,8);
-
-    const wrap = document.createElement('div');
-    wrap.className = 'rank-item';
-    wrap.innerHTML = `<div class="rank-item-title">📌 ${label}</div>
+    const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,8);
+    const wrap=document.createElement('div');
+    wrap.className='rank-item';
+    wrap.innerHTML=`<div class="rank-item-title">📌 ${label}</div>
       <div class="rank-chart-wrap"><canvas id="rc_${key.replace(/\s/g,'_')}"></canvas></div>`;
     grid.appendChild(wrap);
-
-    if (!sorted.length) {
-      wrap.querySelector('.rank-chart-wrap').innerHTML = `<div class="no-data" style="padding:20px">이상 없음</div>`;
-      return;
-    }
-
-    setTimeout(() => {
-      const ctx = wrap.querySelector('canvas').getContext('2d');
-      gRankCharts[key] = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: sorted.map(([k])=>k),
-          datasets: [{
-            data:  sorted.map(([,v])=>v),
-            backgroundColor: sorted.map(([,v],i) => i===0?'#f85149':'#388bfd'),
-            borderRadius: 4
-          }]
-        },
-        options: {
-          indexAxis: 'y',
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { display:false },
-            tooltip: {
-              backgroundColor:'#1c2128', borderColor:'#30363d', borderWidth:1,
-              titleColor:'#e6edf3', bodyColor:'#8b949e',
-              callbacks: { label: item => ` 이상 ${item.raw}건` }
-            }
-          },
-          scales: {
-            x: { ticks:{color:'#8b949e',font:{size:10}}, grid:{color:'rgba(48,54,61,.4)'} },
-            y: { ticks:{color:'#e6edf3',font:{size:11}}, grid:{display:false} }
+    if (!sorted.length) { wrap.querySelector('.rank-chart-wrap').innerHTML=`<div class="no-data" style="padding:20px">이상 없음</div>`; return; }
+    setTimeout(()=>{
+      const ctx=wrap.querySelector('canvas').getContext('2d');
+      gRankCharts[key]=new Chart(ctx,{
+        type:'bar',
+        data:{labels:sorted.map(([k])=>k),datasets:[{
+          data:sorted.map(([,v])=>v),
+          backgroundColor:sorted.map((_,i)=>i===0?'#f85149':'#388bfd'),
+          borderRadius:4
+        }]},
+        options:{
+          indexAxis:'y',responsive:true,maintainAspectRatio:false,
+          plugins:{legend:{display:false},tooltip:{backgroundColor:'#1c2128',borderColor:'#30363d',borderWidth:1,titleColor:'#e6edf3',bodyColor:'#8b949e',callbacks:{label:item=>` 이상 ${item.raw}건`}}},
+          scales:{
+            x:{ticks:{color:'#8b949e',font:{size:10}},grid:{color:'rgba(48,54,61,.4)'}},
+            y:{ticks:{color:'#e6edf3',font:{size:11}},grid:{display:false}}
           }
         }
       });
-    }, 0);
+    },0);
   });
 }
 
-/* ── 그래프 (SPC 포함) ── */
-const PALETTE = ['#388bfd','#3fb950','#d29922','#db6d28','#a371f7','#39c5cf','#f78166','#ffa657','#d2a8ff','#7ee787'];
+/* ── Scatter Charts (시계열 X축) ── */
+const PALETTE=['#388bfd','#3fb950','#d29922','#db6d28','#a371f7','#39c5cf','#f78166','#ffa657','#d2a8ff','#7ee787'];
 
 function renderCharts(results, stats) {
-  Object.values(gCharts).forEach(c => c.destroy());
-  gCharts = {};
+  Object.values(gCharts).forEach(c=>c.destroy()); gCharts={};
+  const showSPC=document.getElementById('showSPC').checked;
+  const params=[...new Set(results.map(r=>r['PARAMETER']))];
+  const tabsEl=document.getElementById('chartTabs');
+  const panelEl=document.getElementById('chartPanels');
+  tabsEl.innerHTML=panelEl.innerHTML='';
 
-  const showSPC = document.getElementById('showSPC').checked;
-  const params  = [...new Set(results.map(r=>r['PARAMETER']))];
-  const tabsEl  = document.getElementById('chartTabs');
-  const panelEl = document.getElementById('chartPanels');
-  tabsEl.innerHTML = panelEl.innerHTML = '';
-
-  params.forEach((param, pi) => {
-    const tab = document.createElement('button');
-    tab.className = 'tab-btn' + (pi===0?' active':'');
-    tab.textContent = param;
-    tab.dataset.param = param;
-    tab.onclick = () => switchTab(param);
+  params.forEach((param,pi)=>{
+    /* Tab */
+    const tab=document.createElement('button');
+    tab.className='tab-btn'+(pi===0?' active':'');
+    tab.textContent=param; tab.dataset.param=param;
+    tab.onclick=()=>switchTab(param);
     tabsEl.appendChild(tab);
 
-    const panel  = document.createElement('div');
-    panel.className = 'tab-panel' + (pi===0?' active':'');
-    panel.dataset.param = param;
-    const canvas = document.createElement('canvas');
-    canvas.id    = `cv_${pi}`;
-    const wrap   = document.createElement('div');
-    wrap.className = 'chart-wrap';
+    /* Panel */
+    const panel=document.createElement('div');
+    panel.className='tab-panel'+(pi===0?' active':'');
+    panel.dataset.param=param;
+    const canvas=document.createElement('canvas');
+    canvas.id=`cv_${pi}`;
+    const wrap=document.createElement('div');
+    wrap.className='chart-wrap';
     wrap.appendChild(canvas);
     panel.appendChild(wrap);
     panelEl.appendChild(panel);
 
-    const paramRows = results.filter(r => r['PARAMETER']===param);
-    const gkeys     = [...new Set(paramRows.map(r=>`${r['EQP ID']}|${r['LOTID']}|${r['CH']}`))]
-    const allSlots  = [...new Set(paramRows.map(r=>r._slot))].sort((a,b)=>a-b);
+    /* Build datasets */
+    const paramRows=results.filter(r=>r['PARAMETER']===param);
+    const gkeys=[...new Set(paramRows.map(r=>`${r['EQP ID']}|${r['LOTID']}|${r['CH']}`))]
+    const datasets=[];
 
-    const datasets = [];
+    // 시간 파싱 가능 여부 확인 (fallback: slot 인덱스)
+    const hasTime = paramRows.some(r=>r._time!==null);
 
-    gkeys.forEach((gk, gi) => {
-      const [eqp, lot, ch] = gk.split('|');
-      const rows   = paramRows.filter(r=>r['EQP ID']===eqp && r['LOTID']===lot && r['CH']===ch);
-      const bySlot = Object.fromEntries(rows.map(r=>[r._slot,r]));
-      const color  = PALETTE[gi % PALETTE.length];
-      const label  = ch ? `${eqp}/${lot}/${ch}` : `${eqp}/${lot}`;
+    gkeys.forEach((gk,gi)=>{
+      const [eqp,lot,ch]=gk.split('|');
+      const rows=paramRows.filter(r=>r['EQP ID']===eqp && r['LOTID']===lot && r['CH']===ch);
+      rows.sort((a,b)=>a._slot-b._slot);
+      const color=PALETTE[gi%PALETTE.length];
+      const label=ch?`${eqp}/${lot}/${ch}`:`${eqp}/${lot}`;
 
-      const vals    = allSlots.map(s => bySlot[s]?bySlot[s]._val:null);
-      const isAnom  = allSlots.map(s => bySlot[s]?.isAnom??false);
-      const rowsArr = allSlots.map(s => bySlot[s]??null);
+      const pts=rows.map((r,idx)=>({
+        x: hasTime && r._time!==null ? r._time : r._slot,
+        y: r._val
+      }));
 
       datasets.push({
-        label, data:vals, _rows:rowsArr,
-        borderColor:color, backgroundColor:color,
-        pointBackgroundColor: isAnom.map((a,i)=>vals[i]!==null?(a?'#f85149':color):'transparent'),
-        pointBorderColor:     isAnom.map((a,i)=>vals[i]!==null?(a?'#ff6b6b':color):'transparent'),
-        pointRadius:          isAnom.map((a,i)=>vals[i]!==null?(a?9:4):0),
-        pointHoverRadius:     isAnom.map((a,i)=>vals[i]!==null?(a?13:7):0),
-        pointStyle:           isAnom.map((a,i)=>vals[i]!==null?(a?'triangle':'circle'):'circle'),
-        borderWidth:2, tension:0.3, fill:false, spanGaps:true
+        type:'scatter',
+        label,
+        data: pts,
+        _rows: rows,
+        backgroundColor: rows.map(r=>r.isAnom?'#f85149':color),
+        borderColor:     rows.map(r=>r.isAnom?'#ff6b6b':color),
+        pointRadius:     rows.map(r=>r.isAnom?10:5),
+        pointHoverRadius:rows.map(r=>r.isAnom?13:8),
+        pointStyle:      rows.map(r=>r.isAnom?'triangle':'circle'),
+        borderWidth:1.5,
       });
 
-      // SPC 라인: 해당 EQP/CH/PARAM 통계 사용
+      /* SPC lines */
       if (showSPC) {
-        const s = stats.find(x=>x.eqp===eqp && x.ch===ch && x.param===param);
-        if (s && s.std > 0) {
-          const spcSlots = allSlots.map(s2 => bySlot[s2]?1:null); // 데이터 있는 slot만
-          const mkLine = (val, clr, dash) => ({
-            label: `_spc_${label}`,
-            data:  allSlots.map(s2 => bySlot[s2]?val:null),
-            borderColor:clr, borderDash:dash,
-            pointRadius:0, borderWidth:1.5, fill:false, spanGaps:true, tension:0
+        const s=stats.find(x=>x.eqp===eqp && x.ch===ch && x.param===param);
+        if (s && s.std>0) {
+          const xs=pts.map(p=>p.x);
+          const xMin=Math.min(...xs), xMax=Math.max(...xs);
+          const mkLine=(y,clr,dash)=>({
+            type:'line',
+            label:`_spc_${label}`,
+            data:[{x:xMin,y},{x:xMax,y}],
+            borderColor:clr,borderDash:dash,
+            pointRadius:0,borderWidth:1.5,fill:false,tension:0
           });
-          datasets.push(mkLine(s.ucl, 'rgba(248,81,73,0.55)', [6,3]));
+          datasets.push(mkLine(s.ucl,'rgba(248,81,73,0.55)',[6,3]));
           datasets.push(mkLine(s.mean,'rgba(139,148,158,0.55)',[4,2]));
-          if (s.lcl > 0) datasets.push(mkLine(s.lcl,'rgba(248,81,73,0.55)',[6,3]));
+          if (s.lcl>0) datasets.push(mkLine(s.lcl,'rgba(248,81,73,0.55)',[6,3]));
         }
       }
     });
 
-    setTimeout(() => {
-      const ctx = canvas.getContext('2d');
-      gCharts[param] = new Chart(ctx, {
-        type:'line',
-        data:{ labels:allSlots.map(s=>`SLOT ${s}`), datasets },
+    setTimeout(()=>{
+      const ctx=canvas.getContext('2d');
+      gCharts[param]=new Chart(ctx,{
+        type:'scatter',
+        data:{datasets},
         options:{
           responsive:true, maintainAspectRatio:false,
-          interaction:{ mode:'index', intersect:false },
           plugins:{
-            legend:{
-              labels:{
-                color:'#e6edf3', font:{size:11}, usePointStyle:true, padding:14,
-                filter: item => !item.text.startsWith('_spc_')
-              }
-            },
+            legend:{labels:{
+              color:'#e6edf3',font:{size:11},usePointStyle:true,padding:14,
+              filter:item=>!item.text.startsWith('_spc_')
+            }},
             tooltip:{
-              backgroundColor:'#1c2128', borderColor:'#30363d', borderWidth:1,
-              titleColor:'#e6edf3', bodyColor:'#8b949e',
+              backgroundColor:'#1c2128',borderColor:'#30363d',borderWidth:1,
+              titleColor:'#e6edf3',bodyColor:'#8b949e',
               callbacks:{
-                label(item) {
-                  if (item.dataset.label.startsWith('_spc_')) return null;
-                  const row = datasets[item.datasetIndex]._rows?.[item.dataIndex];
-                  if (!row || item.parsed.y===null) return null;
-                  const lines = [` ${item.dataset.label}: ${item.parsed.y}`];
+                title(items){
+                  const item=items[0];
+                  if (!item) return '';
+                  const row=item.dataset._rows?.[item.dataIndex];
+                  return row?row['날짜']:(hasTime?fmtTime(item.raw.x):`SLOT ${item.raw.x}`);
+                },
+                label(item){
+                  if (item.dataset.label?.startsWith('_spc_')) return null;
+                  const row=item.dataset._rows?.[item.dataIndex];
+                  if (!row) return ` ${item.dataset.label}: ${item.raw.y}`;
+                  const lines=[` ${item.dataset.label}: ${item.raw.y}`];
                   if (row.diff!==null) lines.push(` 편차/변화량: ${row.diff.toFixed(4)}`);
                   if (row.isAnom) lines.push(' ⚠️ 이상감지!');
                   return lines;
@@ -662,90 +774,97 @@ function renderCharts(results, stats) {
             }
           },
           scales:{
-            x:{ ticks:{color:'#8b949e',font:{size:11}}, grid:{color:'rgba(48,54,61,.45)'} },
-            y:{ ticks:{color:'#8b949e',font:{size:11}}, grid:{color:'rgba(48,54,61,.45)'},
-                title:{display:true,text:param,color:'#8b949e',font:{size:12}} }
+            x:{
+              type:'linear',
+              ticks:{
+                color:'#8b949e',font:{size:10},maxTicksLimit:8,
+                callback: hasTime ? v=>fmtTick(v) : v=>`SLOT ${v}`
+              },
+              grid:{color:'rgba(48,54,61,.45)'},
+              title:{display:true,text:hasTime?'날짜/시간':'SLOT',color:'#8b949e',font:{size:12}}
+            },
+            y:{
+              ticks:{color:'#8b949e',font:{size:11}},
+              grid:{color:'rgba(48,54,61,.45)'},
+              title:{display:true,text:param,color:'#8b949e',font:{size:12}}
+            }
           }
         }
       });
-    }, 0);
+    },0);
   });
 }
 
-function switchTab(param) {
+function switchTab(param){
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.param===param));
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.dataset.param===param));
 }
 
 /* ── Tables ── */
 function renderTables(results) {
-  const anoms = results.filter(r=>r.isAnom);
-  document.getElementById('anomCnt').textContent  = `${anoms.length}건`;
-  document.getElementById('totalCnt').textContent = `${results.length}건`;
+  const anoms=results.filter(r=>r.isAnom);
+  document.getElementById('anomCnt').textContent=`${anoms.length}건`;
+  document.getElementById('totalCnt').textContent=`${results.length}건`;
 
-  const anomTbody = document.getElementById('anomTbody');
-  anomTbody.innerHTML = '';
+  const anomTbody=document.getElementById('anomTbody');
+  anomTbody.innerHTML='';
   if (!anoms.length) {
-    anomTbody.innerHTML = `<tr><td colspan="11" class="no-data">✅ 이상감지된 데이터가 없습니다.</td></tr>`;
+    anomTbody.innerHTML=`<tr><td colspan="12" class="no-data">✅ 이상감지된 데이터가 없습니다.</td></tr>`;
   } else {
-    anoms.forEach(row => {
-      const tr = document.createElement('tr');
-      tr.className = 'anom-row';
-      tr.innerHTML = rowHTML(row, true);
+    anoms.forEach(row=>{
+      const tr=document.createElement('tr');
+      tr.className='anom-row';
+      tr.innerHTML=rowHTML(row,true);
       anomTbody.appendChild(tr);
     });
   }
 
-  const fullTbody = document.getElementById('fullTbody');
-  fullTbody.innerHTML = '';
-  results.forEach(row => {
-    const tr = document.createElement('tr');
-    if (row.isAnom) tr.className = 'anom-row';
-    tr.dataset.eqp    = row['EQP ID'];
-    tr.dataset.ch     = row['CH'];
-    tr.dataset.param  = row['PARAMETER'];
-    tr.dataset.status = row.isAnom?'anom':'ok';
-    tr.innerHTML = rowHTML(row, false);
+  const fullTbody=document.getElementById('fullTbody');
+  fullTbody.innerHTML='';
+  results.forEach(row=>{
+    const tr=document.createElement('tr');
+    if (row.isAnom) tr.className='anom-row';
+    tr.dataset.eqp=row['EQP ID']; tr.dataset.ch=row['CH'];
+    tr.dataset.param=row['PARAMETER']; tr.dataset.status=row.isAnom?'anom':'ok';
+    tr.innerHTML=rowHTML(row,false);
     fullTbody.appendChild(tr);
   });
 }
 
-function rowHTML(row, isAnomTable) {
-  const diffStr = row.diff    != null ? row.diff.toFixed(4)    : '-';
-  const prevStr = row.prevVal != null ? row.prevVal.toFixed(4) : '-';
-  const badge   = row.isAnom
-    ? '<span class="badge-anom">⚠ 이상</span>'
-    : '<span class="badge-ok">정상</span>';
+const METHOD_LABEL={abs:'절대값',sigma:'σ배수',pct:'변화율%',slope_diff:'기울기변화',slope_win:'이동창기울기'};
+
+function rowHTML(row,isAnomTable){
+  const diffStr=row.diff!=null?row.diff.toFixed(4):'-';
+  const prevStr=row.prevVal!=null?row.prevVal.toFixed(4):'-';
+  const badge=row.isAnom?'<span class="badge-anom">⚠ 이상</span>':'<span class="badge-ok">정상</span>';
+  const methodTag=METHOD_LABEL[row.method]||row.method||'';
   if (isAnomTable) return `
     <td>${row['날짜']}</td><td>${row['EQP ID']}</td><td>${row['LOTID']}</td>
     <td>${row['SLOT']}</td><td>${row['CH']||'-'}</td>
     <td>${row['PARAMETER']}</td><td><strong>${row['REAL DATA']}</strong></td>
-    <td>${prevStr}</td>
-    <td class="diff-anom">${diffStr}</td>
-    <td>${row.threshold}</td><td>${badge}</td>`;
+    <td>${prevStr}</td><td class="diff-anom">${diffStr}</td>
+    <td>${row.threshold}</td><td style="color:var(--tx2);font-size:11px">${methodTag}</td><td>${badge}</td>`;
   return `
     <td>${row['날짜']}</td><td>${row['EQP ID']}</td><td>${row['LOTID']}</td>
     <td>${row['SLOT']}</td><td>${row['CH']||'-'}</td>
     <td>${row['PARAMETER']}</td><td>${row['REAL DATA']}</td>
-    <td>${prevStr}</td>
-    <td class="${row.isAnom?'diff-anom':''}">${diffStr}</td>
+    <td>${prevStr}</td><td class="${row.isAnom?'diff-anom':''}">${diffStr}</td>
     <td>${badge}</td>`;
 }
 
 /* ── Filters ── */
-function populateFilters(results) {
-  const eqps   = [...new Set(results.map(r=>r['EQP ID']))].sort();
-  const chs    = [...new Set(results.map(r=>r['CH']).filter(Boolean))].sort();
-  const params = [...new Set(results.map(r=>r['PARAMETER']))].sort();
-  const mkOpts = arr => '<option value="">전체</option>'+arr.map(v=>`<option>${v}</option>`).join('');
-  document.getElementById('fEqp').innerHTML   = mkOpts(eqps);
-  document.getElementById('fCh').innerHTML    = mkOpts(chs);
-  document.getElementById('fParam').innerHTML = mkOpts(params);
+function populateFilters(results){
+  const eqps=[...new Set(results.map(r=>r['EQP ID']))].sort();
+  const chs=[...new Set(results.map(r=>r['CH']).filter(Boolean))].sort();
+  const params=[...new Set(results.map(r=>r['PARAMETER']))].sort();
+  const mk=arr=>'<option value="">전체</option>'+arr.map(v=>`<option>${v}</option>`).join('');
+  document.getElementById('fEqp').innerHTML=mk(eqps);
+  document.getElementById('fCh').innerHTML=mk(chs);
+  document.getElementById('fParam').innerHTML=mk(params);
 }
-
-function applyFilter() {
-  const eqp=document.getElementById('fEqp').value, ch=document.getElementById('fCh').value,
-        param=document.getElementById('fParam').value, status=document.getElementById('fStatus').value;
+function applyFilter(){
+  const eqp=document.getElementById('fEqp').value,ch=document.getElementById('fCh').value,
+        param=document.getElementById('fParam').value,status=document.getElementById('fStatus').value;
   document.querySelectorAll('#fullTbody tr').forEach(tr=>{
     const show=(!eqp||tr.dataset.eqp===eqp)&&(!ch||tr.dataset.ch===ch)
               &&(!param||tr.dataset.param===param)&&(!status||tr.dataset.status===status);
@@ -753,109 +872,122 @@ function applyFilter() {
   });
 }
 
-/* ══════════════════════ CSV EXPORT ══════════════════════ */
-function exportCSV(type) {
-  const rows = type==='anomaly'?gResults.filter(r=>r.isAnom):gResults;
-  if (!rows.length) { toast('내보낼 데이터가 없습니다.','err'); return; }
-  const hdr  = ['날짜','EQP ID','LOTID','SLOT','CH','PARAMETER','REAL DATA','참조값','편차/변화량','임계값','감지방식','상태'];
-  const body = rows.map(r=>[
+/* ══════════════════════════════════════════════════════
+   CSV
+══════════════════════════════════════════════════════ */
+function exportCSV(type){
+  const rows=type==='anomaly'?gResults.filter(r=>r.isAnom):gResults;
+  if (!rows.length){toast('내보낼 데이터가 없습니다.','err');return;}
+  const hdr=['날짜','EQP ID','LOTID','SLOT','CH','PARAMETER','REAL DATA','참조값','편차/변화량','임계값','감지방식','상태'];
+  const body=rows.map(r=>[
     r['날짜'],r['EQP ID'],r['LOTID'],r['SLOT'],r['CH'],r['PARAMETER'],r['REAL DATA'],
     r.prevVal!=null?r.prevVal.toFixed(4):'',
     r.diff!=null?r.diff.toFixed(4):'',
-    r.threshold, r.method, r.isAnom?'이상':'정상'
+    r.threshold, METHOD_LABEL[r.method]||r.method, r.isAnom?'이상':'정상'
   ]);
-  const csv = [hdr,...body].map(row=>row.map(v=>`"${v}"`).join(',')).join('\n');
-  const url = URL.createObjectURL(new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'}));
+  const csv=[hdr,...body].map(row=>row.map(v=>`"${v}"`).join(',')).join('\n');
+  const url=URL.createObjectURL(new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'}));
   Object.assign(document.createElement('a'),{href:url,download:`fdc_${type}_${today()}.csv`}).click();
   URL.revokeObjectURL(url);
   toast('CSV 다운로드 완료!','ok');
 }
 function today(){return new Date().toISOString().slice(0,10);}
 
-/* ══════════════════════ MAIN ══════════════════════ */
-function runAnalysis() {
-  const text = document.getElementById('dataInput').value.trim();
-  if (!text) { toast('데이터를 입력하세요.','err'); return; }
-  const thr    = parseFloat(document.getElementById('threshold').value);
-  const method = document.getElementById('detectMethod').value;
-  if (isNaN(thr)||thr<0) { toast('임계값은 0 이상이어야 합니다.','err'); return; }
-  gThreshold = thr;
+/* ══════════════════════════════════════════════════════
+   MAIN
+══════════════════════════════════════════════════════ */
+function runAnalysis(){
+  const text=document.getElementById('dataInput').value.trim();
+  if (!text){toast('데이터를 입력하세요.','err');return;}
+  if (!gHeaders.length){toast('데이터를 붙여넣은 후 컬럼 매핑을 확인하세요.','err');return;}
+  const thr=parseFloat(document.getElementById('threshold').value);
+  const method=document.getElementById('detectMethod').value;
+  const winSize=parseInt(document.getElementById('winSize').value)||3;
+  if (isNaN(thr)||thr<0){toast('임계값은 0 이상이어야 합니다.','err');return;}
+  gThreshold=thr;
   try {
-    const data = parseExcel(text);
-    gResults   = detectAnomalies(data, thr, method);
-    onMethodChange(); // sync column headers
+    const data=parseExcel(text);
+    gResults=detectAnomalies(data,thr,method,winSize);
+    onMethodChange();
     renderAll(gResults);
-    const res = document.getElementById('results');
-    res.style.display = 'block';
+    const res=document.getElementById('results');
+    res.style.display='block';
     res.scrollIntoView({behavior:'smooth',block:'start'});
-    const ac = gResults.filter(r=>r.isAnom).length;
-    toast(`분석 완료 — 총 ${gResults.length}건 / 이상 ${ac}건`, ac?'err':'ok');
-  } catch(e) { toast(e.message,'err'); }
+    const ac=gResults.filter(r=>r.isAnom).length;
+    toast(`분석 완료 — 총 ${gResults.length}건 / 이상 ${ac}건`,ac?'err':'ok');
+  } catch(e){toast(e.message,'err');console.error(e);}
 }
 
-function clearAll() {
+function clearAll(){
   document.getElementById('dataInput').value='';
+  document.getElementById('colMapWrap').style.display='none';
   document.getElementById('results').style.display='none';
-  gResults=[];
+  gResults=[]; gHeaders=[];
   Object.values(gCharts).forEach(c=>c.destroy());     gCharts={};
   Object.values(gRankCharts).forEach(c=>c.destroy()); gRankCharts={};
 }
 
-/* ══════════════════════ SAMPLE DATA ══════════════════════ */
-function loadSample() {
-  document.getElementById('dataInput').value = [
+/* ══════════════════════════════════════════════════════
+   SAMPLE DATA
+══════════════════════════════════════════════════════ */
+function loadSample(){
+  const rows=[
     '날짜\tEQP ID\tLOTID\tSLOT\tCH\tPARAMETER\tREAL DATA',
     '2024-01-15 08:00\tEQP01\tLOT001\t1\tCH1\tTEMP\t250.3',
-    '2024-01-15 08:01\tEQP01\tLOT001\t2\tCH1\tTEMP\t251.1',
-    '2024-01-15 08:02\tEQP01\tLOT001\t3\tCH1\tTEMP\t250.8',
-    '2024-01-15 08:03\tEQP01\tLOT001\t4\tCH1\tTEMP\t265.2',
-    '2024-01-15 08:04\tEQP01\tLOT001\t5\tCH1\tTEMP\t251.5',
-    '2024-01-15 08:05\tEQP01\tLOT001\t6\tCH1\tTEMP\t250.9',
+    '2024-01-15 08:05\tEQP01\tLOT001\t2\tCH1\tTEMP\t251.1',
+    '2024-01-15 08:10\tEQP01\tLOT001\t3\tCH1\tTEMP\t250.8',
+    '2024-01-15 08:15\tEQP01\tLOT001\t4\tCH1\tTEMP\t265.2',
+    '2024-01-15 08:20\tEQP01\tLOT001\t5\tCH1\tTEMP\t251.5',
+    '2024-01-15 08:25\tEQP01\tLOT001\t6\tCH1\tTEMP\t250.9',
     '2024-01-15 08:00\tEQP01\tLOT001\t1\tCH2\tTEMP\t248.9',
-    '2024-01-15 08:01\tEQP01\tLOT001\t2\tCH2\tTEMP\t249.3',
-    '2024-01-15 08:02\tEQP01\tLOT001\t3\tCH2\tTEMP\t249.1',
-    '2024-01-15 08:03\tEQP01\tLOT001\t4\tCH2\tTEMP\t249.7',
-    '2024-01-15 08:04\tEQP01\tLOT001\t5\tCH2\tTEMP\t249.4',
-    '2024-01-15 08:05\tEQP01\tLOT001\t6\tCH2\tTEMP\t249.0',
+    '2024-01-15 08:05\tEQP01\tLOT001\t2\tCH2\tTEMP\t249.3',
+    '2024-01-15 08:10\tEQP01\tLOT001\t3\tCH2\tTEMP\t249.1',
+    '2024-01-15 08:15\tEQP01\tLOT001\t4\tCH2\tTEMP\t249.7',
+    '2024-01-15 08:20\tEQP01\tLOT001\t5\tCH2\tTEMP\t249.4',
+    '2024-01-15 08:25\tEQP01\tLOT001\t6\tCH2\tTEMP\t249.0',
     '2024-01-15 08:00\tEQP01\tLOT001\t1\tCH1\tFLOW\t100.5',
-    '2024-01-15 08:01\tEQP01\tLOT001\t2\tCH1\tFLOW\t101.2',
-    '2024-01-15 08:02\tEQP01\tLOT001\t3\tCH1\tFLOW\t99.8',
-    '2024-01-15 08:03\tEQP01\tLOT001\t4\tCH1\tFLOW\t100.3',
-    '2024-01-15 08:04\tEQP01\tLOT001\t5\tCH1\tFLOW\t115.7',
-    '2024-01-15 08:05\tEQP01\tLOT001\t6\tCH1\tFLOW\t102.1',
+    '2024-01-15 08:05\tEQP01\tLOT001\t2\tCH1\tFLOW\t101.2',
+    '2024-01-15 08:10\tEQP01\tLOT001\t3\tCH1\tFLOW\t99.8',
+    '2024-01-15 08:15\tEQP01\tLOT001\t4\tCH1\tFLOW\t100.3',
+    '2024-01-15 08:20\tEQP01\tLOT001\t5\tCH1\tFLOW\t115.7',
+    '2024-01-15 08:25\tEQP01\tLOT001\t6\tCH1\tFLOW\t102.1',
     '2024-01-15 08:00\tEQP02\tLOT002\t1\tCH1\tTEMP\t248.5',
-    '2024-01-15 08:01\tEQP02\tLOT002\t2\tCH1\tTEMP\t249.2',
-    '2024-01-15 08:02\tEQP02\tLOT002\t3\tCH1\tTEMP\t249.0',
-    '2024-01-15 08:03\tEQP02\tLOT002\t4\tCH1\tTEMP\t249.8',
-    '2024-01-15 08:04\tEQP02\tLOT002\t5\tCH1\tTEMP\t280.1',
-    '2024-01-15 08:05\tEQP02\tLOT002\t6\tCH1\tTEMP\t250.3',
+    '2024-01-15 08:05\tEQP02\tLOT002\t2\tCH1\tTEMP\t249.2',
+    '2024-01-15 08:10\tEQP02\tLOT002\t3\tCH1\tTEMP\t249.0',
+    '2024-01-15 08:15\tEQP02\tLOT002\t4\tCH1\tTEMP\t249.8',
+    '2024-01-15 08:20\tEQP02\tLOT002\t5\tCH1\tTEMP\t280.1',
+    '2024-01-15 08:25\tEQP02\tLOT002\t6\tCH1\tTEMP\t250.3',
     '2024-01-15 08:00\tEQP02\tLOT002\t1\tCH2\tTEMP\t247.8',
-    '2024-01-15 08:01\tEQP02\tLOT002\t2\tCH2\tTEMP\t248.1',
-    '2024-01-15 08:02\tEQP02\tLOT002\t3\tCH2\tTEMP\t247.9',
-    '2024-01-15 08:03\tEQP02\tLOT002\t4\tCH2\tTEMP\t248.5',
-    '2024-01-15 08:04\tEQP02\tLOT002\t5\tCH2\tTEMP\t248.2',
-    '2024-01-15 08:05\tEQP02\tLOT002\t6\tCH2\tTEMP\t247.6',
+    '2024-01-15 08:05\tEQP02\tLOT002\t2\tCH2\tTEMP\t248.1',
+    '2024-01-15 08:10\tEQP02\tLOT002\t3\tCH2\tTEMP\t247.9',
+    '2024-01-15 08:15\tEQP02\tLOT002\t4\tCH2\tTEMP\t248.5',
+    '2024-01-15 08:20\tEQP02\tLOT002\t5\tCH2\tTEMP\t248.2',
+    '2024-01-15 08:25\tEQP02\tLOT002\t6\tCH2\tTEMP\t247.6',
     '2024-01-15 08:00\tEQP02\tLOT002\t1\tCH1\tFLOW\t98.5',
-    '2024-01-15 08:01\tEQP02\tLOT002\t2\tCH1\tFLOW\t99.1',
-    '2024-01-15 08:02\tEQP02\tLOT002\t3\tCH1\tFLOW\t98.8',
-    '2024-01-15 08:03\tEQP02\tLOT002\t4\tCH1\tFLOW\t99.2',
-    '2024-01-15 08:04\tEQP02\tLOT002\t5\tCH1\tFLOW\t99.0',
-    '2024-01-15 08:05\tEQP02\tLOT002\t6\tCH1\tFLOW\t98.7',
-  ].join('\n');
-  document.getElementById('threshold').value = '10';
-  document.getElementById('detectMethod').value = 'abs';
+    '2024-01-15 08:05\tEQP02\tLOT002\t2\tCH1\tFLOW\t99.1',
+    '2024-01-15 08:10\tEQP02\tLOT002\t3\tCH1\tFLOW\t98.8',
+    '2024-01-15 08:15\tEQP02\tLOT002\t4\tCH1\tFLOW\t99.2',
+    '2024-01-15 08:20\tEQP02\tLOT002\t5\tCH1\tFLOW\t99.0',
+    '2024-01-15 08:25\tEQP02\tLOT002\t6\tCH1\tFLOW\t98.7',
+  ];
+  document.getElementById('dataInput').value=rows.join('\n');
+  document.getElementById('threshold').value='10';
+  document.getElementById('detectMethod').value='abs';
   onMethodChange();
+  onDataChange(); // 컬럼 매핑 자동 표시
   toast('샘플 데이터가 로드되었습니다.','ok');
 }
 
-/* ══════════════════════ TOAST ══════════════════════ */
-function toast(msg, type='') {
-  const box = document.getElementById('toast-box');
-  const el  = document.createElement('div');
-  el.className = `toast ${type}`;
-  el.innerHTML = `<span>${type==='err'?'❌':type==='ok'?'✅':'ℹ️'}</span><span>${msg}</span>`;
+/* ══════════════════════════════════════════════════════
+   TOAST
+══════════════════════════════════════════════════════ */
+function toast(msg,type=''){
+  const box=document.getElementById('toast-box');
+  const el=document.createElement('div');
+  el.className=`toast ${type}`;
+  el.innerHTML=`<span>${type==='err'?'❌':type==='ok'?'✅':'ℹ️'}</span><span>${msg}</span>`;
   box.appendChild(el);
-  setTimeout(()=>el.remove(), 4500);
+  setTimeout(()=>el.remove(),4500);
 }
 </script>
 </body>
