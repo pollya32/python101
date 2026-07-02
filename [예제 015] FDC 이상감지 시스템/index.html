@@ -248,6 +248,11 @@
       <button class="btn btn-primary"   onclick="runAnalysis()">🔍 분석 시작</button>
       <button class="btn btn-secondary" onclick="loadSample()">📊 샘플 데이터</button>
       <button class="btn btn-secondary" onclick="clearAll()">🗑 초기화</button>
+      <div style="height:1px;background:var(--bd);flex-basis:100%;margin:4px 0"></div>
+      <button class="btn btn-secondary" onclick="saveAnalysis()">💾 분석 저장</button>
+      <button class="btn btn-secondary" onclick="loadLastSaved()">🕐 이전 불러오기</button>
+      <button class="btn btn-secondary" onclick="document.getElementById('loadJsonInput').click()">📂 파일 불러오기</button>
+      <input type="file" id="loadJsonInput" accept=".json" style="display:none" onchange="loadAnalysisFile(event)">
     </div>
   </div>
 
@@ -299,6 +304,13 @@
                    style="width:110px;accent-color:var(--blue);cursor:pointer"
                    oninput="updateChartHeight(this.value)">
             <span id="chartHeightVal" style="font-size:12px;color:var(--tx2);min-width:38px">360px</span>
+          </div>
+          <div class="ctrl-group" style="gap:6px">
+            <span style="font-size:12px">점 크기:</span>
+            <input type="range" id="pointSize" min="2" max="20" value="5" step="1"
+                   style="width:80px;accent-color:var(--blue);cursor:pointer"
+                   oninput="updatePointSize(this.value)">
+            <span id="pointSizeVal" style="font-size:12px;color:var(--tx2);min-width:28px">5px</span>
           </div>
         </div>
       </div>
@@ -1063,18 +1075,20 @@ function renderCharts(results, stats) {
         y: r._val
       }));
 
-      /* 라인 차트: 정상=작은 원, 이상=큰 삼각형(빨강) */
+      /* 산점도: 정상=원, 이상=큰 삼각형(빨강) — 연결선 없음 */
+      const ps = parseInt(document.getElementById('pointSize')?.value) || 5;
       datasets.push({
         type:'line',
         label,
         data: pts,
         _rows: rows,
         borderColor: color,
-        borderWidth: 1.8,
+        borderWidth: 0,
+        showLine: false,
         fill: false,
         tension: 0,
-        pointRadius:          rows.map(r=>r.isAnom?10:4),
-        pointHoverRadius:     rows.map(r=>r.isAnom?13:7),
+        pointRadius:          rows.map(r=>r.isAnom?Math.round(ps*2.2):ps),
+        pointHoverRadius:     rows.map(r=>r.isAnom?Math.round(ps*2.2)+3:ps+3),
         pointBackgroundColor: rows.map(r=>r.isAnom?'#f85149':color),
         pointBorderColor:     rows.map(r=>r.isAnom?'#ff4040':color),
         pointStyle:           rows.map(r=>r.isAnom?'triangle':'circle'),
@@ -1205,6 +1219,20 @@ function toggleDataLabels() {
       if (!show) return false;
       return !ctx.dataset.label?.startsWith('_spc_');
     };
+    chart.update();
+  });
+}
+
+function updatePointSize(sz) {
+  document.getElementById('pointSizeVal').textContent = sz+'px';
+  const s = parseInt(sz);
+  Object.values(gCharts).forEach(chart => {
+    chart.data.datasets.forEach(ds => {
+      if (ds._rows) {
+        ds.pointRadius      = ds._rows.map(r=>r.isAnom?Math.round(s*2.2):s);
+        ds.pointHoverRadius = ds._rows.map(r=>r.isAnom?Math.round(s*2.2)+3:s+3);
+      }
+    });
     chart.update();
   });
 }
@@ -1482,6 +1510,10 @@ function sortTable(tblId, colIdx) {
   rows.sort((a, b) => {
     const av = a.cells[colIdx]?.textContent.trim() ?? '';
     const bv = b.cells[colIdx]?.textContent.trim() ?? '';
+    if (colIdx === 0) {
+      const ad = tryParseTime(av), bd = tryParseTime(bv);
+      if (ad !== null && bd !== null) return (ad - bd) * state.dir;
+    }
     const an = parseFloat(av.replace(/[^0-9.\-]/g, ''));
     const bn = parseFloat(bv.replace(/[^0-9.\-]/g, ''));
     if (!isNaN(an) && !isNaN(bn)) return (an - bn) * state.dir;
@@ -1564,6 +1596,80 @@ function loadSettings() {
   } catch(e) {}
 }
 loadSettings();
+
+/* ══════════════════════════════════════════════════════
+   분석 저장 / 불러오기
+══════════════════════════════════════════════════════ */
+function today() {
+  const d=new Date(); const p=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}`;
+}
+
+function saveAnalysis() {
+  if (!gResults.length) { toast('먼저 분석을 실행하세요.','err'); return; }
+  const snap = {
+    version:'3.10', savedAt:new Date().toISOString(),
+    text: document.getElementById('dataInput').value,
+    colMap: FIELDS.reduce((m,f)=>{ const el=document.getElementById(f.id); m[f.id]=el?el.value:'-1'; return m; },{}),
+    settings: {
+      method:    document.getElementById('detectMethod').value,
+      threshold: document.getElementById('threshold').value,
+      winSize:   document.getElementById('winSize').value,
+      lambda:    document.getElementById('ewmaLambda').value,
+      cusumK:    document.getElementById('cusumK').value,
+      showSPC:   document.getElementById('showSPC').checked,
+    },
+    gResults,
+  };
+  try { localStorage.setItem('fdcSnapshot', JSON.stringify(snap)); } catch(e) {}
+  const blob = new Blob([JSON.stringify(snap,null,2)],{type:'application/json'});
+  const url  = URL.createObjectURL(blob);
+  Object.assign(document.createElement('a'),{href:url,download:`fdc_snapshot_${today()}.json`}).click();
+  URL.revokeObjectURL(url);
+  toast('분석 저장 완료 (로컬 + JSON 파일)','ok');
+}
+
+function loadLastSaved() {
+  try {
+    const snap = JSON.parse(localStorage.getItem('fdcSnapshot')||'null');
+    if (!snap) { toast('저장된 데이터가 없습니다.','err'); return; }
+    applySnapshot(snap);
+  } catch(e) { toast('불러오기 실패','err'); }
+}
+
+function loadAnalysisFile(e) {
+  const file = e.target.files?.[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try { applySnapshot(JSON.parse(ev.target.result)); }
+    catch(err) { toast('JSON 형식 오류','err'); }
+  };
+  reader.readAsText(file,'UTF-8');
+  e.target.value = '';
+}
+
+function applySnapshot(snap) {
+  if (snap.text) { document.getElementById('dataInput').value = snap.text; onDataChange(); }
+  if (snap.colMap) Object.entries(snap.colMap).forEach(([id,val])=>{ const el=document.getElementById(id); if(el) el.value=val; });
+  if (snap.settings) {
+    const s = snap.settings;
+    if (s.method)             document.getElementById('detectMethod').value = s.method;
+    if (s.threshold)          document.getElementById('threshold').value    = s.threshold;
+    if (s.winSize)            document.getElementById('winSize').value      = s.winSize;
+    if (s.lambda)             document.getElementById('ewmaLambda').value   = s.lambda;
+    if (s.cusumK)             document.getElementById('cusumK').value       = s.cusumK;
+    if (s.showSPC !== undefined) document.getElementById('showSPC').checked = s.showSPC;
+    onMethodChange();
+  }
+  if (snap.gResults?.length) {
+    gResults = snap.gResults;
+    gThreshold = parseFloat(snap.settings?.threshold) || 10;
+    renderAll(gResults);
+    document.getElementById('results').style.display = 'block';
+    const ac = gResults.filter(r=>r.isAnom).length;
+    toast(`불러오기 완료 — ${gResults.length}건 / 이상 ${ac}건`, ac?'err':'ok');
+  }
+}
 
 /* ══════════════════════════════════════════════════════
    TOAST
