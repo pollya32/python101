@@ -325,6 +325,30 @@
       <div id="chartPanels"></div>
     </div>
 
+    <!-- EQP / CH 선택 산점도 -->
+    <div class="card">
+      <div class="card-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:12px">
+        <span>🔬 EQP / CH 상세 산점도</span>
+        <div style="display:flex;align-items:center;gap:10px;margin-left:auto;flex-wrap:wrap">
+          <div class="ctrl-group" style="gap:6px">
+            <label style="font-size:12px;color:var(--tx2)">EQP ID</label>
+            <select id="scEqp" onchange="onScatterChange()" style="font-size:12px;padding:4px 8px;background:var(--bg2);color:var(--tx1);border:1px solid var(--bd);border-radius:4px"></select>
+          </div>
+          <div class="ctrl-group" style="gap:6px">
+            <label style="font-size:12px;color:var(--tx2)">CH</label>
+            <select id="scCh" onchange="renderEqpScatter()" style="font-size:12px;padding:4px 8px;background:var(--bg2);color:var(--tx1);border:1px solid var(--bd);border-radius:4px"></select>
+          </div>
+          <div class="ctrl-group" style="gap:6px">
+            <label style="font-size:12px;color:var(--tx2)">PARAMETER</label>
+            <select id="scParam" onchange="renderEqpScatter()" style="font-size:12px;padding:4px 8px;background:var(--bg2);color:var(--tx1);border:1px solid var(--bd);border-radius:4px">
+              <option value="">전체</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="chart-wrap" style="height:360px"><canvas id="scatterCanvas"></canvas></div>
+    </div>
+
     <!-- 이상감지 목록 -->
     <div class="card">
       <div class="tbl-header">
@@ -513,26 +537,61 @@ onMethodChange();
 function tryParseTime(str) {
   if (!str) return null;
   let s = str.trim();
+  if (!s) return null;
 
-  // 한국어 날짜 형식: 2024년 01월 15일 08시 00분
-  const kr = s.match(/(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일(?:\s*(\d{1,2})시\s*(\d{1,2})분)?/);
+  // Unix epoch: 10자리(초) / 13자리(ms)
+  if (/^\d{10}$/.test(s)) return parseInt(s) * 1000;
+  if (/^\d{13}$/.test(s)) return parseInt(s);
+
+  // 한국어: 2024년 1월 15일 8시 0분 [0초]
+  const kr = s.match(/(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일(?:\s*(\d{1,2})시\s*(\d{1,2})분(?:\s*(\d{1,2})초)?)?/);
   if (kr) {
-    const d = new Date(+kr[1], +kr[2]-1, +kr[3], +(kr[4]||0), +(kr[5]||0));
+    const d = new Date(+kr[1], +kr[2]-1, +kr[3], +(kr[4]||0), +(kr[5]||0), +(kr[6]||0));
     if (!isNaN(d.getTime())) return d.getTime();
   }
 
-  // MM/DD/YYYY (미국식) 또는 DD/MM/YYYY 방지: YYYY 가 앞에 없을 때
-  const usDate = s.match(/^(\d{1,2})[/](\d{1,2})[/](\d{4})(.*)/);
-  if (usDate) {
-    const rest = usDate[4].trim().replace(/\s+/, 'T');
-    const d = new Date(`${usDate[3]}-${usDate[1].padStart(2,'0')}-${usDate[2].padStart(2,'0')}${rest?'T'+rest:''}`);
+  // YYYYMMDDHHMMSS (14자리 compact)
+  const c14 = s.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/);
+  if (c14) {
+    const d = new Date(+c14[1], +c14[2]-1, +c14[3], +c14[4], +c14[5], +c14[6]);
     if (!isNaN(d.getTime())) return d.getTime();
   }
 
-  // YYYY[-./]MM[-./]DD [HH:MM[:SS]]
-  s = s.replace(/[./]/g, '-');
-  s = s.replace(/(\d{4}-\d{1,2}-\d{1,2})\s+(\d{1,2}:\d{2})/, '$1T$2');
-  const d = new Date(s);
+  // YYYYMMDD (8자리 compact)
+  const c8 = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (c8) {
+    const d = new Date(+c8[1], +c8[2]-1, +c8[3]);
+    if (!isNaN(d.getTime())) return d.getTime();
+  }
+
+  // YY.MM.DD / YY/MM/DD (2자리 연도, 2000년대)
+  const yy = s.match(/^(\d{2})[.\/\-](\d{1,2})[.\/\-](\d{1,2})(?:\s+(\d{1,2}:\d{2}(?::\d{2})?))?$/);
+  if (yy && +yy[2] <= 12 && +yy[3] <= 31) {
+    const iso = `${+yy[1]+2000}-${yy[2].padStart(2,'0')}-${yy[3].padStart(2,'0')}${yy[4]?'T'+yy[4]:''}`;
+    const d = new Date(iso);
+    if (!isNaN(d.getTime())) return d.getTime();
+  }
+
+  // DD/MM/YYYY 또는 DD.MM.YYYY (유럽식 — 첫 숫자 > 12)
+  const eu = s.match(/^(\d{1,2})[.\/\-](\d{1,2})[.\/\-](\d{4})(?:\s+(\d{1,2}:\d{2}(?::\d{2})?))?/);
+  if (eu && +eu[1] > 12 && +eu[2] <= 12) {
+    const iso = `${eu[3]}-${eu[2].padStart(2,'0')}-${eu[1].padStart(2,'0')}${eu[4]?'T'+eu[4]:''}`;
+    const d = new Date(iso);
+    if (!isNaN(d.getTime())) return d.getTime();
+  }
+
+  // MM/DD/YYYY 또는 MM-DD-YYYY (미국식)
+  const us = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s+(\d{1,2}:\d{2}(?::\d{2})?))?/);
+  if (us && +us[1] <= 12) {
+    const iso = `${us[3]}-${us[1].padStart(2,'0')}-${us[2].padStart(2,'0')}${us[4]?'T'+us[4]:''}`;
+    const d = new Date(iso);
+    if (!isNaN(d.getTime())) return d.getTime();
+  }
+
+  // YYYY[-./]MM[-./]DD [HH:MM[:SS]] (ISO 및 점/슬래시 변형)
+  let n = s.replace(/[./]/g, '-');
+  n = n.replace(/(\d{4}-\d{1,2}-\d{1,2})\s+(\d{1,2}:\d{2}(?::\d{2})?)/, '$1T$2');
+  const d = new Date(n);
   return isNaN(d.getTime()) ? null : d.getTime();
 }
 function fmtTime(ms) {
@@ -921,6 +980,7 @@ function renderAll(results) {
   renderCharts(results, stats);
   renderTables(results);
   populateFilters(results);
+  initScatterSelects(results);
 }
 
 /* ── Summary ── */
@@ -1211,6 +1271,148 @@ function renderCharts(results, stats) {
 function switchTab(param){
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.param===param));
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.dataset.param===param));
+}
+
+/* ══════════════════════════════════════════════════════
+   EQP / CH 상세 산점도
+══════════════════════════════════════════════════════ */
+let gScatterChart = null;
+
+function initScatterSelects(results) {
+  const eqps = [...new Set(results.map(r=>r['EQP ID']))].sort();
+  const scEqp = document.getElementById('scEqp');
+  scEqp.innerHTML = eqps.map(e=>`<option value="${e}">${e}</option>`).join('');
+  _updateScCh(results);
+  _updateScParam(results);
+  renderEqpScatter();
+}
+
+function onScatterChange() {
+  _updateScCh(gResults);
+  _updateScParam(gResults);
+  renderEqpScatter();
+}
+
+function _updateScCh(results) {
+  const eqp = document.getElementById('scEqp').value;
+  const chs = [...new Set(results.filter(r=>r['EQP ID']===eqp).map(r=>r['CH']||''))].sort();
+  const scCh = document.getElementById('scCh');
+  const prev = scCh.value;
+  scCh.innerHTML = (chs.length>1?'<option value="">전체</option>':'') +
+    chs.map(c=>`<option value="${c}">${c||'(없음)'}</option>`).join('');
+  if (chs.includes(prev)) scCh.value = prev;
+}
+
+function _updateScParam(results) {
+  const eqp = document.getElementById('scEqp').value;
+  const ch  = document.getElementById('scCh').value;
+  const params = [...new Set(
+    results.filter(r=>r['EQP ID']===eqp && (!ch||r['CH']===ch)).map(r=>r['PARAMETER'])
+  )].sort();
+  const scParam = document.getElementById('scParam');
+  const prev = scParam.value;
+  scParam.innerHTML = '<option value="">전체</option>' +
+    params.map(p=>`<option value="${p}">${p}</option>`).join('');
+  if (params.includes(prev)) scParam.value = prev;
+}
+
+function renderEqpScatter() {
+  if (!gResults.length) return;
+  const eqp   = document.getElementById('scEqp')?.value;
+  const ch    = document.getElementById('scCh')?.value   ?? '';
+  const param = document.getElementById('scParam')?.value ?? '';
+  if (!eqp) return;
+
+  const base = gResults.filter(r =>
+    r['EQP ID'] === eqp &&
+    (ch    === '' || r['CH']        === ch)    &&
+    (param === '' || r['PARAMETER'] === param)
+  );
+
+  const params = [...new Set(base.map(r=>r['PARAMETER']))];
+  const allTimes = base.filter(r=>r._time!=null).map(r=>r._time);
+  const hasTime  = allTimes.length > 0;
+  const tRef     = hasTime ? Math.min(...allTimes) : 0;
+  const tRange   = hasTime ? (Math.max(...allTimes)-tRef)/86400000 : 0;
+  const ps       = parseInt(document.getElementById('pointSize')?.value)||5;
+
+  const datasets = params.map((p, pi) => {
+    const rows = base.filter(r=>r['PARAMETER']===p);
+    rows.sort((a,b)=> hasTime ? ((a._time??a._slot)-(b._time??b._slot)) : a._slot-b._slot);
+    const color = PALETTE[pi % PALETTE.length];
+    return {
+      label: p,
+      data:  rows.map(r=>({ x: hasTime&&r._time!=null?(r._time-tRef)/1000:r._slot, y:r._val })),
+      _rows: rows,
+      type: 'line', showLine: false, borderWidth: 0, fill: false,
+      pointRadius:          rows.map(r=>r.isAnom?Math.round(ps*2.2):ps),
+      pointHoverRadius:     rows.map(r=>r.isAnom?Math.round(ps*2.2)+3:ps+3),
+      pointBackgroundColor: rows.map(r=>r.isAnom?'#f85149':color),
+      pointBorderColor:     rows.map(r=>r.isAnom?'#ff4040':color),
+      pointStyle:           rows.map(r=>r.isAnom?'triangle':'circle'),
+      pointBorderWidth:     rows.map(r=>r.isAnom?2:1),
+    };
+  });
+
+  if (gScatterChart) { gScatterChart.destroy(); gScatterChart=null; }
+  const ctx = document.getElementById('scatterCanvas')?.getContext('2d');
+  if (!ctx) return;
+
+  gScatterChart = new Chart(ctx, {
+    type:'line',
+    plugins:[ChartDataLabels],
+    data:{datasets},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{labels:{color:'#e6edf3',font:{size:11},usePointStyle:true,padding:14}},
+        tooltip:{
+          backgroundColor:'#1c2128',borderColor:'#30363d',borderWidth:1,
+          titleColor:'#e6edf3',bodyColor:'#8b949e',
+          callbacks:{
+            title(items){
+              const row=items[0]?.dataset._rows?.[items[0].dataIndex];
+              return row?`${row['날짜']}  (SLOT ${row['SLOT']})`:items[0]?.label||'';
+            },
+            label(item){
+              const row=item.dataset._rows?.[item.dataIndex];
+              if (!row) return ` ${item.dataset.label}: ${item.raw.y}`;
+              const lines=[` ${item.dataset.label}: ${row['REAL DATA']}`];
+              if (row.diff!=null) lines.push(` 편차/변화량: ${Number(row.diff).toFixed(4)}`);
+              if (row.isAnom) lines.push(' ⚠️ 이상감지!');
+              return lines;
+            }
+          }
+        },
+        datalabels:{display:false}
+      },
+      scales:{
+        x:{
+          type:'linear',
+          ticks:{
+            color:'#8b949e',font:{size:10},maxTicksLimit:10,
+            callback: hasTime
+              ? v=>{
+                  const dd=new Date(tRef+v*1000);
+                  const p=n=>String(n).padStart(2,'0');
+                  return tRange>1
+                    ? `${dd.getFullYear()}-${p(dd.getMonth()+1)}-${p(dd.getDate())}\n${p(dd.getHours())}:${p(dd.getMinutes())}`
+                    : `${p(dd.getMonth()+1)}/${p(dd.getDate())}\n${p(dd.getHours())}:${p(dd.getMinutes())}`;
+                }
+              : v=>`SLOT ${v}`
+          },
+          grid:{color:'rgba(48,54,61,.45)'},
+          title:{display:true,text:hasTime?'날짜/시간':'SLOT',color:'#8b949e',font:{size:12}}
+        },
+        y:{
+          ticks:{color:'#8b949e',font:{size:11}},
+          grid:{color:'rgba(48,54,61,.45)'},
+          title:{display:true,text:param||'값',color:'#8b949e',font:{size:12}}
+        }
+      }
+    }
+  });
 }
 
 function updateChartHeight(h) {
