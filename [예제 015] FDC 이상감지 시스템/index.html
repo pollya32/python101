@@ -253,6 +253,8 @@
       <button class="btn btn-secondary" onclick="loadLastSaved()">🕐 이전 불러오기</button>
       <button class="btn btn-secondary" onclick="document.getElementById('loadJsonInput').click()">📂 파일 불러오기</button>
       <input type="file" id="loadJsonInput" accept=".json" style="display:none" onchange="loadAnalysisFile(event)">
+      <div style="height:1px;background:var(--bd);flex-basis:100%;margin:4px 0"></div>
+      <button class="btn btn-secondary" onclick="downloadApp()">⬇ 앱 다운로드</button>
     </div>
   </div>
 
@@ -1668,6 +1670,29 @@ function applySnapshot(snap) {
     document.getElementById('results').style.display = 'block';
     const ac = gResults.filter(r=>r.isAnom).length;
     toast(`불러오기 완료 — ${gResults.length}건 / 이상 ${ac}건`, ac?'err':'ok');
+  }
+}
+
+/* ══════════════════════════════════════════════════════
+   앱 파일 다운로드 (오프라인 실행용)
+══════════════════════════════════════════════════════ */
+async function downloadApp() {
+  try {
+    toast('앱 파일 준비 중…');
+    const res  = await fetch(location.href);
+    const text = await res.text();
+    const blob = new Blob([text], {type:'text/html;charset=utf-8'});
+    const url  = URL.createObjectURL(blob);
+    Object.assign(document.createElement('a'),{href:url,download:'fdc_anomaly_detection.html'}).click();
+    URL.revokeObjectURL(url);
+    toast('앱 다운로드 완료! (브라우저에서 바로 실행 가능)','ok');
+  } catch(e) {
+    /* fetch 실패 시 현재 DOM 기준으로 대체 저장 */
+    const blob = new Blob(['<!DOCTYPE html>'+document.documentElement.outerHTML],{type:'text/html;charset=utf-8'});
+    const url  = URL.createObjectURL(blob);
+    Object.assign(document.createElement('a'),{href:url,download:'fdc_anomaly_detection.html'}).click();
+    URL.revokeObjectURL(url);
+    toast('앱 다운로드 완료!','ok');
   }
 }
 
