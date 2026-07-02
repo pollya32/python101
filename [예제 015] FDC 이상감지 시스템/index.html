@@ -263,7 +263,12 @@
 
     <!-- 통계 요약 -->
     <div class="card">
-      <div class="card-title">📊 통계 요약 (EQP / CH / PARAMETER 별)</div>
+      <div class="tbl-header" style="padding:0 0 10px">
+        <span class="card-title" style="margin:0">📊 통계 요약 (EQP / CH / PARAMETER 별)</span>
+        <div style="margin-left:auto">
+          <button class="btn btn-secondary btn-sm" onclick="downloadReport()">📄 HTML 보고서</button>
+        </div>
+      </div>
       <div class="tbl-scroll"><div class="tbl-wrap">
         <table>
           <thead><tr>
@@ -1600,11 +1605,6 @@ loadSettings();
 /* ══════════════════════════════════════════════════════
    분석 저장 / 불러오기
 ══════════════════════════════════════════════════════ */
-function today() {
-  const d=new Date(); const p=n=>String(n).padStart(2,'0');
-  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}`;
-}
-
 function saveAnalysis() {
   if (!gResults.length) { toast('먼저 분석을 실행하세요.','err'); return; }
   const snap = {
@@ -1669,6 +1669,142 @@ function applySnapshot(snap) {
     const ac = gResults.filter(r=>r.isAnom).length;
     toast(`불러오기 완료 — ${gResults.length}건 / 이상 ${ac}건`, ac?'err':'ok');
   }
+}
+
+/* ══════════════════════════════════════════════════════
+   HTML 보고서 다운로드
+══════════════════════════════════════════════════════ */
+function downloadReport() {
+  if (!gResults.length) { toast('먼저 분석을 실행하세요.','err'); return; }
+
+  const stats = calcStats(gResults);
+  const anoms = gResults.filter(r=>r.isAnom);
+  const total = gResults.length;
+  const rate  = total ? (anoms.length/total*100).toFixed(1) : '0.0';
+  const method= document.getElementById('detectMethod')?.selectedOptions?.[0]?.text || '';
+  const now   = new Date().toLocaleString('ko-KR');
+
+  /* ── 통계 요약 행 ── */
+  const statRows = stats.map(s=>`
+    <tr>
+      <td>${s.eqp}</td><td>${s.ch||'-'}</td><td>${s.param}</td><td>${s.n}</td>
+      <td>${s.mean.toFixed(4)}</td><td>${s.std.toFixed(4)}</td>
+      <td>${s.min.toFixed(4)}</td><td>${s.max.toFixed(4)}</td>
+      <td>${s.range.toFixed(4)}</td><td>${s.cv.toFixed(2)}</td>
+      <td>${s.ucl.toFixed(4)}</td><td>${s.lcl.toFixed(4)}</td>
+      <td>${s.anomCount}</td>
+      <td style="color:${s.anomCount>0?'#c9303a':'#2a7a3a'};font-weight:600">${s.anomRate.toFixed(1)}%</td>
+    </tr>`).join('');
+
+  /* ── 이상감지 행 ── */
+  const anomRows = anoms.map(r=>`
+    <tr style="background:#fff5f5">
+      <td>${r['날짜']||''}</td><td>${r['EQP ID']||''}</td><td>${r['LOTID']||''}</td>
+      <td>${r['SLOT']??''}</td><td>${r['CH']||''}</td><td>${r['PARAMETER']||''}</td>
+      <td>${r['REAL DATA']??''}</td>
+      <td>${r.ref!==null&&r.ref!==undefined?Number(r.ref).toFixed(4):'-'}</td>
+      <td style="color:#c9303a;font-weight:600">${r.diff!==null&&r.diff!==undefined?Number(r.diff).toFixed(4):'-'}</td>
+      <td>${r.threshold??''}</td>
+      <td><span style="background:#fce8e8;color:#c9303a;padding:2px 6px;border-radius:4px;font-size:11px">⚠ 이상</span></td>
+    </tr>`).join('');
+
+  /* ── 전체 데이터 행 (최대 500건, 초과 시 안내) ── */
+  const showAll = gResults.length <= 500;
+  const dataRows = (showAll ? gResults : gResults.slice(0,500)).map(r=>`
+    <tr>
+      <td>${r['날짜']||''}</td><td>${r['EQP ID']||''}</td><td>${r['LOTID']||''}</td>
+      <td>${r['SLOT']??''}</td><td>${r['CH']||''}</td><td>${r['PARAMETER']||''}</td>
+      <td>${r['REAL DATA']??''}</td>
+      <td>${r.diff!==null&&r.diff!==undefined?Number(r.diff).toFixed(4):'-'}</td>
+      <td>${r.isAnom
+        ? '<span style="background:#fce8e8;color:#c9303a;padding:2px 6px;border-radius:4px;font-size:11px">⚠ 이상</span>'
+        : '<span style="background:#e8f5e9;color:#2a7a3a;padding:2px 6px;border-radius:4px;font-size:11px">✓ 정상</span>'}</td>
+    </tr>`).join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>FDC 이상감지 분석 보고서 — ${now}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:#f7f8fa;color:#1a1d23;font-size:13px;line-height:1.5}
+  .page{max-width:1200px;margin:0 auto;padding:28px 20px}
+  h1{font-size:22px;color:#1a1d23;border-bottom:3px solid #2563eb;padding-bottom:10px;margin-bottom:6px}
+  .meta{color:#6b7280;font-size:12px;margin-bottom:24px}
+  .summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px}
+  .s-card{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px;text-align:center}
+  .s-card .val{font-size:22px;font-weight:700;color:#2563eb}
+  .s-card.red .val{color:#c9303a} .s-card.green .val{color:#2a7a3a} .s-card.yellow .val{color:#b45309}
+  .s-card .lbl{font-size:11px;color:#6b7280;margin-top:4px}
+  h2{font-size:15px;color:#1e40af;margin:24px 0 10px;padding:6px 10px;background:#eff6ff;border-left:4px solid #2563eb;border-radius:0 4px 4px 0}
+  table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+  th{background:#1e3a5f;color:#fff;font-weight:600;font-size:12px;padding:8px 10px;white-space:nowrap}
+  td{padding:7px 10px;border-bottom:1px solid #e5e7eb;font-size:12px}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:#f0f7ff}
+  .notice{background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;padding:10px 14px;font-size:12px;color:#92400e;margin-bottom:12px}
+  .footer{margin-top:32px;text-align:center;font-size:11px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:16px}
+  @media print{body{background:#fff}.page{padding:0}}
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>📊 FDC RAW DATA 이상감지 분석 보고서</h1>
+  <div class="meta">생성: ${now} &nbsp;|&nbsp; 감지 방식: ${method} &nbsp;|&nbsp; 임계값: ${document.getElementById('threshold')?.value||''}</div>
+
+  <div class="summary-grid">
+    <div class="s-card"><div class="val">${total.toLocaleString()}</div><div class="lbl">총 데이터 수</div></div>
+    <div class="s-card red"><div class="val">${anoms.length.toLocaleString()}</div><div class="lbl">이상감지 건수</div></div>
+    <div class="s-card green"><div class="val">${(total-anoms.length).toLocaleString()}</div><div class="lbl">정상 건수</div></div>
+    <div class="s-card yellow"><div class="val">${rate}%</div><div class="lbl">이상 비율</div></div>
+    <div class="s-card"><div class="val">${new Set(gResults.map(r=>r['EQP ID'])).size}</div><div class="lbl">EQP 수</div></div>
+    <div class="s-card"><div class="val">${new Set(gResults.map(r=>r['PARAMETER'])).size}</div><div class="lbl">PARAMETER 수</div></div>
+  </div>
+
+  <h2>📋 통계 요약 (EQP / CH / PARAMETER 별)</h2>
+  <table>
+    <thead><tr>
+      <th>EQP ID</th><th>CH</th><th>PARAMETER</th><th>건수</th>
+      <th>평균</th><th>표준편차</th><th>최솟값</th><th>최댓값</th>
+      <th>범위</th><th>CV%</th><th>UCL(+3σ)</th><th>LCL(−3σ)</th>
+      <th>이상 건수</th><th>이상률</th>
+    </tr></thead>
+    <tbody>${statRows}</tbody>
+  </table>
+
+  <h2>🚨 이상감지 목록 (${anoms.length}건)</h2>
+  ${anoms.length === 0
+    ? '<div class="notice">✅ 이상감지된 데이터가 없습니다.</div>'
+    : `<table>
+    <thead><tr>
+      <th>날짜</th><th>EQP ID</th><th>LOTID</th><th>SLOT</th><th>CH</th>
+      <th>PARAMETER</th><th>REAL DATA</th><th>참조값</th><th>편차/변화량</th><th>임계값</th><th>상태</th>
+    </tr></thead>
+    <tbody>${anomRows}</tbody>
+  </table>`}
+
+  <h2>📄 전체 데이터 (${total}건${!showAll?' — 상위 500건만 포함':''})</h2>
+  ${!showAll ? '<div class="notice">⚠ 데이터가 500건을 초과하여 상위 500건만 표시합니다. 전체 데이터는 CSV 다운로드를 이용하세요.</div>' : ''}
+  <table>
+    <thead><tr>
+      <th>날짜</th><th>EQP ID</th><th>LOTID</th><th>SLOT</th><th>CH</th>
+      <th>PARAMETER</th><th>REAL DATA</th><th>편차/변화량</th><th>상태</th>
+    </tr></thead>
+    <tbody>${dataRows}</tbody>
+  </table>
+
+  <div class="footer">FDC 이상감지 시스템 — 자동 생성 보고서</div>
+</div>
+</body>
+</html>`;
+
+  const blob = new Blob([html], {type:'text/html;charset=utf-8'});
+  const url  = URL.createObjectURL(blob);
+  const fn   = `fdc_report_${today()}.html`;
+  Object.assign(document.createElement('a'),{href:url,download:fn}).click();
+  URL.revokeObjectURL(url);
+  toast('HTML 보고서 다운로드 완료!','ok');
 }
 
 /* ══════════════════════════════════════════════════════
