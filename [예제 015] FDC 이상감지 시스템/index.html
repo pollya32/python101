@@ -205,7 +205,7 @@
       <input type="file" id="fileInput" accept=".csv,.tsv,.txt" style="display:none" onchange="handleFileDrop(event)">
     </div>
     <textarea id="dataInput" oninput="onDataChange()"
-      placeholder="날짜&#9;EQP ID&#9;LOTID&#9;SLOT&#9;CH&#9;PARAMETER&#9;REAL DATA&#10;2024-01-15 08:00&#9;EQP01&#9;LOT001&#9;1&#9;CH1&#9;TEMP&#9;250.3&#10;..."></textarea>
+      placeholder="날짜&#9;EQP ID&#9;LOTID&#9;SLOT&#9;CH&#9;PPID&#9;REAL DATA&#10;2024-01-15 08:00&#9;EQP01&#9;LOT001&#9;1&#9;CH1&#9;TEMP&#9;250.3&#10;..."></textarea>
 
     <!-- 컬럼 매핑 UI -->
     <div class="cm-wrap" id="colMapWrap" style="display:none">
@@ -300,7 +300,7 @@
     <!-- 통계 요약 -->
     <div class="card">
       <div class="tbl-header" style="padding:0 0 10px">
-        <span class="card-title" style="margin:0">📊 통계 요약 (EQP / CH / PARAMETER 별)</span>
+        <span class="card-title" style="margin:0">📊 통계 요약 (EQP / CH / PPID 별)</span>
         <div style="margin-left:auto">
           <button class="btn btn-secondary btn-sm" onclick="downloadReport()">📄 HTML 보고서</button>
         </div>
@@ -308,7 +308,7 @@
       <div class="tbl-scroll"><div class="tbl-wrap">
         <table>
           <thead><tr>
-            <th>EQP ID</th><th>CH</th><th>PARAMETER</th><th>건수</th>
+            <th>EQP ID</th><th>CH</th><th>PPID</th><th>건수</th>
             <th>평균</th><th>표준편차</th><th>최솟값</th><th>최댓값</th>
             <th>범위</th><th>CV%</th><th>UCL(+3σ)</th><th>LCL(−3σ)</th>
             <th>이상 건수</th><th>이상률</th>
@@ -326,7 +326,7 @@
 
     <!-- 이상률 히트맵 -->
     <div class="card" id="heatmapCard">
-      <div class="card-title">🌡️ EQP × PARAMETER 이상률 히트맵</div>
+      <div class="card-title">🌡️ EQP × PPID 이상률 히트맵</div>
       <div class="heatmap-scroll" id="heatmapTable"></div>
     </div>
 
@@ -352,7 +352,7 @@
             <th class="sortable" onclick="sortTable('anom',2)">LOTID</th>
             <th class="sortable" onclick="sortTable('anom',3)">SLOT</th>
             <th class="sortable" onclick="sortTable('anom',4)">CH</th>
-            <th class="sortable" onclick="sortTable('anom',5)">PARAMETER</th>
+            <th class="sortable" onclick="sortTable('anom',5)">PPID</th>
             <th class="sortable" onclick="sortTable('anom',6)">REAL DATA</th>
             <th class="sortable th-ref" onclick="sortTable('anom',7)">직전값</th>
             <th class="sortable th-diff" onclick="sortTable('anom',8)">변화량</th>
@@ -368,7 +368,7 @@
     <!-- 그래프 -->
     <div class="card">
       <div class="card-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;">
-        <span>📈 PARAMETER 별 공정 추이 차트 (X축: 날짜)</span>
+        <span>📈 PPID 별 공정 추이 차트 (X축: 날짜)</span>
         <div style="display:flex;align-items:center;gap:16px;margin-left:auto;flex-wrap:wrap;">
           <div class="ctrl-group" style="gap:6px">
             <label style="font-size:12px;color:var(--tx2)">EQP</label>
@@ -416,7 +416,7 @@
             <select id="scCh" onchange="renderEqpScatter()" style="font-size:12px;padding:4px 8px;background:var(--bg2);color:var(--tx1);border:1px solid var(--bd);border-radius:4px"></select>
           </div>
           <div class="ctrl-group" style="gap:6px">
-            <label style="font-size:12px;color:var(--tx2)">PARAMETER</label>
+            <label style="font-size:12px;color:var(--tx2)">PPID</label>
             <select id="scParam" onchange="renderEqpScatter()" style="font-size:12px;padding:4px 8px;background:var(--bg2);color:var(--tx1);border:1px solid var(--bd);border-radius:4px">
               <option value="">전체</option>
             </select>
@@ -439,7 +439,7 @@
           <input type="date" id="fDateTo"   onchange="applyFilter()" style="padding:4px 8px;font-size:12px;width:auto">
           <label>EQP ID</label><select id="fEqp"    onchange="applyFilter()"><option value="">전체</option></select>
           <label>CH</label>    <select id="fCh"     onchange="applyFilter()"><option value="">전체</option></select>
-          <label>PARAMETER</label><select id="fParam"onchange="applyFilter()"><option value="">전체</option></select>
+          <label>PPID</label><select id="fParam"onchange="applyFilter()"><option value="">전체</option></select>
           <label>상태</label>  <select id="fStatus" onchange="applyFilter()">
             <option value="">전체</option><option value="anom">이상</option><option value="ok">정상</option>
           </select>
@@ -454,7 +454,7 @@
             <th class="sortable" onclick="sortTable('full',2)">LOTID</th>
             <th class="sortable" onclick="sortTable('full',3)">SLOT</th>
             <th class="sortable" onclick="sortTable('full',4)">CH</th>
-            <th class="sortable" onclick="sortTable('full',5)">PARAMETER</th>
+            <th class="sortable" onclick="sortTable('full',5)">PPID</th>
             <th class="sortable" onclick="sortTable('full',6)">REAL DATA</th>
             <th class="sortable th-ref" onclick="sortTable('full',7)">직전값</th>
             <th class="sortable th-diff" onclick="sortTable('full',8)">변화량</th>
@@ -491,7 +491,7 @@ const COL_ALIASES = {
   'LOTID':    ['lotid','lot id','lot_id','lot','로트','lot no'],
   'SLOT':     ['slot','slot no','slot_no','슬롯','wafer'],
   'CH':       ['ch','channel','채널','ch no','ch_no','챔버','chamber'],
-  'PARAMETER':['parameter','param','파라미터','항목','측정항목','item'],
+  'PPID':['ppid','parameter','param','파라미터','항목','측정항목','item'],
   'REAL DATA':['real data','realdata','real_data','value','값','실측값','측정값','data','result']
 };
 function findColIdx(headers, key) {
@@ -508,7 +508,7 @@ const FIELDS = [
   {id:'map_lot',  label:'LOTID',            key:'LOTID',    required:true},
   {id:'map_slot', label:'SLOT',             key:'SLOT',     required:true},
   {id:'map_ch',   label:'CH (채널 · 선택)', key:'CH',       required:false},
-  {id:'map_param',label:'PARAMETER',        key:'PARAMETER',required:true},
+  {id:'map_param',label:'PPID',        key:'PPID',required:true},
   {id:'map_value',label:'REAL DATA',        key:'REAL DATA',required:true},
 ];
 
@@ -680,7 +680,7 @@ async function parseExcel(text) {
   const data = [];
   const hasCH = colMap['CH'] >= 0;
   const iDate=colMap['날짜'], iEqp=colMap['EQP ID'], iLot=colMap['LOTID'],
-        iSlot=colMap['SLOT'], iCh=colMap['CH'],   iPar=colMap['PARAMETER'],
+        iSlot=colMap['SLOT'], iCh=colMap['CH'],   iPar=colMap['PPID'],
         iVal =colMap['REAL DATA'];
 
   for (let r=1; r<lines.length; r++) {
@@ -705,7 +705,7 @@ async function parseExcel(text) {
       'LOTID':    lotVal,
       'SLOT':     slotVal,
       'CH':       chVal,
-      'PARAMETER':paramVal,
+      'PPID':paramVal,
       'REAL DATA':rawVal,
       _val:       val,
       _slot:      parseInt(slotVal) || 0,
@@ -725,7 +725,7 @@ async function parseExcel(text) {
 
 /* ══════════════════════════════════════════════════════
    ANOMALY DETECTION
-   그룹: EQP ID + LOTID + CH + PARAMETER, 정렬: SLOT
+   그룹: EQP ID + LOTID + CH + PPID, 정렬: SLOT
 ══════════════════════════════════════════════════════ */
 function getDayKey(row) {
   if (row._time) {
@@ -758,7 +758,7 @@ async function detectAnomalies(data, threshold, method, winSize, ewmaLambda=0.2,
   const wtwMap={};
   if (method==='wtw') {
     const g2={};
-    data.forEach(r=>{const k=`${r['EQP ID']}|||${r['CH']}|||${r['PARAMETER']}`;(g2[k]=g2[k]||[]).push(r);});
+    data.forEach(r=>{const k=`${r['EQP ID']}|||${r['CH']}|||${r['PPID']}`;(g2[k]=g2[k]||[]).push(r);});
     Object.entries(g2).forEach(([k,rows])=>{
       const vals=rows.map(r=>r._val);
       const mean=vals.reduce((a,b)=>a+b,0)/vals.length;
@@ -773,7 +773,7 @@ async function detectAnomalies(data, threshold, method, winSize, ewmaLambda=0.2,
   const chMatchMap={};
   if (method==='ch_match') {
     const g2={};
-    data.forEach(r=>{const k=`${r['EQP ID']}|||${r['LOTID']}|||${r['PARAMETER']}`;(g2[k]=g2[k]||[]).push(r);});
+    data.forEach(r=>{const k=`${r['EQP ID']}|||${r['LOTID']}|||${r['PPID']}`;(g2[k]=g2[k]||[]).push(r);});
     Object.entries(g2).forEach(([k,rows])=>{
       const chB={};
       rows.forEach(r=>{const ch=r['CH']||'';(chB[ch]=chB[ch]||[]).push(r._val);});
@@ -787,7 +787,7 @@ async function detectAnomalies(data, threshold, method, winSize, ewmaLambda=0.2,
   const lot2lotMap={};
   if (method==='lot2lot') {
     const g2={};
-    data.forEach(r=>{const k=`${r['EQP ID']}|||${r['CH']}|||${r['PARAMETER']}`;(g2[k]=g2[k]||[]).push(r);});
+    data.forEach(r=>{const k=`${r['EQP ID']}|||${r['CH']}|||${r['PPID']}`;(g2[k]=g2[k]||[]).push(r);});
     Object.entries(g2).forEach(([k,rows])=>{
       const lotOrder=[], lotSeen=new Set();
       rows.forEach(r=>{if(!lotSeen.has(r['LOTID'])){lotSeen.add(r['LOTID']);lotOrder.push(r['LOTID']);}});
@@ -975,7 +975,7 @@ async function detectAnomalies(data, threshold, method, winSize, ewmaLambda=0.2,
         res.prevVal=madMed; res.diff=mz; res.isAnom=mz>threshold;
       // ⑭ Wafer-to-Wafer 편차
       } else if (method==='wtw') {
-        const wk=`${row['EQP ID']}|||${row['CH']}|||${row['PARAMETER']}`;
+        const wk=`${row['EQP ID']}|||${row['CH']}|||${row['PPID']}`;
         const wd=wtwMap[wk];
         if(wd){
           const sa=wd.slotAvg[row['SLOT']]??wd.mean;
@@ -983,7 +983,7 @@ async function detectAnomalies(data, threshold, method, winSize, ewmaLambda=0.2,
         }
       // ⑮ Chamber Matching 편차
       } else if (method==='ch_match') {
-        const ck=`${row['EQP ID']}|||${row['LOTID']}|||${row['PARAMETER']}`;
+        const ck=`${row['EQP ID']}|||${row['LOTID']}|||${row['PPID']}`;
         const cd=chMatchMap[ck];
         if(cd){
           const ca=cd.chAvg[row['CH']||'']??cd.oMean;
@@ -991,7 +991,7 @@ async function detectAnomalies(data, threshold, method, winSize, ewmaLambda=0.2,
         }
       // ⑯ Lot-to-Lot 평균 이탈
       } else if (method==='lot2lot') {
-        const lk=`${row['EQP ID']}|||${row['CH']}|||${row['PARAMETER']}`;
+        const lk=`${row['EQP ID']}|||${row['CH']}|||${row['PPID']}`;
         const ld=lot2lotMap[lk];
         if(ld){
           const li=ld.lotIdx[row['LOTID']]??-1;
@@ -1052,7 +1052,7 @@ function calcStats(results) {
   const groups={};
   results.forEach(r=>{
     // _statsKey: parseExcel에서 사전 계산 (구버전 스냅샷 호환: 없으면 즉석 계산)
-    const k=r._statsKey||`${r['EQP ID']}|||${r['CH']}|||${r['PARAMETER']}`;
+    const k=r._statsKey||`${r['EQP ID']}|||${r['CH']}|||${r['PPID']}`;
     (groups[k]=groups[k]||[]).push(r);
   });
   return Object.entries(groups).map(([k,rows])=>{
@@ -1078,7 +1078,7 @@ function buildIndex(results) {
   const eqpChs=new Map();      // eqp → Set<ch>
   const eqpChParams=new Map(); // "eqp|ch" → Set<param>
   results.forEach(r=>{
-    const e=r['EQP ID'], c=r['CH']||'', p=r['PARAMETER'];
+    const e=r['EQP ID'], c=r['CH']||'', p=r['PPID'];
     eqpSet.add(e);
     if(c) chSet.add(c);
     paramSet.add(p);
@@ -1104,7 +1104,7 @@ function renderSummary(results) {
     <div class="s-card c-yellow"><div class="val">${rate}%</div><div class="lbl">이상 비율</div></div>
     <div class="s-card c-blue"> <div class="val">${eqpSet.size}</div><div class="lbl">EQP 수</div></div>
     ${chs>0?`<div class="s-card c-blue"><div class="val">${chs}</div><div class="lbl">CH 수</div></div>`:''}
-    <div class="s-card c-blue"> <div class="val">${paramSet.size}</div><div class="lbl">PARAMETER 수</div></div>`;
+    <div class="s-card c-blue"> <div class="val">${paramSet.size}</div><div class="lbl">PPID 수</div></div>`;
 }
 
 /* ── Banner ── */
@@ -1123,7 +1123,7 @@ function renderBanner(results) {
     const chInfo=worst['CH']?` / CH ${worst['CH']}`:'';
     el.innerHTML=`<div class="alert-bar danger"><span class="alert-icon">⚠️</span>
       <span><strong>${anomCount}건의 이상</strong> 감지됨. 최대 편차: <strong>${maxDiff.toFixed(4)}</strong>
-      (${worst['EQP ID']}${chInfo} / ${worst['PARAMETER']} / SLOT&nbsp;${worst['SLOT']})</span></div>`;
+      (${worst['EQP ID']}${chInfo} / ${worst['PPID']} / SLOT&nbsp;${worst['SLOT']})</span></div>`;
   }
 }
 
@@ -1151,7 +1151,7 @@ function renderStats(stats) {
 const RANK_DIMS=[
   {key:'EQP ID',label:'EQP별 이상 건수'},
   {key:'CH',    label:'CH별 이상 건수'},
-  {key:'PARAMETER',label:'PARAMETER별 이상 건수'},
+  {key:'PPID',label:'PPID별 이상 건수'},
   {key:'SLOT',  label:'SLOT별 이상 건수'},
 ];
 function renderRanking(results) {
@@ -1223,7 +1223,7 @@ async function renderCharts(results, stats) {
   results.forEach(r => {
     if (fCEqp && r['EQP ID'] !== fCEqp) return;
     if (fCCh  && r['CH']     !== fCCh)  return;
-    const p = r['PARAMETER'];
+    const p = r['PPID'];
     if (!preGroup.has(p)) preGroup.set(p, new Map());
     const gk = `${r['EQP ID']}|${r['LOTID']}|${r['CH']}`;
     const m = preGroup.get(p);
@@ -1523,10 +1523,10 @@ function renderEqpScatter() {
   const base = gResults.filter(r =>
     r['EQP ID'] === eqp &&
     (ch    === '' || r['CH']        === ch)    &&
-    (param === '' || r['PARAMETER'] === param)
+    (param === '' || r['PPID'] === param)
   );
 
-  const params = [...new Set(base.map(r=>r['PARAMETER']))];
+  const params = [...new Set(base.map(r=>r['PPID']))];
   const allTimes = base.filter(r=>r._time!=null).map(r=>r._time);
   const hasTime  = allTimes.length > 0;
   const tRef     = hasTime ? allTimes.reduce((a,b)=>a<b?a:b, Infinity)  : 0;
@@ -1535,7 +1535,7 @@ function renderEqpScatter() {
   const ps       = parseInt(document.getElementById('pointSize')?.value)||5;
 
   const datasets = params.map((p, pi) => {
-    const rows = base.filter(r=>r['PARAMETER']===p);
+    const rows = base.filter(r=>r['PPID']===p);
     rows.sort((a,b)=> hasTime ? ((a._time??a._slot)-(b._time??b._slot)) : a._slot-b._slot);
     const color = PALETTE[pi % PALETTE.length];
     let pts = rows.map(r=>({ x: hasTime&&r._time!=null?(r._time-tRef)/1000:r._slot, y:r._val }));
@@ -1719,7 +1719,7 @@ function showDragSelection(selected, infoElemId) {
     <table>
       <thead><tr>
         <th>날짜</th><th>EQP ID</th><th>LOT ID</th><th>SLOT</th><th>CH</th>
-        <th>PARAMETER</th><th>REAL DATA</th><th>편차/변화량</th><th>상태</th>
+        <th>PPID</th><th>REAL DATA</th><th>편차/변화량</th><th>상태</th>
       </tr></thead>
       <tbody>
         ${selected.map(r=>`<tr class="${r.isAnom?'is-anom':''}">
@@ -1728,7 +1728,7 @@ function showDragSelection(selected, infoElemId) {
           <td>${r['LOTID']||''}</td>
           <td>${r['SLOT']??''}</td>
           <td>${r['CH']||''}</td>
-          <td>${r['PARAMETER']||''}</td>
+          <td>${r['PPID']||''}</td>
           <td>${r['REAL DATA']??''}</td>
           <td style="color:${r.isAnom?'#f85149':'inherit'}">${r.diff!=null?Number(r.diff).toFixed(4):'-'}</td>
           <td>${r.isAnom?'<span style="color:#f85149;font-weight:600">⚠ 이상</span>':'<span style="color:#3fb950">✓ 정상</span>'}</td>
@@ -1799,7 +1799,7 @@ function renderAnomPage() {
     return;
   }
   anomTbody.innerHTML = slice.map(row =>
-    `<tr class="anom-row" data-eqp="${row['EQP ID']||''}" data-param="${row['PARAMETER']||''}">${rowHTML(row,true)}</tr>`
+    `<tr class="anom-row" data-eqp="${row['EQP ID']||''}" data-param="${row['PPID']||''}">${rowHTML(row,true)}</tr>`
   ).join('');
 
   const pg = document.getElementById('anomPagination');
@@ -1833,7 +1833,7 @@ function renderFullPage(src) {
   // innerHTML 일괄 빌드 (createElement 반복보다 빠름)
   document.getElementById('fullTbody').innerHTML=slice.map(row=>{
     const cls=row.isAnom?' class="anom-row"':'';
-    return `<tr${cls} data-eqp="${row['EQP ID']||''}" data-ch="${row['CH']||''}" data-param="${row['PARAMETER']||''}" data-status="${row.isAnom?'anom':'ok'}" data-date="${String(row['날짜']).slice(0,10)}">${rowHTML(row,false)}</tr>`;
+    return `<tr${cls} data-eqp="${row['EQP ID']||''}" data-ch="${row['CH']||''}" data-param="${row['PPID']||''}" data-status="${row.isAnom?'anom':'ok'}" data-date="${String(row['날짜']).slice(0,10)}">${rowHTML(row,false)}</tr>`;
   }).join('');
 
   // 페이지네이션 컨트롤
@@ -1866,13 +1866,13 @@ function rowHTML(row,isAnomTable){
   if (isAnomTable) return `
     <td>${row['날짜']}</td><td>${row['EQP ID']}</td><td>${row['LOTID']}</td>
     <td>${row['SLOT']}</td><td>${row['CH']||'-'}</td>
-    <td>${row['PARAMETER']}</td><td><strong>${row['REAL DATA']}</strong></td>
+    <td>${row['PPID']}</td><td><strong>${row['REAL DATA']}</strong></td>
     <td>${prevStr}</td><td class="diff-anom">${diffStr}</td>
     <td>${row.threshold}</td><td style="color:var(--tx2);font-size:11px">${methodTag}</td><td>${badge}</td>`;
   return `
     <td>${row['날짜']}</td><td>${row['EQP ID']}</td><td>${row['LOTID']}</td>
     <td>${row['SLOT']}</td><td>${row['CH']||'-'}</td>
-    <td>${row['PARAMETER']}</td><td>${row['REAL DATA']}</td>
+    <td>${row['PPID']}</td><td>${row['REAL DATA']}</td>
     <td>${prevStr}</td><td class="${row.isAnom?'diff-anom':''}">${diffStr}</td>
     <td>${badge}</td>`;
 }
@@ -1904,7 +1904,7 @@ function applyFilter(){
       const rStatus=r.isAnom?'이상':'정상';
       return (!eqp||r['EQP ID']===eqp)
           && (!ch||r['CH']===ch)
-          && (!param||r['PARAMETER']===param)
+          && (!param||r['PPID']===param)
           && (!status||rStatus===status)
           && (!df||rDate>=df)
           && (!dt||rDate<=dt);
@@ -1922,9 +1922,9 @@ function applyFilter(){
 function exportCSV(type){
   const rows=type==='anomaly'?gResults.filter(r=>r.isAnom):gResults;
   if (!rows.length){toast('내보낼 데이터가 없습니다.','err');return;}
-  const hdr=['날짜','EQP ID','LOTID','SLOT','CH','PARAMETER','REAL DATA','참조값','편차/변화량','임계값','감지방식','상태'];
+  const hdr=['날짜','EQP ID','LOTID','SLOT','CH','PPID','REAL DATA','참조값','편차/변화량','임계값','감지방식','상태'];
   const body=rows.map(r=>[
-    r['날짜'],r['EQP ID'],r['LOTID'],r['SLOT'],r['CH'],r['PARAMETER'],r['REAL DATA'],
+    r['날짜'],r['EQP ID'],r['LOTID'],r['SLOT'],r['CH'],r['PPID'],r['REAL DATA'],
     r.prevVal!=null?r.prevVal.toFixed(4):'',
     r.diff!=null?r.diff.toFixed(4):'',
     r.threshold, METHOD_LABEL[r.method]||r.method, r.isAnom?'이상':'정상'
@@ -2022,7 +2022,7 @@ function clearAll(){
 ══════════════════════════════════════════════════════ */
 function loadSample(){
   const rows=[
-    '날짜\tEQP ID\tLOTID\tSLOT\tCH\tPARAMETER\tREAL DATA',
+    '날짜\tEQP ID\tLOTID\tSLOT\tCH\tPPID\tREAL DATA',
     '2024-01-15 08:00\tEQP01\tLOT001\t1\tCH1\tTEMP\t250.3',
     '2024-01-15 08:05\tEQP01\tLOT001\t2\tCH1\tTEMP\t251.1',
     '2024-01-15 08:10\tEQP01\tLOT001\t3\tCH1\tTEMP\t250.8',
@@ -2085,16 +2085,16 @@ function handleFileDrop(e) {
 }
 
 /* ══════════════════════════════════════════════════════
-   EQP × PARAMETER 이상률 히트맵
+   EQP × PPID 이상률 히트맵
 ══════════════════════════════════════════════════════ */
 function renderHeatmap(results) {
   const eqps   = [...new Set(results.map(r=>r['EQP ID']))].sort();
-  const params = [...new Set(results.map(r=>r['PARAMETER']))].sort();
+  const params = [...new Set(results.map(r=>r['PPID']))].sort();
 
   // O(N) 사전 집계 — 중첩 filter() 제거
   const agg={};
   results.forEach(r=>{
-    const e=r['EQP ID'], p=r['PARAMETER'];
+    const e=r['EQP ID'], p=r['PPID'];
     if(!agg[e]) agg[e]={};
     if(!agg[e][p]) agg[e][p]={total:0,anom:0};
     agg[e][p].total++;
@@ -2142,9 +2142,9 @@ function renderHeatmap(results) {
 const gSortState = {};
 
 // 이상감지 테이블 컬럼 → 필드 매핑
-const _ANOM_FIELDS = ['날짜','EQP ID','LOTID','SLOT','CH','PARAMETER','REAL DATA','prevVal','diff','threshold','method','isAnom'];
+const _ANOM_FIELDS = ['날짜','EQP ID','LOTID','SLOT','CH','PPID','REAL DATA','prevVal','diff','threshold','method','isAnom'];
 // 전체 데이터 테이블 컬럼 → 필드 매핑
-const _FULL_FIELDS = ['날짜','EQP ID','LOTID','SLOT','CH','PARAMETER','REAL DATA','prevVal','diff','isAnom'];
+const _FULL_FIELDS = ['날짜','EQP ID','LOTID','SLOT','CH','PPID','REAL DATA','prevVal','diff','isAnom'];
 
 function _fieldVal(row, field) {
   if (field === 'isAnom')  return row.isAnom ? 1 : 0;
@@ -2229,7 +2229,7 @@ function clearDrillDown() {
 function filterAnomTable(eqp, param) {
   // gAnomsAll 캐시 사용 — gResults 재스캔 불필요
   gAnoms = (eqp || param)
-    ? gAnomsAll.filter(r => (!eqp || r['EQP ID']===eqp) && (!param || r['PARAMETER']===param))
+    ? gAnomsAll.filter(r => (!eqp || r['EQP ID']===eqp) && (!param || r['PPID']===param))
     : gAnomsAll;
   gPage.anom = 1;
   renderAnomPage();
@@ -2360,7 +2360,7 @@ async function _migrateLS() {
             total:  snap.summary?.total  ?? snap.gResults?.length ?? 0,
             anoms:  snap.summary?.anoms  ?? snap.gResults?.filter(r=>r.isAnom).length ?? 0,
             eqps:   snap.summary?.eqps   ?? (snap.gResults?[...new Set(snap.gResults.map(r=>r['EQP ID']))].length:0),
-            params: snap.summary?.params ?? (snap.gResults?[...new Set(snap.gResults.map(r=>r['PARAMETER']))].length:0),
+            params: snap.summary?.params ?? (snap.gResults?[...new Set(snap.gResults.map(r=>r['PPID']))].length:0),
           },
           gResults: snap.gResults ?? [],
         });
@@ -2391,7 +2391,7 @@ async function saveAnalysis() {
       total:  gResults.length,
       anoms,
       eqps:   [...new Set(gResults.map(r=>r['EQP ID']))].length,
-      params: [...new Set(gResults.map(r=>r['PARAMETER']))].length,
+      params: [...new Set(gResults.map(r=>r['PPID']))].length,
     },
     gResults,
   };
@@ -2518,8 +2518,8 @@ async function applySnapshot(snap) {
   gResults = snap.gResults;
   if(gResults.length && !gResults[0]._statsKey) {
     gResults.forEach(r=>{
-      r._key      = `${r['EQP ID']}|||${r['LOTID']}|||${r['CH']}|||${r['PARAMETER']}`;
-      r._statsKey = `${r['EQP ID']}|||${r['CH']}|||${r['PARAMETER']}`;
+      r._key      = `${r['EQP ID']}|||${r['LOTID']}|||${r['CH']}|||${r['PPID']}`;
+      r._statsKey = `${r['EQP ID']}|||${r['CH']}|||${r['PPID']}`;
     });
   }
   gThreshold = parseFloat(snap.settings?.threshold) || 10;
@@ -2627,7 +2627,7 @@ function downloadReport() {
   const anomRows = anoms.map(r=>`
     <tr style="background:#fff5f5">
       <td>${r['날짜']||''}</td><td>${r['EQP ID']||''}</td><td>${r['LOTID']||''}</td>
-      <td>${r['SLOT']??''}</td><td>${r['CH']||''}</td><td>${r['PARAMETER']||''}</td>
+      <td>${r['SLOT']??''}</td><td>${r['CH']||''}</td><td>${r['PPID']||''}</td>
       <td>${r['REAL DATA']??''}</td>
       <td>${r.ref!==null&&r.ref!==undefined?Number(r.ref).toFixed(4):'-'}</td>
       <td style="color:#c9303a;font-weight:600">${r.diff!==null&&r.diff!==undefined?Number(r.diff).toFixed(4):'-'}</td>
@@ -2640,7 +2640,7 @@ function downloadReport() {
   const dataRows = (showAll ? gResults : gResults.slice(0,500)).map(r=>`
     <tr>
       <td>${r['날짜']||''}</td><td>${r['EQP ID']||''}</td><td>${r['LOTID']||''}</td>
-      <td>${r['SLOT']??''}</td><td>${r['CH']||''}</td><td>${r['PARAMETER']||''}</td>
+      <td>${r['SLOT']??''}</td><td>${r['CH']||''}</td><td>${r['PPID']||''}</td>
       <td>${r['REAL DATA']??''}</td>
       <td>${r.diff!==null&&r.diff!==undefined?Number(r.diff).toFixed(4):'-'}</td>
       <td>${r.isAnom
@@ -2686,13 +2686,13 @@ function downloadReport() {
     <div class="s-card green"><div class="val">${(total-anoms.length).toLocaleString()}</div><div class="lbl">정상 건수</div></div>
     <div class="s-card yellow"><div class="val">${rate}%</div><div class="lbl">이상 비율</div></div>
     <div class="s-card"><div class="val">${new Set(gResults.map(r=>r['EQP ID'])).size}</div><div class="lbl">EQP 수</div></div>
-    <div class="s-card"><div class="val">${new Set(gResults.map(r=>r['PARAMETER'])).size}</div><div class="lbl">PARAMETER 수</div></div>
+    <div class="s-card"><div class="val">${new Set(gResults.map(r=>r['PPID'])).size}</div><div class="lbl">PPID 수</div></div>
   </div>
 
-  <h2>📋 통계 요약 (EQP / CH / PARAMETER 별)</h2>
+  <h2>📋 통계 요약 (EQP / CH / PPID 별)</h2>
   <table>
     <thead><tr>
-      <th>EQP ID</th><th>CH</th><th>PARAMETER</th><th>건수</th>
+      <th>EQP ID</th><th>CH</th><th>PPID</th><th>건수</th>
       <th>평균</th><th>표준편차</th><th>최솟값</th><th>최댓값</th>
       <th>범위</th><th>CV%</th><th>UCL(+3σ)</th><th>LCL(−3σ)</th>
       <th>이상 건수</th><th>이상률</th>
@@ -2706,7 +2706,7 @@ function downloadReport() {
     : `<table>
     <thead><tr>
       <th>날짜</th><th>EQP ID</th><th>LOTID</th><th>SLOT</th><th>CH</th>
-      <th>PARAMETER</th><th>REAL DATA</th><th>참조값</th><th>편차/변화량</th><th>임계값</th><th>상태</th>
+      <th>PPID</th><th>REAL DATA</th><th>참조값</th><th>편차/변화량</th><th>임계값</th><th>상태</th>
     </tr></thead>
     <tbody>${anomRows}</tbody>
   </table>`}
@@ -2716,7 +2716,7 @@ function downloadReport() {
   <table>
     <thead><tr>
       <th>날짜</th><th>EQP ID</th><th>LOTID</th><th>SLOT</th><th>CH</th>
-      <th>PARAMETER</th><th>REAL DATA</th><th>편차/변화량</th><th>상태</th>
+      <th>PPID</th><th>REAL DATA</th><th>편차/변화량</th><th>상태</th>
     </tr></thead>
     <tbody>${dataRows}</tbody>
   </table>
