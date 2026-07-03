@@ -159,6 +159,20 @@
     .drag-select-info tr:last-child td{border-bottom:none;}
     .drag-select-info tr.is-anom td{background:rgba(248,81,73,.07);}
 
+    /* ── 히스토리 모달 ── */
+    .hist-modal-overlay{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;}
+    .hist-modal-overlay.open{display:flex;}
+    .hist-modal{background:var(--bg2);border:1px solid var(--bd);border-radius:12px;width:min(780px,95vw);max-height:82vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.5);}
+    .hist-modal-head{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--bd);}
+    .hist-modal-body{overflow:auto;padding:4px 0;}
+    .hist-modal-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid var(--bd);}
+    .hist-table{width:100%;border-collapse:collapse;font-size:13px;}
+    .hist-table th{padding:8px 12px;text-align:left;color:var(--tx2);font-weight:600;font-size:11px;border-bottom:1px solid var(--bd);white-space:nowrap;background:var(--bg1);position:sticky;top:0;}
+    .hist-table td{padding:9px 12px;border-bottom:1px solid var(--bd);vertical-align:middle;}
+    .hist-table tr:last-child td{border-bottom:none;}
+    .hist-table tr:hover td{background:rgba(56,139,253,.07);}
+    .hist-badge{display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;}
+
     @media(max-width:700px){main{padding:14px;}header{padding:14px;}}
   </style>
 </head>
@@ -270,7 +284,7 @@
       </div>
       <div style="height:1px;background:var(--bd);flex-basis:100%;margin:4px 0"></div>
       <button class="btn btn-secondary" onclick="saveAnalysis()">💾 분석 저장</button>
-      <button class="btn btn-secondary" onclick="loadLastSaved()">🕐 이전 불러오기</button>
+      <button class="btn btn-secondary" onclick="openHistoryModal()">🕐 히스토리</button>
       <button class="btn btn-secondary" onclick="document.getElementById('loadJsonInput').click()">📂 파일 불러오기</button>
       <input type="file" id="loadJsonInput" accept=".json" style="display:none" onchange="loadAnalysisFile(event)">
       <div style="height:1px;background:var(--bd);flex-basis:100%;margin:4px 0"></div>
@@ -2120,14 +2134,50 @@ function loadSettings() {
 loadSettings();
 
 /* ══════════════════════════════════════════════════════
-   분석 저장 / 불러오기
+   분석 히스토리 (다중 저장/불러오기)
 ══════════════════════════════════════════════════════ */
+const HIST_KEY = 'fdcHistory';
+const HIST_MAX = 10;
+
+function _getHistory() {
+  try {
+    // 구버전 단일 스냅샷 자동 마이그레이션
+    const legacy = JSON.parse(localStorage.getItem('fdcSnapshot')||'null');
+    if (legacy) {
+      const hist = JSON.parse(localStorage.getItem(HIST_KEY)||'[]');
+      if (!hist.some(e=>e.savedAt===legacy.savedAt)) {
+        const ts = new Date(legacy.savedAt||Date.now()).getTime();
+        hist.push({
+          id:ts, savedAt:legacy.savedAt||new Date(ts).toISOString(),
+          settings:legacy.settings, colMap:legacy.colMap,
+          summary:{ total:legacy.gResults?.length||0, anoms:legacy.gResults?.filter(r=>r.isAnom).length||0, eqps:legacy.gResults?[...new Set(legacy.gResults.map(r=>r['EQP ID']))].length:0 },
+          gResults:legacy.gResults,
+        });
+        try { localStorage.setItem(HIST_KEY, JSON.stringify(hist)); } catch(e){}
+        localStorage.removeItem('fdcSnapshot');
+      }
+    }
+    return JSON.parse(localStorage.getItem(HIST_KEY)||'[]');
+  } catch(e) { return []; }
+}
+
+function _saveHistory(list) {
+  let arr = [...list];
+  // QuotaExceededError 시 오래된 항목 순차 제거 후 재시도
+  for (let i = 0; i <= arr.length; i++) {
+    try { localStorage.setItem(HIST_KEY, JSON.stringify(arr)); return true; }
+    catch(e) { if(arr.length===0) break; arr.pop(); }
+  }
+  return false;
+}
+
 function saveAnalysis() {
   if (!gResults.length) { toast('먼저 분석을 실행하세요.','err'); return; }
-  const snap = {
-    version:'3.10', savedAt:new Date().toISOString(),
-    text: document.getElementById('dataInput').value,
-    colMap: FIELDS.reduce((m,f)=>{ const el=document.getElementById(f.id); m[f.id]=el?el.value:'-1'; return m; },{}),
+  const ts   = Date.now();
+  const anoms = gResults.filter(r=>r.isAnom).length;
+  const entry = {
+    id: ts,
+    savedAt: new Date(ts).toISOString(),
     settings: {
       method:    document.getElementById('detectMethod').value,
       threshold: document.getElementById('threshold').value,
@@ -2136,22 +2186,100 @@ function saveAnalysis() {
       cusumK:    document.getElementById('cusumK').value,
       showSPC:   document.getElementById('showSPC').checked,
     },
+    colMap: FIELDS.reduce((m,f)=>{ const el=document.getElementById(f.id); m[f.id]=el?el.value:'-1'; return m; },{}),
+    summary: {
+      total:  gResults.length,
+      anoms,
+      eqps:   [...new Set(gResults.map(r=>r['EQP ID']))].length,
+      params: [...new Set(gResults.map(r=>r['PARAMETER']))].length,
+    },
     gResults,
   };
-  try { localStorage.setItem('fdcSnapshot', JSON.stringify(snap)); } catch(e) {}
-  const blob = new Blob([JSON.stringify(snap,null,2)],{type:'application/json'});
+
+  // 히스토리 배열에 추가 (최신순, 최대 HIST_MAX)
+  const hist = _getHistory();
+  hist.unshift(entry);
+  if (hist.length > HIST_MAX) hist.length = HIST_MAX;
+  const saved = _saveHistory(hist);
+
+  // JSON 파일 다운로드 (원본 텍스트 포함)
+  const fileSnap = { ...entry, version:'3.11', text: document.getElementById('dataInput').value };
+  const blob = new Blob([JSON.stringify(fileSnap,null,2)],{type:'application/json'});
   const url  = URL.createObjectURL(blob);
   Object.assign(document.createElement('a'),{href:url,download:`fdc_snapshot_${today()}.json`}).click();
   URL.revokeObjectURL(url);
-  toast('분석 저장 완료 (로컬 + JSON 파일)','ok');
+  toast(saved?'분석 저장 완료 (히스토리 + JSON 파일)':'저장소 부족 — JSON 파일만 다운로드', saved?'ok':'err');
 }
 
-function loadLastSaved() {
-  try {
-    const snap = JSON.parse(localStorage.getItem('fdcSnapshot')||'null');
-    if (!snap) { toast('저장된 데이터가 없습니다.','err'); return; }
-    applySnapshot(snap);
-  } catch(e) { toast('불러오기 실패','err'); }
+const _METHOD_SHORT = { abs:'절대값', sigma:'σ배수', pct:'변화율%', slope_diff:'기울기Δ', slope_win:'이동기울기',
+  daily_avg:'일평균', ewma:'EWMA', cusum:'CUSUM', run_bias:'런편향', run_trend:'런트렌드',
+  spc_rules:'SPC복합', iqr:'IQR', mad:'MAD', wtw:'WTW', ch_match:'CH매칭', lot2lot:'L2L',
+  t_step:'t계단', f_var:'F분산' };
+
+function _renderHistList() {
+  const list = _getHistory();
+  const tbody = document.getElementById('histTbody');
+  if (!tbody) return;
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--tx2)">저장된 히스토리가 없습니다.<br><small>분석 후 💾 분석 저장을 누르면 이 곳에 기록됩니다.</small></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = list.map((e, i) => {
+    const dt  = new Date(e.savedAt);
+    const pad = n => String(n).padStart(2,'0');
+    const dateStr = `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`;
+    const timeStr = `${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
+    const total   = e.summary?.total  ?? e.gResults?.length ?? 0;
+    const anoms   = e.summary?.anoms  ?? e.gResults?.filter(r=>r.isAnom).length ?? 0;
+    const eqps    = e.summary?.eqps   ?? '-';
+    const method  = _METHOD_SHORT[e.settings?.method] || e.settings?.method || '-';
+    const thr     = e.settings?.threshold ?? '-';
+    const hasRes  = !!e.gResults?.length;
+    const anomClr = anoms > 0 ? '#f85149' : '#3fb950';
+    return `<tr>
+      <td style="text-align:center;color:var(--tx2);font-size:12px">${i+1}</td>
+      <td>
+        <div style="font-weight:700;color:var(--tx1);font-size:13px">${dateStr}</div>
+        <div style="font-size:11px;color:var(--tx2);margin-top:2px">${timeStr}</div>
+      </td>
+      <td style="text-align:right;font-weight:600">${total.toLocaleString()}</td>
+      <td style="text-align:right;font-weight:700;color:${anomClr}">${anoms.toLocaleString()}</td>
+      <td style="text-align:center">
+        <span class="hist-badge" style="background:rgba(56,139,253,.15);color:#388bfd">${method}</span>
+        <div style="font-size:10px;color:var(--tx2);margin-top:2px">임계: ${thr}</div>
+      </td>
+      <td style="text-align:center;color:var(--tx2)">${eqps}</td>
+      <td style="text-align:center;white-space:nowrap">
+        ${hasRes
+          ? `<button class="btn btn-primary btn-sm" onclick="loadHistoryEntry(${e.id})">불러오기</button>`
+          : `<span style="color:var(--tx2);font-size:11px">결과없음</span>`}
+        <button class="btn btn-secondary btn-sm" style="margin-left:4px" onclick="deleteHistoryEntry(${e.id})">삭제</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function openHistoryModal() {
+  document.getElementById('histModal').classList.add('open');
+  _renderHistList();
+}
+function closeHistoryModal() {
+  document.getElementById('histModal').classList.remove('open');
+}
+function loadHistoryEntry(id) {
+  const entry = _getHistory().find(e=>e.id===id);
+  if (!entry) { toast('항목을 찾을 수 없습니다.','err'); return; }
+  closeHistoryModal();
+  applySnapshot(entry);
+}
+function deleteHistoryEntry(id) {
+  _saveHistory(_getHistory().filter(e=>e.id!==id));
+  _renderHistList();
+}
+function clearAllHistory() {
+  if (!confirm('모든 히스토리를 삭제하시겠습니까?')) return;
+  localStorage.removeItem(HIST_KEY);
+  _renderHistList();
 }
 
 function loadAnalysisFile(e) {
@@ -2382,5 +2510,35 @@ function toast(msg,type=''){
   setTimeout(()=>el.remove(),4500);
 }
 </script>
+
+<!-- 히스토리 모달 -->
+<div id="histModal" class="hist-modal-overlay" onclick="if(event.target===this)closeHistoryModal()">
+  <div class="hist-modal">
+    <div class="hist-modal-head">
+      <span style="font-size:15px;font-weight:700;color:var(--tx1)">📋 분석 히스토리</span>
+      <button class="btn btn-secondary btn-sm" onclick="closeHistoryModal()">✕ 닫기</button>
+    </div>
+    <div class="hist-modal-body">
+      <table class="hist-table">
+        <thead>
+          <tr>
+            <th style="text-align:center;width:36px">#</th>
+            <th>저장 일시</th>
+            <th style="text-align:right">전체 행</th>
+            <th style="text-align:right">이상 건</th>
+            <th style="text-align:center">감지 방식</th>
+            <th style="text-align:center">EQP수</th>
+            <th style="text-align:center">조작</th>
+          </tr>
+        </thead>
+        <tbody id="histTbody"></tbody>
+      </table>
+    </div>
+    <div class="hist-modal-foot">
+      <button class="btn btn-secondary btn-sm" onclick="clearAllHistory()" style="color:#f85149;margin-right:auto">🗑 전체 삭제</button>
+      <button class="btn btn-secondary btn-sm" onclick="closeHistoryModal()">닫기</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
