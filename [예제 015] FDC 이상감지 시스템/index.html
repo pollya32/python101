@@ -143,6 +143,14 @@
     .hm-cell{min-width:62px;height:30px;text-align:center;border-radius:4px;font-size:10px;font-weight:700;vertical-align:middle;cursor:default;}
     .hm-cell:hover{filter:brightness(1.2);}
 
+    /* ── 드래그 선택 결과 패널 ── */
+    .drag-select-info{margin-top:10px;padding:12px 14px;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;font-size:12px;}
+    .drag-select-info table{width:100%;border-collapse:collapse;}
+    .drag-select-info th{padding:5px 8px;text-align:left;border-bottom:1px solid var(--bd);color:var(--tx2);font-weight:600;white-space:nowrap;background:var(--bg1);}
+    .drag-select-info td{padding:4px 8px;border-bottom:1px solid var(--bd);color:var(--tx1);white-space:nowrap;}
+    .drag-select-info tr:last-child td{border-bottom:none;}
+    .drag-select-info tr.is-anom td{background:rgba(248,81,73,.07);}
+
     @media(max-width:700px){main{padding:14px;}header{padding:14px;}}
   </style>
 </head>
@@ -389,6 +397,7 @@
         </div>
       </div>
       <div class="chart-wrap" style="height:360px"><canvas id="scatterCanvas"></canvas></div>
+      <div id="scatterDragInfo" class="drag-select-info" style="display:none"></div>
     </div>
 
     <!-- 전체 데이터 -->
@@ -1127,6 +1136,11 @@ function renderCharts(results, stats) {
     wrap.className='chart-wrap';
     wrap.appendChild(canvas);
     panel.appendChild(wrap);
+    const dragInfoDiv=document.createElement('div');
+    dragInfoDiv.id=`drag_info_${pi}`;
+    dragInfoDiv.className='drag-select-info';
+    dragInfoDiv.style.display='none';
+    panel.appendChild(dragInfoDiv);
     panelEl.appendChild(panel);
 
     /* Build datasets */
@@ -1279,6 +1293,7 @@ function renderCharts(results, stats) {
           }
         }
       });
+      setupDragSelect(wrap, ()=>gCharts[param], `drag_info_${pi}`);
     },0);
   });
 }
@@ -1456,6 +1471,126 @@ function renderEqpScatter() {
       }
     }
   });
+  const scWrap = document.getElementById('scatterCanvas')?.closest('.chart-wrap');
+  if (scWrap) setupDragSelect(scWrap, ()=>gScatterChart, 'scatterDragInfo');
+}
+
+/* ══════════════════════════════════════════════════════
+   드래그 영역 선택
+══════════════════════════════════════════════════════ */
+function setupDragSelect(chartWrap, getChart, infoElemId) {
+  // 기존 overlay 제거 후 재생성 (차트 재렌더 시 중복 방지)
+  chartWrap.querySelectorAll('.ds-overlay').forEach(el=>el.remove());
+  chartWrap.querySelectorAll('.ds-hint').forEach(el=>el.remove());
+  chartWrap.style.position = 'relative';
+
+  const overlay = document.createElement('canvas');
+  overlay.className = 'ds-overlay';
+  overlay.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:5;';
+  chartWrap.appendChild(overlay);
+
+  const hint = document.createElement('div');
+  hint.className = 'ds-hint';
+  hint.textContent = '드래그로 영역 선택';
+  hint.style.cssText = 'position:absolute;bottom:6px;right:10px;font-size:10px;color:rgba(139,148,158,.5);pointer-events:none;z-index:6;';
+  chartWrap.appendChild(hint);
+
+  function syncOverlay() {
+    overlay.width  = chartWrap.offsetWidth;
+    overlay.height = chartWrap.offsetHeight;
+  }
+  syncOverlay();
+  new ResizeObserver(syncOverlay).observe(chartWrap);
+
+  let drag = null;
+
+  chartWrap.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    const r = chartWrap.getBoundingClientRect();
+    drag = { sx: e.clientX-r.left, sy: e.clientY-r.top, ex: 0, ey: 0, moved: false };
+  });
+
+  const onMove = e => {
+    if (!drag) return;
+    const r = chartWrap.getBoundingClientRect();
+    drag.ex = e.clientX - r.left;
+    drag.ey = e.clientY - r.top;
+    if (!drag.moved && (Math.abs(drag.ex-drag.sx)>5 || Math.abs(drag.ey-drag.sy)>5)) drag.moved = true;
+    if (!drag.moved) return;
+    const ctx = overlay.getContext('2d');
+    ctx.clearRect(0,0,overlay.width,overlay.height);
+    const x=Math.min(drag.sx,drag.ex), y=Math.min(drag.sy,drag.ey);
+    const w=Math.abs(drag.ex-drag.sx), h=Math.abs(drag.ey-drag.sy);
+    ctx.fillStyle = 'rgba(56,139,253,0.10)';
+    ctx.fillRect(x,y,w,h);
+    ctx.strokeStyle = '#388bfd';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5,3]);
+    ctx.strokeRect(x,y,w,h);
+  };
+
+  const onUp = e => {
+    if (!drag) return;
+    const d = drag; drag = null;
+    overlay.getContext('2d').clearRect(0,0,overlay.width,overlay.height);
+    if (!d.moved) return;
+
+    const chart = getChart();
+    if (!chart) return;
+    const minX=Math.min(d.sx,d.ex), maxX=Math.max(d.sx,d.ex);
+    const minY=Math.min(d.sy,d.ey), maxY=Math.max(d.sy,d.ey);
+
+    const selected = [];
+    chart.data.datasets.forEach((ds, di) => {
+      if (!ds._rows) return;
+      const meta = chart.getDatasetMeta(di);
+      ds._rows.forEach((row, i) => {
+        const pt = meta.data[i];
+        if (pt && pt.x>=minX && pt.x<=maxX && pt.y>=minY && pt.y<=maxY)
+          selected.push(row);
+      });
+    });
+    showDragSelection(selected, infoElemId);
+  };
+
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+}
+
+function showDragSelection(selected, infoElemId) {
+  const el = document.getElementById(infoElemId);
+  if (!el) return;
+  if (!selected.length) { el.style.display='none'; return; }
+  el.style.display = 'block';
+  const anoms = selected.filter(r=>r.isAnom);
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <span style="font-weight:600;color:var(--tx1)">🖱 드래그 선택 ${selected.length}건</span>
+      ${anoms.length?`<span style="color:#f85149;font-weight:600">⚠ 이상 ${anoms.length}건</span>`:'<span style="color:#3fb950;font-weight:600">✓ 전체 정상</span>'}
+      <button onclick="document.getElementById('${infoElemId}').style.display='none'"
+        style="margin-left:auto;background:none;border:1px solid var(--bd);border-radius:4px;color:var(--tx2);cursor:pointer;padding:2px 8px;font-size:12px">× 닫기</button>
+    </div>
+    <div style="overflow-x:auto">
+    <table>
+      <thead><tr>
+        <th>날짜</th><th>EQP ID</th><th>LOT ID</th><th>SLOT</th><th>CH</th>
+        <th>PARAMETER</th><th>REAL DATA</th><th>편차/변화량</th><th>상태</th>
+      </tr></thead>
+      <tbody>
+        ${selected.map(r=>`<tr class="${r.isAnom?'is-anom':''}">
+          <td>${r['날짜']||''}</td>
+          <td>${r['EQP ID']||''}</td>
+          <td>${r['LOTID']||''}</td>
+          <td>${r['SLOT']??''}</td>
+          <td>${r['CH']||''}</td>
+          <td>${r['PARAMETER']||''}</td>
+          <td>${r['REAL DATA']??''}</td>
+          <td style="color:${r.isAnom?'#f85149':'inherit'}">${r.diff!=null?Number(r.diff).toFixed(4):'-'}</td>
+          <td>${r.isAnom?'<span style="color:#f85149;font-weight:600">⚠ 이상</span>':'<span style="color:#3fb950">✓ 정상</span>'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    </div>`;
 }
 
 function updateChartHeight(h) {
