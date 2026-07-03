@@ -301,6 +301,14 @@
       <div class="card-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;">
         <span>📈 PARAMETER 별 공정 추이 차트 (X축: 날짜)</span>
         <div style="display:flex;align-items:center;gap:16px;margin-left:auto;flex-wrap:wrap;">
+          <div class="ctrl-group" style="gap:6px">
+            <label style="font-size:12px;color:var(--tx2)">EQP</label>
+            <select id="cEqp" onchange="onChartFilterChange()" style="font-size:12px;padding:3px 6px;background:var(--bg2);color:var(--tx1);border:1px solid var(--bd);border-radius:4px"></select>
+          </div>
+          <div class="ctrl-group" style="gap:6px">
+            <label style="font-size:12px;color:var(--tx2)">CH</label>
+            <select id="cCh" onchange="onChartFilterChange()" style="font-size:12px;padding:3px 6px;background:var(--bg2);color:var(--tx1);border:1px solid var(--bd);border-radius:4px"></select>
+          </div>
           <div class="ctrl-group">
             <input type="checkbox" id="showDataLabels" onchange="toggleDataLabels()">
             <label for="showDataLabels" style="cursor:pointer;font-size:12px;color:var(--tx1)">데이터 레이블 표시</label>
@@ -977,6 +985,7 @@ function renderAll(results) {
   renderStats(stats);
   renderRanking(results);
   renderHeatmap(results);
+  initChartFilters(results);
   renderCharts(results, stats);
   renderTables(results);
   populateFilters(results);
@@ -1121,7 +1130,13 @@ function renderCharts(results, stats) {
     panelEl.appendChild(panel);
 
     /* Build datasets */
-    const paramRows=results.filter(r=>r['PARAMETER']===param);
+    const fCEqp = document.getElementById('cEqp')?.value || '';
+    const fCCh  = document.getElementById('cCh')?.value  || '';
+    const paramRows=results.filter(r=>
+      r['PARAMETER']===param &&
+      (!fCEqp || r['EQP ID']===fCEqp) &&
+      (!fCCh  || r['CH']===fCCh)
+    );
     const gkeys=[...new Set(paramRows.map(r=>`${r['EQP ID']}|${r['LOTID']}|${r['CH']}`))]
     const datasets=[];
 
@@ -1273,6 +1288,32 @@ function switchTab(param){
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.dataset.param===param));
 }
 
+/* ── 차트 EQP / CH 필터 ── */
+function initChartFilters(results) {
+  const eqps = [...new Set(results.map(r=>r['EQP ID']))].sort();
+  const cEqp = document.getElementById('cEqp');
+  if (!cEqp) return;
+  const prevE = cEqp.value;
+  cEqp.innerHTML = '<option value="">전체</option>' + eqps.map(e=>`<option value="${e}">${e}</option>`).join('');
+  if (eqps.includes(prevE)) cEqp.value = prevE;
+  _updateChartCh(results);
+}
+
+function _updateChartCh(results) {
+  const eqp = document.getElementById('cEqp')?.value || '';
+  const chs = [...new Set(results.filter(r=>!eqp||r['EQP ID']===eqp).map(r=>r['CH']||''))].sort();
+  const cCh = document.getElementById('cCh');
+  if (!cCh) return;
+  const prevC = cCh.value;
+  cCh.innerHTML = '<option value="">전체</option>' + chs.map(c=>`<option value="${c}">${c||'(없음)'}</option>`).join('');
+  if (chs.includes(prevC)) cCh.value = prevC;
+}
+
+function onChartFilterChange() {
+  _updateChartCh(gResults);
+  renderCharts(gResults, calcStats(gResults));
+}
+
 /* ══════════════════════════════════════════════════════
    EQP / CH 상세 산점도
 ══════════════════════════════════════════════════════ */
@@ -1373,12 +1414,14 @@ function renderEqpScatter() {
           callbacks:{
             title(items){
               const row=items[0]?.dataset._rows?.[items[0].dataIndex];
-              return row?`${row['날짜']}  (SLOT ${row['SLOT']})`:items[0]?.label||'';
+              if (!row) return items[0]?.label||'';
+              return `${row['날짜']}  |  LOT: ${row['LOTID']}  |  SLOT: ${row['SLOT']}`;
             },
             label(item){
               const row=item.dataset._rows?.[item.dataIndex];
               if (!row) return ` ${item.dataset.label}: ${item.raw.y}`;
-              const lines=[` ${item.dataset.label}: ${row['REAL DATA']}`];
+              const lines=[` [${item.dataset.label}]  ${row['REAL DATA']}`];
+              if (row['CH']) lines.push(` CH: ${row['CH']}`);
               if (row.diff!=null) lines.push(` 편차/변화량: ${Number(row.diff).toFixed(4)}`);
               if (row.isAnom) lines.push(' ⚠️ 이상감지!');
               return lines;
