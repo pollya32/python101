@@ -25,6 +25,18 @@ AI 기반 반도체 장비 부품 관리 시스템 — 기획서(부품 데이�
 
 ## 설치 및 실행
 
+### 방법 1 — 실행 파일(.exe)로 사용 (권장, Python 몰라도 됨)
+
+1. 이 폴더에서 **`build_exe.bat` 더블클릭** → 1~3분 후 `dist\SmartParts.exe` 생성
+   (최초 1회만 빌드하면 되고, Python 3.9+ 설치가 필요합니다)
+2. `SmartParts.exe` **파일 하나만** 호스트 PC의 원하는 폴더에 복사해 더블클릭
+3. 브라우저가 자동으로 열리고, DB(`smart_parts.db`)는 exe 옆에 자동 생성됩니다.
+4. 콘솔 창에 표시된 **팀원 공유 주소**를 팀원들에게 알려주면 끝. (콘솔 창을 닫으면 서버 종료)
+
+> 빌드 없이 바로 실행하려면 `실행.bat` 더블클릭 (Python 필요)
+
+### 방법 2 — Python으로 직접 실행
+
 ```bash
 pip install -r requirements.txt
 python app.py           # 기본 포트 8000 (다른 포트: python app.py 9000)

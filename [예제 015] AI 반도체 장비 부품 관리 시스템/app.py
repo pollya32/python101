@@ -25,7 +25,13 @@ from analytics import (check_stock_alerts, detect_anomaly, estimate_rul,
                        get_recommendations, mtbf_mttr, prediction_accuracy,
                        update_health, used_days_of, FAILURE_CAUSES)
 
-app = Flask(__name__)
+if getattr(sys, 'frozen', False):        # PyInstaller 실행 파일: 번들 리소스 경로 사용
+    _RES = sys._MEIPASS
+    app = Flask(__name__,
+                template_folder=os.path.join(_RES, 'templates'),
+                static_folder=os.path.join(_RES, 'static'))
+else:
+    app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'smart-parts-2026-secret')
 app.config['MAX_USERS'] = 15                      # 공유 사용 인원 제한
 API_TOKEN = os.environ.get('SENSOR_API_TOKEN', 'sensor-token-2026')
@@ -827,6 +833,10 @@ if __name__ == '__main__':
     print(f'  DB 파일          : {dbm.DB_PATH}')
     print('  기본 계정        : admin / admin1234')
     print('=' * 62)
+    if getattr(sys, 'frozen', False):    # 실행 파일로 구동 시 브라우저 자동 열기
+        import threading
+        import webbrowser
+        threading.Timer(1.5, lambda: webbrowser.open(f'http://127.0.0.1:{port}')).start()
     try:
         from waitress import serve
         serve(app, host='0.0.0.0', port=port, threads=16)

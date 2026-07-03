@@ -6,11 +6,15 @@ WAL 모드 + busy_timeout으로 15명 내외 동시 사용을 지원한다.
 
 import os
 import sqlite3
+import sys
 
-try:
-    _BASE = os.path.dirname(os.path.abspath(__file__))
-except NameError:  # 대화형 실행 대비
-    _BASE = os.getcwd()
+if getattr(sys, 'frozen', False):        # PyInstaller 실행 파일: exe가 있는 폴더에 DB 생성
+    _BASE = os.path.dirname(os.path.abspath(sys.executable))
+else:
+    try:
+        _BASE = os.path.dirname(os.path.abspath(__file__))
+    except NameError:  # 대화형 실행 대비
+        _BASE = os.getcwd()
 
 DB_PATH = os.path.join(_BASE, 'smart_parts.db')
 
