@@ -2134,46 +2134,113 @@ function loadSettings() {
 loadSettings();
 
 /* ══════════════════════════════════════════════════════
-   분석 히스토리 (다중 저장/불러오기)
+   분석 히스토리 — IndexedDB 기반 (용량 제한 없음)
 ══════════════════════════════════════════════════════ */
-const HIST_KEY = 'fdcHistory';
-const HIST_MAX = 10;
+const HIST_MAX   = 20;
+const _IDB_NAME  = 'fdcHistoryDB';
+const _IDB_VER   = 1;
+const _IDB_STORE = 'snapshots';
 
-function _getHistory() {
-  try {
-    // 구버전 단일 스냅샷 자동 마이그레이션
-    const legacy = JSON.parse(localStorage.getItem('fdcSnapshot')||'null');
-    if (legacy) {
-      const hist = JSON.parse(localStorage.getItem(HIST_KEY)||'[]');
-      if (!hist.some(e=>e.savedAt===legacy.savedAt)) {
-        const ts = new Date(legacy.savedAt||Date.now()).getTime();
-        hist.push({
-          id:ts, savedAt:legacy.savedAt||new Date(ts).toISOString(),
-          settings:legacy.settings, colMap:legacy.colMap,
-          summary:{ total:legacy.gResults?.length||0, anoms:legacy.gResults?.filter(r=>r.isAnom).length||0, eqps:legacy.gResults?[...new Set(legacy.gResults.map(r=>r['EQP ID']))].length:0 },
-          gResults:legacy.gResults,
-        });
-        try { localStorage.setItem(HIST_KEY, JSON.stringify(hist)); } catch(e){}
-        localStorage.removeItem('fdcSnapshot');
-      }
-    }
-    return JSON.parse(localStorage.getItem(HIST_KEY)||'[]');
-  } catch(e) { return []; }
+function _openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(_IDB_NAME, _IDB_VER);
+    req.onupgradeneeded = ev => {
+      const db = ev.target.result;
+      if (!db.objectStoreNames.contains(_IDB_STORE))
+        db.createObjectStore(_IDB_STORE, {keyPath:'id'});
+    };
+    req.onsuccess = ev => resolve(ev.target.result);
+    req.onerror   = ev => reject(ev.target.error);
+  });
 }
 
-function _saveHistory(list) {
-  let arr = [...list];
-  // QuotaExceededError 시 오래된 항목 순차 제거 후 재시도
-  for (let i = 0; i <= arr.length; i++) {
-    try { localStorage.setItem(HIST_KEY, JSON.stringify(arr)); return true; }
-    catch(e) { if(arr.length===0) break; arr.pop(); }
+async function _idbGetAll() {
+  const db   = await _openDB();
+  const list = await new Promise((resolve, reject) => {
+    const req = db.transaction(_IDB_STORE,'readonly').objectStore(_IDB_STORE).getAll();
+    req.onsuccess = ev => resolve(ev.target.result);
+    req.onerror   = ev => reject(ev.target.error);
+  });
+  return list.sort((a,b) => b.id - a.id); // 최신순
+}
+
+async function _idbPut(entry) {
+  const db = await _openDB();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(_IDB_STORE,'readwrite');
+    tx.objectStore(_IDB_STORE).put(entry);
+    tx.oncomplete = resolve;
+    tx.onerror    = ev => reject(ev.target.error);
+  });
+  // 최대 개수 초과 시 오래된 항목 제거
+  const all = await _idbGetAll();
+  if (all.length > HIST_MAX) {
+    const db2 = await _openDB();
+    await new Promise((resolve, reject) => {
+      const tx2 = db2.transaction(_IDB_STORE,'readwrite');
+      const st  = tx2.objectStore(_IDB_STORE);
+      all.slice(HIST_MAX).forEach(e => st.delete(e.id));
+      tx2.oncomplete = resolve;
+      tx2.onerror    = ev => reject(ev.target.error);
+    });
   }
-  return false;
 }
 
-function saveAnalysis() {
+async function _idbDelete(id) {
+  const db = await _openDB();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(_IDB_STORE,'readwrite');
+    tx.objectStore(_IDB_STORE).delete(id);
+    tx.oncomplete = resolve;
+    tx.onerror    = ev => reject(ev.target.error);
+  });
+}
+
+async function _idbClear() {
+  const db = await _openDB();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(_IDB_STORE,'readwrite');
+    tx.objectStore(_IDB_STORE).clear();
+    tx.oncomplete = resolve;
+    tx.onerror    = ev => reject(ev.target.error);
+  });
+}
+
+/* localStorage 구버전 1회 마이그레이션 */
+async function _migrateLS() {
+  if (localStorage.getItem('fdcIDBMigrated')) return;
+  for (const key of ['fdcSnapshot','fdcHistory']) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const data  = JSON.parse(raw);
+      const items = Array.isArray(data) ? data : [data];
+      for (const snap of items) {
+        if (!snap?.savedAt) continue;
+        const ts = new Date(snap.savedAt).getTime();
+        await _idbPut({
+          id: ts,
+          savedAt: snap.savedAt,
+          settings: snap.settings||{},
+          colMap:   snap.colMap||{},
+          summary: {
+            total:  snap.summary?.total  ?? snap.gResults?.length ?? 0,
+            anoms:  snap.summary?.anoms  ?? snap.gResults?.filter(r=>r.isAnom).length ?? 0,
+            eqps:   snap.summary?.eqps   ?? (snap.gResults?[...new Set(snap.gResults.map(r=>r['EQP ID']))].length:0),
+            params: snap.summary?.params ?? (snap.gResults?[...new Set(snap.gResults.map(r=>r['PARAMETER']))].length:0),
+          },
+          gResults: snap.gResults ?? [],
+        });
+      }
+      localStorage.removeItem(key);
+    } catch(e) {}
+  }
+  localStorage.setItem('fdcIDBMigrated','1');
+}
+
+async function saveAnalysis() {
   if (!gResults.length) { toast('먼저 분석을 실행하세요.','err'); return; }
-  const ts   = Date.now();
+  const ts    = Date.now();
   const anoms = gResults.filter(r=>r.isAnom).length;
   const entry = {
     id: ts,
@@ -2195,20 +2262,19 @@ function saveAnalysis() {
     },
     gResults,
   };
-
-  // 히스토리 배열에 추가 (최신순, 최대 HIST_MAX)
-  const hist = _getHistory();
-  hist.unshift(entry);
-  if (hist.length > HIST_MAX) hist.length = HIST_MAX;
-  const saved = _saveHistory(hist);
-
+  try {
+    await _idbPut(entry);
+    toast('분석 저장 완료 (히스토리 + JSON 파일)','ok');
+  } catch(e) {
+    console.error('IndexedDB save error', e);
+    toast('히스토리 저장 실패 — JSON 파일만 다운로드','err');
+  }
   // JSON 파일 다운로드 (원본 텍스트 포함)
-  const fileSnap = { ...entry, version:'3.11', text: document.getElementById('dataInput').value };
+  const fileSnap = { ...entry, version:'3.12', text: document.getElementById('dataInput').value };
   const blob = new Blob([JSON.stringify(fileSnap,null,2)],{type:'application/json'});
   const url  = URL.createObjectURL(blob);
   Object.assign(document.createElement('a'),{href:url,download:`fdc_snapshot_${today()}.json`}).click();
   URL.revokeObjectURL(url);
-  toast(saved?'분석 저장 완료 (히스토리 + JSON 파일)':'저장소 부족 — JSON 파일만 다운로드', saved?'ok':'err');
 }
 
 const _METHOD_SHORT = { abs:'절대값', sigma:'σ배수', pct:'변화율%', slope_diff:'기울기Δ', slope_win:'이동기울기',
@@ -2216,21 +2282,22 @@ const _METHOD_SHORT = { abs:'절대값', sigma:'σ배수', pct:'변화율%', slo
   spc_rules:'SPC복합', iqr:'IQR', mad:'MAD', wtw:'WTW', ch_match:'CH매칭', lot2lot:'L2L',
   t_step:'t계단', f_var:'F분산' };
 
-function _renderHistList() {
-  const list = _getHistory();
+async function _renderHistList() {
   const tbody = document.getElementById('histTbody');
   if (!tbody) return;
+  tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--tx2)">불러오는 중...</td></tr>`;
+  const list = await _idbGetAll();
   if (!list.length) {
     tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--tx2)">저장된 히스토리가 없습니다.<br><small>분석 후 💾 분석 저장을 누르면 이 곳에 기록됩니다.</small></td></tr>`;
     return;
   }
+  const pad = n => String(n).padStart(2,'0');
   tbody.innerHTML = list.map((e, i) => {
-    const dt  = new Date(e.savedAt);
-    const pad = n => String(n).padStart(2,'0');
+    const dt      = new Date(e.savedAt);
     const dateStr = `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`;
     const timeStr = `${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
     const total   = e.summary?.total  ?? e.gResults?.length ?? 0;
-    const anoms   = e.summary?.anoms  ?? e.gResults?.filter(r=>r.isAnom).length ?? 0;
+    const anoms   = e.summary?.anoms  ?? 0;
     const eqps    = e.summary?.eqps   ?? '-';
     const method  = _METHOD_SHORT[e.settings?.method] || e.settings?.method || '-';
     const thr     = e.settings?.threshold ?? '-';
@@ -2259,26 +2326,28 @@ function _renderHistList() {
   }).join('');
 }
 
-function openHistoryModal() {
+async function openHistoryModal() {
+  await _migrateLS();
   document.getElementById('histModal').classList.add('open');
   _renderHistList();
 }
 function closeHistoryModal() {
   document.getElementById('histModal').classList.remove('open');
 }
-function loadHistoryEntry(id) {
-  const entry = _getHistory().find(e=>e.id===id);
+async function loadHistoryEntry(id) {
+  const list  = await _idbGetAll();
+  const entry = list.find(e => e.id === id);
   if (!entry) { toast('항목을 찾을 수 없습니다.','err'); return; }
   closeHistoryModal();
   applySnapshot(entry);
 }
-function deleteHistoryEntry(id) {
-  _saveHistory(_getHistory().filter(e=>e.id!==id));
+async function deleteHistoryEntry(id) {
+  await _idbDelete(id);
   _renderHistList();
 }
-function clearAllHistory() {
+async function clearAllHistory() {
   if (!confirm('모든 히스토리를 삭제하시겠습니까?')) return;
-  localStorage.removeItem(HIST_KEY);
+  await _idbClear();
   _renderHistList();
 }
 
