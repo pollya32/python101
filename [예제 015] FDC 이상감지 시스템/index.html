@@ -296,6 +296,40 @@
       <div class="heatmap-scroll" id="heatmapTable"></div>
     </div>
 
+    <!-- 이상감지 목록 -->
+    <div class="card">
+      <div class="tbl-header">
+        <span class="title">🚨 이상감지 목록</span>
+        <span class="cnt-badge" id="anomCnt">0건</span>
+        <div style="margin-left:auto">
+          <button class="btn btn-secondary btn-sm" onclick="exportCSV('anomaly')">⬇ CSV 다운로드</button>
+        </div>
+      </div>
+      <div id="drilldownBar" class="drilldown-bar" style="display:none">
+        <span>🔍 드릴다운 필터 적용:</span>
+        <strong id="drilldownLabel"></strong>
+        <button class="drilldown-clear" onclick="clearDrillDown()">× 필터 해제</button>
+      </div>
+      <div class="tbl-scroll"><div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th class="sortable" onclick="sortTable('anom',0)">날짜</th>
+            <th class="sortable" onclick="sortTable('anom',1)">EQP ID</th>
+            <th class="sortable" onclick="sortTable('anom',2)">LOTID</th>
+            <th class="sortable" onclick="sortTable('anom',3)">SLOT</th>
+            <th class="sortable" onclick="sortTable('anom',4)">CH</th>
+            <th class="sortable" onclick="sortTable('anom',5)">PARAMETER</th>
+            <th class="sortable" onclick="sortTable('anom',6)">REAL DATA</th>
+            <th class="sortable th-ref" onclick="sortTable('anom',7)">직전값</th>
+            <th class="sortable th-diff" onclick="sortTable('anom',8)">변화량</th>
+            <th class="sortable" onclick="sortTable('anom',9)">임계값</th>
+            <th>방식</th><th>상태</th>
+          </tr></thead>
+          <tbody id="anomTbody"></tbody>
+        </table>
+      </div></div>
+    </div>
+
     <!-- 그래프 -->
     <div class="card">
       <div class="card-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;">
@@ -355,40 +389,6 @@
         </div>
       </div>
       <div class="chart-wrap" style="height:360px"><canvas id="scatterCanvas"></canvas></div>
-    </div>
-
-    <!-- 이상감지 목록 -->
-    <div class="card">
-      <div class="tbl-header">
-        <span class="title">🚨 이상감지 목록</span>
-        <span class="cnt-badge" id="anomCnt">0건</span>
-        <div style="margin-left:auto">
-          <button class="btn btn-secondary btn-sm" onclick="exportCSV('anomaly')">⬇ CSV 다운로드</button>
-        </div>
-      </div>
-      <div id="drilldownBar" class="drilldown-bar" style="display:none">
-        <span>🔍 드릴다운 필터 적용:</span>
-        <strong id="drilldownLabel"></strong>
-        <button class="drilldown-clear" onclick="clearDrillDown()">× 필터 해제</button>
-      </div>
-      <div class="tbl-scroll"><div class="tbl-wrap">
-        <table>
-          <thead><tr>
-            <th class="sortable" onclick="sortTable('anom',0)">날짜</th>
-            <th class="sortable" onclick="sortTable('anom',1)">EQP ID</th>
-            <th class="sortable" onclick="sortTable('anom',2)">LOTID</th>
-            <th class="sortable" onclick="sortTable('anom',3)">SLOT</th>
-            <th class="sortable" onclick="sortTable('anom',4)">CH</th>
-            <th class="sortable" onclick="sortTable('anom',5)">PARAMETER</th>
-            <th class="sortable" onclick="sortTable('anom',6)">REAL DATA</th>
-            <th class="sortable th-ref" onclick="sortTable('anom',7)">직전값</th>
-            <th class="sortable th-diff" onclick="sortTable('anom',8)">변화량</th>
-            <th class="sortable" onclick="sortTable('anom',9)">임계값</th>
-            <th>방식</th><th>상태</th>
-          </tr></thead>
-          <tbody id="anomTbody"></tbody>
-        </table>
-      </div></div>
     </div>
 
     <!-- 전체 데이터 -->
