@@ -143,6 +143,14 @@
     .hm-cell{min-width:62px;height:30px;text-align:center;border-radius:4px;font-size:10px;font-weight:700;vertical-align:middle;cursor:default;}
     .hm-cell:hover{filter:brightness(1.2);}
 
+    /* ── 진행률 표시줄 ── */
+    .progress-wrap{flex-basis:100%;margin:6px 0 2px;}
+    .progress-bar-bg{height:6px;background:var(--bd);border-radius:3px;overflow:hidden;}
+    .progress-bar-fill{height:100%;background:var(--blue);border-radius:3px;transition:width .25s;}
+    .progress-label{font-size:11px;color:var(--tx2);margin-top:3px;}
+    /* ── 페이지네이션 ── */
+    .pagination{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--bd);}
+    .pagination button:disabled{opacity:.35;cursor:default;}
     /* ── 드래그 선택 결과 패널 ── */
     .drag-select-info{margin-top:10px;padding:12px 14px;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;font-size:12px;}
     .drag-select-info table{width:100%;border-collapse:collapse;}
@@ -253,9 +261,13 @@
         <input type="checkbox" id="showSPC">
         <label for="showSPC" style="cursor:pointer;font-size:13px">SPC ±3σ 관리한계선</label>
       </div>
-      <button class="btn btn-primary"   onclick="runAnalysis()">🔍 분석 시작</button>
+      <button class="btn btn-primary" id="btnRun" onclick="runAnalysis()">🔍 분석 시작</button>
       <button class="btn btn-secondary" onclick="loadSample()">📊 샘플 데이터</button>
       <button class="btn btn-secondary" onclick="clearAll()">🗑 초기화</button>
+      <div id="progressWrap" class="progress-wrap" style="display:none">
+        <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill" style="width:0%"></div></div>
+        <div class="progress-label" id="progressLabel">분석 중...</div>
+      </div>
       <div style="height:1px;background:var(--bd);flex-basis:100%;margin:4px 0"></div>
       <button class="btn btn-secondary" onclick="saveAnalysis()">💾 분석 저장</button>
       <button class="btn btn-secondary" onclick="loadLastSaved()">🕐 이전 불러오기</button>
@@ -436,6 +448,7 @@
           <tbody id="fullTbody"></tbody>
         </table>
       </div></div>
+      <div class="pagination" id="fullPagination"></div>
     </div>
   </div>
 </main>
@@ -445,6 +458,8 @@
    STATE
 ══════════════════════════════════════════════════════ */
 let gResults=[], gCharts={}, gRankCharts={}, gThreshold=10, gHeaders=[];
+let gFilteredResults=null;          // null = 필터 없음 (전체)
+const gPage={full:1, pageSize:200}; // 전체 데이터 테이블 페이지네이션
 
 /* ══════════════════════════════════════════════════════
    COLUMN ALIAS MAP (자동 감지용)
@@ -1630,31 +1645,61 @@ function renderTables(results) {
   document.getElementById('anomCnt').textContent=`${anoms.length}건`;
   document.getElementById('totalCnt').textContent=`${results.length}건`;
 
+  // 이상감지 목록: 이상 건수는 전체의 일부이므로 전체 렌더
   const anomTbody=document.getElementById('anomTbody');
-  anomTbody.innerHTML='';
   if (!anoms.length) {
     anomTbody.innerHTML=`<tr><td colspan="12" class="no-data">✅ 이상감지된 데이터가 없습니다.</td></tr>`;
   } else {
+    const frag=document.createDocumentFragment();
     anoms.forEach(row=>{
       const tr=document.createElement('tr');
       tr.className='anom-row';
       tr.dataset.eqp=row['EQP ID']; tr.dataset.param=row['PARAMETER'];
       tr.innerHTML=rowHTML(row,true);
-      anomTbody.appendChild(tr);
+      frag.appendChild(tr);
     });
+    anomTbody.innerHTML='';
+    anomTbody.appendChild(frag);
   }
 
-  const fullTbody=document.getElementById('fullTbody');
-  fullTbody.innerHTML='';
-  results.forEach(row=>{
-    const tr=document.createElement('tr');
-    if (row.isAnom) tr.className='anom-row';
-    tr.dataset.eqp=row['EQP ID']; tr.dataset.ch=row['CH'];
-    tr.dataset.param=row['PARAMETER']; tr.dataset.status=row.isAnom?'anom':'ok';
-    tr.dataset.date=String(row['날짜']).slice(0,10);
-    tr.innerHTML=rowHTML(row,false);
-    fullTbody.appendChild(tr);
-  });
+  // 전체 데이터: 페이지네이션으로 DOM 노드 수 제한
+  gPage.full=1;
+  renderFullPage(gFilteredResults??results);
+}
+
+function renderFullPage(src) {
+  const ps=gPage.pageSize;
+  const total=src.length;
+  const totalPages=Math.max(1,Math.ceil(total/ps));
+  gPage.full=Math.max(1,Math.min(gPage.full,totalPages));
+  const start=(gPage.full-1)*ps;
+  const end=Math.min(start+ps,total);
+  const slice=src.slice(start,end);
+
+  // innerHTML 일괄 빌드 (createElement 반복보다 빠름)
+  document.getElementById('fullTbody').innerHTML=slice.map(row=>{
+    const cls=row.isAnom?' class="anom-row"':'';
+    return `<tr${cls} data-eqp="${row['EQP ID']||''}" data-ch="${row['CH']||''}" data-param="${row['PARAMETER']||''}" data-status="${row.isAnom?'anom':'ok'}" data-date="${String(row['날짜']).slice(0,10)}">${rowHTML(row,false)}</tr>`;
+  }).join('');
+
+  // 페이지네이션 컨트롤
+  const pg=document.getElementById('fullPagination');
+  if (totalPages<=1){pg.innerHTML='';return;}
+  pg.innerHTML=`
+    <span style="font-size:12px;color:var(--tx2)">${start+1}–${end} / ${total}건</span>
+    <button class="btn btn-secondary btn-sm" onclick="goFullPage(1)" ${gPage.full===1?'disabled':''}>◀◀</button>
+    <button class="btn btn-secondary btn-sm" onclick="goFullPage(${gPage.full-1})" ${gPage.full===1?'disabled':''}>◀</button>
+    <span style="font-size:12px;color:var(--tx1);font-weight:600;min-width:60px;text-align:center">${gPage.full} / ${totalPages} 페이지</span>
+    <button class="btn btn-secondary btn-sm" onclick="goFullPage(${gPage.full+1})" ${gPage.full===totalPages?'disabled':''}>▶</button>
+    <button class="btn btn-secondary btn-sm" onclick="goFullPage(${totalPages})" ${gPage.full===totalPages?'disabled':''}>▶▶</button>
+    <select class="btn btn-secondary btn-sm" onchange="gPage.pageSize=+this.value;gPage.full=1;renderFullPage(gFilteredResults??gResults)" style="cursor:pointer">
+      ${[100,200,500,1000].map(n=>`<option value="${n}" ${n===ps?'selected':''}>${n}건/페이지</option>`).join('')}
+    </select>`;
+}
+
+function goFullPage(p){
+  gPage.full=p;
+  renderFullPage(gFilteredResults??gResults);
 }
 
 const METHOD_LABEL={abs:'절대값',sigma:'σ배수',pct:'변화율%',slope_diff:'기울기변화',slope_win:'이동창기울기',daily_avg:'일별평균차이',ewma:'EWMA',cusum:'CUSUM',run_bias:'연속편향',run_trend:'단조트렌드',spc_rules:'SPC복합',iqr:'IQR',mad:'ModZ',wtw:'WTW편차',ch_match:'CH매칭',lot2lot:'Lot2Lot',t_step:'t-검정',f_var:'F-검정'};
@@ -1689,15 +1734,33 @@ function populateFilters(results){
   document.getElementById('fParam').innerHTML=mk(params);
 }
 function applyFilter(){
-  const eqp=document.getElementById('fEqp').value,ch=document.getElementById('fCh').value,
-        param=document.getElementById('fParam').value,status=document.getElementById('fStatus').value;
-  const df=document.getElementById('fDateFrom').value, dt=document.getElementById('fDateTo').value;
-  document.querySelectorAll('#fullTbody tr').forEach(tr=>{
-    const show=(!eqp||tr.dataset.eqp===eqp)&&(!ch||tr.dataset.ch===ch)
-              &&(!param||tr.dataset.param===param)&&(!status||tr.dataset.status===status)
-              &&(!df||tr.dataset.date>=df)&&(!dt||tr.dataset.date<=dt);
-    tr.style.display=show?'':'none';
-  });
+  const eqp=document.getElementById('fEqp').value,
+        ch=document.getElementById('fCh').value,
+        param=document.getElementById('fParam').value,
+        status=document.getElementById('fStatus').value;
+  const df=document.getElementById('fDateFrom').value,
+        dt=document.getElementById('fDateTo').value;
+  const hasFilter=eqp||ch||param||status||df||dt;
+  if(!hasFilter){
+    gFilteredResults=null;
+    const tc=document.getElementById('totalCnt');
+    if(tc) tc.textContent=`${gResults.length}건`;
+  } else {
+    gFilteredResults=gResults.filter(r=>{
+      const rDate=r['날짜']?r['날짜'].slice(0,10):'';
+      const rStatus=r.isAnom?'이상':'정상';
+      return (!eqp||r['EQP ID']===eqp)
+          && (!ch||r['CH']===ch)
+          && (!param||r['PARAMETER']===param)
+          && (!status||rStatus===status)
+          && (!df||rDate>=df)
+          && (!dt||rDate<=dt);
+    });
+    const tc=document.getElementById('totalCnt');
+    if(tc) tc.textContent=`${gFilteredResults.length}건 (필터)`;
+  }
+  gPage.full=1;
+  renderFullPage(gFilteredResults??gResults);
 }
 
 /* ══════════════════════════════════════════════════════
@@ -1724,7 +1787,13 @@ function today(){return new Date().toISOString().slice(0,10);}
 /* ══════════════════════════════════════════════════════
    MAIN
 ══════════════════════════════════════════════════════ */
-function runAnalysis(){
+function _setProgress(pct, msg) {
+  document.getElementById('progressFill').style.width = pct+'%';
+  document.getElementById('progressLabel').textContent = msg;
+}
+function _tick() { return new Promise(r=>setTimeout(r,0)); }
+
+async function runAnalysis(){
   const text=document.getElementById('dataInput').value.trim();
   if (!text){toast('데이터를 입력하세요.','err');return;}
   if (!gHeaders.length){toast('데이터를 붙여넣은 후 컬럼 매핑을 확인하세요.','err');return;}
@@ -1733,20 +1802,34 @@ function runAnalysis(){
   const winSize=parseInt(document.getElementById('winSize').value)||3;
   if (isNaN(thr)||thr<0){toast('임계값은 0 이상이어야 합니다.','err');return;}
   gThreshold=thr;
+
+  const btn=document.getElementById('btnRun');
+  const pw=document.getElementById('progressWrap');
+  btn.disabled=true; pw.style.display='block';
   try {
+    _setProgress(5,'데이터 파싱 중...'); await _tick();
     const data=parseExcel(text);
+
+    _setProgress(30,'이상 감지 분석 중...'); await _tick();
     const lambdaEWMA=parseFloat(document.getElementById('ewmaLambda').value)||0.2;
     const kCUSUM=parseFloat(document.getElementById('cusumK').value)||0.5;
     gResults=detectAnomalies(data,thr,method,winSize,lambdaEWMA,kCUSUM);
+
+    _setProgress(60,'통계 및 차트 렌더링 중...'); await _tick();
     onMethodChange();
+    gFilteredResults=null;
     renderAll(gResults);
+
+    _setProgress(95,'테이블 렌더링 중...'); await _tick();
     const res=document.getElementById('results');
     res.style.display='block';
     res.scrollIntoView({behavior:'smooth',block:'start'});
     const ac=gResults.filter(r=>r.isAnom).length;
     saveSettings();
+    _setProgress(100,'완료');
     toast(`분석 완료 — 총 ${gResults.length}건 / 이상 ${ac}건`,ac?'err':'ok');
   } catch(e){toast(e.message,'err');console.error(e);}
+  finally { btn.disabled=false; pw.style.display='none'; }
 }
 
 function clearAll(){
