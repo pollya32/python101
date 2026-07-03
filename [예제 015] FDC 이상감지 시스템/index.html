@@ -582,11 +582,8 @@ onMethodChange();
 /* ══════════════════════════════════════════════════════
    PARSE
 ══════════════════════════════════════════════════════ */
-function tryParseTime(str) {
-  if (!str) return null;
-  let s = str.trim();
-  if (!s) return null;
-
+const _timeCache = new Map();
+function _parseTime(s) {
   // Unix epoch: 10자리(초) / 13자리(ms)
   if (/^\d{10}$/.test(s)) return parseInt(s) * 1000;
   if (/^\d{13}$/.test(s)) return parseInt(s);
@@ -642,6 +639,15 @@ function tryParseTime(str) {
   const d = new Date(n);
   return isNaN(d.getTime()) ? null : d.getTime();
 }
+function tryParseTime(str) {
+  if (!str) return null;
+  const s = str.trim();
+  if (!s) return null;
+  if (_timeCache.has(s)) return _timeCache.get(s);
+  const result = _parseTime(s);
+  _timeCache.set(s, result);
+  return result;
+}
 function fmtTime(ms) {
   if (!ms) return '';
   const d = new Date(ms);
@@ -654,22 +660,23 @@ function fmtTick(ms) {
   return `${pad(d.getMonth()+1)}/${pad(d.getDate())}\n${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function parseExcel(text) {
+async function parseExcel(text) {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) throw new Error('헤더 포함 2행 이상 필요합니다.');
 
   const colMap = getColMap();
-  // 필수 열 검증
   const requiredFields = FIELDS.filter(f=>f.required);
   for (const f of requiredFields) {
     if (colMap[f.key] < 0) throw new Error(`필드 "${f.label}" 의 열이 지정되지 않았습니다.`);
   }
 
   const get = (cells, idx) => idx>=0 && idx<cells.length ? cells[idx].trim() : '';
-
+  const total = lines.length - 1;
+  const CHUNK = 5000;
   const data = [];
-  for (let r=1;r<lines.length;r++) {
-    const line=lines[r].trim();
+
+  for (let r=1; r<lines.length; r++) {
+    const line = lines[r].trim();
     if (!line) continue;
     const cells = lines[r].split('\t');
     const rawVal = get(cells, colMap['REAL DATA']).replace(/,/g,'');
@@ -688,6 +695,11 @@ function parseExcel(text) {
       _slot: parseInt(get(cells, colMap['SLOT']))||0,
       _time: tryParseTime(dateStr),
     });
+    if ((r % CHUNK) === 0) {
+      const pct = Math.round(5 + (r / total) * 20);
+      _setProgress(pct, `데이터 파싱 중... (${r.toLocaleString()} / ${total.toLocaleString()}행)`);
+      await _tick();
+    }
   }
   if (!data.length) throw new Error('유효한 숫자 데이터(REAL DATA)가 없습니다.');
   return data;
@@ -1017,7 +1029,8 @@ function calcStats(results) {
     const n=vals.length;
     const mean=vals.reduce((a,b)=>a+b,0)/n;
     const std=Math.sqrt(vals.reduce((a,b)=>a+(b-mean)**2,0)/n);
-    const min=Math.min(...vals), max=Math.max(...vals);
+    const min=vals.reduce((a,b)=>a<b?a:b, Infinity);
+    const max=vals.reduce((a,b)=>a>b?a:b, -Infinity);
     const ac=rows.filter(r=>r.isAnom).length;
     return {eqp,ch,param,n,mean,std,min,max,range:max-min,
             cv:mean!==0?Math.abs(std/mean*100):0,
@@ -1877,7 +1890,7 @@ async function runAnalysis(){
   btn.disabled=true; pw.style.display='block';
   try {
     _setProgress(5,'데이터 파싱 중...'); await _tick();
-    const data=parseExcel(text);
+    const data=await parseExcel(text);
 
     _setProgress(30,'이상 감지 분석 중...'); await _tick();
     const lambdaEWMA=parseFloat(document.getElementById('ewmaLambda').value)||0.2;
@@ -1925,6 +1938,7 @@ function clearAll(){
   document.getElementById('fDateFrom').value='';
   document.getElementById('fDateTo').value='';
   gResults=[]; gHeaders=[]; gAnoms=[]; gFilteredResults=null;
+  _timeCache.clear();
   Object.values(gCharts).forEach(c=>c.destroy());     gCharts={};
   Object.values(gRankCharts).forEach(c=>c.destroy()); gRankCharts={};
 }
