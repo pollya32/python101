@@ -700,7 +700,7 @@ function linRegSlope(vals) {
   return den?num/den:0;
 }
 
-function detectAnomalies(data, threshold, method, winSize, ewmaLambda=0.2, cusumK=0.5) {
+async function detectAnomalies(data, threshold, method, winSize, ewmaLambda=0.2, cusumK=0.5) {
   const groups={};
   data.forEach(row=>{
     const key=`${row['EQP ID']}|||${row['LOTID']}|||${row['CH']}|||${row['PARAMETER']}`;
@@ -754,7 +754,11 @@ function detectAnomalies(data, threshold, method, winSize, ewmaLambda=0.2, cusum
   }
 
   const results=[];
-  Object.values(groups).forEach(group=>{
+  const _gArr=Object.values(groups);
+  const _CHUNK=100;
+  for(let _ci=0;_ci<_gArr.length;_ci+=_CHUNK){
+    const _batch=_gArr.slice(_ci,_ci+_CHUNK);
+    _batch.forEach(group=>{
     // σ 사전 계산 (sigma / ewma / cusum 공통)
     let gMean=0, gStd=0;
     if (['sigma','ewma','cusum','run_bias','spc_rules'].includes(method)) {
@@ -972,7 +976,13 @@ function detectAnomalies(data, threshold, method, winSize, ewmaLambda=0.2, cusum
       }
       results.push(res);
     });
-  });
+    });
+    if(_ci+_CHUNK<_gArr.length){
+      const _pct=25+Math.round((_ci+_CHUNK)/_gArr.length*30);
+      _setProgress(_pct,`이상 감지 중... (${Math.min(_ci+_CHUNK,_gArr.length)}/${_gArr.length} 그룹)`);
+      await _tick();
+    }
+  }
   return results;
 }
 
@@ -1125,6 +1135,18 @@ function renderRanking(results) {
 /* ── SPC 관리도 스타일 라인 차트 ── */
 const PALETTE=['#388bfd','#3fb950','#d29922','#db6d28','#a371f7','#39c5cf','#f78166','#ffa657','#d2a8ff','#7ee787'];
 
+// 대용량 데이터 차트 포인트 축소: 이상감지 포인트는 항상 유지, 정상 포인트는 균등 샘플링
+function _decimateDataset(pts, rows, maxPts=600) {
+  if (pts.length <= maxPts) return {pts, rows};
+  const anomIdx=[], normalIdx=[];
+  rows.forEach((r,i)=>{ (r.isAnom?anomIdx:normalIdx).push(i); });
+  const budget=Math.max(0, maxPts-anomIdx.length);
+  const stride=Math.max(1, Math.ceil(normalIdx.length/budget));
+  const sampled=normalIdx.filter((_,i)=>i%stride===0).slice(0,budget);
+  const kept=[...new Set([...anomIdx,...sampled])].sort((a,b)=>a-b);
+  return {pts:kept.map(i=>pts[i]), rows:kept.map(i=>rows[i])};
+}
+
 function renderCharts(results, stats) {
   Object.values(gCharts).forEach(c=>c.destroy()); gCharts={};
   const showSPC=document.getElementById('showSPC').checked;
@@ -1181,10 +1203,14 @@ function renderCharts(results, stats) {
       const color=PALETTE[gi%PALETTE.length];
       const label=ch?`${eqp}/${lot}/${ch}`:`${eqp}/${lot}`;
 
-      const pts=rows.map(r=>({
+      let pts=rows.map(r=>({
         x: hasTime && r._time!=null ? (r._time-tRef)/1000 : r._slot,
         y: r._val
       }));
+
+      /* 대용량 축소: 데이터셋당 최대 600포인트, 이상 포인트는 항상 유지 */
+      const dec=_decimateDataset(pts, rows, 600);
+      pts=dec.pts; const dRows=dec.rows;
 
       /* 산점도: 정상=원, 이상=큰 삼각형(빨강) — 연결선 없음 */
       const ps = parseInt(document.getElementById('pointSize')?.value) || 5;
@@ -1192,18 +1218,18 @@ function renderCharts(results, stats) {
         type:'line',
         label,
         data: pts,
-        _rows: rows,
+        _rows: dRows,
         borderColor: color,
         borderWidth: 0,
         showLine: false,
         fill: false,
         tension: 0,
-        pointRadius:          rows.map(r=>r.isAnom?Math.round(ps*2.2):ps),
-        pointHoverRadius:     rows.map(r=>r.isAnom?Math.round(ps*2.2)+3:ps+3),
-        pointBackgroundColor: rows.map(r=>r.isAnom?'#f85149':color),
-        pointBorderColor:     rows.map(r=>r.isAnom?'#ff4040':color),
-        pointStyle:           rows.map(r=>r.isAnom?'triangle':'circle'),
-        pointBorderWidth:     rows.map(r=>r.isAnom?2:1),
+        pointRadius:          dRows.map(r=>r.isAnom?Math.round(ps*2.2):ps),
+        pointHoverRadius:     dRows.map(r=>r.isAnom?Math.round(ps*2.2)+3:ps+3),
+        pointBackgroundColor: dRows.map(r=>r.isAnom?'#f85149':color),
+        pointBorderColor:     dRows.map(r=>r.isAnom?'#ff4040':color),
+        pointStyle:           dRows.map(r=>r.isAnom?'triangle':'circle'),
+        pointBorderWidth:     dRows.map(r=>r.isAnom?2:1),
         spanGaps: true,
       });
 
@@ -1411,17 +1437,20 @@ function renderEqpScatter() {
     const rows = base.filter(r=>r['PARAMETER']===p);
     rows.sort((a,b)=> hasTime ? ((a._time??a._slot)-(b._time??b._slot)) : a._slot-b._slot);
     const color = PALETTE[pi % PALETTE.length];
+    let pts = rows.map(r=>({ x: hasTime&&r._time!=null?(r._time-tRef)/1000:r._slot, y:r._val }));
+    const dec = _decimateDataset(pts, rows, 600);
+    pts = dec.pts; const dr = dec.rows;
     return {
       label: p,
-      data:  rows.map(r=>({ x: hasTime&&r._time!=null?(r._time-tRef)/1000:r._slot, y:r._val })),
-      _rows: rows,
+      data:  pts,
+      _rows: dr,
       type: 'line', showLine: false, borderWidth: 0, fill: false,
-      pointRadius:          rows.map(r=>r.isAnom?Math.round(ps*2.2):ps),
-      pointHoverRadius:     rows.map(r=>r.isAnom?Math.round(ps*2.2)+3:ps+3),
-      pointBackgroundColor: rows.map(r=>r.isAnom?'#f85149':color),
-      pointBorderColor:     rows.map(r=>r.isAnom?'#ff4040':color),
-      pointStyle:           rows.map(r=>r.isAnom?'triangle':'circle'),
-      pointBorderWidth:     rows.map(r=>r.isAnom?2:1),
+      pointRadius:          dr.map(r=>r.isAnom?Math.round(ps*2.2):ps),
+      pointHoverRadius:     dr.map(r=>r.isAnom?Math.round(ps*2.2)+3:ps+3),
+      pointBackgroundColor: dr.map(r=>r.isAnom?'#f85149':color),
+      pointBorderColor:     dr.map(r=>r.isAnom?'#ff4040':color),
+      pointStyle:           dr.map(r=>r.isAnom?'triangle':'circle'),
+      pointBorderWidth:     dr.map(r=>r.isAnom?2:1),
     };
   });
 
@@ -1813,14 +1842,28 @@ async function runAnalysis(){
     _setProgress(30,'이상 감지 분석 중...'); await _tick();
     const lambdaEWMA=parseFloat(document.getElementById('ewmaLambda').value)||0.2;
     const kCUSUM=parseFloat(document.getElementById('cusumK').value)||0.5;
-    gResults=detectAnomalies(data,thr,method,winSize,lambdaEWMA,kCUSUM);
+    gResults=await detectAnomalies(data,thr,method,winSize,lambdaEWMA,kCUSUM);
+    onMethodChange(); gFilteredResults=null;
 
-    _setProgress(60,'통계 및 차트 렌더링 중...'); await _tick();
-    onMethodChange();
-    gFilteredResults=null;
-    renderAll(gResults);
+    _setProgress(58,'통계 요약 렌더링 중...'); await _tick();
+    const _stats=calcStats(gResults);
+    renderSummary(gResults); renderBanner(gResults); renderStats(_stats); renderRanking(gResults);
 
-    _setProgress(95,'테이블 렌더링 중...'); await _tick();
+    _setProgress(68,'히트맵 렌더링 중...'); await _tick();
+    renderHeatmap(gResults);
+
+    _setProgress(75,'차트 렌더링 중...'); await _tick();
+    initChartFilters(gResults);
+    renderCharts(gResults, _stats);
+
+    _setProgress(88,'테이블 렌더링 중...'); await _tick();
+    renderTables(gResults);
+
+    _setProgress(94,'필터/산점도 초기화 중...'); await _tick();
+    populateFilters(gResults);
+    initScatterSelects(gResults);
+
+    _setProgress(98,'완료 처리 중...'); await _tick();
     const res=document.getElementById('results');
     res.style.display='block';
     res.scrollIntoView({behavior:'smooth',block:'start'});
@@ -1920,10 +1963,19 @@ function renderHeatmap(results) {
   const eqps   = [...new Set(results.map(r=>r['EQP ID']))].sort();
   const params = [...new Set(results.map(r=>r['PARAMETER']))].sort();
 
+  // O(N) 사전 집계 — 중첩 filter() 제거
+  const agg={};
+  results.forEach(r=>{
+    const e=r['EQP ID'], p=r['PARAMETER'];
+    if(!agg[e]) agg[e]={};
+    if(!agg[e][p]) agg[e][p]={total:0,anom:0};
+    agg[e][p].total++;
+    if(r.isAnom) agg[e][p].anom++;
+  });
   const cell = (e,p) => {
-    const rows  = results.filter(r=>r['EQP ID']===e && r['PARAMETER']===p);
-    const anom  = rows.filter(r=>r.isAnom).length;
-    return {total:rows.length, anom, rate: rows.length ? anom/rows.length*100 : -1};
+    const d=agg[e]?.[p];
+    if(!d||d.total===0) return {total:0,anom:0,rate:-1};
+    return {...d, rate:d.anom/d.total*100};
   };
 
   const rates = eqps.flatMap(e=>params.map(p=>cell(e,p).rate)).filter(r=>r>=0);
