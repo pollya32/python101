@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import status_badge, won %}
+{% block title %}교체 이력{% endblock %}
+{% block heading %}부품 전주기 이력 관리{% endblock %}
+{% block content %}
+
+<div class="section-head">
+  <form class="filters" method="get">
+    <input name="q" value="{{ q }}" placeholder="부품 ID / 이름 검색">
+    <select name="cause" onchange="this.form.submit()">
+      <option value="">고장 원인 전체</option>
+      {% for c in causes %}<option value="{{ c }}" {{ 'selected' if cause==c }}>{{ c }}</option>{% endfor %}
+    </select>
+    <select name="status" onchange="this.form.submit()">
+      <option value="">상태 전체</option>
+      {% for s in ['Completed','In Use','Scheduled'] %}
+      <option value="{{ s }}" {{ 'selected' if status==s }}>{{ s }}</option>{% endfor %}
+    </select>
+    <button class="btn sm">검색</button>
+  </form>
+  <div class="spacer"></div>
+  <a class="btn ghost" href="{{ url_for('history', q=q, cause=cause, status=status, export='csv') }}">⬇ CSV 내보내기</a>
+  {% if can_edit %}<a class="btn primary" href="{{ url_for('history_new') }}">+ 교체 등록</a>{% endif %}
+</div>
+
+<div class="card tbl-wrap">
+  <table class="tbl">
+    <tr><th>부품 ID</th><th>부품명</th><th>장비명</th><th>교체일자</th><th class="num">사용 일수</th>
+        <th>고장 원인</th><th>상태</th><th class="num">수리(h)</th><th class="num">비용</th><th>작업자</th></tr>
+    {% for r in rows %}
+    <tr>
+      <td><span class="code-chip">{{ r.part_code }}</span></td>
+      <td>{{ r.part_name or '-' }}</td>
+      <td class="muted">{{ r.equipment_name or '-' }}</td>
+      <td>{{ r.replaced_at or '-' }}</td>
+      <td class="num">{{ r.used_days ~ ' Days' if r.used_days is not none else '-' }}</td>
+      <td>{{ r.failure_cause or '-' }}</td>
+      <td>{{ status_badge(r.status) }}</td>
+      <td class="num">{{ r.repair_hours or '-' }}</td>
+      <td class="num">{{ won(r.cost) }}</td>
+      <td class="muted">{{ r.performed_by or '-' }}</td>
+    </tr>
+    {% else %}<tr><td colspan="10" class="muted">이력이 없습니다.</td></tr>{% endfor %}
+  </table>
+</div>
+<p class="muted small" style="margin-top:10px">총 {{ rows | length }}건 · 전주기 이력 추적성(Traceability) 확보 · CSV로 ERP/MES 연계 가능</p>
+{% endblock %}

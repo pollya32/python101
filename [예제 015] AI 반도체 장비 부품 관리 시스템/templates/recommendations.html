@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import health_bar, won %}
+{% block title %}AI 교체 추천{% endblock %}
+{% block heading %}지능형 교체 추천 시스템{% endblock %}
+{% block content %}
+
+<div class="grid kpis" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr))">
+  <div class="card kpi"><div class="label">TBM (Time Based)</div>
+    <div class="value small" style="font-size:15px">정기 시간 기반 교체 일정</div></div>
+  <div class="card kpi"><div class="label">AI Recommendation</div>
+    <div class="value small" style="font-size:15px">실시간 상태 기반 최적 교체 시점</div></div>
+  <div class="card kpi ok"><div class="label">Cost Optimization — 잔여 수명 활용 절감</div>
+    <div class="value" style="font-size:20px">{{ won(total_saving) }}</div></div>
+</div>
+
+<div class="card tbl-wrap">
+  <table class="tbl">
+    <tr><th>긴급도</th><th>부품 ID</th><th>부품명</th><th>장비</th><th>Health</th>
+        <th class="num">RUL</th><th class="num">TBM 잔여</th><th>권장 교체일</th>
+        <th class="num">절감 효과</th><th>예측 방식</th><th></th></tr>
+    {% for r in recs %}
+    <tr>
+      <td><span class="badge {{ {'critical':'b-crit','warning':'b-warn','info':'b-info'}[r.urgency] }}">
+          {{ {'critical':'긴급','warning':'주의','info':'관찰'}[r.urgency] }}</span></td>
+      <td><a href="{{ url_for('part_detail', pid=r.part.id) }}">{{ r.part.part_code }}</a></td>
+      <td>{{ r.part.name }}</td>
+      <td class="muted">{{ r.part.equipment_name or '-' }}</td>
+      <td>{{ health_bar(r.part.health_index, r.part.replacement_limit) }}</td>
+      <td class="num"><b>{{ r.rul }}일</b></td>
+      <td class="num muted">{{ r.tbm_remain }}일</td>
+      <td>{{ r.recommended_date }}</td>
+      <td class="num">{% if r.saving %}<span style="color:var(--ok)">{{ won(r.saving) }}</span>
+          {% else %}<span class="muted">-</span>{% endif %}</td>
+      <td><span class="badge {{ 'b-info' if r.method=='trend' else 'b-muted' }}">
+          {{ 'AI 추세' if r.method=='trend' else 'TBM' }}</span></td>
+      <td>
+        {% if can_edit %}
+        <form method="post" action="{{ url_for('recommendation_approve', pid=r.part.id) }}"
+              onsubmit="return confirm('{{ r.part.part_code }} 교체를 {{ r.recommended_date }}로 예약할까요?')">
+          <input type="hidden" name="recommended_date" value="{{ r.recommended_date }}">
+          <button class="btn sm primary">교체 예약</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% else %}<tr><td colspan="11" class="muted">현재 교체 추천 대상이 없습니다. 모든 부품이 양호합니다. ✅</td></tr>{% endfor %}
+  </table>
+</div>
+<p class="muted small" style="margin-top:10px">
+  추천 기준: RUL 30일 이내 또는 Health Index가 교체 임계치+15 이하 ·
+  절감 효과 = TBM 대비 추가 사용 일수 × 일할 부품 단가 (잔여 수명 최대 활용)
+</p>
+{% endblock %}

@@ -2,4 +2,6 @@
 */.DS_Store
 */.idea
 .idea
-.DS_Store
+.DS_Store*.db
+*.db-wal
+*.db-shm

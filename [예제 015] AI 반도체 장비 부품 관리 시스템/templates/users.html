@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block title %}사용자 관리{% endblock %}
+{% block heading %}사용자 관리 (최대 {{ max_users }}명 공유){% endblock %}
+{% block content %}
+
+<div class="section-head">
+  <span class="muted small">활성 계정 {{ rows | selectattr('active') | list | length }} / {{ max_users }}명 ·
+    역할: 관리자(전체 권한) · 엔지니어(등록/수정) · 조회 전용(읽기)</span>
+  <div class="spacer"></div>
+  <a class="btn primary" href="{{ url_for('user_form') }}">+ 사용자 추가</a>
+</div>
+
+<div class="card tbl-wrap">
+  <table class="tbl">
+    <tr><th>아이디</th><th>이름</th><th>역할</th><th>이메일</th><th>상태</th><th>등록일</th><th></th></tr>
+    {% for u in rows %}
+    <tr style="{{ 'opacity:.5' if not u.active }}">
+      <td><span class="code-chip">{{ u.username }}</span></td>
+      <td>{{ u.name }}</td>
+      <td><span class="badge {{ {'admin':'b-crit','engineer':'b-info','viewer':'b-muted'}[u.role] }}">
+          {{ ROLE_LABEL[u.role] }}</span></td>
+      <td class="muted">{{ u.email or '-' }}</td>
+      <td>{% if u.active %}<span class="badge b-ok">활성</span>{% else %}<span class="badge b-muted">비활성</span>{% endif %}</td>
+      <td class="muted small">{{ u.created_at }}</td>
+      <td class="row-actions">
+        <a class="btn sm ghost" href="{{ url_for('user_form', uid=u.id) }}">수정</a>
+        {% if u.id != session.uid %}
+        <form method="post" action="{{ url_for('user_delete', uid=u.id) }}"
+              onsubmit="return confirm('{{ u.username }} 계정을 삭제할까요?')">
+          <button class="btn sm danger">삭제</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import health_bar, status_badge %}
+{% block title %}부품 관리{% endblock %}
+{% block heading %}부품 관리{% endblock %}
+{% block content %}
+
+<div class="section-head">
+  <form class="filters" method="get">
+    <input name="q" value="{{ q }}" placeholder="부품 ID / 이름 검색">
+    <select name="status" onchange="this.form.submit()">
+      <option value="">상태 전체</option>
+      {% for s in ['사용중','예비','교체예정','교체완료'] %}
+      <option value="{{ s }}" {{ 'selected' if status==s }}>{{ s }}</option>{% endfor %}
+    </select>
+    <select name="category" onchange="this.form.submit()">
+      <option value="">카테고리 전체</option>
+      {% for c in categories %}<option value="{{ c }}" {{ 'selected' if category==c }}>{{ c }}</option>{% endfor %}
+    </select>
+    <select name="equipment_id" onchange="this.form.submit()">
+      <option value="">장비 전체</option>
+      {% for e in equipment %}<option value="{{ e.id }}" {{ 'selected' if equipment_id|string==e.id|string }}>{{ e.code }} {{ e.name }}</option>{% endfor %}
+    </select>
+    <button class="btn sm">검색</button>
+  </form>
+  <div class="spacer"></div>
+  {% if can_edit %}<a class="btn primary" href="{{ url_for('part_new') }}">+ 부품 등록</a>{% endif %}
+</div>
+
+<div class="card tbl-wrap">
+  <table class="tbl">
+    <tr><th>부품 ID</th><th>부품명</th><th>카테고리</th><th>장비</th><th>Health Index</th>
+        <th class="num">사용일수</th><th class="num">TBM 수명</th><th>상태</th><th></th></tr>
+    {% for it in items %}
+    <tr>
+      <td><a href="{{ url_for('part_detail', pid=it.p.id) }}">{{ it.p.part_code }}</a></td>
+      <td>{{ it.p.name }}</td>
+      <td class="muted">{{ it.p.category or '-' }}</td>
+      <td class="muted">{{ it.p.equipment_name or '-' }}</td>
+      <td>{{ health_bar(it.p.health_index, it.p.replacement_limit) }}</td>
+      <td class="num">{{ it.used }}일</td>
+      <td class="num">{{ it.p.expected_life_days }}일</td>
+      <td>{{ status_badge(it.p.status) }}</td>
+      <td class="row-actions">
+        {% if can_edit %}<a class="btn sm ghost" href="{{ url_for('part_edit', pid=it.p.id) }}">수정</a>{% endif %}
+      </td>
+    </tr>
+    {% else %}<tr><td colspan="9" class="muted">등록된 부품이 없습니다.</td></tr>{% endfor %}
+  </table>
+</div>
+<p class="muted small" style="margin-top:10px">총 {{ items | length }}건 · Health Index 낮은 순 정렬</p>
+{% endblock %}

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Smart Parts{% endblock %} — Smart Semiconductor Parts Management</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<script src="{{ url_for('static', filename='chart.umd.min.js') }}"></script>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="t1">⚙ Smart Parts</div>
+      <div class="t2">Semiconductor Parts Management</div>
+    </div>
+    <nav class="nav">
+      {% set ep = request.endpoint or '' %}
+      <a href="{{ url_for('dashboard') }}" class="{{ 'active' if ep=='dashboard' }}"><span class="ico">📊</span> 대시보드</a>
+      <div class="sep">부품 데이터 흐름</div>
+      <a href="{{ url_for('sensors') }}" class="{{ 'active' if ep.startswith('sensors') }}"><span class="ico">📡</span> 설비 센싱 / FDC</a>
+      <a href="{{ url_for('recommendations') }}" class="{{ 'active' if ep.startswith('recommendation') }}"><span class="ico">🧠</span> AI 교체 추천</a>
+      <a href="{{ url_for('history') }}" class="{{ 'active' if ep.startswith('history') }}"><span class="ico">📜</span> 교체 이력</a>
+      <div class="sep">자산 관리</div>
+      <a href="{{ url_for('parts') }}" class="{{ 'active' if ep.startswith('part') }}"><span class="ico">🔩</span> 부품 관리</a>
+      <a href="{{ url_for('equipment') }}" class="{{ 'active' if ep.startswith('equipment') }}"><span class="ico">🏭</span> 장비 관리</a>
+      <a href="{{ url_for('inventory') }}" class="{{ 'active' if ep.startswith('inventory') }}"><span class="ico">📦</span> 재고 / Safety Stock</a>
+      <div class="sep">인사이트</div>
+      <a href="{{ url_for('alerts') }}" class="{{ 'active' if ep.startswith('alert') }}"><span class="ico">🔔</span> Smart Alarm
+        {% if unread_alerts %}<span class="badge b-crit">{{ unread_alerts }}</span>{% endif %}</a>
+      <a href="{{ url_for('analytics_page') }}" class="{{ 'active' if ep=='analytics_page' }}"><span class="ico">📈</span> 분석 (MTBF/MTTR)</a>
+      {% if session.role == 'admin' %}
+      <div class="sep">시스템</div>
+      <a href="{{ url_for('users') }}" class="{{ 'active' if ep.startswith('user') }}"><span class="ico">👥</span> 사용자 관리</a>
+      {% endif %}
+    </nav>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <h1>{% block heading %}{% endblock %}</h1>
+      <div class="spacer"></div>
+      <span class="who">{{ session.name }} · {{ ROLE_LABEL.get(session.role, session.role) }}</span>
+      <a class="btn sm ghost" href="{{ url_for('logout') }}">로그아웃</a>
+    </div>
+    <div class="content">
+      {% with msgs = get_flashed_messages(with_categories=true) %}
+        {% for cat, m in msgs %}<div class="flash {{ cat }}">{{ m }}</div>{% endfor %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+</div>
+{% block scripts %}{% endblock %}
+</body>
+</html>

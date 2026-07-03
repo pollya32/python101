@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>로그인 — Smart Semiconductor Parts Management</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="login-wrap">
+  <div class="login-card">
+    <h1>Smart Semiconductor<br>Parts Management</h1>
+    <div class="sub">AI 기반 부품 데이터 흐름 및 지능형 대시보드</div>
+    {% with msgs = get_flashed_messages(with_categories=true) %}
+      {% for cat, m in msgs %}<div class="flash {{ cat }}">{{ m }}</div>{% endfor %}
+    {% endwith %}
+    <form method="post">
+      <div class="field">
+        <label>아이디</label>
+        <input name="username" autofocus required autocomplete="username">
+      </div>
+      <div class="field">
+        <label>비밀번호</label>
+        <input type="password" name="password" required autocomplete="current-password">
+      </div>
+      <button class="btn primary" style="width:100%">로그인</button>
+    </form>
+    <div class="hint">
+      기본 계정 — 관리자: admin / admin1234<br>
+      엔지니어: engineer01~09 · 조회: viewer01~05 (semi1234)
+    </div>
+  </div>
+</div>
+</body>
+</html>

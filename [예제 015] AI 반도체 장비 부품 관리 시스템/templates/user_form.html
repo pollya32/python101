@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}{{ '사용자 수정' if row else '사용자 추가' }}{% endblock %}
+{% block heading %}{{ '사용자 수정' if row else '사용자 추가' }}{% endblock %}
+{% block content %}
+<div class="card" style="max-width:640px">
+  <form method="post">
+    <div class="form-grid">
+      {% if not row %}
+      <div class="field"><label>아이디 *</label>
+        <input name="username" required placeholder="engineer10"></div>
+      {% endif %}
+      <div class="field"><label>이름 *</label>
+        <input name="name" value="{{ row.name if row }}" required></div>
+      <div class="field"><label>역할</label>
+        <select name="role">
+          {% for r, l in [('admin','관리자'),('engineer','엔지니어'),('viewer','조회 전용')] %}
+          <option value="{{ r }}" {{ 'selected' if row and row.role==r }}>{{ l }}</option>{% endfor %}
+        </select></div>
+      <div class="field"><label>이메일</label>
+        <input type="email" name="email" value="{{ row.email if row }}"></div>
+      <div class="field"><label>{{ '비밀번호 재설정 (비우면 유지)' if row else '초기 비밀번호 (비우면 semi1234)' }}</label>
+        <input type="password" name="password" autocomplete="new-password"></div>
+      {% if row %}
+      <div class="field"><label>계정 상태</label>
+        <label style="display:flex;align-items:center;gap:8px;color:var(--text)">
+          <input type="checkbox" name="active" {{ 'checked' if row.active }}> 활성 (로그인 허용)
+        </label></div>
+      {% endif %}
+    </div>
+    <div style="margin-top:18px; display:flex; gap:10px">
+      <button class="btn primary">저장</button>
+      <a class="btn ghost" href="{{ url_for('users') }}">취소</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

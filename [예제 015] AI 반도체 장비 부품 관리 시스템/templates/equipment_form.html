@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block title %}{{ '장비 수정' if row else '장비 등록' }}{% endblock %}
+{% block heading %}{{ '장비 수정' if row else '장비 등록' }}{% endblock %}
+{% block content %}
+<div class="card" style="max-width:820px">
+  <form method="post">
+    <div class="form-grid">
+      <div class="field"><label>장비 코드 *</label>
+        <input name="code" value="{{ row.code if row }}" required placeholder="ETCH-A01"></div>
+      <div class="field"><label>장비명 *</label>
+        <input name="name" value="{{ row.name if row }}" required placeholder="Etcher A-01"></div>
+      <div class="field"><label>유형</label>
+        <input name="etype" value="{{ row.etype if row }}" placeholder="Dry Etcher"></div>
+      <div class="field"><label>위치</label>
+        <input name="location" value="{{ row.location if row }}" placeholder="FAB1-Bay3"></div>
+      <div class="field"><label>상태</label>
+        <select name="status">
+          {% for s in ['가동중','PM중','정지'] %}
+          <option value="{{ s }}" {{ 'selected' if row and row.status==s }}>{{ s }}</option>{% endfor %}
+        </select></div>
+      <div class="field"><label>설치일</label>
+        <input type="date" name="installed_at" value="{{ row.installed_at if row }}"></div>
+      <div class="field" style="grid-column:1/-1"><label>비고</label>
+        <textarea name="note" rows="2">{{ row.note if row }}</textarea></div>
+    </div>
+    <div style="margin-top:18px; display:flex; gap:10px">
+      <button class="btn primary">저장</button>
+      <a class="btn ghost" href="{{ url_for('equipment') }}">취소</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

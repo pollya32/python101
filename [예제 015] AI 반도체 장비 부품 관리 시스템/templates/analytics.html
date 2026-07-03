@@ -1,0 +1,109 @@
+{% extends 'base.html' %}
+{% block title %}분석{% endblock %}
+{% block heading %}Visual Analytics — 핵심 관리 지표{% endblock %}
+{% block content %}
+
+<div class="grid kpis" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr))">
+  <div class="card kpi">
+    <div class="label">MTBF (평균 고장 간격)</div>
+    <div class="value">{{ overall.mtbf_days or '-' }}<small> 일</small></div>
+    <div class="formula" style="margin-top:12px; font-size:13px">
+      MTBF = <span class="frac"><span class="top">Σ Operational Time</span><span class="bot">Total Number of Failures</span></span>
+    </div>
+    <div class="muted small" style="margin-top:8px">장비가 고장 없이 정상 가동된 평균 시간 (고장 {{ overall.failure_count }}건 기준)</div>
+  </div>
+  <div class="card kpi">
+    <div class="label">MTTR (평균 수리 시간)</div>
+    <div class="value">{{ overall.mttr_hours or '-' }}<small> 시간</small></div>
+    <div class="formula" style="margin-top:12px; font-size:13px">
+      MTTR = <span class="frac"><span class="top">Σ Maintenance Time</span><span class="bot">Total Number of Repairs</span></span>
+    </div>
+    <div class="muted small" style="margin-top:8px">고장 발생 시 수리·복구에 소요된 평균 시간 (수리 {{ overall.repair_count }}건 기준)</div>
+  </div>
+  <div class="card kpi ok">
+    <div class="label">RUL 예측 정확도</div>
+    <div class="value">{{ accuracy or '-' }}<small> %</small></div>
+    <div class="muted small" style="margin-top:8px">AI 예측 수명 vs 실제 사용 일수 (완료된 교체 건) · 목표 오차율 5% 이내</div>
+  </div>
+</div>
+
+<div class="grid two-col mb">
+  <div class="card">
+    <h3>장비별 MTBF (일)</h3>
+    <div class="chart-box sm"><canvas id="mtbfChart"></canvas></div>
+  </div>
+  <div class="card">
+    <h3>고장 원인 분포</h3>
+    <div class="chart-box sm"><canvas id="causeChart"></canvas></div>
+  </div>
+</div>
+
+<div class="grid two-col mb">
+  <div class="card">
+    <h3>부품 카테고리별 고장 패턴</h3>
+    <div class="chart-box sm"><canvas id="catChart"></canvas></div>
+  </div>
+  <div class="card">
+    <h3>월별 교체 건수 (최근 12개월)</h3>
+    <div class="chart-box sm"><canvas id="monthlyChart"></canvas></div>
+  </div>
+</div>
+
+<div class="card tbl-wrap">
+  <h3>장비별 신뢰성 지표</h3>
+  <table class="tbl">
+    <tr><th>장비</th><th class="num">MTBF (일)</th><th class="num">MTTR (시간)</th>
+        <th class="num">고장 건수</th><th class="num">수리 건수</th></tr>
+    {% for s in per_eq %}
+    <tr>
+      <td><span class="code-chip">{{ s.eq.code }}</span> {{ s.eq.name }}</td>
+      <td class="num">{{ s.mtbf_days or '-' }}</td>
+      <td class="num">{{ s.mttr_hours or '-' }}</td>
+      <td class="num">{{ s.failure_count }}</td>
+      <td class="num">{{ s.repair_count }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const PALETTE = ['#38bdf8','#f87171','#fbbf24','#34d399','#a78bfa','#fb923c'];
+const AXIS = { ticks:{color:'#7d93b0'}, grid:{color:'#1d3350'} };
+const LEG = { labels:{color:'#dbe7f5'} };
+const perEq = {{ per_eq | map(attribute='eq.code') | list | tojson }};
+const mtbf = {{ per_eq | map(attribute='mtbf_days') | list | tojson }};
+new Chart(document.getElementById('mtbfChart'), {
+  type: 'bar',
+  data: { labels: perEq, datasets: [{ label:'MTBF(일)', data: mtbf, backgroundColor:'#38bdf8', borderRadius:6 }] },
+  options: { responsive:true, maintainAspectRatio:false, scales:{x:AXIS, y:AXIS}, plugins:{legend:{display:false}} }
+});
+const causes = {{ causes | tojson }};
+new Chart(document.getElementById('causeChart'), {
+  type: 'doughnut',
+  data: { labels: causes.map(c=>c.failure_cause),
+          datasets: [{ data: causes.map(c=>c.n), backgroundColor: PALETTE, borderColor:'#0d1a2e' }] },
+  options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom', ...LEG}} }
+});
+const cats = {{ cats | tojson }};
+new Chart(document.getElementById('catChart'), {
+  type: 'bar',
+  data: { labels: cats.map(c=>c.category),
+          datasets: [
+            { label:'고장 건수', data: cats.map(c=>c.n), backgroundColor:'#f87171', borderRadius:6, yAxisID:'y' },
+            { label:'평균 사용일', data: cats.map(c=>c.avg_used), backgroundColor:'#34d399', borderRadius:6, yAxisID:'y1' }] },
+  options: { responsive:true, maintainAspectRatio:false,
+    scales:{ x:AXIS, y:{...AXIS, position:'left'}, y1:{...AXIS, position:'right', grid:{display:false}} },
+    plugins:{legend:LEG} }
+});
+const monthly = {{ monthly | tojson }};
+new Chart(document.getElementById('monthlyChart'), {
+  type: 'line',
+  data: { labels: monthly.map(m=>m.ym),
+          datasets: [{ label:'교체 건수', data: monthly.map(m=>m.n), borderColor:'#fbbf24',
+                       backgroundColor:'rgba(251,191,36,.15)', fill:true, tension:.3 }] },
+  options: { responsive:true, maintainAspectRatio:false, scales:{x:AXIS, y:{...AXIS, beginAtZero:true}}, plugins:{legend:LEG} }
+});
+</script>
+{% endblock %}

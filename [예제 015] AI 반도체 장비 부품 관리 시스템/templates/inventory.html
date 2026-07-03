@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import won %}
+{% block title %}재고 / Safety Stock{% endblock %}
+{% block heading %}재고 / Safety Stock 관리{% endblock %}
+{% block content %}
+
+<div class="section-head">
+  <div class="spacer"></div>
+  {% if can_edit %}<a class="btn primary" href="{{ url_for('inventory_form') }}">+ 품목 등록</a>{% endif %}
+</div>
+
+<div class="card tbl-wrap">
+  <table class="tbl">
+    <tr><th>품목 코드</th><th>품목명</th><th>카테고리</th><th class="num">재고</th><th class="num">안전재고</th>
+        <th class="num">30일 내 교체 수요</th><th class="num">발주 제안</th><th class="num">리드타임</th>
+        <th class="num">단가</th><th>공급사</th><th></th></tr>
+    {% for x in items %}
+    {% set short = x.it.stock_qty < x.it.safety_stock %}
+    <tr>
+      <td><span class="code-chip">{{ x.it.item_code }}</span></td>
+      <td>{{ x.it.name }}</td>
+      <td class="muted">{{ x.it.category or '-' }}</td>
+      <td class="num"><b style="color:{{ 'var(--crit)' if short else 'var(--ok)' }}">{{ x.it.stock_qty }}</b></td>
+      <td class="num">{{ x.it.safety_stock }}</td>
+      <td class="num">{% if x.demand %}<span class="badge b-warn">{{ x.demand }}EA</span>{% else %}<span class="muted">0</span>{% endif %}</td>
+      <td class="num">{% if x.suggest %}<span class="badge b-info">{{ x.suggest }}EA</span>{% else %}<span class="muted">-</span>{% endif %}</td>
+      <td class="num">{{ x.it.lead_time_days }}일</td>
+      <td class="num">{{ won(x.it.unit_cost) }}</td>
+      <td class="muted">{{ x.it.supplier or '-' }}</td>
+      <td class="row-actions">
+        {% if can_edit %}
+        {% if x.suggest %}
+        <form method="post" action="{{ url_for('inventory_order', iid=x.it.id) }}"
+              onsubmit="return confirm('{{ x.it.name }} {{ x.suggest }}EA 발주(입고) 처리할까요?')">
+          <input type="hidden" name="qty" value="{{ x.suggest }}">
+          <button class="btn sm primary">발주</button>
+        </form>
+        {% endif %}
+        <a class="btn sm ghost" href="{{ url_for('inventory_form', iid=x.it.id) }}">수정</a>
+        {% endif %}
+      </td>
+    </tr>
+    {% else %}<tr><td colspan="11" class="muted">등록된 품목이 없습니다.</td></tr>{% endfor %}
+  </table>
+</div>
+<p class="muted small" style="margin-top:10px">
+  발주 제안 = (안전재고 − 현재고) + 30일 내 AI 예측 교체 수요 · 예상 교체 시점에 맞춘 자재 자동 발주 연동
+</p>
+{% endblock %}

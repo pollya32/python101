@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% block title %}교체 등록{% endblock %}
+{% block heading %}부품 교체 등록{% endblock %}
+{% block content %}
+<div class="card" style="max-width:820px">
+  <form method="post">
+    <div class="form-grid">
+      <div class="field" style="grid-column:1/-1"><label>교체 대상 부품 *</label>
+        <select name="part_id" required>
+          {% for p in parts_list %}
+          <option value="{{ p.id }}">{{ p.part_code }} — {{ p.name }}
+            ({{ p.equipment_name or '미장착' }}, Health {{ p.health_index }})</option>
+          {% endfor %}
+        </select></div>
+      <div class="field"><label>교체일자</label>
+        <input type="date" name="replaced_at" value="{{ today }}"></div>
+      <div class="field"><label>고장 원인</label>
+        <select name="failure_cause">
+          {% for c in causes %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+        </select></div>
+      <div class="field"><label>수리 시간 (시간, MTTR 산출용)</label>
+        <input type="number" step="0.1" name="repair_hours" placeholder="예: 3.5"></div>
+      <div class="field"><label>신품 교체 여부</label>
+        <select name="renew">
+          <option value="1">예 — 새 부품 장착 (장착일 리셋, 재고 1EA 차감)</option>
+          <option value="0">아니오 — 탈거만 (부품 상태: 교체완료)</option>
+        </select></div>
+      <div class="field" style="grid-column:1/-1"><label>비고</label>
+        <textarea name="note" rows="2"></textarea></div>
+    </div>
+    <div style="margin-top:18px; display:flex; gap:10px">
+      <button class="btn primary">교체 등록</button>
+      <a class="btn ghost" href="{{ url_for('history') }}">취소</a>
+    </div>
+  </form>
+</div>
+<p class="muted small" style="margin-top:10px">
+  사용 일수는 장착일 기준으로 자동 계산되며, AI 예측 수명과 비교되어 예측 정확도 지표에 반영됩니다.
+</p>
+{% endblock %}

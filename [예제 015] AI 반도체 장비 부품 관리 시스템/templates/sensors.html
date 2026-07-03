@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% block title %}설비 센싱 / FDC{% endblock %}
+{% block heading %}설비 센싱 / FDC 감지{% endblock %}
+{% block content %}
+
+<div class="grid kpis" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr))">
+  <div class="card kpi"><div class="label">Data Ingestion</div>
+    <div class="value small" style="font-size:15px">센서 데이터(압력·온도·RF) 수집</div></div>
+  <div class="card kpi"><div class="label">Fault Detection (3σ SPC)</div>
+    <div class="value small" style="font-size:15px">통계적 공정 관리 기반 이상치 탐지</div></div>
+  <div class="card kpi {{ 'crit' if anomaly_count }}"><div class="label">최근 7일 FDC 이상</div>
+    <div class="value">{{ anomaly_count }}<small> 건</small></div></div>
+</div>
+
+<div class="section-head">
+  <form class="filters" method="get">
+    <select name="part_id" onchange="this.form.submit()">
+      <option value="">부품 전체</option>
+      {% for p in parts_list %}<option value="{{ p.id }}" {{ 'selected' if part_id|string==p.id|string }}>{{ p.part_code }}</option>{% endfor %}
+    </select>
+    <label class="muted" style="display:flex;align-items:center;gap:6px">
+      <input type="checkbox" name="anomaly" value="1" {{ 'checked' if only_anomaly }} onchange="this.form.submit()"> 이상치만 보기
+    </label>
+  </form>
+  <div class="spacer"></div>
+  {% if can_edit %}
+  <form method="post" action="{{ url_for('sensors_simulate') }}">
+    <button class="btn primary">▶ 센서 수집 시뮬레이션 (1사이클)</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="card tbl-wrap mb">
+  <table class="tbl">
+    <tr><th>시각</th><th>부품 ID</th><th>부품명</th><th class="num">압력(Torr)</th>
+        <th class="num">온도(℃)</th><th class="num">RF(W)</th><th>FDC 판정</th><th>고장 모드 분류</th></tr>
+    {% for s in rows %}
+    <tr>
+      <td class="muted small">{{ s.ts }}</td>
+      <td><span class="code-chip">{{ s.part_code }}</span></td>
+      <td>{{ s.part_name }}</td>
+      <td class="num">{{ s.pressure if s.pressure is not none else '-' }}</td>
+      <td class="num">{{ s.temperature if s.temperature is not none else '-' }}</td>
+      <td class="num">{{ s.rf_power if s.rf_power is not none else '-' }}</td>
+      <td>{% if s.is_anomaly %}<span class="badge b-crit">이상 ({{ s.anomaly_param }})</span>
+          {% else %}<span class="badge b-ok">정상</span>{% endif %}</td>
+      <td class="muted small">{{ s.fault_mode or '-' }}</td>
+    </tr>
+    {% else %}<tr><td colspan="8" class="muted">센서 데이터가 없습니다.</td></tr>{% endfor %}
+  </table>
+</div>
+
+<div class="card">
+  <h3>설비 연동 REST API (Data Ingestion)</h3>
+  <p class="muted small" style="line-height:1.8">
+    설비 PC/PLC에서 아래 API로 실시간 파라미터를 전송하면 FDC 판정 → Health 갱신 → Smart Alarm까지 자동 처리됩니다.<br>
+    <span class="code-chip">POST /api/sensor</span> &nbsp; Header: <span class="code-chip">X-API-KEY: {{ api_token }}</span><br>
+    Body: <span class="code-chip">{"part_code": "CH-VP-001", "pressure": 0.051, "temperature": 45.2, "rf_power": 1500}</span>
+  </p>
+</div>
+{% endblock %}

@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import severity_badge %}
+{% block title %}Smart Alarm{% endblock %}
+{% block heading %}Smart Alarm — 지능형 알람{% endblock %}
+{% block content %}
+
+<div class="section-head">
+  <form class="filters" method="get">
+    <select name="type" onchange="this.form.submit()">
+      <option value="">유형 전체</option>
+      {% for t, l in [('FDC','FDC 이상'),('LIFE','수명 임계'),('STOCK','안전 재고'),('RECOMMEND','교체 예약')] %}
+      <option value="{{ t }}" {{ 'selected' if atype==t }}>{{ l }}</option>{% endfor %}
+    </select>
+    <label class="muted" style="display:flex;align-items:center;gap:6px">
+      <input type="checkbox" name="unread" value="1" {{ 'checked' if unread }} onchange="this.form.submit()"> 미확인만
+    </label>
+  </form>
+  <div class="spacer"></div>
+  <form method="post" action="{{ url_for('alerts_read_all') }}">
+    <button class="btn ghost">모두 확인 처리</button>
+  </form>
+</div>
+
+<div class="card tbl-wrap">
+  <table class="tbl">
+    <tr><th>발생 시각</th><th>유형</th><th>심각도</th><th>내용</th><th>상태</th><th></th></tr>
+    {% for a in rows %}
+    <tr style="{{ 'opacity:.55' if a.is_read }}">
+      <td class="muted small">{{ a.created_at }}</td>
+      <td><span class="badge b-muted">{{ a.atype }}</span></td>
+      <td>{{ severity_badge(a.severity) }}</td>
+      <td>{{ a.message }}
+        {% if a.part_id %} <a class="small" href="{{ url_for('part_detail', pid=a.part_id) }}">부품 보기 →</a>{% endif %}</td>
+      <td>{% if a.is_read %}<span class="badge b-muted">확인</span>{% else %}<span class="badge b-crit">미확인</span>{% endif %}</td>
+      <td>{% if not a.is_read %}
+        <form method="post" action="{{ url_for('alert_read', aid=a.id) }}">
+          <button class="btn sm ghost">확인</button>
+        </form>{% endif %}</td>
+    </tr>
+    {% else %}<tr><td colspan="6" class="muted">알람이 없습니다.</td></tr>{% endfor %}
+  </table>
+</div>
+<p class="muted small" style="margin-top:10px">
+  수명 임계 도달 전 자동 알림 · FDC 이상 즉시 통지 · 안전 재고 미달 발주 알림
+  (SMS/메일 발송은 사내 게이트웨이 연동 시 활성화)
+</p>
+{% endblock %}

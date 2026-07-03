@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import status_badge %}
+{% block title %}장비 관리{% endblock %}
+{% block heading %}장비 관리{% endblock %}
+{% block content %}
+
+<div class="section-head">
+  <div class="spacer"></div>
+  {% if can_edit %}<a class="btn primary" href="{{ url_for('equipment_form') }}">+ 장비 등록</a>{% endif %}
+</div>
+
+<div class="card tbl-wrap">
+  <table class="tbl">
+    <tr><th>장비 코드</th><th>장비명</th><th>유형</th><th>위치</th><th>상태</th>
+        <th class="num">부품 수</th><th class="num">평균 Health</th>
+        <th class="num">MTBF</th><th class="num">MTTR</th><th></th></tr>
+    {% for e in rows %}
+    <tr>
+      <td><span class="code-chip">{{ e.code }}</span></td>
+      <td><a href="{{ url_for('parts', equipment_id=e.id) }}">{{ e.name }}</a></td>
+      <td class="muted">{{ e.etype or '-' }}</td>
+      <td class="muted">{{ e.location or '-' }}</td>
+      <td>{{ status_badge(e.status) }}</td>
+      <td class="num">{{ e.part_count }}</td>
+      <td class="num">{{ e.avg_health or '-' }}</td>
+      <td class="num">{{ stats[e.id].mtbf_days or '-' }}{% if stats[e.id].mtbf_days %}일{% endif %}</td>
+      <td class="num">{{ stats[e.id].mttr_hours or '-' }}{% if stats[e.id].mttr_hours %}h{% endif %}</td>
+      <td class="row-actions">
+        {% if can_edit %}<a class="btn sm ghost" href="{{ url_for('equipment_form', eid=e.id) }}">수정</a>{% endif %}
+        {% if session.role == 'admin' %}
+        <form method="post" action="{{ url_for('equipment_delete', eid=e.id) }}"
+              onsubmit="return confirm('장비를 삭제할까요? 소속 부품은 미장착 상태가 됩니다.')">
+          <button class="btn sm danger">삭제</button>
+        </form>{% endif %}
+      </td>
+    </tr>
+    {% else %}<tr><td colspan="10" class="muted">등록된 장비가 없습니다.</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

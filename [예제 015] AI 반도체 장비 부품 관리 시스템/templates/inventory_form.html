@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block title %}{{ '품목 수정' if row else '품목 등록' }}{% endblock %}
+{% block heading %}{{ '재고 품목 수정' if row else '재고 품목 등록' }}{% endblock %}
+{% block content %}
+<div class="card" style="max-width:820px">
+  <form method="post">
+    <div class="form-grid">
+      <div class="field"><label>품목 코드 *</label>
+        <input name="item_code" value="{{ row.item_code if row }}" required placeholder="INV-VP-01"></div>
+      <div class="field"><label>품목명 * <span class="muted">(부품명과 동일하게 — 수요 예측 연동)</span></label>
+        <input name="name" value="{{ row.name if row }}" required placeholder="Vacuum Pump"></div>
+      <div class="field"><label>카테고리</label>
+        <input name="category" value="{{ row.category if row }}"></div>
+      <div class="field"><label>현재고 (EA)</label>
+        <input type="number" name="stock_qty" value="{{ row.stock_qty if row else 0 }}" min="0"></div>
+      <div class="field"><label>안전재고 (EA)</label>
+        <input type="number" name="safety_stock" value="{{ row.safety_stock if row else 2 }}" min="0"></div>
+      <div class="field"><label>단가 (원)</label>
+        <input type="number" name="unit_cost" value="{{ row.unit_cost if row else 0 }}" min="0"></div>
+      <div class="field"><label>리드타임 (일)</label>
+        <input type="number" name="lead_time_days" value="{{ row.lead_time_days if row else 14 }}" min="0"></div>
+      <div class="field"><label>공급사</label>
+        <input name="supplier" value="{{ row.supplier if row }}"></div>
+      <div class="field" style="grid-column:1/-1"><label>비고</label>
+        <textarea name="note" rows="2">{{ row.note if row }}</textarea></div>
+    </div>
+    <div style="margin-top:18px; display:flex; gap:10px">
+      <button class="btn primary">저장</button>
+      <a class="btn ghost" href="{{ url_for('inventory') }}">취소</a>
+      {% if row and session.role == 'admin' %}
+      <span style="flex:1"></span>
+      <button class="btn danger" formaction="{{ url_for('inventory_delete', iid=row.id) }}"
+              onclick="return confirm('품목을 삭제할까요?')">삭제</button>
+      {% endif %}
+    </div>
+  </form>
+</div>
+{% endblock %}

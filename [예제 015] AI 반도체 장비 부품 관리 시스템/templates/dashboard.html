@@ -1,0 +1,117 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import health_bar, severity_badge %}
+{% block title %}대시보드{% endblock %}
+{% block heading %}통합 대시보드{% endblock %}
+{% block content %}
+
+<div class="grid kpis">
+  <div class="card kpi"><div class="label">가동 장비</div>
+    <div class="value">{{ kpi.equipment_running }}<small> / {{ kpi.equipment_total }}대</small></div></div>
+  <div class="card kpi"><div class="label">사용중 부품</div>
+    <div class="value">{{ kpi.parts_in_use }}<small> EA</small></div></div>
+  <div class="card kpi {{ 'ok' if (kpi.avg_health or 0) > 60 else 'warn' }}"><div class="label">평균 Health Index</div>
+    <div class="value">{{ kpi.avg_health or '-' }}</div></div>
+  <div class="card kpi {{ 'crit' if kpi.unread_alerts else 'ok' }}"><div class="label">미확인 알람</div>
+    <div class="value">{{ kpi.unread_alerts }}<small> 건</small></div></div>
+  <div class="card kpi"><div class="label">MTBF (평균 고장 간격)</div>
+    <div class="value">{{ kpi.mtbf_days or '-' }}<small> 일</small></div></div>
+  <div class="card kpi"><div class="label">MTTR (평균 수리 시간)</div>
+    <div class="value">{{ kpi.mttr_hours or '-' }}<small> 시간</small></div></div>
+  <div class="card kpi ok"><div class="label">RUL 예측 정확도</div>
+    <div class="value">{{ kpi.accuracy or '-' }}<small> %</small></div></div>
+  <div class="card kpi {{ 'warn' if kpi.low_stock }}"><div class="label">안전재고 미달</div>
+    <div class="value">{{ kpi.low_stock }}<small> 품목</small></div></div>
+</div>
+
+<div class="grid two-col mb">
+  <div class="card">
+    <h3>부품 열화 트렌드 — Health 하위 5개 부품 (최근 60일)</h3>
+    <div class="chart-box"><canvas id="trendChart"></canvas></div>
+  </div>
+  <div class="card">
+    <h3>고장 원인 분포</h3>
+    <div class="chart-box"><canvas id="causeChart"></canvas></div>
+  </div>
+</div>
+
+<div class="grid two-col">
+  <div class="card">
+    <h3>🧠 AI 교체 추천 Top 5 <a class="small" href="{{ url_for('recommendations') }}" style="float:right">전체 보기 →</a></h3>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>부품 ID</th><th>부품명</th><th>장비</th><th>Health</th><th class="num">RUL</th><th>권장 교체일</th></tr>
+      {% for r in recs %}
+      <tr>
+        <td><a href="{{ url_for('part_detail', pid=r.part.id) }}">{{ r.part.part_code }}</a></td>
+        <td>{{ r.part.name }}</td>
+        <td class="muted">{{ r.part.equipment_name or '-' }}</td>
+        <td>{{ health_bar(r.part.health_index, r.part.replacement_limit) }}</td>
+        <td class="num"><span class="badge {{ 'b-crit' if r.urgency=='critical' else 'b-warn' }}">{{ r.rul }}일</span></td>
+        <td>{{ r.recommended_date }}</td>
+      </tr>
+      {% else %}<tr><td colspan="6" class="muted">현재 교체가 필요한 부품이 없습니다.</td></tr>{% endfor %}
+    </table></div>
+  </div>
+  <div class="card">
+    <h3>🔔 최근 알람 <a class="small" href="{{ url_for('alerts') }}" style="float:right">전체 보기 →</a></h3>
+    <ul class="list-plain">
+      {% for a in alerts %}
+      <li>{{ severity_badge(a.severity) }} {{ a.message }}
+        <div class="muted small">{{ a.created_at }}</div></li>
+      {% else %}<li class="muted">알람이 없습니다.</li>{% endfor %}
+    </ul>
+    {% if low_stock %}
+    <h3 style="margin-top:18px">📦 안전재고 미달</h3>
+    <ul class="list-plain">
+      {% for s in low_stock %}
+      <li><span class="badge b-warn">{{ s.stock_qty }}/{{ s.safety_stock }}</span>
+        {{ s.item_code }} {{ s.name }} <span class="muted small">(리드타임 {{ s.lead_time_days }}일)</span></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const PALETTE = ['#38bdf8','#f87171','#fbbf24','#34d399','#a78bfa'];
+const trend = {{ trend | tojson }};
+new Chart(document.getElementById('trendChart'), {
+  type: 'line',
+  data: { datasets: trend.map((t,i) => ({
+      label: t.label, data: t.data, borderColor: PALETTE[i%5],
+      backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: .3 })) },
+  options: {
+    responsive: true, maintainAspectRatio: false, interaction: {mode:'nearest', intersect:false},
+    parsing: {xAxisKey:'x', yAxisKey:'y'},
+    scales: {
+      x: { type:'category', ticks:{color:'#7d93b0', maxTicksLimit:8}, grid:{color:'#1d3350'} },
+      y: { min:0, max:100, ticks:{color:'#7d93b0'}, grid:{color:'#1d3350'},
+           title:{display:true,text:'Health Index',color:'#7d93b0'} } },
+    plugins: {
+      legend: { labels: {color:'#dbe7f5'} },
+      annotationLine: false
+    }
+  },
+  plugins: [{
+    id: 'limitLine',
+    afterDraw(chart) {
+      const y = chart.scales.y.getPixelForValue({{ limit_avg }});
+      const {left, right} = chart.chartArea, ctx = chart.ctx;
+      ctx.save(); ctx.strokeStyle = '#f87171'; ctx.setLineDash([6,5]); ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke();
+      ctx.fillStyle = '#f87171'; ctx.font = '11px sans-serif';
+      ctx.fillText('Replacement Limit', right - 110, y - 6); ctx.restore();
+    }
+  }]
+});
+const causes = {{ causes | tojson }};
+new Chart(document.getElementById('causeChart'), {
+  type: 'doughnut',
+  data: { labels: causes.map(c => c.failure_cause),
+          datasets: [{ data: causes.map(c => c.n), backgroundColor: PALETTE, borderColor: '#0d1a2e' }] },
+  options: { responsive:true, maintainAspectRatio:false,
+             plugins: { legend: { position:'bottom', labels:{color:'#dbe7f5'} } } }
+});
+</script>
+{% endblock %}

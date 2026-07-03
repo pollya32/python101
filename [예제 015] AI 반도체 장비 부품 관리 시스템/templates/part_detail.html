@@ -1,0 +1,121 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import health_bar, status_badge, won %}
+{% block title %}{{ part.part_code }}{% endblock %}
+{% block heading %}부품 상세 — {{ part.part_code }}{% endblock %}
+{% block content %}
+
+<div class="section-head">
+  <a class="btn sm ghost" href="{{ url_for('parts') }}">← 목록</a>
+  <div class="spacer"></div>
+  {% if can_edit %}
+  <a class="btn" href="{{ url_for('part_edit', pid=part.id) }}">수정</a>
+  {% if session.role == 'admin' %}
+  <form method="post" action="{{ url_for('part_delete', pid=part.id) }}"
+        onsubmit="return confirm('이 부품과 관련 센서/이력 데이터를 삭제할까요?')">
+    <button class="btn danger">삭제</button>
+  </form>
+  {% endif %}{% endif %}
+</div>
+
+<div class="grid" style="grid-template-columns: 1.1fr .9fr .6fr; margin-bottom:16px">
+  <div class="card">
+    <h3>기본 정보</h3>
+    <table class="tbl">
+      <tr><td class="muted">부품명</td><td>{{ part.name }} <span class="muted">({{ part.category or '-' }})</span></td></tr>
+      <tr><td class="muted">장착 장비</td><td>{{ part.equipment_code or '-' }} {{ part.equipment_name or '' }}</td></tr>
+      <tr><td class="muted">장착일 / 사용일수</td><td>{{ part.install_date or '-' }} / <b>{{ used }}일</b></td></tr>
+      <tr><td class="muted">TBM 기대 수명</td><td>{{ part.expected_life_days }}일</td></tr>
+      <tr><td class="muted">단가 / 공급사</td><td>{{ won(part.unit_cost) }} / {{ part.supplier or '-' }}</td></tr>
+      <tr><td class="muted">상태</td><td>{{ status_badge(part.status) }}</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h3>AI 수명 예측 (RUL)</h3>
+    {% set color = '#34d399' if part.health_index > part.replacement_limit + 30
+                   else ('#fbbf24' if part.health_index > part.replacement_limit else '#f87171') %}
+    <div class="gauge" style="color:{{ color }}">{{ part.health_index }}<small style="font-size:15px;color:#7d93b0"> /100 Health</small></div>
+    <div style="margin:10px 0">{{ health_bar(part.health_index, part.replacement_limit) }}</div>
+    <table class="tbl">
+      <tr><td class="muted">잔여 수명 (RUL)</td>
+          <td><b style="color:{{ color }}">{{ rul.rul }}일</b>
+              <span class="badge {{ 'b-info' if rul.method=='trend' else 'b-muted' }}">
+                {{ 'AI 열화 추세 분석' if rul.method=='trend' else 'TBM 기준' }}</span></td></tr>
+      <tr><td class="muted">예상 교체 시점</td><td>{{ rul.predicted_date }}</td></tr>
+      <tr><td class="muted">교체 임계치</td><td>Health {{ part.replacement_limit }}</td></tr>
+    </table>
+  </div>
+  <div class="card" style="text-align:center">
+    <h3>QR 트래킹</h3>
+    <img src="{{ url_for('part_qr', pid=part.id) }}" alt="QR" style="width:150px;height:150px;background:#fff;border-radius:8px;padding:6px">
+    <div class="code-chip" style="margin-top:10px">{{ part.part_code }}</div>
+    <div class="muted small" style="margin-top:6px">모바일 스캔으로 이력 즉시 조회</div>
+  </div>
+</div>
+
+<div class="card mb">
+  <h3>열화 곡선 (Health Index Trend)</h3>
+  <div class="chart-box"><canvas id="healthChart"></canvas></div>
+</div>
+
+<div class="grid two-col mb">
+  <div class="card tbl-wrap">
+    <h3>최근 센서 데이터 (Data Ingestion)</h3>
+    <table class="tbl">
+      <tr><th>시각</th><th class="num">압력(Torr)</th><th class="num">온도(℃)</th><th class="num">RF(W)</th><th>FDC</th></tr>
+      {% for s in sensors %}
+      <tr>
+        <td class="muted small">{{ s.ts }}</td>
+        <td class="num">{{ s.pressure if s.pressure is not none else '-' }}</td>
+        <td class="num">{{ s.temperature if s.temperature is not none else '-' }}</td>
+        <td class="num">{{ s.rf_power if s.rf_power is not none else '-' }}</td>
+        <td>{% if s.is_anomaly %}<span class="badge b-crit">이상</span>{% else %}<span class="badge b-ok">정상</span>{% endif %}</td>
+      </tr>
+      {% else %}<tr><td colspan="5" class="muted">센서 데이터가 없습니다.</td></tr>{% endfor %}
+    </table>
+  </div>
+  <div class="card">
+    <h3>FDC 이상 감지 이력</h3>
+    <ul class="list-plain">
+      {% for a in anomalies %}
+      <li><span class="badge b-crit">{{ a.anomaly_param }}</span> {{ a.fault_mode }}
+        <div class="muted small">{{ a.ts }}</div></li>
+      {% else %}<li class="muted">이상 감지 이력이 없습니다.</li>{% endfor %}
+    </ul>
+    <h3 style="margin-top:16px">교체 이력</h3>
+    <ul class="list-plain">
+      {% for r in repls %}
+      <li>{{ status_badge(r.status) }} {{ r.replaced_at }} · {{ r.failure_cause }}
+        {% if r.used_days %}<span class="muted">({{ r.used_days }}일 사용)</span>{% endif %}</li>
+      {% else %}<li class="muted">교체 이력이 없습니다.</li>{% endfor %}
+    </ul>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const health = {{ health | tojson }};
+new Chart(document.getElementById('healthChart'), {
+  type: 'line',
+  data: { datasets: [{ label: 'Health Index', data: health, borderColor: '#38bdf8',
+          backgroundColor: 'rgba(56,189,248,.12)', fill: true, pointRadius: 0, borderWidth: 2, tension: .3 }] },
+  options: {
+    responsive: true, maintainAspectRatio: false, parsing: {xAxisKey:'x', yAxisKey:'y'},
+    scales: { x: { type:'category', ticks:{color:'#7d93b0', maxTicksLimit:10}, grid:{color:'#1d3350'} },
+              y: { min:0, max:100, ticks:{color:'#7d93b0'}, grid:{color:'#1d3350'} } },
+    plugins: { legend: { labels:{color:'#dbe7f5'} } }
+  },
+  plugins: [{
+    id: 'limitLine',
+    afterDraw(chart) {
+      const y = chart.scales.y.getPixelForValue({{ part.replacement_limit }});
+      const {left, right} = chart.chartArea, ctx = chart.ctx;
+      ctx.save(); ctx.strokeStyle = '#f87171'; ctx.setLineDash([6,5]); ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke();
+      ctx.fillStyle = '#f87171'; ctx.font = '11px sans-serif';
+      ctx.fillText('Replacement Limit', right - 110, y - 6); ctx.restore();
+    }
+  }]
+});
+</script>
+{% endblock %}
