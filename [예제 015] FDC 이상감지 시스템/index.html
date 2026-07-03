@@ -475,6 +475,7 @@
 let gResults=[], gCharts={}, gRankCharts={}, gThreshold=10, gHeaders=[];
 let gFilteredResults=null;          // null = 필터 없음 (전체)
 let gAnoms=[];                      // 현재 표시 이상감지 목록 (필터/정렬 반영)
+let gStats=[];                      // calcStats 결과 캐시 (renderCharts 재사용)
 const gPage={full:1, pageSize:200, anom:1, anomPageSize:200};
 
 /* ══════════════════════════════════════════════════════
@@ -771,8 +772,8 @@ async function detectAnomalies(data, threshold, method, winSize, ewmaLambda=0.2,
     const g2={};
     data.forEach(r=>{const k=`${r['EQP ID']}|||${r['CH']}|||${r['PARAMETER']}`;(g2[k]=g2[k]||[]).push(r);});
     Object.entries(g2).forEach(([k,rows])=>{
-      const lotOrder=[];
-      rows.forEach(r=>{if(!lotOrder.includes(r['LOTID']))lotOrder.push(r['LOTID']);});
+      const lotOrder=[], lotSeen=new Set();
+      rows.forEach(r=>{if(!lotSeen.has(r['LOTID'])){lotSeen.add(r['LOTID']);lotOrder.push(r['LOTID']);}});
       const lotB={};
       rows.forEach(r=>{(lotB[r['LOTID']]=lotB[r['LOTID']]||[]).push(r._val);});
       const lotAvg={};
@@ -1042,13 +1043,13 @@ function calcStats(results) {
    RENDER ALL
 ══════════════════════════════════════════════════════ */
 async function renderAll(results) {
-  const stats=calcStats(results);
-  renderSummary(results); renderBanner(results); renderStats(stats); renderRanking(results);
+  gStats=calcStats(results);
+  renderSummary(results); renderBanner(results); renderStats(gStats); renderRanking(results);
   await _tick();
   renderHeatmap(results);
   await _tick();
   initChartFilters(results);
-  renderCharts(results, stats);
+  await renderCharts(results, gStats);
   await _tick();
   renderTables(results);
   await _tick();
@@ -1058,33 +1059,41 @@ async function renderAll(results) {
 
 /* ── Summary ── */
 function renderSummary(results) {
-  const total=results.length, anom=results.filter(r=>r.isAnom).length;
-  const rate=total?((anom/total)*100).toFixed(1):'0.0';
-  const eqps=new Set(results.map(r=>r['EQP ID'])).size;
-  const chs=new Set(results.map(r=>r['CH']).filter(Boolean)).size;
-  const params=new Set(results.map(r=>r['PARAMETER'])).size;
+  let anom=0;
+  const eqpSet=new Set(), chSet=new Set(), paramSet=new Set();
+  results.forEach(r=>{
+    if(r.isAnom) anom++;
+    eqpSet.add(r['EQP ID']);
+    if(r['CH']) chSet.add(r['CH']);
+    paramSet.add(r['PARAMETER']);
+  });
+  const total=results.length, rate=total?((anom/total)*100).toFixed(1):'0.0', chs=chSet.size;
   document.getElementById('summaryGrid').innerHTML=`
     <div class="s-card c-blue"> <div class="val">${total.toLocaleString()}</div><div class="lbl">총 데이터 수</div></div>
     <div class="s-card c-red">  <div class="val">${anom.toLocaleString()}</div> <div class="lbl">이상감지 건수</div></div>
     <div class="s-card c-green"><div class="val">${(total-anom).toLocaleString()}</div><div class="lbl">정상 건수</div></div>
     <div class="s-card c-yellow"><div class="val">${rate}%</div><div class="lbl">이상 비율</div></div>
-    <div class="s-card c-blue"> <div class="val">${eqps}</div><div class="lbl">EQP 수</div></div>
+    <div class="s-card c-blue"> <div class="val">${eqpSet.size}</div><div class="lbl">EQP 수</div></div>
     ${chs>0?`<div class="s-card c-blue"><div class="val">${chs}</div><div class="lbl">CH 수</div></div>`:''}
-    <div class="s-card c-blue"> <div class="val">${params}</div><div class="lbl">PARAMETER 수</div></div>`;
+    <div class="s-card c-blue"> <div class="val">${paramSet.size}</div><div class="lbl">PARAMETER 수</div></div>`;
 }
 
 /* ── Banner ── */
 function renderBanner(results) {
-  const anoms=results.filter(r=>r.isAnom);
+  let anomCount=0, maxDiff=-Infinity, worst=null;
+  results.forEach(r=>{
+    if(!r.isAnom) return;
+    anomCount++;
+    const d=r.diff??0;
+    if(d>maxDiff){maxDiff=d;worst=r;}
+  });
   const el=document.getElementById('alertBanner');
-  if (!anoms.length) {
+  if(!anomCount){
     el.innerHTML=`<div class="alert-bar safe"><span class="alert-icon">✅</span>이상감지 없음 — 모든 데이터가 임계값(${gThreshold}) 이내입니다.</div>`;
   } else {
-    const maxDiff=Math.max(...anoms.map(r=>r.diff??0));
-    const worst=anoms.find(r=>r.diff===maxDiff);
     const chInfo=worst['CH']?` / CH ${worst['CH']}`:'';
     el.innerHTML=`<div class="alert-bar danger"><span class="alert-icon">⚠️</span>
-      <span><strong>${anoms.length}건의 이상</strong> 감지됨. 최대 편차: <strong>${maxDiff.toFixed(4)}</strong>
+      <span><strong>${anomCount}건의 이상</strong> 감지됨. 최대 편차: <strong>${maxDiff.toFixed(4)}</strong>
       (${worst['EQP ID']}${chInfo} / ${worst['PARAMETER']} / SLOT&nbsp;${worst['SLOT']})</span></div>`;
   }
 }
@@ -1092,15 +1101,11 @@ function renderBanner(results) {
 /* ── Stats table ── */
 function renderStats(stats) {
   const tbody=document.getElementById('statsTbody');
-  tbody.innerHTML='';
   if (!stats.length) {
     tbody.innerHTML=`<tr><td colspan="14" class="no-data">데이터 없음</td></tr>`;
     return;
   }
-  stats.forEach(s=>{
-    const tr=document.createElement('tr');
-    if (s.anomCount>0) tr.className='anom-row';
-    tr.innerHTML=`
+  tbody.innerHTML=stats.map(s=>`<tr${s.anomCount>0?' class="anom-row"':''}>
       <td>${s.eqp}</td><td>${s.ch||'-'}</td><td>${s.param}</td>
       <td class="stat-val">${s.n}</td>
       <td class="stat-val">${s.mean.toFixed(4)}</td>
@@ -1110,9 +1115,7 @@ function renderStats(stats) {
       <td style="color:var(--red)">${s.ucl.toFixed(4)}</td>
       <td style="color:var(--blue)">${s.lcl>0?s.lcl.toFixed(4):'-'}</td>
       <td class="${s.anomCount>0?'stat-anom':'stat-val'}">${s.anomCount}</td>
-      <td class="${s.anomRate>0?'stat-anom':''}">${s.anomRate.toFixed(1)}%</td>`;
-    tbody.appendChild(tr);
-  });
+      <td class="${s.anomRate>0?'stat-anom':''}">${s.anomRate.toFixed(1)}%</td></tr>`).join('');
 }
 
 /* ── Ranking ── */
@@ -1177,196 +1180,191 @@ function _decimateDataset(pts, rows, maxPts=600) {
   return {pts:kept.map(i=>pts[i]), rows:kept.map(i=>rows[i])};
 }
 
-function renderCharts(results, stats) {
+async function renderCharts(results, stats) {
   Object.values(gCharts).forEach(c=>c.destroy()); gCharts={};
-  const showSPC=document.getElementById('showSPC').checked;
-  const params=[...new Set(results.map(r=>r['PARAMETER']))];
-  const tabsEl=document.getElementById('chartTabs');
-  const panelEl=document.getElementById('chartPanels');
-  tabsEl.innerHTML=panelEl.innerHTML='';
+  const showSPC = document.getElementById('showSPC').checked;
+  const fCEqp   = document.getElementById('cEqp')?.value || '';
+  const fCCh    = document.getElementById('cCh')?.value  || '';
+  const ps      = parseInt(document.getElementById('pointSize')?.value) || 5;
 
-  params.forEach((param,pi)=>{
+  // O(N) 사전 그루핑: param → gkey → rows (반복 filter 제거)
+  const preGroup = new Map();
+  results.forEach(r => {
+    if (fCEqp && r['EQP ID'] !== fCEqp) return;
+    if (fCCh  && r['CH']     !== fCCh)  return;
+    const p = r['PARAMETER'];
+    if (!preGroup.has(p)) preGroup.set(p, new Map());
+    const gk = `${r['EQP ID']}|${r['LOTID']}|${r['CH']}`;
+    const m = preGroup.get(p);
+    if (!m.has(gk)) m.set(gk, []);
+    m.get(gk).push(r);
+  });
+  const params = [...preGroup.keys()];
+
+  const tabsEl = document.getElementById('chartTabs');
+  const panelEl = document.getElementById('chartPanels');
+  tabsEl.innerHTML = panelEl.innerHTML = '';
+
+  for (let pi = 0; pi < params.length; pi++) {
+    const param = params[pi];
+
     /* Tab */
-    const tab=document.createElement('button');
-    tab.className='tab-btn'+(pi===0?' active':'');
-    tab.textContent=param; tab.dataset.param=param;
-    tab.onclick=()=>switchTab(param);
+    const tab = document.createElement('button');
+    tab.className = 'tab-btn' + (pi === 0 ? ' active' : '');
+    tab.textContent = param; tab.dataset.param = param;
+    tab.onclick = () => switchTab(param);
     tabsEl.appendChild(tab);
 
     /* Panel */
-    const panel=document.createElement('div');
-    panel.className='tab-panel'+(pi===0?' active':'');
-    panel.dataset.param=param;
-    const canvas=document.createElement('canvas');
-    canvas.id=`cv_${pi}`;
-    const wrap=document.createElement('div');
-    wrap.className='chart-wrap';
+    const panel   = document.createElement('div');
+    panel.className = 'tab-panel' + (pi === 0 ? ' active' : '');
+    panel.dataset.param = param;
+    const canvas  = document.createElement('canvas');
+    canvas.id     = `cv_${pi}`;
+    const wrap    = document.createElement('div');
+    wrap.className = 'chart-wrap';
     wrap.appendChild(canvas);
     panel.appendChild(wrap);
-    const dragInfoDiv=document.createElement('div');
-    dragInfoDiv.id=`drag_info_${pi}`;
-    dragInfoDiv.className='drag-select-info';
-    dragInfoDiv.style.display='none';
+    const dragInfoDiv = document.createElement('div');
+    dragInfoDiv.id        = `drag_info_${pi}`;
+    dragInfoDiv.className = 'drag-select-info';
+    dragInfoDiv.style.display = 'none';
     panel.appendChild(dragInfoDiv);
     panelEl.appendChild(panel);
 
-    /* Build datasets */
-    const fCEqp = document.getElementById('cEqp')?.value || '';
-    const fCCh  = document.getElementById('cCh')?.value  || '';
-    const paramRows=results.filter(r=>
-      r['PARAMETER']===param &&
-      (!fCEqp || r['EQP ID']===fCEqp) &&
-      (!fCCh  || r['CH']===fCCh)
-    );
-    const gkeys=[...new Set(paramRows.map(r=>`${r['EQP ID']}|${r['LOTID']}|${r['CH']}`))]
-    const datasets=[];
+    /* Build datasets using pre-grouped data (no repeated filter) */
+    const gkeyMap = preGroup.get(param);
 
-    const allTimes=paramRows.filter(r=>r._time!=null).map(r=>r._time);
-    const hasTime=allTimes.length>0;
-    const tRef=hasTime?Math.min(...allTimes):0;
-    const tRange=hasTime?(Math.max(...allTimes)-tRef)/86400000:0;
+    // 단일 패스로 tRef / tMax 계산 (spread 연산자 제거)
+    let tRef = Infinity, tMax = -Infinity, hasTime = false;
+    gkeyMap.forEach(rows => rows.forEach(r => {
+      if (r._time == null) return;
+      hasTime = true;
+      if (r._time < tRef) tRef = r._time;
+      if (r._time > tMax) tMax = r._time;
+    }));
+    if (!hasTime) { tRef = 0; tMax = 0; }
+    const tRange = hasTime ? (tMax - tRef) / 86400000 : 0;
 
-    gkeys.forEach((gk,gi)=>{
-      const [eqp,lot,ch]=gk.split('|');
-      const rows=paramRows.filter(r=>r['EQP ID']===eqp && r['LOTID']===lot && r['CH']===ch);
-      rows.sort((a,b)=> hasTime ? ((a._time??a._slot)-(b._time??b._slot)) : a._slot-b._slot);
-      const color=PALETTE[gi%PALETTE.length];
-      const label=ch?`${eqp}/${lot}/${ch}`:`${eqp}/${lot}`;
+    const datasets = [];
+    let gi = 0;
 
-      let pts=rows.map(r=>({
-        x: hasTime && r._time!=null ? (r._time-tRef)/1000 : r._slot,
+    gkeyMap.forEach((rows, gk) => {
+      const [eqp, lot, ch] = gk.split('|');
+      rows.sort((a, b) => hasTime ? ((a._time ?? a._slot) - (b._time ?? b._slot)) : a._slot - b._slot);
+      const color = PALETTE[gi++ % PALETTE.length];
+      const label = ch ? `${eqp}/${lot}/${ch}` : `${eqp}/${lot}`;
+
+      let pts = rows.map(r => ({
+        x: hasTime && r._time != null ? (r._time - tRef) / 1000 : r._slot,
         y: r._val
       }));
 
-      /* 대용량 축소: 데이터셋당 최대 600포인트, 이상 포인트는 항상 유지 */
-      const dec=_decimateDataset(pts, rows, 600);
-      pts=dec.pts; const dRows=dec.rows;
+      const dec = _decimateDataset(pts, rows, 600);
+      pts = dec.pts; const dRows = dec.rows;
 
-      /* 산점도: 정상=원, 이상=큰 삼각형(빨강) — 연결선 없음 */
-      const ps = parseInt(document.getElementById('pointSize')?.value) || 5;
       datasets.push({
-        type:'line',
-        label,
-        data: pts,
-        _rows: dRows,
-        borderColor: color,
-        borderWidth: 0,
-        showLine: false,
-        fill: false,
-        tension: 0,
-        pointRadius:          dRows.map(r=>r.isAnom?Math.round(ps*2.2):ps),
-        pointHoverRadius:     dRows.map(r=>r.isAnom?Math.round(ps*2.2)+3:ps+3),
-        pointBackgroundColor: dRows.map(r=>r.isAnom?'#f85149':color),
-        pointBorderColor:     dRows.map(r=>r.isAnom?'#ff4040':color),
-        pointStyle:           dRows.map(r=>r.isAnom?'triangle':'circle'),
-        pointBorderWidth:     dRows.map(r=>r.isAnom?2:1),
+        type: 'line', label, data: pts, _rows: dRows,
+        borderColor: color, borderWidth: 0, showLine: false, fill: false, tension: 0,
+        pointRadius:          dRows.map(r => r.isAnom ? Math.round(ps * 2.2) : ps),
+        pointHoverRadius:     dRows.map(r => r.isAnom ? Math.round(ps * 2.2) + 3 : ps + 3),
+        pointBackgroundColor: dRows.map(r => r.isAnom ? '#f85149' : color),
+        pointBorderColor:     dRows.map(r => r.isAnom ? '#ff4040' : color),
+        pointStyle:           dRows.map(r => r.isAnom ? 'triangle' : 'circle'),
+        pointBorderWidth:     dRows.map(r => r.isAnom ? 2 : 1),
         spanGaps: true,
       });
 
-      /* SPC 관리한계선 */
+      /* SPC 관리한계선 — spread 없이 단일 패스로 xMin/xMax 계산 */
       if (showSPC) {
-        const s=stats.find(x=>x.eqp===eqp && x.ch===ch && x.param===param);
-        if (s && s.std>0) {
-          const times=rows.filter(r=>r._time!=null).map(r=>r._time);
-          const slotNums=rows.map(r=>r._slot);
-          const xMin=hasTime?(Math.min(...times)-tRef)/1000:Math.min(...slotNums);
-          const xMax=hasTime?(Math.max(...times)-tRef)/1000:Math.max(...slotNums);
-          const mkLine=(y,clr,dash,lbl)=>({
-            type:'line',
-            label:`_spc_${lbl}_${label}`,
-            data:[{x:xMin,y},{x:xMax,y}],
-            borderColor:clr,
-            borderDash:dash,
-            pointRadius:0,
-            borderWidth:1.5,
-            fill:false,
-            tension:0,
+        const s = stats.find(x => x.eqp === eqp && x.ch === ch && x.param === param);
+        if (s && s.std > 0) {
+          let xMin, xMax;
+          if (hasTime) {
+            let tMn = Infinity, tMx = -Infinity;
+            rows.forEach(r => { if (r._time != null) { if (r._time < tMn) tMn = r._time; if (r._time > tMx) tMx = r._time; } });
+            xMin = (tMn - tRef) / 1000; xMax = (tMx - tRef) / 1000;
+          } else {
+            let sMn = Infinity, sMx = -Infinity;
+            rows.forEach(r => { if (r._slot < sMn) sMn = r._slot; if (r._slot > sMx) sMx = r._slot; });
+            xMin = sMn; xMax = sMx;
+          }
+          const mkLine = (y, clr, dash, lbl) => ({
+            type: 'line', label: `_spc_${lbl}_${label}`,
+            data: [{x: xMin, y}, {x: xMax, y}],
+            borderColor: clr, borderDash: dash,
+            pointRadius: 0, borderWidth: 1.5, fill: false, tension: 0,
           });
-          datasets.push(mkLine(s.ucl, 'rgba(248,81,73,0.65)', [6,3], 'UCL'));
-          datasets.push(mkLine(s.mean,'rgba(139,148,158,0.55)',[4,2], 'AVG'));
-          if (s.lcl>0) datasets.push(mkLine(s.lcl,'rgba(248,81,73,0.65)',[6,3],'LCL'));
+          datasets.push(mkLine(s.ucl,  'rgba(248,81,73,0.65)',   [6, 3], 'UCL'));
+          datasets.push(mkLine(s.mean, 'rgba(139,148,158,0.55)', [4, 2], 'AVG'));
+          if (s.lcl > 0) datasets.push(mkLine(s.lcl, 'rgba(248,81,73,0.65)', [6, 3], 'LCL'));
         }
       }
     });
 
-    setTimeout(()=>{
-      const ctx=canvas.getContext('2d');
-      gCharts[param]=new Chart(ctx,{
-        type:'line',
-        plugins:[ChartDataLabels],
-        data:{datasets},
-        options:{
-          responsive:true, maintainAspectRatio:false,
-          interaction:{mode:'index', intersect:false},
-          plugins:{
-            legend:{labels:{
-              color:'#e6edf3',font:{size:11},usePointStyle:true,padding:14,
-              filter:item=>!item.text.startsWith('_spc_')
-            }},
-            tooltip:{
-              backgroundColor:'#1c2128',borderColor:'#30363d',borderWidth:1,
-              titleColor:'#e6edf3',bodyColor:'#8b949e',
-              callbacks:{
-                title(items){
-                  const item=items[0];
-                  if (!item) return '';
-                  const row=item.dataset._rows?.[item.dataIndex];
-                  return row?`${row['날짜']}  (SLOT ${row['SLOT']})`:item.label||'';
+    setTimeout(() => {
+      const ctx = canvas.getContext('2d');
+      gCharts[param] = new Chart(ctx, {
+        type: 'line', plugins: [ChartDataLabels],
+        data: {datasets},
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          interaction: {mode: 'index', intersect: false},
+          plugins: {
+            legend: {labels: {color: '#e6edf3', font: {size: 11}, usePointStyle: true, padding: 14, filter: item => !item.text.startsWith('_spc_')}},
+            tooltip: {
+              backgroundColor: '#1c2128', borderColor: '#30363d', borderWidth: 1,
+              titleColor: '#e6edf3', bodyColor: '#8b949e',
+              callbacks: {
+                title(items) {
+                  const item = items[0]; if (!item) return '';
+                  const row = item.dataset._rows?.[item.dataIndex];
+                  return row ? `${row['날짜']}  (SLOT ${row['SLOT']})` : item.label || '';
                 },
-                label(item){
+                label(item) {
                   if (item.dataset.label?.startsWith('_spc_')) return null;
-                  const row=item.dataset._rows?.[item.dataIndex];
+                  const row = item.dataset._rows?.[item.dataIndex];
                   if (!row) return ` ${item.dataset.label}: ${item.raw.y}`;
-                  const lines=[` ${item.dataset.label}: ${row['REAL DATA']}`];
-                  if (row.diff!==null) lines.push(` 편차/변화량: ${row.diff.toFixed(4)}`);
+                  const lines = [` ${item.dataset.label}: ${row['REAL DATA']}`];
+                  if (row.diff !== null) lines.push(` 편차/변화량: ${row.diff.toFixed(4)}`);
                   if (row.isAnom) lines.push(' ⚠️ 이상감지!');
                   return lines;
                 }
               }
             },
-            datalabels:{
+            datalabels: {
               display: false,
-              color: ctx=>ctx.dataset._rows?.[ctx.dataIndex]?.isAnom?'#f85149':'#8b949e',
-              font:{size:9,weight:'bold'},
-              anchor:'end',
-              align:'top',
-              offset:3,
-              clip:true,
-              formatter:(val,ctx)=>{
-                const row=ctx.dataset._rows?.[ctx.dataIndex];
-                return row?`S${row['SLOT']}`:'';
-              }
+              color: ctx => ctx.dataset._rows?.[ctx.dataIndex]?.isAnom ? '#f85149' : '#8b949e',
+              font: {size: 9, weight: 'bold'}, anchor: 'end', align: 'top', offset: 3, clip: true,
+              formatter: (val, ctx) => { const row = ctx.dataset._rows?.[ctx.dataIndex]; return row ? `S${row['SLOT']}` : ''; }
             }
           },
-          scales:{
-            x:{
-              type:'linear',
-              ticks:{
-                color:'#8b949e',font:{size:10},maxTicksLimit:10,
+          scales: {
+            x: {
+              type: 'linear',
+              ticks: {
+                color: '#8b949e', font: {size: 10}, maxTicksLimit: 10,
                 callback: hasTime
-                  ? v=>{
-                      const d=new Date(tRef+v*1000);
-                      const p=n=>String(n).padStart(2,'0');
-                      if(tRange>1)
-                        return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}\n${p(d.getHours())}:${p(d.getMinutes())}`;
-                      return `${p(d.getMonth()+1)}/${p(d.getDate())}\n${p(d.getHours())}:${p(d.getMinutes())}`;
-                    }
-                  : v=>`SLOT ${v}`
+                  ? v => { const d = new Date(tRef + v * 1000); const p = n => String(n).padStart(2, '0'); return tRange > 1 ? `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}\n${p(d.getHours())}:${p(d.getMinutes())}` : `${p(d.getMonth()+1)}/${p(d.getDate())}\n${p(d.getHours())}:${p(d.getMinutes())}`; }
+                  : v => `SLOT ${v}`
               },
-              grid:{color:'rgba(48,54,61,.45)'},
-              title:{display:true,text:hasTime?'날짜/시간':'SLOT',color:'#8b949e',font:{size:12}}
+              grid: {color: 'rgba(48,54,61,.45)'},
+              title: {display: true, text: hasTime ? '날짜/시간' : 'SLOT', color: '#8b949e', font: {size: 12}}
             },
-            y:{
-              ticks:{color:'#8b949e',font:{size:11}},
-              grid:{color:'rgba(48,54,61,.45)'},
-              title:{display:true,text:param,color:'#8b949e',font:{size:12}}
+            y: {
+              ticks: {color: '#8b949e', font: {size: 11}},
+              grid: {color: 'rgba(48,54,61,.45)'},
+              title: {display: true, text: param, color: '#8b949e', font: {size: 12}}
             }
           }
         }
       });
-      setupDragSelect(wrap, ()=>gCharts[param], `drag_info_${pi}`);
-    },0);
-  });
+      setupDragSelect(wrap, () => gCharts[param], `drag_info_${pi}`);
+    }, 0);
+
+    // 파라미터 간 UI 양보 (다수 파라미터 시 블로킹 방지)
+    if (pi < params.length - 1) await _tick();
+  }
 }
 
 function switchTab(param){
@@ -1397,7 +1395,7 @@ function _updateChartCh(results) {
 
 function onChartFilterChange() {
   _updateChartCh(gResults);
-  renderCharts(gResults, calcStats(gResults));
+  renderCharts(gResults, gStats);
 }
 
 /* ══════════════════════════════════════════════════════
@@ -1459,8 +1457,9 @@ function renderEqpScatter() {
   const params = [...new Set(base.map(r=>r['PARAMETER']))];
   const allTimes = base.filter(r=>r._time!=null).map(r=>r._time);
   const hasTime  = allTimes.length > 0;
-  const tRef     = hasTime ? Math.min(...allTimes) : 0;
-  const tRange   = hasTime ? (Math.max(...allTimes)-tRef)/86400000 : 0;
+  const tRef     = hasTime ? allTimes.reduce((a,b)=>a<b?a:b, Infinity)  : 0;
+  const tMaxSc   = hasTime ? allTimes.reduce((a,b)=>a>b?a:b, -Infinity) : 0;
+  const tRange   = hasTime ? (tMaxSc - tRef) / 86400000 : 0;
   const ps       = parseInt(document.getElementById('pointSize')?.value)||5;
 
   const datasets = params.map((p, pi) => {
@@ -1808,13 +1807,16 @@ function rowHTML(row,isAnomTable){
 
 /* ── Filters ── */
 function populateFilters(results){
-  const eqps=[...new Set(results.map(r=>r['EQP ID']))].sort();
-  const chs=[...new Set(results.map(r=>r['CH']).filter(Boolean))].sort();
-  const params=[...new Set(results.map(r=>r['PARAMETER']))].sort();
-  const mk=arr=>'<option value="">전체</option>'+arr.map(v=>`<option>${v}</option>`).join('');
-  document.getElementById('fEqp').innerHTML=mk(eqps);
-  document.getElementById('fCh').innerHTML=mk(chs);
-  document.getElementById('fParam').innerHTML=mk(params);
+  const eqpSet=new Set(), chSet=new Set(), paramSet=new Set();
+  results.forEach(r=>{
+    eqpSet.add(r['EQP ID']);
+    if(r['CH']) chSet.add(r['CH']);
+    paramSet.add(r['PARAMETER']);
+  });
+  const mk=s=>'<option value="">전체</option>'+ [...s].sort().map(v=>`<option>${v}</option>`).join('');
+  document.getElementById('fEqp').innerHTML=mk(eqpSet);
+  document.getElementById('fCh').innerHTML=mk(chSet);
+  document.getElementById('fParam').innerHTML=mk(paramSet);
 }
 function applyFilter(){
   const eqp=document.getElementById('fEqp').value,
@@ -1900,15 +1902,15 @@ async function runAnalysis(){
     onMethodChange(); gFilteredResults=null;
 
     _setProgress(58,'통계 요약 렌더링 중...'); await _tick();
-    const _stats=calcStats(gResults);
-    renderSummary(gResults); renderBanner(gResults); renderStats(_stats); renderRanking(gResults);
+    gStats=calcStats(gResults);
+    renderSummary(gResults); renderBanner(gResults); renderStats(gStats); renderRanking(gResults);
 
     _setProgress(68,'히트맵 렌더링 중...'); await _tick();
     renderHeatmap(gResults);
 
     _setProgress(75,'차트 렌더링 중...'); await _tick();
     initChartFilters(gResults);
-    renderCharts(gResults, _stats);
+    await renderCharts(gResults, gStats);
 
     _setProgress(88,'테이블 렌더링 중...'); await _tick();
     renderTables(gResults);
@@ -1938,7 +1940,7 @@ function clearAll(){
   document.getElementById('chartHeightVal').textContent='360px';
   document.getElementById('fDateFrom').value='';
   document.getElementById('fDateTo').value='';
-  gResults=[]; gHeaders=[]; gAnoms=[]; gFilteredResults=null;
+  gResults=[]; gHeaders=[]; gAnoms=[]; gFilteredResults=null; gStats=[];
   _timeCache.clear();
   Object.values(gCharts).forEach(c=>c.destroy());     gCharts={};
   Object.values(gRankCharts).forEach(c=>c.destroy()); gRankCharts={};
@@ -2034,7 +2036,7 @@ function renderHeatmap(results) {
   };
 
   const rates = eqps.flatMap(e=>params.map(p=>cell(e,p).rate)).filter(r=>r>=0);
-  const maxRate = Math.max(...rates, 0.01);
+  const maxRate = rates.reduce((a,b)=>a>b?a:b, 0.01);
 
   let html = `<table class="heatmap-table"><thead><tr>
     <th style="text-align:left">EQP \\ PARAM</th>
@@ -2465,15 +2467,15 @@ async function applySnapshot(snap) {
   pw.style.display = 'block';
   try {
     _setProgress(10, '요약/통계 렌더링 중...'); await _tick();
-    const stats = calcStats(gResults);
-    renderSummary(gResults); renderBanner(gResults); renderStats(stats); renderRanking(gResults);
+    gStats = calcStats(gResults);
+    renderSummary(gResults); renderBanner(gResults); renderStats(gStats); renderRanking(gResults);
 
     _setProgress(30, '히트맵 렌더링 중...'); await _tick();
     renderHeatmap(gResults);
 
     _setProgress(50, '차트 렌더링 중...'); await _tick();
     initChartFilters(gResults);
-    renderCharts(gResults, stats);
+    await renderCharts(gResults, gStats);
 
     _setProgress(75, '테이블 렌더링 중...'); await _tick();
     renderTables(gResults);
