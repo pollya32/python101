@@ -362,6 +362,7 @@
           <tbody id="anomTbody"></tbody>
         </table>
       </div></div>
+      <div class="pagination" id="anomPagination"></div>
     </div>
 
     <!-- 그래프 -->
@@ -473,7 +474,8 @@
 ══════════════════════════════════════════════════════ */
 let gResults=[], gCharts={}, gRankCharts={}, gThreshold=10, gHeaders=[];
 let gFilteredResults=null;          // null = 필터 없음 (전체)
-const gPage={full:1, pageSize:200}; // 전체 데이터 테이블 페이지네이션
+let gAnoms=[];                      // 현재 표시 이상감지 목록 (필터/정렬 반영)
+const gPage={full:1, pageSize:200, anom:1, anomPageSize:200};
 
 /* ══════════════════════════════════════════════════════
    COLUMN ALIAS MAP (자동 감지용)
@@ -1684,30 +1686,54 @@ function updatePointSize(sz) {
 
 /* ── Tables ── */
 function renderTables(results) {
-  const anoms=results.filter(r=>r.isAnom);
-  document.getElementById('anomCnt').textContent=`${anoms.length}건`;
   document.getElementById('totalCnt').textContent=`${results.length}건`;
-
-  // 이상감지 목록: 이상 건수는 전체의 일부이므로 전체 렌더
-  const anomTbody=document.getElementById('anomTbody');
-  if (!anoms.length) {
-    anomTbody.innerHTML=`<tr><td colspan="12" class="no-data">✅ 이상감지된 데이터가 없습니다.</td></tr>`;
-  } else {
-    const frag=document.createDocumentFragment();
-    anoms.forEach(row=>{
-      const tr=document.createElement('tr');
-      tr.className='anom-row';
-      tr.dataset.eqp=row['EQP ID']; tr.dataset.param=row['PARAMETER'];
-      tr.innerHTML=rowHTML(row,true);
-      frag.appendChild(tr);
-    });
-    anomTbody.innerHTML='';
-    anomTbody.appendChild(frag);
-  }
-
-  // 전체 데이터: 페이지네이션으로 DOM 노드 수 제한
-  gPage.full=1;
+  // 이상감지 목록: gAnoms 초기화 후 페이지 렌더
+  gAnoms = results.filter(r=>r.isAnom);
+  gPage.anom = 1;
+  renderAnomPage();
+  // 전체 데이터: 페이지네이션
+  gPage.full = 1;
   renderFullPage(gFilteredResults??results);
+}
+
+function renderAnomPage() {
+  const src = gAnoms;
+  const ps  = gPage.anomPageSize;
+  const total = src.length;
+  document.getElementById('anomCnt').textContent = `${total}건`;
+  const totalPages = Math.max(1, Math.ceil(total/ps));
+  gPage.anom = Math.max(1, Math.min(gPage.anom, totalPages));
+  const start = (gPage.anom-1)*ps;
+  const end   = Math.min(start+ps, total);
+  const slice = src.slice(start, end);
+
+  const anomTbody = document.getElementById('anomTbody');
+  if (!total) {
+    anomTbody.innerHTML = `<tr><td colspan="12" class="no-data">✅ 이상감지된 데이터가 없습니다.</td></tr>`;
+    document.getElementById('anomPagination').innerHTML = '';
+    return;
+  }
+  anomTbody.innerHTML = slice.map(row =>
+    `<tr class="anom-row" data-eqp="${row['EQP ID']||''}" data-param="${row['PARAMETER']||''}">${rowHTML(row,true)}</tr>`
+  ).join('');
+
+  const pg = document.getElementById('anomPagination');
+  if (totalPages <= 1) { pg.innerHTML = ''; return; }
+  pg.innerHTML = `
+    <span style="font-size:12px;color:var(--tx2)">${start+1}–${end} / ${total}건</span>
+    <button class="btn btn-secondary btn-sm" onclick="goAnomPage(1)" ${gPage.anom===1?'disabled':''}>◀◀</button>
+    <button class="btn btn-secondary btn-sm" onclick="goAnomPage(${gPage.anom-1})" ${gPage.anom===1?'disabled':''}>◀</button>
+    <span style="font-size:12px;color:var(--tx1);font-weight:600;min-width:60px;text-align:center">${gPage.anom} / ${totalPages} 페이지</span>
+    <button class="btn btn-secondary btn-sm" onclick="goAnomPage(${gPage.anom+1})" ${gPage.anom===totalPages?'disabled':''}>▶</button>
+    <button class="btn btn-secondary btn-sm" onclick="goAnomPage(${totalPages})" ${gPage.anom===totalPages?'disabled':''}>▶▶</button>
+    <select class="btn btn-secondary btn-sm" onchange="gPage.anomPageSize=+this.value;gPage.anom=1;renderAnomPage()" style="cursor:pointer">
+      ${[100,200,500].map(n=>`<option value="${n}" ${n===ps?'selected':''}>${n}건/페이지</option>`).join('')}
+    </select>`;
+}
+
+function goAnomPage(p) {
+  gPage.anom = p;
+  renderAnomPage();
 }
 
 function renderFullPage(src) {
@@ -1898,7 +1924,7 @@ function clearAll(){
   document.getElementById('chartHeightVal').textContent='360px';
   document.getElementById('fDateFrom').value='';
   document.getElementById('fDateTo').value='';
-  gResults=[]; gHeaders=[];
+  gResults=[]; gHeaders=[]; gAnoms=[]; gFilteredResults=null;
   Object.values(gCharts).forEach(c=>c.destroy());     gCharts={};
   Object.values(gRankCharts).forEach(c=>c.destroy()); gRankCharts={};
 }
@@ -2022,9 +2048,23 @@ function renderHeatmap(results) {
 }
 
 /* ══════════════════════════════════════════════════════
-   테이블 정렬
+   테이블 정렬 (데이터 배열 정렬 → 재렌더)
 ══════════════════════════════════════════════════════ */
 const gSortState = {};
+
+// 이상감지 테이블 컬럼 → 필드 매핑
+const _ANOM_FIELDS = ['날짜','EQP ID','LOTID','SLOT','CH','PARAMETER','REAL DATA','prevVal','diff','threshold','method','isAnom'];
+// 전체 데이터 테이블 컬럼 → 필드 매핑
+const _FULL_FIELDS = ['날짜','EQP ID','LOTID','SLOT','CH','PARAMETER','REAL DATA','prevVal','diff','isAnom'];
+
+function _fieldVal(row, field) {
+  if (field === 'isAnom')  return row.isAnom ? 1 : 0;
+  if (field === 'prevVal') return row.prevVal ?? -Infinity;
+  if (field === 'diff')    return row.diff    ?? -Infinity;
+  const v = row[field] ?? '';
+  const n = parseFloat(String(v).replace(/[^0-9.\-]/g,''));
+  return isNaN(n) ? String(v) : n;
+}
 
 function sortTable(tblId, colIdx) {
   const tbodyId = tblId === 'anom' ? 'anomTbody' : 'fullTbody';
@@ -2040,22 +2080,30 @@ function sortTable(tblId, colIdx) {
     if (i === colIdx) th.dataset.dir = state.dir === 1 ? 'asc' : 'desc';
   });
 
-  // 행 정렬 (숫자/문자 자동 판별, 숨겨진 행 유지)
-  const tbody = document.getElementById(tbodyId);
-  const rows = [...tbody.querySelectorAll('tr')].filter(tr => tr.cells.length > 1);
-  rows.sort((a, b) => {
-    const av = a.cells[colIdx]?.textContent.trim() ?? '';
-    const bv = b.cells[colIdx]?.textContent.trim() ?? '';
-    if (colIdx === 0) {
-      const ad = tryParseTime(av), bd = tryParseTime(bv);
-      if (ad !== null && bd !== null) return (ad - bd) * state.dir;
+  const fields = tblId === 'anom' ? _ANOM_FIELDS : _FULL_FIELDS;
+  const field  = fields[colIdx] ?? '';
+  const dir    = state.dir;
+
+  function cmp(a, b) {
+    if (field === '날짜') {
+      const at = a._time ?? 0, bt = b._time ?? 0;
+      if (at || bt) return (at - bt) * dir;
     }
-    const an = parseFloat(av.replace(/[^0-9.\-]/g, ''));
-    const bn = parseFloat(bv.replace(/[^0-9.\-]/g, ''));
-    if (!isNaN(an) && !isNaN(bn)) return (an - bn) * state.dir;
-    return av.localeCompare(bv, 'ko') * state.dir;
-  });
-  rows.forEach(tr => tbody.appendChild(tr));
+    const av = _fieldVal(a, field), bv = _fieldVal(b, field);
+    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+    return String(av).localeCompare(String(bv), 'ko') * dir;
+  }
+
+  if (tblId === 'anom') {
+    gAnoms.sort(cmp);
+    gPage.anom = 1;
+    renderAnomPage();
+  } else {
+    const src = gFilteredResults ?? gResults;
+    src.sort(cmp);
+    gPage.full = 1;
+    renderFullPage(src);
+  }
 }
 
 /* ══════════════════════════════════════════════════════
@@ -2087,21 +2135,17 @@ function clearDrillDown() {
   applyFilter();
   filterAnomTable('', '');
   document.getElementById('drilldownBar').style.display = 'none';
-  // 원본 이상 건수 복원
-  const total = [...document.querySelectorAll('#anomTbody tr')].filter(tr=>tr.cells.length>1).length;
-  document.getElementById('anomCnt').textContent = `${total}건`;
 }
 
 function filterAnomTable(eqp, param) {
-  let visible = 0;
-  document.querySelectorAll('#anomTbody tr').forEach(tr => {
-    if (tr.cells.length <= 1) return;
-    const show = (!eqp || tr.dataset.eqp === eqp) && (!param || tr.dataset.param === param);
-    tr.style.display = show ? '' : 'none';
-    if (show) visible++;
-  });
+  const allAnoms = gResults.filter(r => r.isAnom);
+  gAnoms = (eqp || param)
+    ? allAnoms.filter(r => (!eqp || r['EQP ID']===eqp) && (!param || r['PARAMETER']===param))
+    : allAnoms;
+  gPage.anom = 1;
+  renderAnomPage();
   const suffix = (eqp || param) ? ' (필터)' : '';
-  document.getElementById('anomCnt').textContent = `${visible}건${suffix}`;
+  document.getElementById('anomCnt').textContent = `${gAnoms.length}건${suffix}`;
 }
 
 /* ══════════════════════════════════════════════════════
@@ -2387,7 +2431,8 @@ function applySnapshot(snap) {
 
   // 4. 필터·정렬·페이지 상태 완전 초기화
   gFilteredResults = null;
-  gPage.full = 1;
+  gAnoms = [];
+  gPage.full = 1; gPage.anom = 1;
   Object.keys(gSortState).forEach(k => delete gSortState[k]);
 
   // 5. 필터 UI 초기화
