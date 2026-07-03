@@ -1041,16 +1041,17 @@ function calcStats(results) {
 /* ══════════════════════════════════════════════════════
    RENDER ALL
 ══════════════════════════════════════════════════════ */
-function renderAll(results) {
+async function renderAll(results) {
   const stats=calcStats(results);
-  renderSummary(results);
-  renderBanner(results);
-  renderStats(stats);
-  renderRanking(results);
+  renderSummary(results); renderBanner(results); renderStats(stats); renderRanking(results);
+  await _tick();
   renderHeatmap(results);
+  await _tick();
   initChartFilters(results);
   renderCharts(results, stats);
+  await _tick();
   renderTables(results);
+  await _tick();
   populateFilters(results);
   initScatterSelects(results);
 }
@@ -2420,7 +2421,7 @@ function loadAnalysisFile(e) {
   e.target.value = '';
 }
 
-function applySnapshot(snap) {
+async function applySnapshot(snap) {
   // 1. 원본 데이터 + 컬럼 매핑 복원
   if (snap.text) { document.getElementById('dataInput').value = snap.text; onDataChange(); }
   if (snap.colMap) Object.entries(snap.colMap).forEach(([id,val])=>{ const el=document.getElementById(id); if(el) el.value=val; });
@@ -2459,12 +2460,36 @@ function applySnapshot(snap) {
   const db = document.getElementById('drilldownBar');
   if (db) db.style.display = 'none';
 
-  // 6. 렌더링
-  renderAll(gResults);
-  document.getElementById('results').style.display = 'block';
-  document.getElementById('results').scrollIntoView({behavior:'smooth', block:'start'});
-  const ac = gResults.filter(r=>r.isAnom).length;
-  toast(`불러오기 완료 — ${gResults.length}건 / 이상 ${ac}건`, ac?'err':'ok');
+  // 6. 진행률 바 표시 후 단계별 렌더링
+  const pw = document.getElementById('progressWrap');
+  pw.style.display = 'block';
+  try {
+    _setProgress(10, '요약/통계 렌더링 중...'); await _tick();
+    const stats = calcStats(gResults);
+    renderSummary(gResults); renderBanner(gResults); renderStats(stats); renderRanking(gResults);
+
+    _setProgress(30, '히트맵 렌더링 중...'); await _tick();
+    renderHeatmap(gResults);
+
+    _setProgress(50, '차트 렌더링 중...'); await _tick();
+    initChartFilters(gResults);
+    renderCharts(gResults, stats);
+
+    _setProgress(75, '테이블 렌더링 중...'); await _tick();
+    renderTables(gResults);
+
+    _setProgress(90, '필터 초기화 중...'); await _tick();
+    populateFilters(gResults);
+    initScatterSelects(gResults);
+
+    _setProgress(100, '완료');
+    document.getElementById('results').style.display = 'block';
+    document.getElementById('results').scrollIntoView({behavior:'smooth', block:'start'});
+    const ac = gResults.filter(r=>r.isAnom).length;
+    toast(`불러오기 완료 — ${gResults.length}건 / 이상 ${ac}건`, ac?'err':'ok');
+  } finally {
+    pw.style.display = 'none';
+  }
 }
 
 /* ══════════════════════════════════════════════════════
