@@ -475,8 +475,12 @@
 let gResults=[], gCharts={}, gRankCharts={}, gThreshold=10, gHeaders=[];
 let gFilteredResults=null;          // null = 필터 없음 (전체)
 let gAnoms=[];                      // 현재 표시 이상감지 목록 (필터/정렬 반영)
+let gAnomsAll=[];                   // 전체 이상 목록 (드릴다운 필터 전 원본)
 let gStats=[];                      // calcStats 결과 캐시 (renderCharts 재사용)
+let gIndex=null;                    // 메타데이터 인덱스 (buildIndex 결과)
 const gPage={full:1, pageSize:200, anom:1, anomPageSize:200};
+const _pendingCharts=new Map();     // 파라미터별 지연 차트 설정
+let _chartGen=0;                    // 차트 렌더 세대 (stale setTimeout 무효화용)
 
 /* ══════════════════════════════════════════════════════
    COLUMN ALIAS MAP (자동 감지용)
@@ -662,7 +666,7 @@ function fmtTick(ms) {
 }
 
 async function parseExcel(text) {
-  const lines = text.trim().split(/\r?\n/);
+  const lines = text.trim().split('\n');  // 정규식 없이 고정 문자 분리 (더 빠름)
   if (lines.length < 2) throw new Error('헤더 포함 2행 이상 필요합니다.');
 
   const colMap = getColMap();
@@ -671,29 +675,43 @@ async function parseExcel(text) {
     if (colMap[f.key] < 0) throw new Error(`필드 "${f.label}" 의 열이 지정되지 않았습니다.`);
   }
 
-  const get = (cells, idx) => cells[idx]?.trim() || '';
   const total = lines.length - 1;
   const CHUNK = 5000;
   const data = [];
+  const hasCH = colMap['CH'] >= 0;
+  const iDate=colMap['날짜'], iEqp=colMap['EQP ID'], iLot=colMap['LOTID'],
+        iSlot=colMap['SLOT'], iCh=colMap['CH'],   iPar=colMap['PARAMETER'],
+        iVal =colMap['REAL DATA'];
 
   for (let r=1; r<lines.length; r++) {
-    if (!lines[r].trim()) continue;
-    const cells = lines[r].split('\t');
-    const rawVal = get(cells, colMap['REAL DATA']).replace(/,/g,'');
+    const rawLine = lines[r];
+    if (!rawLine || rawLine === '\r') continue;
+    // \r\n 줄 끝 처리: 마지막 \r 제거 후 탭 분리
+    const cells = (rawLine.charCodeAt(rawLine.length-1)===13 ? rawLine.slice(0,-1) : rawLine).split('\t');
+    const rawVal = (cells[iVal]?.trim() || '').replace(/,/g,'');
     const val = parseFloat(rawVal);
     if (isNaN(val)) continue;
-    const dateStr = get(cells, colMap['날짜']);
+
+    const dateStr  = cells[iDate]?.trim() || '';
+    const eqpVal   = cells[iEqp]?.trim()  || '';
+    const lotVal   = cells[iLot]?.trim()  || '';
+    const slotVal  = cells[iSlot]?.trim() || '';
+    const chVal    = hasCH ? (cells[iCh]?.trim() || '') : '';
+    const paramVal = cells[iPar]?.trim()  || '';
+
     data.push({
       '날짜':      dateStr,
-      'EQP ID':   get(cells, colMap['EQP ID']),
-      'LOTID':    get(cells, colMap['LOTID']),
-      'SLOT':     get(cells, colMap['SLOT']),
-      'CH':       colMap['CH']>=0 ? get(cells, colMap['CH']) : '',
-      'PARAMETER':get(cells, colMap['PARAMETER']),
+      'EQP ID':   eqpVal,
+      'LOTID':    lotVal,
+      'SLOT':     slotVal,
+      'CH':       chVal,
+      'PARAMETER':paramVal,
       'REAL DATA':rawVal,
-      _val:  val,
-      _slot: parseInt(get(cells, colMap['SLOT']))||0,
-      _time: tryParseTime(dateStr),
+      _val:       val,
+      _slot:      parseInt(slotVal) || 0,
+      _time:      tryParseTime(dateStr),
+      _key:       `${eqpVal}|||${lotVal}|||${chVal}|||${paramVal}`,   // 그룹키 사전 계산
+      _statsKey:  `${eqpVal}|||${chVal}|||${paramVal}`,               // 통계키 사전 계산
     });
     if ((r % CHUNK) === 0) {
       const pct = Math.round(5 + (r / total) * 20);
@@ -731,8 +749,8 @@ function linRegSlope(vals) {
 async function detectAnomalies(data, threshold, method, winSize, ewmaLambda=0.2, cusumK=0.5) {
   const groups={};
   data.forEach(row=>{
-    const key=`${row['EQP ID']}|||${row['LOTID']}|||${row['CH']}|||${row['PARAMETER']}`;
-    (groups[key]=groups[key]||[]).push(row);
+    // _key: parseExcel에서 사전 계산 (40k 문자열 연결 제거)
+    (groups[row._key]=groups[row._key]||[]).push(row);
   });
   Object.values(groups).forEach(g=>g.sort((a,b)=>a._slot-b._slot));
 
@@ -785,10 +803,11 @@ async function detectAnomalies(data, threshold, method, winSize, ewmaLambda=0.2,
 
   const results=[];
   const _gArr=Object.values(groups);
-  const _CHUNK=100;
-  for(let _ci=0;_ci<_gArr.length;_ci+=_CHUNK){
-    const _batch=_gArr.slice(_ci,_ci+_CHUNK);
-    _batch.forEach(group=>{
+  const _gLen=_gArr.length;
+  let _yT=performance.now();  // 시간 기반 yield: 그룹 수 무관 16ms마다 UI 양보
+
+  for(let gi=0;gi<_gLen;gi++){
+    const group=_gArr[gi];
     // σ 사전 계산 (sigma / ewma / cusum 공통)
     let gMean=0, gStd=0;
     if (['sigma','ewma','cusum','run_bias','spc_rules'].includes(method)) {
@@ -843,7 +862,8 @@ async function detectAnomalies(data, threshold, method, winSize, ewmaLambda=0.2,
     // 내부 루프에서 반복되는 .map(r=>r._val) 제거 — 1회만 추출
     const _gVals = group.map(r=>r._val);
 
-    group.forEach((row,i)=>{
+    for(let i=0;i<group.length;i++){
+      const row=group[i];
       // 객체 스프레드({...row}) 대신 row에 직접 필드 추가 (40k 객체 복사 제거)
       row.isAnom=false; row.diff=null; row.prevVal=null;
       row.threshold=threshold; row.method=method; row.gMean=gMean; row.gStd=gStd;
@@ -1011,12 +1031,15 @@ async function detectAnomalies(data, threshold, method, winSize, ewmaLambda=0.2,
         }
       }
       results.push(res);
-    });
-    });
-    if(_ci+_CHUNK<_gArr.length){
-      const _pct=25+Math.round((_ci+_CHUNK)/_gArr.length*30);
-      _setProgress(_pct,`이상 감지 중... (${Math.min(_ci+_CHUNK,_gArr.length)}/${_gArr.length} 그룹)`);
+      // 대규모 그룹 내부: 4096행마다 시간 체크 후 UI 양보
+      if((i&0xFFF)===0&&i>0){const _n2=performance.now();if(_n2-_yT>=16){await _tick();_yT=performance.now();}}
+    }
+    // 그룹 간 시간 기반 양보 (16ms마다 — 그룹 수 무관)
+    const _n=performance.now();
+    if(_n-_yT>=16){
+      _setProgress(25+Math.round((gi+1)/_gLen*30),`이상 감지 중... (${gi+1}/${_gLen} 그룹)`);
       await _tick();
+      _yT=performance.now();
     }
   }
   return results;
@@ -1028,7 +1051,8 @@ async function detectAnomalies(data, threshold, method, winSize, ewmaLambda=0.2,
 function calcStats(results) {
   const groups={};
   results.forEach(r=>{
-    const k=`${r['EQP ID']}|||${r['CH']}|||${r['PARAMETER']}`;
+    // _statsKey: parseExcel에서 사전 계산 (구버전 스냅샷 호환: 없으면 즉석 계산)
+    const k=r._statsKey||`${r['EQP ID']}|||${r['CH']}|||${r['PARAMETER']}`;
     (groups[k]=groups[k]||[]).push(r);
   });
   return Object.entries(groups).map(([k,rows])=>{
@@ -1047,33 +1071,31 @@ function calcStats(results) {
 }
 
 /* ══════════════════════════════════════════════════════
-   RENDER ALL
+   METADATA INDEX — 단일 O(N) 패스로 5개+ 함수 공유
 ══════════════════════════════════════════════════════ */
-async function renderAll(results) {
-  gStats=calcStats(results);
-  renderSummary(results); renderBanner(results); renderStats(gStats); renderRanking(results);
-  await _tick();
-  renderHeatmap(results);
-  await _tick();
-  initChartFilters(results);
-  await renderCharts(results, gStats);
-  await _tick();
-  renderTables(results);
-  await _tick();
-  populateFilters(results);
-  initScatterSelects(results);
+function buildIndex(results) {
+  const eqpSet=new Set(), chSet=new Set(), paramSet=new Set();
+  const eqpChs=new Map();      // eqp → Set<ch>
+  const eqpChParams=new Map(); // "eqp|ch" → Set<param>
+  results.forEach(r=>{
+    const e=r['EQP ID'], c=r['CH']||'', p=r['PARAMETER'];
+    eqpSet.add(e);
+    if(c) chSet.add(c);
+    paramSet.add(p);
+    if(!eqpChs.has(e)) eqpChs.set(e, new Set());
+    eqpChs.get(e).add(c);
+    const eck=`${e}|${c}`;
+    if(!eqpChParams.has(eck)) eqpChParams.set(eck, new Set());
+    eqpChParams.get(eck).add(p);
+  });
+  return {eqpSet, chSet, paramSet, eqpChs, eqpChParams};
 }
 
 /* ── Summary ── */
 function renderSummary(results) {
-  let anom=0;
-  const eqpSet=new Set(), chSet=new Set(), paramSet=new Set();
-  results.forEach(r=>{
-    if(r.isAnom) anom++;
-    eqpSet.add(r['EQP ID']);
-    if(r['CH']) chSet.add(r['CH']);
-    paramSet.add(r['PARAMETER']);
-  });
+  // gIndex/gAnomsAll 활용 — O(N) 반복 없이 집계
+  const anom=gAnomsAll.length;
+  const {eqpSet, chSet, paramSet}=gIndex;
   const total=results.length, rate=total?((anom/total)*100).toFixed(1):'0.0', chs=chSet.size;
   document.getElementById('summaryGrid').innerHTML=`
     <div class="s-card c-blue"> <div class="val">${total.toLocaleString()}</div><div class="lbl">총 데이터 수</div></div>
@@ -1087,10 +1109,10 @@ function renderSummary(results) {
 
 /* ── Banner ── */
 function renderBanner(results) {
-  let anomCount=0, maxDiff=-Infinity, worst=null;
-  results.forEach(r=>{
-    if(!r.isAnom) return;
-    anomCount++;
+  // gAnomsAll만 순회 (전체 results 불필요)
+  const anomCount=gAnomsAll.length;
+  let maxDiff=-Infinity, worst=null;
+  gAnomsAll.forEach(r=>{
     const d=r.diff??0;
     if(d>maxDiff){maxDiff=d;worst=r;}
   });
@@ -1134,7 +1156,7 @@ const RANK_DIMS=[
 ];
 function renderRanking(results) {
   Object.values(gRankCharts).forEach(c=>c.destroy()); gRankCharts={};
-  const anoms=results.filter(r=>r.isAnom);
+  const anoms=gAnomsAll;  // 사전 계산 캐시 사용 — filter 재실행 불필요
   const grid=document.getElementById('rankGrid');
   grid.innerHTML='';
   RANK_DIMS.forEach(({key,label})=>{
@@ -1189,6 +1211,8 @@ function _decimateDataset(pts, rows, maxPts=600) {
 
 async function renderCharts(results, stats) {
   Object.values(gCharts).forEach(c=>c.destroy()); gCharts={};
+  _pendingCharts.clear();
+  const _gen=++_chartGen;  // 이 렌더 세대 ID (stale setTimeout 무효화용)
   const showSPC = document.getElementById('showSPC').checked;
   const fCEqp   = document.getElementById('cEqp')?.value || '';
   const fCCh    = document.getElementById('cCh')?.value  || '';
@@ -1309,95 +1333,118 @@ async function renderCharts(results, stats) {
       }
     });
 
-    setTimeout(() => {
-      const ctx = canvas.getContext('2d');
-      gCharts[param] = new Chart(ctx, {
-        type: 'line', plugins: [ChartDataLabels],
-        data: {datasets},
-        options: {
-          responsive: true, maintainAspectRatio: false,
-          interaction: {mode: 'index', intersect: false},
-          plugins: {
-            legend: {labels: {color: '#e6edf3', font: {size: 11}, usePointStyle: true, padding: 14, filter: item => !item.text.startsWith('_spc_')}},
-            tooltip: {
-              backgroundColor: '#1c2128', borderColor: '#30363d', borderWidth: 1,
-              titleColor: '#e6edf3', bodyColor: '#8b949e',
-              callbacks: {
-                title(items) {
-                  const item = items[0]; if (!item) return '';
-                  const row = item.dataset._rows?.[item.dataIndex];
-                  return row ? `${row['날짜']}  (SLOT ${row['SLOT']})` : item.label || '';
-                },
-                label(item) {
-                  if (item.dataset.label?.startsWith('_spc_')) return null;
-                  const row = item.dataset._rows?.[item.dataIndex];
-                  if (!row) return ` ${item.dataset.label}: ${item.raw.y}`;
-                  const lines = [` ${item.dataset.label}: ${row['REAL DATA']}`];
-                  if (row.diff !== null) lines.push(` 편차/변화량: ${row.diff.toFixed(4)}`);
-                  if (row.isAnom) lines.push(' ⚠️ 이상감지!');
-                  return lines;
-                }
-              }
+    // Chart.js 옵션 객체 사전 구성 (클로저로 hasTime/tRef/tRange/param 캡처)
+    const _chartOpts = {
+      responsive: true, maintainAspectRatio: false,
+      interaction: {mode: 'index', intersect: false},
+      plugins: {
+        legend: {labels: {color: '#e6edf3', font: {size: 11}, usePointStyle: true, padding: 14, filter: item => !item.text.startsWith('_spc_')}},
+        tooltip: {
+          backgroundColor: '#1c2128', borderColor: '#30363d', borderWidth: 1,
+          titleColor: '#e6edf3', bodyColor: '#8b949e',
+          callbacks: {
+            title(items) {
+              const item = items[0]; if (!item) return '';
+              const row = item.dataset._rows?.[item.dataIndex];
+              return row ? `${row['날짜']}  (SLOT ${row['SLOT']})` : item.label || '';
             },
-            datalabels: {
-              display: false,
-              color: ctx => ctx.dataset._rows?.[ctx.dataIndex]?.isAnom ? '#f85149' : '#8b949e',
-              font: {size: 9, weight: 'bold'}, anchor: 'end', align: 'top', offset: 3, clip: true,
-              formatter: (val, ctx) => { const row = ctx.dataset._rows?.[ctx.dataIndex]; return row ? `S${row['SLOT']}` : ''; }
-            }
-          },
-          scales: {
-            x: {
-              type: 'linear',
-              ticks: {
-                color: '#8b949e', font: {size: 10}, maxTicksLimit: 10,
-                callback: hasTime
-                  ? v => { const d = new Date(tRef + v * 1000); const p = n => String(n).padStart(2, '0'); return tRange > 1 ? `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}\n${p(d.getHours())}:${p(d.getMinutes())}` : `${p(d.getMonth()+1)}/${p(d.getDate())}\n${p(d.getHours())}:${p(d.getMinutes())}`; }
-                  : v => `SLOT ${v}`
-              },
-              grid: {color: 'rgba(48,54,61,.45)'},
-              title: {display: true, text: hasTime ? '날짜/시간' : 'SLOT', color: '#8b949e', font: {size: 12}}
-            },
-            y: {
-              ticks: {color: '#8b949e', font: {size: 11}},
-              grid: {color: 'rgba(48,54,61,.45)'},
-              title: {display: true, text: param, color: '#8b949e', font: {size: 12}}
+            label(item) {
+              if (item.dataset.label?.startsWith('_spc_')) return null;
+              const row = item.dataset._rows?.[item.dataIndex];
+              if (!row) return ` ${item.dataset.label}: ${item.raw.y}`;
+              const lines = [` ${item.dataset.label}: ${row['REAL DATA']}`];
+              if (row.diff !== null) lines.push(` 편차/변화량: ${row.diff.toFixed(4)}`);
+              if (row.isAnom) lines.push(' ⚠️ 이상감지!');
+              return lines;
             }
           }
+        },
+        datalabels: {
+          display: false,
+          color: ctx => ctx.dataset._rows?.[ctx.dataIndex]?.isAnom ? '#f85149' : '#8b949e',
+          font: {size: 9, weight: 'bold'}, anchor: 'end', align: 'top', offset: 3, clip: true,
+          formatter: (val, ctx) => { const row = ctx.dataset._rows?.[ctx.dataIndex]; return row ? `S${row['SLOT']}` : ''; }
         }
-      });
-      setupDragSelect(wrap, () => gCharts[param], `drag_info_${pi}`);
-    }, 0);
+      },
+      scales: {
+        x: {
+          type: 'linear',
+          ticks: {
+            color: '#8b949e', font: {size: 10}, maxTicksLimit: 10,
+            callback: hasTime
+              ? v => { const d = new Date(tRef + v * 1000); const p = n => String(n).padStart(2, '0'); return tRange > 1 ? `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}\n${p(d.getHours())}:${p(d.getMinutes())}` : `${p(d.getMonth()+1)}/${p(d.getDate())}\n${p(d.getHours())}:${p(d.getMinutes())}`; }
+              : v => `SLOT ${v}`
+          },
+          grid: {color: 'rgba(48,54,61,.45)'},
+          title: {display: true, text: hasTime ? '날짜/시간' : 'SLOT', color: '#8b949e', font: {size: 12}}
+        },
+        y: {
+          ticks: {color: '#8b949e', font: {size: 11}},
+          grid: {color: 'rgba(48,54,61,.45)'},
+          title: {display: true, text: param, color: '#8b949e', font: {size: 12}}
+        }
+      }
+    };
+
+    // 지연 차트 설정 저장 (즉시 생성 ×) — _flushPendingChart에서 탭 활성화 시 생성
+    _pendingCharts.set(param, {canvasId:`cv_${pi}`, wrapEl:wrap, dragInfoId:`drag_info_${pi}`, datasets, opts:_chartOpts, gen:_gen});
 
     // 파라미터 간 UI 양보 (다수 파라미터 시 블로킹 방지)
     if (pi < params.length - 1) await _tick();
   }
+
+  // 첫 번째(활성) 탭의 차트만 즉시 렌더링 — 나머지는 탭 클릭 시 지연 생성
+  if (params.length > 0) _flushPendingChart(params[0]);
+}
+
+// 지연 차트 생성: 해당 파라미터 탭이 처음 활성화될 때 호출
+function _flushPendingChart(param) {
+  const cfg=_pendingCharts.get(param);
+  if(!cfg) return;                    // 이미 생성됨 or 없음
+  if(gCharts[param]) return;          // 이미 렌더됨
+  if(cfg.gen!==_chartGen) return;     // 오래된 세대 (renderCharts 재호출됨)
+  _pendingCharts.delete(param);       // 중복 생성 방지
+
+  setTimeout(()=>{
+    if(cfg.gen!==_chartGen) return;   // setTimeout 사이 renderCharts 재호출 대비
+    const canvas=document.getElementById(cfg.canvasId);
+    if(!canvas||gCharts[param]) return;
+    const ctx=canvas.getContext('2d');
+    gCharts[param]=new Chart(ctx,{type:'line',plugins:[ChartDataLabels],data:{datasets:cfg.datasets},options:cfg.opts});
+    setupDragSelect(cfg.wrapEl,()=>gCharts[param],cfg.dragInfoId);
+  },0);
 }
 
 function switchTab(param){
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.param===param));
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.dataset.param===param));
+  _flushPendingChart(param);  // 탭 전환 시 해당 차트 지연 생성
 }
 
 /* ── 차트 EQP / CH 필터 ── */
 function initChartFilters(results) {
-  const eqps = [...new Set(results.map(r=>r['EQP ID']))].sort();
-  const cEqp = document.getElementById('cEqp');
-  if (!cEqp) return;
-  const prevE = cEqp.value;
-  cEqp.innerHTML = '<option value="">전체</option>' + eqps.map(e=>`<option value="${e}">${e}</option>`).join('');
-  if (eqps.includes(prevE)) cEqp.value = prevE;
+  if(!gIndex) return;
+  const eqps=[...gIndex.eqpSet].sort();
+  const cEqp=document.getElementById('cEqp');
+  if(!cEqp) return;
+  const prevE=cEqp.value;
+  cEqp.innerHTML='<option value="">전체</option>'+eqps.map(e=>`<option value="${e}">${e}</option>`).join('');
+  if(eqps.includes(prevE)) cEqp.value=prevE;
   _updateChartCh(results);
 }
 
 function _updateChartCh(results) {
-  const eqp = document.getElementById('cEqp')?.value || '';
-  const chs = [...new Set(results.filter(r=>!eqp||r['EQP ID']===eqp).map(r=>r['CH']||''))].sort();
-  const cCh = document.getElementById('cCh');
-  if (!cCh) return;
-  const prevC = cCh.value;
-  cCh.innerHTML = '<option value="">전체</option>' + chs.map(c=>`<option value="${c}">${c||'(없음)'}</option>`).join('');
-  if (chs.includes(prevC)) cCh.value = prevC;
+  if(!gIndex) return;
+  const eqp=document.getElementById('cEqp')?.value||'';
+  // gIndex.eqpChs로 O(1) 조회 — O(N) filter+map 제거
+  const chs=eqp&&gIndex.eqpChs.has(eqp)
+    ? [...gIndex.eqpChs.get(eqp)].sort()
+    : [...new Set([...gIndex.eqpChs.values()].flatMap(s=>[...s]))].sort();
+  const cCh=document.getElementById('cCh');
+  if(!cCh) return;
+  const prevC=cCh.value;
+  cCh.innerHTML='<option value="">전체</option>'+chs.map(c=>`<option value="${c}">${c||'(없음)'}</option>`).join('');
+  if(chs.includes(prevC)) cCh.value=prevC;
 }
 
 function onChartFilterChange() {
@@ -1411,9 +1458,10 @@ function onChartFilterChange() {
 let gScatterChart = null;
 
 function initScatterSelects(results) {
-  const eqps = [...new Set(results.map(r=>r['EQP ID']))].sort();
-  const scEqp = document.getElementById('scEqp');
-  scEqp.innerHTML = eqps.map(e=>`<option value="${e}">${e}</option>`).join('');
+  if(!gIndex) return;
+  const eqps=[...gIndex.eqpSet].sort();
+  const scEqp=document.getElementById('scEqp');
+  scEqp.innerHTML=eqps.map(e=>`<option value="${e}">${e}</option>`).join('');
   _updateScCh(results);
   _updateScParam(results);
   renderEqpScatter();
@@ -1426,26 +1474,43 @@ function onScatterChange() {
 }
 
 function _updateScCh(results) {
-  const eqp = document.getElementById('scEqp').value;
-  const chs = [...new Set(results.filter(r=>r['EQP ID']===eqp).map(r=>r['CH']||''))].sort();
-  const scCh = document.getElementById('scCh');
-  const prev = scCh.value;
-  scCh.innerHTML = (chs.length>1?'<option value="">전체</option>':'') +
+  if(!gIndex) return;
+  const eqp=document.getElementById('scEqp').value;
+  // gIndex.eqpChs 맵으로 O(1) 조회
+  const chs=eqp&&gIndex.eqpChs.has(eqp)
+    ? [...gIndex.eqpChs.get(eqp)].sort()
+    : [];
+  const scCh=document.getElementById('scCh');
+  const prev=scCh.value;
+  scCh.innerHTML=(chs.length>1?'<option value="">전체</option>':'')+
     chs.map(c=>`<option value="${c}">${c||'(없음)'}</option>`).join('');
-  if (chs.includes(prev)) scCh.value = prev;
+  if(chs.includes(prev)) scCh.value=prev;
 }
 
 function _updateScParam(results) {
-  const eqp = document.getElementById('scEqp').value;
-  const ch  = document.getElementById('scCh').value;
-  const params = [...new Set(
-    results.filter(r=>r['EQP ID']===eqp && (!ch||r['CH']===ch)).map(r=>r['PARAMETER'])
-  )].sort();
-  const scParam = document.getElementById('scParam');
-  const prev = scParam.value;
-  scParam.innerHTML = '<option value="">전체</option>' +
-    params.map(p=>`<option value="${p}">${p}</option>`).join('');
-  if (params.includes(prev)) scParam.value = prev;
+  if(!gIndex) return;
+  const eqp=document.getElementById('scEqp').value;
+  const ch =document.getElementById('scCh').value;
+  let params;
+  if(ch) {
+    // 특정 CH: eqp+ch 키로 O(1) 조회
+    const eck=`${eqp}|${ch}`;
+    params=gIndex.eqpChParams.has(eck)?[...gIndex.eqpChParams.get(eck)].sort():[];
+  } else {
+    // 전체 CH: eqp의 모든 CH 파라미터 합집합
+    const ps=new Set();
+    if(gIndex.eqpChs.has(eqp)){
+      gIndex.eqpChs.get(eqp).forEach(c=>{
+        const eck=`${eqp}|${c}`;
+        if(gIndex.eqpChParams.has(eck)) gIndex.eqpChParams.get(eck).forEach(p=>ps.add(p));
+      });
+    }
+    params=[...ps].sort();
+  }
+  const scParam=document.getElementById('scParam');
+  const prev=scParam.value;
+  scParam.innerHTML='<option value="">전체</option>'+params.map(p=>`<option value="${p}">${p}</option>`).join('');
+  if(params.includes(prev)) scParam.value=prev;
 }
 
 function renderEqpScatter() {
@@ -1707,8 +1772,8 @@ function updatePointSize(sz) {
 /* ── Tables ── */
 function renderTables(results) {
   document.getElementById('totalCnt').textContent=`${results.length}건`;
-  // 이상감지 목록: gAnoms 초기화 후 페이지 렌더
-  gAnoms = results.filter(r=>r.isAnom);
+  // gAnomsAll은 runAnalysis/applySnapshot에서 이미 설정됨
+  gAnoms = gAnomsAll;
   gPage.anom = 1;
   renderAnomPage();
   // 전체 데이터: 페이지네이션
@@ -1814,16 +1879,12 @@ function rowHTML(row,isAnomTable){
 
 /* ── Filters ── */
 function populateFilters(results){
-  const eqpSet=new Set(), chSet=new Set(), paramSet=new Set();
-  results.forEach(r=>{
-    eqpSet.add(r['EQP ID']);
-    if(r['CH']) chSet.add(r['CH']);
-    paramSet.add(r['PARAMETER']);
-  });
+  if(!gIndex) return;
+  // gIndex 공유 세트 사용 — O(N) 반복 없이 필터 드롭다운 구성
   const mk=s=>'<option value="">전체</option>'+ [...s].sort().map(v=>`<option>${v}</option>`).join('');
-  document.getElementById('fEqp').innerHTML=mk(eqpSet);
-  document.getElementById('fCh').innerHTML=mk(chSet);
-  document.getElementById('fParam').innerHTML=mk(paramSet);
+  document.getElementById('fEqp').innerHTML=mk(gIndex.eqpSet);
+  document.getElementById('fCh').innerHTML=mk(gIndex.chSet);
+  document.getElementById('fParam').innerHTML=mk(gIndex.paramSet);
 }
 function applyFilter(){
   const eqp=document.getElementById('fEqp').value,
@@ -1906,6 +1967,10 @@ async function runAnalysis(){
     const lambdaEWMA=parseFloat(document.getElementById('ewmaLambda').value)||0.2;
     const kCUSUM=parseFloat(document.getElementById('cusumK').value)||0.5;
     gResults=await detectAnomalies(data,thr,method,winSize,lambdaEWMA,kCUSUM);
+    // 이상 목록·메타 인덱스를 분석 직후 1회 계산 — 이후 모든 렌더 함수 재사용
+    gAnomsAll=gResults.filter(r=>r.isAnom);
+    gAnoms=gAnomsAll;
+    gIndex=buildIndex(gResults);
     onMethodChange(); gFilteredResults=null;
 
     _setProgress(58,'통계 요약 렌더링 중...'); await _tick();
@@ -1930,10 +1995,9 @@ async function runAnalysis(){
     const res=document.getElementById('results');
     res.style.display='block';
     res.scrollIntoView({behavior:'smooth',block:'start'});
-    const ac=gResults.filter(r=>r.isAnom).length;
     saveSettings();
     _setProgress(100,'완료');
-    toast(`분석 완료 — 총 ${gResults.length}건 / 이상 ${ac}건`,ac?'err':'ok');
+    toast(`분석 완료 — 총 ${gResults.length}건 / 이상 ${gAnomsAll.length}건`,gAnomsAll.length?'err':'ok');
   } catch(e){toast(e.message,'err');console.error(e);}
   finally { btn.disabled=false; pw.style.display='none'; }
 }
@@ -1947,8 +2011,8 @@ function clearAll(){
   document.getElementById('chartHeightVal').textContent='360px';
   document.getElementById('fDateFrom').value='';
   document.getElementById('fDateTo').value='';
-  gResults=[]; gHeaders=[]; gAnoms=[]; gFilteredResults=null; gStats=[];
-  _timeCache.clear();
+  gResults=[]; gHeaders=[]; gAnoms=[]; gAnomsAll=[]; gFilteredResults=null; gStats=[]; gIndex=null;
+  _timeCache.clear(); _pendingCharts.clear();
   Object.values(gCharts).forEach(c=>c.destroy());     gCharts={};
   Object.values(gRankCharts).forEach(c=>c.destroy()); gRankCharts={};
 }
@@ -2042,8 +2106,9 @@ function renderHeatmap(results) {
     return {...d, rate:d.anom/d.total*100};
   };
 
-  const rates = eqps.flatMap(e=>params.map(p=>cell(e,p).rate)).filter(r=>r>=0);
-  const maxRate = rates.reduce((a,b)=>a>b?a:b, 0.01);
+  // flatMap+filter 중간 배열 제거 — 인라인 최대값 탐색
+  let maxRate=0.01;
+  eqps.forEach(e=>params.forEach(p=>{ const r=cell(e,p).rate; if(r>maxRate) maxRate=r; }));
 
   let html = `<table class="heatmap-table"><thead><tr>
     <th style="text-align:left">EQP \\ PARAM</th>
@@ -2162,10 +2227,10 @@ function clearDrillDown() {
 }
 
 function filterAnomTable(eqp, param) {
-  const allAnoms = gResults.filter(r => r.isAnom);
+  // gAnomsAll 캐시 사용 — gResults 재스캔 불필요
   gAnoms = (eqp || param)
-    ? allAnoms.filter(r => (!eqp || r['EQP ID']===eqp) && (!param || r['PARAMETER']===param))
-    : allAnoms;
+    ? gAnomsAll.filter(r => (!eqp || r['EQP ID']===eqp) && (!param || r['PARAMETER']===param))
+    : gAnomsAll;
   gPage.anom = 1;
   renderAnomPage();
   const suffix = (eqp || param) ? ' (필터)' : '';
@@ -2309,7 +2374,7 @@ async function _migrateLS() {
 async function saveAnalysis() {
   if (!gResults.length) { toast('먼저 분석을 실행하세요.','err'); return; }
   const ts    = Date.now();
-  const anoms = gResults.filter(r=>r.isAnom).length;
+  const anoms = gAnomsAll.length;
   const entry = {
     id: ts,
     savedAt: new Date(ts).toISOString(),
@@ -2449,13 +2514,23 @@ async function applySnapshot(snap) {
 
   if (!snap.gResults?.length) { toast('저장된 분석 결과가 없습니다.','err'); return; }
 
-  // 3. gResults 복원
+  // 3. gResults 복원 + 구버전 스냅샷 키 마이그레이션
   gResults = snap.gResults;
+  if(gResults.length && !gResults[0]._statsKey) {
+    gResults.forEach(r=>{
+      r._key      = `${r['EQP ID']}|||${r['LOTID']}|||${r['CH']}|||${r['PARAMETER']}`;
+      r._statsKey = `${r['EQP ID']}|||${r['CH']}|||${r['PARAMETER']}`;
+    });
+  }
   gThreshold = parseFloat(snap.settings?.threshold) || 10;
+
+  // 이상 목록 + 메타 인덱스 구축
+  gAnomsAll=gResults.filter(r=>r.isAnom);
+  gAnoms=gAnomsAll;
+  gIndex=buildIndex(gResults);
 
   // 4. 필터·정렬·페이지 상태 완전 초기화
   gFilteredResults = null;
-  gAnoms = [];
   gPage.full = 1; gPage.anom = 1;
   Object.keys(gSortState).forEach(k => delete gSortState[k]);
 
@@ -2494,8 +2569,7 @@ async function applySnapshot(snap) {
     _setProgress(100, '완료');
     document.getElementById('results').style.display = 'block';
     document.getElementById('results').scrollIntoView({behavior:'smooth', block:'start'});
-    const ac = gResults.filter(r=>r.isAnom).length;
-    toast(`불러오기 완료 — ${gResults.length}건 / 이상 ${ac}건`, ac?'err':'ok');
+    toast(`불러오기 완료 — ${gResults.length}건 / 이상 ${gAnomsAll.length}건`, gAnomsAll.length?'err':'ok');
   } finally {
     pw.style.display = 'none';
   }
@@ -2531,7 +2605,7 @@ function downloadReport() {
   if (!gResults.length) { toast('먼저 분석을 실행하세요.','err'); return; }
 
   const stats = calcStats(gResults);
-  const anoms = gResults.filter(r=>r.isAnom);
+  const anoms = gAnomsAll;
   const total = gResults.length;
   const rate  = total ? (anoms.length/total*100).toFixed(1) : '0.0';
   const method= document.getElementById('detectMethod')?.selectedOptions?.[0]?.text || '';
