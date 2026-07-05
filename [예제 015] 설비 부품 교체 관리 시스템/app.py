@@ -67,10 +67,34 @@ def init_db():
             cycle_days INTEGER NOT NULL DEFAULT 90,
             last_replaced_date TEXT,
             note TEXT,
+            icon TEXT DEFAULT '🔩',
+            pos_x REAL DEFAULT 50,
+            pos_y REAL DEFAULT 50,
+            width REAL DEFAULT 130,
+            height REAL DEFAULT 110,
             created_at TEXT DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
         )
     """)
+    existing_part_cols = {r["name"] for r in c.execute("PRAGMA table_info(parts)").fetchall()}
+    if "icon" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN icon TEXT DEFAULT '🔩'")
+    if "pos_x" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN pos_x REAL")
+        c.execute("ALTER TABLE parts ADD COLUMN pos_y REAL")
+        c.execute("ALTER TABLE parts ADD COLUMN width REAL")
+        c.execute("ALTER TABLE parts ADD COLUMN height REAL")
+    for unit_row in c.execute("SELECT DISTINCT unit_id FROM parts").fetchall():
+        unplaced_parts = c.execute(
+            "SELECT id FROM parts WHERE unit_id = ? AND (pos_x IS NULL OR pos_y IS NULL) ORDER BY id",
+            (unit_row["unit_id"],),
+        ).fetchall()
+        for i, prow in enumerate(unplaced_parts):
+            x = 15 + (i * 70 / max(len(unplaced_parts) - 1, 1)) if len(unplaced_parts) > 1 else 50
+            c.execute("UPDATE parts SET pos_x = ?, pos_y = ? WHERE id = ?", (x, 50, prow["id"]))
+    c.execute("UPDATE parts SET width = 130 WHERE width IS NULL")
+    c.execute("UPDATE parts SET height = 110 WHERE height IS NULL")
+    c.execute("UPDATE parts SET icon = '🔩' WHERE icon IS NULL")
     c.execute("""
         CREATE TABLE IF NOT EXISTS replacement_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -133,32 +157,54 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/unit/<int:unit_id>")
+def unit_detail(unit_id):
+    conn = get_db()
+    unit = conn.execute("SELECT id FROM units WHERE id = ?", (unit_id,)).fetchone()
+    conn.close()
+    if not unit:
+        return "유닛을 찾을 수 없습니다", 404
+    return render_template("unit.html", unit_id=unit_id)
+
+
+def unit_with_status(conn, u):
+    parts = conn.execute("SELECT * FROM parts WHERE unit_id = ?", (u["id"],)).fetchall()
+    statuses = [part_status(p["cycle_days"], p["last_replaced_date"])["status"] for p in parts]
+    if "overdue" in statuses:
+        overall = "overdue"
+    elif "soon" in statuses:
+        overall = "soon"
+    elif "unknown" in statuses:
+        overall = "unknown" if not any(s == "ok" for s in statuses) else "ok"
+    elif statuses:
+        overall = "ok"
+    else:
+        overall = "empty"
+    d = dict(u)
+    d["part_count"] = len(parts)
+    d["overall_status"] = overall
+    return d
+
+
 @app.route("/api/units")
 def list_units():
     conn = get_db()
     units = conn.execute("SELECT * FROM units ORDER BY id").fetchall()
-    result = []
-    for u in units:
-        parts = conn.execute(
-            "SELECT * FROM parts WHERE unit_id = ?", (u["id"],)
-        ).fetchall()
-        statuses = [part_status(p["cycle_days"], p["last_replaced_date"])["status"] for p in parts]
-        if "overdue" in statuses:
-            overall = "overdue"
-        elif "soon" in statuses:
-            overall = "soon"
-        elif "unknown" in statuses:
-            overall = "unknown" if not any(s == "ok" for s in statuses) else "ok"
-        elif statuses:
-            overall = "ok"
-        else:
-            overall = "empty"
-        d = dict(u)
-        d["part_count"] = len(parts)
-        d["overall_status"] = overall
-        result.append(d)
+    result = [unit_with_status(conn, u) for u in units]
     conn.close()
     return jsonify(result)
+
+
+@app.route("/api/units/<int:unit_id>")
+def get_unit(unit_id):
+    conn = get_db()
+    unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
+    if not unit:
+        conn.close()
+        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
+    d = unit_with_status(conn, unit)
+    conn.close()
+    return jsonify(d)
 
 
 @app.route("/api/units", methods=["POST"])
@@ -243,12 +289,19 @@ def add_part(unit_id):
     cycle_days = int(data.get("cycle_days") or 90)
     last_replaced_date = data.get("last_replaced_date") or None
     note = (data.get("note") or "").strip()
+    icon = (data.get("icon") or "🔩").strip()
+    pos_x = data.get("pos_x")
+    pos_y = data.get("pos_y")
+    if pos_x is None or pos_y is None:
+        pos_x, pos_y = random.uniform(15, 85), random.uniform(20, 80)
+    width = data.get("width") or 130
+    height = data.get("height") or 110
 
     conn = get_db()
     cur = conn.execute(
-        """INSERT INTO parts (unit_id, name, spec, cycle_days, last_replaced_date, note)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (unit_id, name, spec, cycle_days, last_replaced_date, note),
+        """INSERT INTO parts (unit_id, name, spec, cycle_days, last_replaced_date, note, icon, pos_x, pos_y, width, height)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (unit_id, name, spec, cycle_days, last_replaced_date, note, icon, pos_x, pos_y, width, height),
     )
     part_id = cur.lastrowid
     if last_replaced_date:
@@ -274,9 +327,14 @@ def update_part(part_id):
     spec = data.get("spec", part["spec"])
     cycle_days = int(data.get("cycle_days") or part["cycle_days"])
     note = data.get("note", part["note"])
+    icon = (data.get("icon") or part["icon"]).strip()
+    pos_x = data.get("pos_x", part["pos_x"])
+    pos_y = data.get("pos_y", part["pos_y"])
+    width = data.get("width", part["width"])
+    height = data.get("height", part["height"])
     conn.execute(
-        "UPDATE parts SET name = ?, spec = ?, cycle_days = ?, note = ? WHERE id = ?",
-        (name, spec, cycle_days, note, part_id),
+        "UPDATE parts SET name = ?, spec = ?, cycle_days = ?, note = ?, icon = ?, pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?",
+        (name, spec, cycle_days, note, icon, pos_x, pos_y, width, height, part_id),
     )
     conn.commit()
     row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()

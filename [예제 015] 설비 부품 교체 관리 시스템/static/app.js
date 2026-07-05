@@ -1,10 +1,5 @@
 let editMode = false;
-let currentUnitId = null;
-let currentPartId = null;
-let unitModal, replaceModal, historyModal, unitEditModal;
-
-const statusBadge = { ok: "badge-ok", soon: "badge-soon", overdue: "badge-overdue", unknown: "badge-unknown" };
-const statusLabel = { ok: "정상", soon: "교체 임박", overdue: "교체 필요", unknown: "미기록" };
+let unitEditModal;
 
 function tick() {
   const el = document.getElementById("clock");
@@ -138,7 +133,7 @@ function makeDraggable(card, unit) {
           body: JSON.stringify({ pos_x, pos_y }),
         });
       } else {
-        openUnitModal(unit.id, unit.name);
+        window.location.href = `/unit/${unit.id}`;
       }
     }
 
@@ -149,7 +144,7 @@ function makeDraggable(card, unit) {
   card.addEventListener("click", (e) => {
     if (editMode) return;
     if (e.target.closest(".unit-edit-actions")) return;
-    openUnitModal(unit.id, unit.name);
+    window.location.href = `/unit/${unit.id}`;
   });
 }
 
@@ -214,98 +209,6 @@ function setNotesEditing(editing) {
   if (editing) document.getElementById("notesEdit").focus();
 }
 
-async function openUnitModal(unitId, unitName) {
-  currentUnitId = unitId;
-  document.getElementById("unitModalTitle").textContent = unitName;
-  document.getElementById("addPartForm").classList.add("d-none");
-  document.getElementById("addPartForm").reset();
-  await loadParts(unitId);
-  unitModal.show();
-}
-
-async function loadParts(unitId) {
-  const parts = await fetchJson(`/api/units/${unitId}/parts`);
-  const list = document.getElementById("partsList");
-  if (parts.length === 0) {
-    list.innerHTML = `<p class="text-muted">등록된 부품이 없습니다. "부품 등록" 버튼으로 추가하세요.</p>`;
-    return;
-  }
-  list.innerHTML = parts.map(partCardHtml).join("");
-  parts.forEach((p) => {
-    const card = list.querySelector(`[data-part-id="${p.id}"]`);
-    card.querySelector(".replace-btn").addEventListener("click", () => openReplaceModal(p.id));
-    card.querySelector(".history-btn").addEventListener("click", () => openHistoryModal(p.id, p.name));
-    card.querySelector(".delete-part-btn").addEventListener("click", async () => {
-      if (!confirm(`"${p.name}" 부품을 삭제할까요?`)) return;
-      await fetchJson(`/api/parts/${p.id}`, { method: "DELETE" });
-      loadParts(unitId);
-      loadUnits();
-    });
-  });
-}
-
-function partCardHtml(p) {
-  const badge = statusBadge[p.status];
-  const label = statusLabel[p.status];
-  const lastText = p.last_replaced_date ? `최근 교체: ${p.last_replaced_date}` : "교체 이력 없음";
-  const dueText = p.next_due ? `다음 교체 예정: ${p.next_due} (${p.days_left >= 0 ? p.days_left + "일 남음" : Math.abs(p.days_left) + "일 초과"})` : "";
-  return `
-    <div class="part-card" data-part-id="${p.id}">
-      <div class="d-flex justify-content-between align-items-start">
-        <div>
-          <span class="part-title">${escapeHtml(p.name)}</span>
-          <span class="badge ${badge} ms-1">${label}</span>
-          ${p.spec ? `<div class="part-spec">${escapeHtml(p.spec)}</div>` : ""}
-        </div>
-        <div class="text-end">
-          <button class="btn btn-sm btn-outline-secondary history-btn"><i class="bi bi-clock-history"></i></button>
-          <button class="btn btn-sm btn-outline-danger delete-part-btn"><i class="bi bi-trash"></i></button>
-        </div>
-      </div>
-      <div class="mt-2 small text-muted">
-        교체 주기: ${p.cycle_days}일 &middot; ${lastText}
-        ${dueText ? `<br>${dueText}` : ""}
-        ${p.note ? `<br>비고: ${escapeHtml(p.note)}` : ""}
-      </div>
-      <button class="btn btn-sm btn-primary mt-2 replace-btn"><i class="bi bi-arrow-repeat"></i> 교체 기록 추가</button>
-    </div>`;
-}
-
-function openReplaceModal(partId) {
-  currentPartId = partId;
-  document.getElementById("replaceDate").value = new Date().toISOString().slice(0, 10);
-  document.getElementById("replaceNote").value = "";
-  replaceModal.show();
-}
-
-async function openHistoryModal(partId, partName) {
-  const history = await fetchJson(`/api/parts/${partId}/history`);
-  const list = document.getElementById("historyList");
-  document.querySelector("#historyModal .modal-title").textContent = `교체 이력 - ${partName}`;
-  if (history.length === 0) {
-    list.innerHTML = `<p class="text-muted">교체 이력이 없습니다.</p>`;
-  } else {
-    list.innerHTML = history
-      .map(
-        (h) => `
-      <div class="history-row d-flex justify-content-between">
-        <div><strong>${h.replaced_date}</strong> ${h.note ? " - " + escapeHtml(h.note) : ""}</div>
-        <button class="btn btn-sm btn-link text-danger p-0 del-history-btn" data-id="${h.id}">삭제</button>
-      </div>`
-      )
-      .join("");
-    list.querySelectorAll(".del-history-btn").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        await fetchJson(`/api/history/${btn.dataset.id}`, { method: "DELETE" });
-        openHistoryModal(partId, partName);
-        if (currentUnitId) loadParts(currentUnitId);
-        loadUnits();
-      });
-    });
-  }
-  historyModal.show();
-}
-
 function openUnitEditModal(unit) {
   document.getElementById("unitEditTitle").textContent = unit ? "유닛 편집" : "유닛 추가";
   document.getElementById("unitEditId").value = unit ? unit.id : "";
@@ -316,9 +219,6 @@ function openUnitEditModal(unit) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  unitModal = new bootstrap.Modal(document.getElementById("unitModal"));
-  replaceModal = new bootstrap.Modal(document.getElementById("replaceModal"));
-  historyModal = new bootstrap.Modal(document.getElementById("historyModal"));
   unitEditModal = new bootstrap.Modal(document.getElementById("unitEditModal"));
 
   tick();
@@ -359,59 +259,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("addUnitBtn").addEventListener("click", () => openUnitEditModal(null));
-
-  document.getElementById("showAddPartBtn").addEventListener("click", () => {
-    document.getElementById("addPartForm").classList.remove("d-none");
-    document.getElementById("partLastDate").value = "";
-  });
-  document.getElementById("cancelAddPartBtn").addEventListener("click", () => {
-    document.getElementById("addPartForm").classList.add("d-none");
-    document.getElementById("addPartForm").reset();
-  });
-
-  document.getElementById("addPartForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const payload = {
-      name: document.getElementById("partName").value.trim(),
-      spec: document.getElementById("partSpec").value.trim(),
-      cycle_days: parseInt(document.getElementById("partCycle").value, 10),
-      last_replaced_date: document.getElementById("partLastDate").value || null,
-      note: document.getElementById("partNote").value.trim(),
-    };
-    try {
-      await fetchJson(`/api/units/${currentUnitId}/parts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      e.target.reset();
-      e.target.classList.add("d-none");
-      loadParts(currentUnitId);
-      loadUnits();
-    } catch (err) {
-      alert(err.message);
-    }
-  });
-
-  document.getElementById("replaceForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const payload = {
-      replaced_date: document.getElementById("replaceDate").value,
-      note: document.getElementById("replaceNote").value.trim(),
-    };
-    try {
-      await fetchJson(`/api/parts/${currentPartId}/replace`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      replaceModal.hide();
-      loadParts(currentUnitId);
-      loadUnits();
-    } catch (err) {
-      alert(err.message);
-    }
-  });
 
   document.getElementById("unitEditForm").addEventListener("submit", async (e) => {
     e.preventDefault();

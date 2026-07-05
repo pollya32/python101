@@ -33,7 +33,7 @@
   </div>
 
   <div id="equipment" class="equipment-frame">
-    <div class="equipment-label" id="equipmentLabel">CHALLENGER 설비 (유닛을 클릭해서 부품을 관리 · 편집 모드에서 드래그로 배치 변경)</div>
+    <div class="equipment-label" id="equipmentLabel">CHALLENGER 설비 (유닛을 클릭하면 상세 페이지로 이동 · 편집 모드에서 드래그로 배치/크기 변경)</div>
     <div id="canvas" class="equipment-canvas"></div>
     <button id="addUnitBtn" class="btn btn-sm btn-outline-primary add-unit-btn d-none">
       <i class="bi bi-plus-lg"></i> 유닛 추가
@@ -58,90 +58,6 @@
   </div>
 
 </main>
-
-<!-- 유닛 상세 (부품 교체일 관리) 모달 -->
-<div class="modal fade" id="unitModal" tabindex="-1">
-  <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="unitModalTitle">유닛</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-          <h6 class="mb-0">등록된 부품</h6>
-          <button id="showAddPartBtn" class="btn btn-sm btn-primary">
-            <i class="bi bi-plus-lg"></i> 부품 등록
-          </button>
-        </div>
-
-        <form id="addPartForm" class="row g-2 mb-3 d-none">
-          <div class="col-md-4">
-            <input type="text" class="form-control form-control-sm" id="partName" placeholder="부품명 (예: O-Ring)" required>
-          </div>
-          <div class="col-md-3">
-            <input type="text" class="form-control form-control-sm" id="partSpec" placeholder="규격 / 모델명">
-          </div>
-          <div class="col-md-2">
-            <input type="number" class="form-control form-control-sm" id="partCycle" placeholder="교체주기(일)" value="90" min="1" required>
-          </div>
-          <div class="col-md-3">
-            <input type="date" class="form-control form-control-sm" id="partLastDate">
-          </div>
-          <div class="col-12">
-            <input type="text" class="form-control form-control-sm" id="partNote" placeholder="비고">
-          </div>
-          <div class="col-12 text-end">
-            <button type="button" class="btn btn-sm btn-secondary" id="cancelAddPartBtn">취소</button>
-            <button type="submit" class="btn btn-sm btn-primary">등록</button>
-          </div>
-        </form>
-
-        <div id="partsList"></div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- 교체 기록 모달 -->
-<div class="modal fade" id="replaceModal" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">부품 교체 기록</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <form id="replaceForm">
-          <div class="mb-2">
-            <label class="form-label">교체일</label>
-            <input type="date" class="form-control" id="replaceDate" required>
-          </div>
-          <div class="mb-2">
-            <label class="form-label">비고</label>
-            <input type="text" class="form-control" id="replaceNote" placeholder="교체 사유 / 작업자 등">
-          </div>
-          <button type="submit" class="btn btn-primary w-100">기록 저장</button>
-        </form>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- 교체 이력 모달 -->
-<div class="modal fade" id="historyModal" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">교체 이력</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div id="historyList"></div>
-      </div>
-    </div>
-  </div>
-</div>
 
 <!-- 유닛 추가/편집 모달 -->
 <div class="modal fade" id="unitEditModal" tabindex="-1">

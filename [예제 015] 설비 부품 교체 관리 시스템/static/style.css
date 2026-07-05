@@ -57,6 +57,25 @@ body {
   border-radius: 999px;
 }
 
+.unit-shape {
+  --shape-color: var(--pri);
+  border: 4px solid var(--shape-color);
+}
+.unit-shape-header {
+  text-align: center;
+  margin-bottom: 6px;
+}
+.unit-shape-icon {
+  font-size: 40px;
+  display: block;
+  line-height: 1.2;
+}
+.unit-shape-name {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--shape-color);
+}
+
 .equipment-canvas {
   position: relative;
   width: 100%;

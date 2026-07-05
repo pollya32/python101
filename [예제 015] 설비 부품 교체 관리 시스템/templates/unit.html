@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>유닛 상세 - 설비 부품 교체 관리 시스템</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="d-flex align-items-center gap-2">
+    <a href="/" class="btn btn-sm btn-outline-light"><i class="bi bi-arrow-left"></i> 설비로</a>
+    <h1 id="unitPageTitle">유닛 상세</h1>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span id="clock" class="clock"></span>
+    <button id="editModeBtn" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-pencil-square"></i> 부품 구성 편집
+    </button>
+  </div>
+</header>
+
+<main class="container-fluid py-4">
+
+  <div class="legend mb-3">
+    <span class="legend-item"><span class="dot dot-ok"></span> 정상</span>
+    <span class="legend-item"><span class="dot dot-soon"></span> 교체 임박</span>
+    <span class="legend-item"><span class="dot dot-overdue"></span> 교체 필요</span>
+    <span class="legend-item"><span class="dot dot-unknown"></span> 미기록</span>
+  </div>
+
+  <div id="unitShape" class="equipment-frame unit-shape">
+    <div class="equipment-label">부품을 클릭해서 교체일 관리 · 편집 모드에서 드래그로 배치/크기 변경</div>
+    <div class="unit-shape-header">
+      <span class="unit-shape-icon" id="unitIcon">⚙️</span>
+      <span class="unit-shape-name" id="unitName">유닛</span>
+    </div>
+    <div id="partsCanvas" class="equipment-canvas"></div>
+    <button id="addPartBtn" class="btn btn-sm btn-outline-primary add-unit-btn d-none">
+      <i class="bi bi-plus-lg"></i> 부품 추가
+    </button>
+  </div>
+
+</main>
+
+<!-- 부품 상세 모달 -->
+<div class="modal fade" id="partDetailModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="partDetailTitle">부품</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="partDetailBody"></div>
+        <div class="d-flex gap-2 mt-3">
+          <button id="partDetailReplaceBtn" class="btn btn-primary btn-sm flex-fill">
+            <i class="bi bi-arrow-repeat"></i> 교체 기록 추가
+          </button>
+          <button id="partDetailHistoryBtn" class="btn btn-outline-secondary btn-sm flex-fill">
+            <i class="bi bi-clock-history"></i> 이력 보기
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 교체 기록 모달 -->
+<div class="modal fade" id="replaceModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">부품 교체 기록</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="replaceForm">
+          <div class="mb-2">
+            <label class="form-label">교체일</label>
+            <input type="date" class="form-control" id="replaceDate" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">비고</label>
+            <input type="text" class="form-control" id="replaceNote" placeholder="교체 사유 / 작업자 등">
+          </div>
+          <button type="submit" class="btn btn-primary w-100">기록 저장</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 교체 이력 모달 -->
+<div class="modal fade" id="historyModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">교체 이력</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="historyList"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 부품 추가/편집 모달 -->
+<div class="modal fade" id="partEditModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="partEditTitle">부품 추가</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="partEditForm">
+          <input type="hidden" id="partEditId">
+          <div class="mb-2">
+            <label class="form-label">부품명</label>
+            <input type="text" class="form-control" id="partEditName" placeholder="예: O-Ring" required>
+          </div>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label">규격 / 모델명</label>
+              <input type="text" class="form-control" id="partEditSpec">
+            </div>
+            <div class="col-6">
+              <label class="form-label">아이콘 (이모지)</label>
+              <input type="text" class="form-control" id="partEditIcon" placeholder="🔩">
+            </div>
+          </div>
+          <div class="row g-2 mt-1">
+            <div class="col-6">
+              <label class="form-label">교체 주기(일)</label>
+              <input type="number" class="form-control" id="partEditCycle" value="90" min="1" required>
+            </div>
+            <div class="col-6" id="partEditLastDateWrap">
+              <label class="form-label">최초 교체일 (선택)</label>
+              <input type="date" class="form-control" id="partEditLastDate">
+            </div>
+          </div>
+          <div class="mb-2 mt-2">
+            <label class="form-label">비고</label>
+            <input type="text" class="form-control" id="partEditNote">
+          </div>
+          <button type="submit" class="btn btn-primary w-100 mt-2">저장</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>const UNIT_ID = {{ unit_id }};</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/static/unit.js"></script>
+</body>
+</html>
