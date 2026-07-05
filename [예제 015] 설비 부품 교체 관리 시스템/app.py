@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, jsonify
 import sqlite3
 import os
 import random
+import socket
 from datetime import date, datetime, timedelta
 
 app = Flask(__name__)
@@ -24,10 +25,23 @@ DEFAULT_UNITS = [
 
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
     return conn
+
+
+def get_lan_ip():
+    """같은 네트워크의 다른 사람이 접속할 수 있는 이 컴퓨터의 IP 주소를 알아낸다."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        s.close()
 
 
 def init_db():
@@ -677,5 +691,9 @@ def apply_unit_templates():
 
 if __name__ == "__main__":
     init_db()
-    print("설비 부품 교체 관리 시스템 시작! → http://localhost:5000")
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    lan_ip = get_lan_ip()
+    print("설비 부품 교체 관리 시스템 시작!")
+    print(f"  이 컴퓨터에서 접속: http://localhost:5000")
+    print(f"  같은 네트워크의 다른 사람 접속: http://{lan_ip}:5000")
+    print("  (다른 사람이 접속 안 되면 Windows 방화벽에서 Python 허용 여부를 확인하세요)")
+    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
