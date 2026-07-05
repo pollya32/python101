@@ -90,6 +90,7 @@ function renderPartsCanvas(parts) {
 
     makeDraggable(card, p);
     makeResizable(card, p);
+    makeResizableHorizontal(card, p);
   });
 }
 
@@ -129,10 +130,50 @@ function makeResizable(card, part) {
       card.classList.remove("dragging");
       const width = card.offsetWidth;
       const height = card.offsetHeight;
+      part.width = width;
+      part.height = height;
       await fetchJson(`/api/parts/${part.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ width, height }),
+      });
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+function makeResizableHorizontal(card, part) {
+  const handle = card.querySelector(".resize-handle-h");
+  if (!handle) return;
+
+  handle.addEventListener("mousedown", (e) => {
+    if (!editMode) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX;
+    const startWidth = card.offsetWidth;
+
+    card.classList.add("dragging");
+
+    function onMove(ev) {
+      const dx = ev.clientX - startX;
+      const w = Math.min(Math.max(startWidth + dx, MIN_SIZE_W), MAX_SIZE_W);
+      card.style.width = `${w}px`;
+    }
+
+    async function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      card.classList.remove("dragging");
+      const width = card.offsetWidth;
+      part.width = width;
+      await fetchJson(`/api/parts/${part.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ width }),
       });
     }
 
@@ -174,6 +215,8 @@ function makeDraggable(card, part) {
       if (moved) {
         const pos_x = parseFloat(card.style.left);
         const pos_y = parseFloat(card.style.top);
+        part.pos_x = pos_x;
+        part.pos_y = pos_y;
         await fetchJson(`/api/parts/${part.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -207,7 +250,8 @@ function partShapeHtml(p) {
         <button class="edit-unit-btn" title="편집"><i class="bi bi-pencil"></i></button>
         <button class="delete-unit-btn" title="삭제"><i class="bi bi-trash"></i></button>
       </div>
-      <div class="resize-handle" title="크기 조절"></div>
+      <div class="resize-handle" title="크기 조절 (가로+세로)"></div>
+      <div class="resize-handle-h" title="가로 크기 조절"></div>
     </div>`;
 }
 

@@ -34,9 +34,14 @@
   <div id="templateFrame" class="equipment-frame">
     <div class="equipment-label">유닛을 드래그로 배치 · 모서리로 크기 조절 · 클릭해서 이름/아이콘/색상 편집</div>
     <div id="canvas" class="equipment-canvas"></div>
-    <button id="addUnitBtn" class="btn btn-sm btn-outline-primary add-unit-btn">
-      <i class="bi bi-plus-lg"></i> 유닛 추가
-    </button>
+    <div class="canvas-actions">
+      <button id="addUnitBtn" class="btn btn-sm btn-outline-primary">
+        <i class="bi bi-plus-lg"></i> 유닛 추가
+      </button>
+      <button id="pasteUnitBtn" class="btn btn-sm btn-outline-secondary d-none">
+        <i class="bi bi-clipboard-check"></i> 붙여넣기
+      </button>
+    </div>
   </div>
 
 </main>

@@ -73,8 +73,14 @@ function renderCanvas(units) {
       loadUnits();
     });
 
+    card.querySelector(".copy-unit-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      copyUnit(u);
+    });
+
     makeDraggable(card, u);
     makeResizable(card, u);
+    makeResizableHorizontal(card, u);
   });
 }
 
@@ -114,10 +120,50 @@ function makeResizable(card, unit) {
       card.classList.remove("dragging");
       const width = card.offsetWidth;
       const height = card.offsetHeight;
+      unit.width = width;
+      unit.height = height;
       await fetchJson(`/api/units/${unit.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ width, height }),
+      });
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+function makeResizableHorizontal(card, unit) {
+  const handle = card.querySelector(".resize-handle-h");
+  if (!handle) return;
+
+  handle.addEventListener("mousedown", (e) => {
+    if (!editMode) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX;
+    const startWidth = card.offsetWidth;
+
+    card.classList.add("dragging");
+
+    function onMove(ev) {
+      const dx = ev.clientX - startX;
+      const w = Math.min(Math.max(startWidth + dx, MIN_UNIT_WIDTH), MAX_UNIT_WIDTH);
+      card.style.width = `${w}px`;
+    }
+
+    async function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      card.classList.remove("dragging");
+      const width = card.offsetWidth;
+      unit.width = width;
+      await fetchJson(`/api/units/${unit.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ width }),
       });
     }
 
@@ -159,6 +205,8 @@ function makeDraggable(card, unit) {
       if (moved) {
         const pos_x = parseFloat(card.style.left);
         const pos_y = parseFloat(card.style.top);
+        unit.pos_x = pos_x;
+        unit.pos_y = pos_y;
         await fetchJson(`/api/units/${unit.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -189,9 +237,11 @@ function unitCardHtml(u) {
       <div class="unit-part-count">${u.part_count}개 부품 등록</div>
       <div class="unit-edit-actions">
         <button class="edit-unit-btn" title="편집"><i class="bi bi-pencil"></i></button>
+        <button class="copy-unit-btn" title="복사"><i class="bi bi-copy"></i></button>
         <button class="delete-unit-btn" title="삭제"><i class="bi bi-trash"></i></button>
       </div>
-      <div class="resize-handle" title="크기 조절"></div>
+      <div class="resize-handle" title="크기 조절 (가로+세로)"></div>
+      <div class="resize-handle-h" title="가로 크기 조절"></div>
     </div>`;
 }
 
@@ -239,6 +289,72 @@ function setNotesEditing(editing) {
   document.getElementById("saveNotesBtn").classList.toggle("d-none", !editing);
   document.getElementById("cancelNotesBtn").classList.toggle("d-none", !editing);
   if (editing) document.getElementById("notesEdit").focus();
+}
+
+const UNIT_CLIPBOARD_KEY = "unitClipboard";
+
+async function copyUnit(unit) {
+  const parts = await fetchJson(`/api/units/${unit.id}/parts`);
+  const clipboard = {
+    name: unit.name,
+    icon: unit.icon,
+    color: unit.color,
+    width: unit.width,
+    height: unit.height,
+    parts: parts.map((p) => ({
+      name: p.name,
+      spec: p.spec,
+      cycle_days: p.cycle_days,
+      icon: p.icon,
+    })),
+  };
+  localStorage.setItem(UNIT_CLIPBOARD_KEY, JSON.stringify(clipboard));
+  updatePasteButton();
+  alert(`"${unit.name}" 유닛을 복사했습니다. (부품 ${parts.length}개 포함)\n"붙여넣기" 버튼으로 동일한 유닛을 만들 수 있습니다.`);
+}
+
+function getUnitClipboard() {
+  const raw = localStorage.getItem(UNIT_CLIPBOARD_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function updatePasteButton() {
+  const clipboard = getUnitClipboard();
+  const btn = document.getElementById("pasteUnitBtn");
+  btn.classList.toggle("d-none", !editMode || !clipboard);
+  if (clipboard) btn.title = `"${clipboard.name}" 붙여넣기 (부품 ${clipboard.parts.length}개 포함)`;
+}
+
+async function pasteUnit() {
+  const clipboard = getUnitClipboard();
+  if (!clipboard) {
+    alert("복사된 유닛이 없습니다. 먼저 유닛의 복사 아이콘을 눌러주세요.");
+    return;
+  }
+  const newUnit = await fetchJson(`/api/equipments/${EQUIPMENT_ID}/units`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: `${clipboard.name} 복사본`,
+      icon: clipboard.icon,
+      color: clipboard.color,
+      width: clipboard.width,
+      height: clipboard.height,
+    }),
+  });
+  for (const part of clipboard.parts) {
+    await fetchJson(`/api/units/${newUnit.id}/parts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(part),
+    });
+  }
+  loadUnits();
 }
 
 function openUnitEditModal(unit) {
@@ -290,10 +406,12 @@ document.addEventListener("DOMContentLoaded", () => {
     e.currentTarget.classList.toggle("btn-outline-light", !editMode);
     e.currentTarget.classList.toggle("btn-warning", editMode);
     document.getElementById("addUnitBtn").classList.toggle("d-none", !editMode);
+    updatePasteButton();
     loadUnits();
   });
 
   document.getElementById("addUnitBtn").addEventListener("click", () => openUnitEditModal(null));
+  document.getElementById("pasteUnitBtn").addEventListener("click", pasteUnit);
 
   document.getElementById("unitEditForm").addEventListener("submit", async (e) => {
     e.preventDefault();

@@ -823,8 +823,8 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   --pri: #4338ca;
   --pri-dark: #362f8c;
   --accent: #6366f1;
-  --bg-a: #eef0fb;
-  --bg-b: #f6f7fb;
+  --bg-a: #e5e7eb;
+  --bg-b: #f3f4f6;
   --surface: #ffffff;
   --border: #e5e7eb;
   --text: #1e2432;
@@ -932,10 +932,10 @@ body {
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
   background:
-    radial-gradient(circle, rgba(67, 56, 202, 0.07) 1px, transparent 1px),
-    linear-gradient(180deg, #fbfcff, #eef0f7);
+    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
+    linear-gradient(180deg, #fcfcfd, #e9eaed);
   background-size: 22px 22px, 100% 100%;
-  border: 1px solid #dfe3ee;
+  border: 1px solid #dcdee2;
   border-radius: var(--radius-lg);
   padding: 30px 22px 22px;
   box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
@@ -1134,7 +1134,35 @@ body {
   border-bottom: 2px solid rgba(67, 56, 202, 0.45);
 }
 
-.add-unit-btn { margin-top: 16px; display: block; margin-left: auto; margin-right: auto; }
+.resize-handle-h {
+  position: absolute;
+  right: -3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 30px;
+  display: none;
+  cursor: ew-resize;
+}
+.edit-mode .resize-handle-h { display: block; }
+.resize-handle-h::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+  background: rgba(67, 56, 202, 0.4);
+}
+
+.canvas-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
 
 /* ── 부품 목록/배지 ───────────────────────────────────────────── */
 .part-card {
@@ -1573,8 +1601,8 @@ EQUIPMENT_HTML = r"""<!DOCTYPE html>
   --pri: #4338ca;
   --pri-dark: #362f8c;
   --accent: #6366f1;
-  --bg-a: #eef0fb;
-  --bg-b: #f6f7fb;
+  --bg-a: #e5e7eb;
+  --bg-b: #f3f4f6;
   --surface: #ffffff;
   --border: #e5e7eb;
   --text: #1e2432;
@@ -1682,10 +1710,10 @@ body {
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
   background:
-    radial-gradient(circle, rgba(67, 56, 202, 0.07) 1px, transparent 1px),
-    linear-gradient(180deg, #fbfcff, #eef0f7);
+    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
+    linear-gradient(180deg, #fcfcfd, #e9eaed);
   background-size: 22px 22px, 100% 100%;
-  border: 1px solid #dfe3ee;
+  border: 1px solid #dcdee2;
   border-radius: var(--radius-lg);
   padding: 30px 22px 22px;
   box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
@@ -1884,7 +1912,35 @@ body {
   border-bottom: 2px solid rgba(67, 56, 202, 0.45);
 }
 
-.add-unit-btn { margin-top: 16px; display: block; margin-left: auto; margin-right: auto; }
+.resize-handle-h {
+  position: absolute;
+  right: -3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 30px;
+  display: none;
+  cursor: ew-resize;
+}
+.edit-mode .resize-handle-h { display: block; }
+.resize-handle-h::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+  background: rgba(67, 56, 202, 0.4);
+}
+
+.canvas-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
 
 /* ── 부품 목록/배지 ───────────────────────────────────────────── */
 .part-card {
@@ -2084,9 +2140,14 @@ body {
   <div id="equipment" class="equipment-frame">
     <div class="equipment-label" id="equipmentLabel">유닛을 클릭하면 상세 페이지로 이동 · 편집 모드에서 드래그로 배치/크기 변경</div>
     <div id="canvas" class="equipment-canvas"></div>
-    <button id="addUnitBtn" class="btn btn-sm btn-outline-primary add-unit-btn d-none">
-      <i class="bi bi-plus-lg"></i> 유닛 추가
-    </button>
+    <div class="canvas-actions">
+      <button id="addUnitBtn" class="btn btn-sm btn-outline-primary d-none">
+        <i class="bi bi-plus-lg"></i> 유닛 추가
+      </button>
+      <button id="pasteUnitBtn" class="btn btn-sm btn-outline-secondary d-none">
+        <i class="bi bi-clipboard-check"></i> 붙여넣기
+      </button>
+    </div>
   </div>
 
   <div class="notes-section">
@@ -2219,8 +2280,14 @@ function renderCanvas(units) {
       loadUnits();
     });
 
+    card.querySelector(".copy-unit-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      copyUnit(u);
+    });
+
     makeDraggable(card, u);
     makeResizable(card, u);
+    makeResizableHorizontal(card, u);
   });
 }
 
@@ -2260,10 +2327,50 @@ function makeResizable(card, unit) {
       card.classList.remove("dragging");
       const width = card.offsetWidth;
       const height = card.offsetHeight;
+      unit.width = width;
+      unit.height = height;
       await fetchJson(`/api/units/${unit.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ width, height }),
+      });
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+function makeResizableHorizontal(card, unit) {
+  const handle = card.querySelector(".resize-handle-h");
+  if (!handle) return;
+
+  handle.addEventListener("mousedown", (e) => {
+    if (!editMode) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX;
+    const startWidth = card.offsetWidth;
+
+    card.classList.add("dragging");
+
+    function onMove(ev) {
+      const dx = ev.clientX - startX;
+      const w = Math.min(Math.max(startWidth + dx, MIN_UNIT_WIDTH), MAX_UNIT_WIDTH);
+      card.style.width = `${w}px`;
+    }
+
+    async function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      card.classList.remove("dragging");
+      const width = card.offsetWidth;
+      unit.width = width;
+      await fetchJson(`/api/units/${unit.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ width }),
       });
     }
 
@@ -2305,6 +2412,8 @@ function makeDraggable(card, unit) {
       if (moved) {
         const pos_x = parseFloat(card.style.left);
         const pos_y = parseFloat(card.style.top);
+        unit.pos_x = pos_x;
+        unit.pos_y = pos_y;
         await fetchJson(`/api/units/${unit.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -2335,9 +2444,11 @@ function unitCardHtml(u) {
       <div class="unit-part-count">${u.part_count}개 부품 등록</div>
       <div class="unit-edit-actions">
         <button class="edit-unit-btn" title="편집"><i class="bi bi-pencil"></i></button>
+        <button class="copy-unit-btn" title="복사"><i class="bi bi-copy"></i></button>
         <button class="delete-unit-btn" title="삭제"><i class="bi bi-trash"></i></button>
       </div>
-      <div class="resize-handle" title="크기 조절"></div>
+      <div class="resize-handle" title="크기 조절 (가로+세로)"></div>
+      <div class="resize-handle-h" title="가로 크기 조절"></div>
     </div>`;
 }
 
@@ -2385,6 +2496,72 @@ function setNotesEditing(editing) {
   document.getElementById("saveNotesBtn").classList.toggle("d-none", !editing);
   document.getElementById("cancelNotesBtn").classList.toggle("d-none", !editing);
   if (editing) document.getElementById("notesEdit").focus();
+}
+
+const UNIT_CLIPBOARD_KEY = "unitClipboard";
+
+async function copyUnit(unit) {
+  const parts = await fetchJson(`/api/units/${unit.id}/parts`);
+  const clipboard = {
+    name: unit.name,
+    icon: unit.icon,
+    color: unit.color,
+    width: unit.width,
+    height: unit.height,
+    parts: parts.map((p) => ({
+      name: p.name,
+      spec: p.spec,
+      cycle_days: p.cycle_days,
+      icon: p.icon,
+    })),
+  };
+  localStorage.setItem(UNIT_CLIPBOARD_KEY, JSON.stringify(clipboard));
+  updatePasteButton();
+  alert(`"${unit.name}" 유닛을 복사했습니다. (부품 ${parts.length}개 포함)\n"붙여넣기" 버튼으로 동일한 유닛을 만들 수 있습니다.`);
+}
+
+function getUnitClipboard() {
+  const raw = localStorage.getItem(UNIT_CLIPBOARD_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function updatePasteButton() {
+  const clipboard = getUnitClipboard();
+  const btn = document.getElementById("pasteUnitBtn");
+  btn.classList.toggle("d-none", !editMode || !clipboard);
+  if (clipboard) btn.title = `"${clipboard.name}" 붙여넣기 (부품 ${clipboard.parts.length}개 포함)`;
+}
+
+async function pasteUnit() {
+  const clipboard = getUnitClipboard();
+  if (!clipboard) {
+    alert("복사된 유닛이 없습니다. 먼저 유닛의 복사 아이콘을 눌러주세요.");
+    return;
+  }
+  const newUnit = await fetchJson(`/api/equipments/${EQUIPMENT_ID}/units`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: `${clipboard.name} 복사본`,
+      icon: clipboard.icon,
+      color: clipboard.color,
+      width: clipboard.width,
+      height: clipboard.height,
+    }),
+  });
+  for (const part of clipboard.parts) {
+    await fetchJson(`/api/units/${newUnit.id}/parts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(part),
+    });
+  }
+  loadUnits();
 }
 
 function openUnitEditModal(unit) {
@@ -2436,10 +2613,12 @@ document.addEventListener("DOMContentLoaded", () => {
     e.currentTarget.classList.toggle("btn-outline-light", !editMode);
     e.currentTarget.classList.toggle("btn-warning", editMode);
     document.getElementById("addUnitBtn").classList.toggle("d-none", !editMode);
+    updatePasteButton();
     loadUnits();
   });
 
   document.getElementById("addUnitBtn").addEventListener("click", () => openUnitEditModal(null));
+  document.getElementById("pasteUnitBtn").addEventListener("click", pasteUnit);
 
   document.getElementById("unitEditForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -2489,8 +2668,8 @@ UNIT_HTML = r"""<!DOCTYPE html>
   --pri: #4338ca;
   --pri-dark: #362f8c;
   --accent: #6366f1;
-  --bg-a: #eef0fb;
-  --bg-b: #f6f7fb;
+  --bg-a: #e5e7eb;
+  --bg-b: #f3f4f6;
   --surface: #ffffff;
   --border: #e5e7eb;
   --text: #1e2432;
@@ -2598,10 +2777,10 @@ body {
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
   background:
-    radial-gradient(circle, rgba(67, 56, 202, 0.07) 1px, transparent 1px),
-    linear-gradient(180deg, #fbfcff, #eef0f7);
+    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
+    linear-gradient(180deg, #fcfcfd, #e9eaed);
   background-size: 22px 22px, 100% 100%;
-  border: 1px solid #dfe3ee;
+  border: 1px solid #dcdee2;
   border-radius: var(--radius-lg);
   padding: 30px 22px 22px;
   box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
@@ -2800,7 +2979,35 @@ body {
   border-bottom: 2px solid rgba(67, 56, 202, 0.45);
 }
 
-.add-unit-btn { margin-top: 16px; display: block; margin-left: auto; margin-right: auto; }
+.resize-handle-h {
+  position: absolute;
+  right: -3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 30px;
+  display: none;
+  cursor: ew-resize;
+}
+.edit-mode .resize-handle-h { display: block; }
+.resize-handle-h::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+  background: rgba(67, 56, 202, 0.4);
+}
+
+.canvas-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
 
 /* ── 부품 목록/배지 ───────────────────────────────────────────── */
 .part-card {
@@ -3003,9 +3210,11 @@ body {
       <span class="unit-shape-name" id="unitName">유닛</span>
     </div>
     <div id="partsCanvas" class="equipment-canvas"></div>
-    <button id="addPartBtn" class="btn btn-sm btn-outline-primary add-unit-btn d-none">
-      <i class="bi bi-plus-lg"></i> 부품 추가
-    </button>
+    <div class="canvas-actions">
+      <button id="addPartBtn" class="btn btn-sm btn-outline-primary d-none">
+        <i class="bi bi-plus-lg"></i> 부품 추가
+      </button>
+    </div>
   </div>
 
 </main>
@@ -3215,6 +3424,7 @@ function renderPartsCanvas(parts) {
 
     makeDraggable(card, p);
     makeResizable(card, p);
+    makeResizableHorizontal(card, p);
   });
 }
 
@@ -3254,10 +3464,50 @@ function makeResizable(card, part) {
       card.classList.remove("dragging");
       const width = card.offsetWidth;
       const height = card.offsetHeight;
+      part.width = width;
+      part.height = height;
       await fetchJson(`/api/parts/${part.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ width, height }),
+      });
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+function makeResizableHorizontal(card, part) {
+  const handle = card.querySelector(".resize-handle-h");
+  if (!handle) return;
+
+  handle.addEventListener("mousedown", (e) => {
+    if (!editMode) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX;
+    const startWidth = card.offsetWidth;
+
+    card.classList.add("dragging");
+
+    function onMove(ev) {
+      const dx = ev.clientX - startX;
+      const w = Math.min(Math.max(startWidth + dx, MIN_SIZE_W), MAX_SIZE_W);
+      card.style.width = `${w}px`;
+    }
+
+    async function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      card.classList.remove("dragging");
+      const width = card.offsetWidth;
+      part.width = width;
+      await fetchJson(`/api/parts/${part.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ width }),
       });
     }
 
@@ -3299,6 +3549,8 @@ function makeDraggable(card, part) {
       if (moved) {
         const pos_x = parseFloat(card.style.left);
         const pos_y = parseFloat(card.style.top);
+        part.pos_x = pos_x;
+        part.pos_y = pos_y;
         await fetchJson(`/api/parts/${part.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -3332,7 +3584,8 @@ function partShapeHtml(p) {
         <button class="edit-unit-btn" title="편집"><i class="bi bi-pencil"></i></button>
         <button class="delete-unit-btn" title="삭제"><i class="bi bi-trash"></i></button>
       </div>
-      <div class="resize-handle" title="크기 조절"></div>
+      <div class="resize-handle" title="크기 조절 (가로+세로)"></div>
+      <div class="resize-handle-h" title="가로 크기 조절"></div>
     </div>`;
 }
 
@@ -3506,8 +3759,8 @@ CONFIG_HTML = r"""<!DOCTYPE html>
   --pri: #4338ca;
   --pri-dark: #362f8c;
   --accent: #6366f1;
-  --bg-a: #eef0fb;
-  --bg-b: #f6f7fb;
+  --bg-a: #e5e7eb;
+  --bg-b: #f3f4f6;
   --surface: #ffffff;
   --border: #e5e7eb;
   --text: #1e2432;
@@ -3615,10 +3868,10 @@ body {
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
   background:
-    radial-gradient(circle, rgba(67, 56, 202, 0.07) 1px, transparent 1px),
-    linear-gradient(180deg, #fbfcff, #eef0f7);
+    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
+    linear-gradient(180deg, #fcfcfd, #e9eaed);
   background-size: 22px 22px, 100% 100%;
-  border: 1px solid #dfe3ee;
+  border: 1px solid #dcdee2;
   border-radius: var(--radius-lg);
   padding: 30px 22px 22px;
   box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
@@ -3817,7 +4070,35 @@ body {
   border-bottom: 2px solid rgba(67, 56, 202, 0.45);
 }
 
-.add-unit-btn { margin-top: 16px; display: block; margin-left: auto; margin-right: auto; }
+.resize-handle-h {
+  position: absolute;
+  right: -3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 30px;
+  display: none;
+  cursor: ew-resize;
+}
+.edit-mode .resize-handle-h { display: block; }
+.resize-handle-h::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+  background: rgba(67, 56, 202, 0.4);
+}
+
+.canvas-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
 
 /* ── 부품 목록/배지 ───────────────────────────────────────────── */
 .part-card {
@@ -4015,9 +4296,14 @@ body {
   <div id="templateFrame" class="equipment-frame">
     <div class="equipment-label">유닛을 드래그로 배치 · 모서리로 크기 조절 · 클릭해서 이름/아이콘/색상 편집</div>
     <div id="canvas" class="equipment-canvas"></div>
-    <button id="addUnitBtn" class="btn btn-sm btn-outline-primary add-unit-btn">
-      <i class="bi bi-plus-lg"></i> 유닛 추가
-    </button>
+    <div class="canvas-actions">
+      <button id="addUnitBtn" class="btn btn-sm btn-outline-primary">
+        <i class="bi bi-plus-lg"></i> 유닛 추가
+      </button>
+      <button id="pasteUnitBtn" class="btn btn-sm btn-outline-secondary d-none">
+        <i class="bi bi-clipboard-check"></i> 붙여넣기
+      </button>
+    </div>
   </div>
 
 </main>
@@ -4125,9 +4411,14 @@ function renderCanvas(templates) {
       await fetchJson(`/api/unit-templates/${t.id}`, { method: "DELETE" });
       loadTemplates();
     });
+    card.querySelector(".copy-unit-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      copyUnit(t);
+    });
 
     makeDraggable(card, t);
     makeResizable(card, t);
+    makeResizableHorizontal(card, t);
   });
 }
 
@@ -4166,10 +4457,49 @@ function makeResizable(card, template) {
       card.classList.remove("dragging");
       const width = card.offsetWidth;
       const height = card.offsetHeight;
+      template.width = width;
+      template.height = height;
       await fetchJson(`/api/unit-templates/${template.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ width, height }),
+      });
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+function makeResizableHorizontal(card, template) {
+  const handle = card.querySelector(".resize-handle-h");
+  if (!handle) return;
+
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX;
+    const startWidth = card.offsetWidth;
+
+    card.classList.add("dragging");
+
+    function onMove(ev) {
+      const dx = ev.clientX - startX;
+      const w = Math.min(Math.max(startWidth + dx, MIN_UNIT_WIDTH), MAX_UNIT_WIDTH);
+      card.style.width = `${w}px`;
+    }
+
+    async function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      card.classList.remove("dragging");
+      const width = card.offsetWidth;
+      template.width = width;
+      await fetchJson(`/api/unit-templates/${template.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ width }),
       });
     }
 
@@ -4210,6 +4540,8 @@ function makeDraggable(card, template) {
       if (moved) {
         const pos_x = parseFloat(card.style.left);
         const pos_y = parseFloat(card.style.top);
+        template.pos_x = pos_x;
+        template.pos_y = pos_y;
         await fetchJson(`/api/unit-templates/${template.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -4232,10 +4564,65 @@ function templateCardHtml(t) {
       <div class="unit-name">${escapeHtml(t.name)}</div>
       <div class="unit-edit-actions">
         <button class="edit-unit-btn" title="편집"><i class="bi bi-pencil"></i></button>
+        <button class="copy-unit-btn" title="복사"><i class="bi bi-copy"></i></button>
         <button class="delete-unit-btn" title="삭제"><i class="bi bi-trash"></i></button>
       </div>
-      <div class="resize-handle" title="크기 조절"></div>
+      <div class="resize-handle" title="크기 조절 (가로+세로)"></div>
+      <div class="resize-handle-h" title="가로 크기 조절"></div>
     </div>`;
+}
+
+const UNIT_CLIPBOARD_KEY = "unitClipboard";
+
+function copyUnit(template) {
+  const clipboard = {
+    name: template.name,
+    icon: template.icon,
+    color: template.color,
+    width: template.width,
+    height: template.height,
+    parts: [],
+  };
+  localStorage.setItem(UNIT_CLIPBOARD_KEY, JSON.stringify(clipboard));
+  updatePasteButton();
+  alert(`"${template.name}" 유닛을 복사했습니다.\n"붙여넣기" 버튼으로 동일한 유닛을 만들 수 있습니다.`);
+}
+
+function getUnitClipboard() {
+  const raw = localStorage.getItem(UNIT_CLIPBOARD_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function updatePasteButton() {
+  const clipboard = getUnitClipboard();
+  const btn = document.getElementById("pasteUnitBtn");
+  btn.classList.toggle("d-none", !clipboard);
+  if (clipboard) btn.title = `"${clipboard.name}" 붙여넣기`;
+}
+
+async function pasteUnit() {
+  const clipboard = getUnitClipboard();
+  if (!clipboard) {
+    alert("복사된 유닛이 없습니다. 먼저 유닛의 복사 아이콘을 눌러주세요.");
+    return;
+  }
+  await fetchJson("/api/unit-templates", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: `${clipboard.name} 복사본`,
+      icon: clipboard.icon,
+      color: clipboard.color,
+      width: clipboard.width,
+      height: clipboard.height,
+    }),
+  });
+  loadTemplates();
 }
 
 function openUnitEditModal(template) {
@@ -4255,8 +4642,10 @@ document.addEventListener("DOMContentLoaded", () => {
   tick();
   setInterval(tick, 1000);
   loadTemplates();
+  updatePasteButton();
 
   document.getElementById("addUnitBtn").addEventListener("click", () => openUnitEditModal(null));
+  document.getElementById("pasteUnitBtn").addEventListener("click", pasteUnit);
 
   document.getElementById("applyBtn").addEventListener("click", async () => {
     const ok = confirm(
@@ -4322,8 +4711,8 @@ ALERTS_HTML = r"""<!DOCTYPE html>
   --pri: #4338ca;
   --pri-dark: #362f8c;
   --accent: #6366f1;
-  --bg-a: #eef0fb;
-  --bg-b: #f6f7fb;
+  --bg-a: #e5e7eb;
+  --bg-b: #f3f4f6;
   --surface: #ffffff;
   --border: #e5e7eb;
   --text: #1e2432;
@@ -4431,10 +4820,10 @@ body {
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
   background:
-    radial-gradient(circle, rgba(67, 56, 202, 0.07) 1px, transparent 1px),
-    linear-gradient(180deg, #fbfcff, #eef0f7);
+    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
+    linear-gradient(180deg, #fcfcfd, #e9eaed);
   background-size: 22px 22px, 100% 100%;
-  border: 1px solid #dfe3ee;
+  border: 1px solid #dcdee2;
   border-radius: var(--radius-lg);
   padding: 30px 22px 22px;
   box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
@@ -4633,7 +5022,35 @@ body {
   border-bottom: 2px solid rgba(67, 56, 202, 0.45);
 }
 
-.add-unit-btn { margin-top: 16px; display: block; margin-left: auto; margin-right: auto; }
+.resize-handle-h {
+  position: absolute;
+  right: -3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 30px;
+  display: none;
+  cursor: ew-resize;
+}
+.edit-mode .resize-handle-h { display: block; }
+.resize-handle-h::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+  background: rgba(67, 56, 202, 0.4);
+}
+
+.canvas-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
 
 /* ── 부품 목록/배지 ───────────────────────────────────────────── */
 .part-card {

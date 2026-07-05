@@ -66,9 +66,14 @@ function renderCanvas(templates) {
       await fetchJson(`/api/unit-templates/${t.id}`, { method: "DELETE" });
       loadTemplates();
     });
+    card.querySelector(".copy-unit-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      copyUnit(t);
+    });
 
     makeDraggable(card, t);
     makeResizable(card, t);
+    makeResizableHorizontal(card, t);
   });
 }
 
@@ -107,10 +112,49 @@ function makeResizable(card, template) {
       card.classList.remove("dragging");
       const width = card.offsetWidth;
       const height = card.offsetHeight;
+      template.width = width;
+      template.height = height;
       await fetchJson(`/api/unit-templates/${template.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ width, height }),
+      });
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+function makeResizableHorizontal(card, template) {
+  const handle = card.querySelector(".resize-handle-h");
+  if (!handle) return;
+
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX;
+    const startWidth = card.offsetWidth;
+
+    card.classList.add("dragging");
+
+    function onMove(ev) {
+      const dx = ev.clientX - startX;
+      const w = Math.min(Math.max(startWidth + dx, MIN_UNIT_WIDTH), MAX_UNIT_WIDTH);
+      card.style.width = `${w}px`;
+    }
+
+    async function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      card.classList.remove("dragging");
+      const width = card.offsetWidth;
+      template.width = width;
+      await fetchJson(`/api/unit-templates/${template.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ width }),
       });
     }
 
@@ -151,6 +195,8 @@ function makeDraggable(card, template) {
       if (moved) {
         const pos_x = parseFloat(card.style.left);
         const pos_y = parseFloat(card.style.top);
+        template.pos_x = pos_x;
+        template.pos_y = pos_y;
         await fetchJson(`/api/unit-templates/${template.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -173,10 +219,65 @@ function templateCardHtml(t) {
       <div class="unit-name">${escapeHtml(t.name)}</div>
       <div class="unit-edit-actions">
         <button class="edit-unit-btn" title="편집"><i class="bi bi-pencil"></i></button>
+        <button class="copy-unit-btn" title="복사"><i class="bi bi-copy"></i></button>
         <button class="delete-unit-btn" title="삭제"><i class="bi bi-trash"></i></button>
       </div>
-      <div class="resize-handle" title="크기 조절"></div>
+      <div class="resize-handle" title="크기 조절 (가로+세로)"></div>
+      <div class="resize-handle-h" title="가로 크기 조절"></div>
     </div>`;
+}
+
+const UNIT_CLIPBOARD_KEY = "unitClipboard";
+
+function copyUnit(template) {
+  const clipboard = {
+    name: template.name,
+    icon: template.icon,
+    color: template.color,
+    width: template.width,
+    height: template.height,
+    parts: [],
+  };
+  localStorage.setItem(UNIT_CLIPBOARD_KEY, JSON.stringify(clipboard));
+  updatePasteButton();
+  alert(`"${template.name}" 유닛을 복사했습니다.\n"붙여넣기" 버튼으로 동일한 유닛을 만들 수 있습니다.`);
+}
+
+function getUnitClipboard() {
+  const raw = localStorage.getItem(UNIT_CLIPBOARD_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function updatePasteButton() {
+  const clipboard = getUnitClipboard();
+  const btn = document.getElementById("pasteUnitBtn");
+  btn.classList.toggle("d-none", !clipboard);
+  if (clipboard) btn.title = `"${clipboard.name}" 붙여넣기`;
+}
+
+async function pasteUnit() {
+  const clipboard = getUnitClipboard();
+  if (!clipboard) {
+    alert("복사된 유닛이 없습니다. 먼저 유닛의 복사 아이콘을 눌러주세요.");
+    return;
+  }
+  await fetchJson("/api/unit-templates", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: `${clipboard.name} 복사본`,
+      icon: clipboard.icon,
+      color: clipboard.color,
+      width: clipboard.width,
+      height: clipboard.height,
+    }),
+  });
+  loadTemplates();
 }
 
 function openUnitEditModal(template) {
@@ -196,8 +297,10 @@ document.addEventListener("DOMContentLoaded", () => {
   tick();
   setInterval(tick, 1000);
   loadTemplates();
+  updatePasteButton();
 
   document.getElementById("addUnitBtn").addEventListener("click", () => openUnitEditModal(null));
+  document.getElementById("pasteUnitBtn").addEventListener("click", pasteUnit);
 
   document.getElementById("applyBtn").addEventListener("click", async () => {
     const ok = confirm(

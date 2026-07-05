@@ -2,8 +2,8 @@
   --pri: #4338ca;
   --pri-dark: #362f8c;
   --accent: #6366f1;
-  --bg-a: #eef0fb;
-  --bg-b: #f6f7fb;
+  --bg-a: #e5e7eb;
+  --bg-b: #f3f4f6;
   --surface: #ffffff;
   --border: #e5e7eb;
   --text: #1e2432;
@@ -111,10 +111,10 @@ body {
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
   background:
-    radial-gradient(circle, rgba(67, 56, 202, 0.07) 1px, transparent 1px),
-    linear-gradient(180deg, #fbfcff, #eef0f7);
+    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
+    linear-gradient(180deg, #fcfcfd, #e9eaed);
   background-size: 22px 22px, 100% 100%;
-  border: 1px solid #dfe3ee;
+  border: 1px solid #dcdee2;
   border-radius: var(--radius-lg);
   padding: 30px 22px 22px;
   box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
@@ -313,7 +313,35 @@ body {
   border-bottom: 2px solid rgba(67, 56, 202, 0.45);
 }
 
-.add-unit-btn { margin-top: 16px; display: block; margin-left: auto; margin-right: auto; }
+.resize-handle-h {
+  position: absolute;
+  right: -3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 30px;
+  display: none;
+  cursor: ew-resize;
+}
+.edit-mode .resize-handle-h { display: block; }
+.resize-handle-h::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+  background: rgba(67, 56, 202, 0.4);
+}
+
+.canvas-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
 
 /* ── 부품 목록/배지 ───────────────────────────────────────────── */
 .part-card {
