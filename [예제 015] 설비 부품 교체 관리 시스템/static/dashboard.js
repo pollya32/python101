@@ -1,5 +1,6 @@
 let editMode = false;
 let equipmentEditModal;
+let allEquipments = [];
 
 const ICON_CHOICES = [
   "🏭", "⚙️", "🔧", "🔩", "🛠️", "🪛", "🔨", "📦",
@@ -43,8 +44,28 @@ function escapeHtml(s) {
 }
 
 async function loadEquipments() {
-  const equipments = await fetchJson("/api/equipments");
-  renderGrid(equipments);
+  allEquipments = await fetchJson("/api/equipments");
+  updateAlertsNavBadge();
+  applyFilterSort();
+}
+
+function updateAlertsNavBadge() {
+  const total = allEquipments.reduce((sum, eq) => sum + eq.overdue_count, 0);
+  const badge = document.getElementById("alertsNavBadge");
+  badge.innerHTML = total > 0 ? `<span class="nav-badge">${total}</span>` : "";
+}
+
+function applyFilterSort() {
+  const q = document.getElementById("equipmentSearch").value.trim().toLowerCase();
+  const sortBy = document.getElementById("equipmentSort").value;
+  let list = allEquipments.filter((eq) => eq.name.toLowerCase().includes(q));
+  if (sortBy === "overdue") {
+    list = [...list].sort((a, b) => b.overdue_count - a.overdue_count || a.id - b.id);
+  } else {
+    list = [...list].sort((a, b) => a.id - b.id);
+  }
+  document.getElementById("noResultsMsg").classList.toggle("d-none", list.length > 0);
+  renderGrid(list);
 }
 
 function renderGrid(equipments) {
@@ -112,6 +133,9 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("addEquipmentBtn").addEventListener("click", () => openEquipmentEditModal(null));
+
+  document.getElementById("equipmentSearch").addEventListener("input", applyFilterSort);
+  document.getElementById("equipmentSort").addEventListener("change", applyFilterSort);
 
   document.getElementById("equipmentEditForm").addEventListener("submit", async (e) => {
     e.preventDefault();

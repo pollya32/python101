@@ -17,8 +17,14 @@
   </div>
   <div class="d-flex align-items-center gap-2">
     <span id="clock" class="clock"></span>
+    <a href="/alerts" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-exclamation-triangle"></i> 전체 현황<span id="alertsNavBadge"></span>
+    </a>
     <a href="/config" class="btn btn-sm btn-outline-light">
       <i class="bi bi-diagram-3"></i> 기본 유닛 구성
+    </a>
+    <a href="/api/backup" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-download"></i> DB 백업
     </a>
     <button id="addEquipmentBtn" class="btn btn-sm btn-outline-light">
       <i class="bi bi-plus-lg"></i> 설비 추가
@@ -38,7 +44,19 @@
     <span class="legend-item"><span class="dot dot-unknown"></span> 미기록 / 부품 없음</span>
   </div>
 
+  <div class="dashboard-toolbar">
+    <div class="search-box">
+      <i class="bi bi-search"></i>
+      <input type="text" id="equipmentSearch" class="form-control form-control-sm" placeholder="설비 이름 검색">
+    </div>
+    <select id="equipmentSort" class="form-select form-select-sm w-auto">
+      <option value="name">이름순</option>
+      <option value="overdue">교체 필요 많은 순</option>
+    </select>
+  </div>
+
   <div id="equipmentGrid" class="equipment-grid"></div>
+  <p id="noResultsMsg" class="text-muted text-center py-4 d-none">검색 결과가 없습니다.</p>
 
 </main>
 

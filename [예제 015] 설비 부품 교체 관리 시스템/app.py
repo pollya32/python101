@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_file
 import sqlite3
 import os
 import random
@@ -304,9 +304,36 @@ def seed_default_units_for_equipment(conn, equipment_id):
         )
 
 
+def get_alert_parts():
+    """모든 설비를 통틀어 교체 필요/임박 상태인 부품 목록 (경과가 급한 순)"""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT p.*, u.id AS unit_id, u.name AS unit_name,
+               e.id AS equipment_id, e.name AS equipment_name, e.icon AS equipment_icon
+        FROM parts p
+        JOIN units u ON p.unit_id = u.id
+        JOIN equipments e ON u.equipment_id = e.id
+    """).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        info = part_status(r["cycle_days"], r["last_replaced_date"])
+        if info["status"] in ("overdue", "soon"):
+            d = dict(r)
+            d.update(info)
+            result.append(d)
+    result.sort(key=lambda x: x["days_left"])
+    return result
+
+
 @app.route("/")
 def dashboard():
     return render_template("dashboard.html")
+
+
+@app.route("/alerts")
+def alerts_page():
+    return render_template("alerts.html")
 
 
 @app.route("/equipment/<int:equipment_id>")
@@ -750,6 +777,21 @@ def apply_unit_templates():
     conn.commit()
     conn.close()
     return jsonify({"ok": True, "equipment_count": len(equipments), "unit_count": len(templates)})
+
+
+@app.route("/api/alerts")
+def api_alerts():
+    return jsonify(get_alert_parts())
+
+
+@app.route("/api/backup")
+def download_backup():
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return send_file(
+        DB_PATH,
+        as_attachment=True,
+        download_name=f"equipment_backup_{timestamp}.db",
+    )
 
 
 if __name__ == "__main__":

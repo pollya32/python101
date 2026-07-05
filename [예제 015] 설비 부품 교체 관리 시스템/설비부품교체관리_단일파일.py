@@ -14,7 +14,7 @@ import os
 import random
 import socket
 from datetime import date, datetime, timedelta
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 
 app = Flask(__name__)
 
@@ -320,9 +320,36 @@ def seed_default_units_for_equipment(conn, equipment_id):
         )
 
 
+def get_alert_parts():
+    """모든 설비를 통틀어 교체 필요/임박 상태인 부품 목록 (경과가 급한 순)"""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT p.*, u.id AS unit_id, u.name AS unit_name,
+               e.id AS equipment_id, e.name AS equipment_name, e.icon AS equipment_icon
+        FROM parts p
+        JOIN units u ON p.unit_id = u.id
+        JOIN equipments e ON u.equipment_id = e.id
+    """).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        info = part_status(r["cycle_days"], r["last_replaced_date"])
+        if info["status"] in ("overdue", "soon"):
+            d = dict(r)
+            d.update(info)
+            result.append(d)
+    result.sort(key=lambda x: x["days_left"])
+    return result
+
+
 @app.route("/")
 def dashboard():
     return DASHBOARD_HTML
+
+
+@app.route("/alerts")
+def alerts_page():
+    return ALERTS_HTML
 
 
 @app.route("/equipment/<int:equipment_id>")
@@ -768,6 +795,21 @@ def apply_unit_templates():
     return jsonify({"ok": True, "equipment_count": len(equipments), "unit_count": len(templates)})
 
 
+@app.route("/api/alerts")
+def api_alerts():
+    return jsonify(get_alert_parts())
+
+
+@app.route("/api/backup")
+def download_backup():
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return send_file(
+        DB_PATH,
+        as_attachment=True,
+        download_name=f"equipment_backup_{timestamp}.db",
+    )
+
+
 DASHBOARD_HTML = r"""<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -1182,6 +1224,86 @@ body {
   background: color-mix(in srgb, var(--pri) 12%, white);
   box-shadow: 0 0 0 2px rgba(67, 56, 202, 0.18);
 }
+
+/* ── 대시보드 검색/정렬 툴바 ──────────────────────────────────── */
+.dashboard-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1100px;
+  margin: 0 auto 16px;
+}
+.dashboard-toolbar .search-box {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
+}
+.dashboard-toolbar .search-box i {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.dashboard-toolbar .search-box input {
+  padding-left: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.dashboard-toolbar select {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 13px;
+  padding: 6px 14px;
+}
+.nav-badge {
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  margin-left: 2px;
+}
+
+/* ── 전체 교체 현황 목록 ──────────────────────────────────────── */
+.alerts-list {
+  max-width: 900px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.alert-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.alert-row:last-child { border-bottom: none; }
+.alert-row:hover { background: #f8f9fd; }
+.alert-badge { flex-shrink: 0; min-width: 66px; text-align: center; }
+.alert-main { flex: 1; min-width: 0; }
+.alert-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.alert-sep { color: var(--text-muted); margin: 0 2px; }
+.alert-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.alert-chevron { color: var(--text-muted); flex-shrink: 0; }
 </style>
 </head>
 <body>
@@ -1193,8 +1315,14 @@ body {
   </div>
   <div class="d-flex align-items-center gap-2">
     <span id="clock" class="clock"></span>
+    <a href="/alerts" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-exclamation-triangle"></i> 전체 현황<span id="alertsNavBadge"></span>
+    </a>
     <a href="/config" class="btn btn-sm btn-outline-light">
       <i class="bi bi-diagram-3"></i> 기본 유닛 구성
+    </a>
+    <a href="/api/backup" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-download"></i> DB 백업
     </a>
     <button id="addEquipmentBtn" class="btn btn-sm btn-outline-light">
       <i class="bi bi-plus-lg"></i> 설비 추가
@@ -1214,7 +1342,19 @@ body {
     <span class="legend-item"><span class="dot dot-unknown"></span> 미기록 / 부품 없음</span>
   </div>
 
+  <div class="dashboard-toolbar">
+    <div class="search-box">
+      <i class="bi bi-search"></i>
+      <input type="text" id="equipmentSearch" class="form-control form-control-sm" placeholder="설비 이름 검색">
+    </div>
+    <select id="equipmentSort" class="form-select form-select-sm w-auto">
+      <option value="name">이름순</option>
+      <option value="overdue">교체 필요 많은 순</option>
+    </select>
+  </div>
+
   <div id="equipmentGrid" class="equipment-grid"></div>
+  <p id="noResultsMsg" class="text-muted text-center py-4 d-none">검색 결과가 없습니다.</p>
 
 </main>
 
@@ -1249,6 +1389,7 @@ body {
 <script>
 let editMode = false;
 let equipmentEditModal;
+let allEquipments = [];
 
 const ICON_CHOICES = [
   "🏭", "⚙️", "🔧", "🔩", "🛠️", "🪛", "🔨", "📦",
@@ -1292,8 +1433,28 @@ function escapeHtml(s) {
 }
 
 async function loadEquipments() {
-  const equipments = await fetchJson("/api/equipments");
-  renderGrid(equipments);
+  allEquipments = await fetchJson("/api/equipments");
+  updateAlertsNavBadge();
+  applyFilterSort();
+}
+
+function updateAlertsNavBadge() {
+  const total = allEquipments.reduce((sum, eq) => sum + eq.overdue_count, 0);
+  const badge = document.getElementById("alertsNavBadge");
+  badge.innerHTML = total > 0 ? `<span class="nav-badge">${total}</span>` : "";
+}
+
+function applyFilterSort() {
+  const q = document.getElementById("equipmentSearch").value.trim().toLowerCase();
+  const sortBy = document.getElementById("equipmentSort").value;
+  let list = allEquipments.filter((eq) => eq.name.toLowerCase().includes(q));
+  if (sortBy === "overdue") {
+    list = [...list].sort((a, b) => b.overdue_count - a.overdue_count || a.id - b.id);
+  } else {
+    list = [...list].sort((a, b) => a.id - b.id);
+  }
+  document.getElementById("noResultsMsg").classList.toggle("d-none", list.length > 0);
+  renderGrid(list);
 }
 
 function renderGrid(equipments) {
@@ -1361,6 +1522,9 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("addEquipmentBtn").addEventListener("click", () => openEquipmentEditModal(null));
+
+  document.getElementById("equipmentSearch").addEventListener("input", applyFilterSort);
+  document.getElementById("equipmentSort").addEventListener("change", applyFilterSort);
 
   document.getElementById("equipmentEditForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1810,6 +1974,86 @@ body {
   background: color-mix(in srgb, var(--pri) 12%, white);
   box-shadow: 0 0 0 2px rgba(67, 56, 202, 0.18);
 }
+
+/* ── 대시보드 검색/정렬 툴바 ──────────────────────────────────── */
+.dashboard-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1100px;
+  margin: 0 auto 16px;
+}
+.dashboard-toolbar .search-box {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
+}
+.dashboard-toolbar .search-box i {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.dashboard-toolbar .search-box input {
+  padding-left: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.dashboard-toolbar select {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 13px;
+  padding: 6px 14px;
+}
+.nav-badge {
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  margin-left: 2px;
+}
+
+/* ── 전체 교체 현황 목록 ──────────────────────────────────────── */
+.alerts-list {
+  max-width: 900px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.alert-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.alert-row:last-child { border-bottom: none; }
+.alert-row:hover { background: #f8f9fd; }
+.alert-badge { flex-shrink: 0; min-width: 66px; text-align: center; }
+.alert-main { flex: 1; min-width: 0; }
+.alert-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.alert-sep { color: var(--text-muted); margin: 0 2px; }
+.alert-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.alert-chevron { color: var(--text-muted); flex-shrink: 0; }
 </style>
 </head>
 <body>
@@ -2646,6 +2890,86 @@ body {
   background: color-mix(in srgb, var(--pri) 12%, white);
   box-shadow: 0 0 0 2px rgba(67, 56, 202, 0.18);
 }
+
+/* ── 대시보드 검색/정렬 툴바 ──────────────────────────────────── */
+.dashboard-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1100px;
+  margin: 0 auto 16px;
+}
+.dashboard-toolbar .search-box {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
+}
+.dashboard-toolbar .search-box i {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.dashboard-toolbar .search-box input {
+  padding-left: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.dashboard-toolbar select {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 13px;
+  padding: 6px 14px;
+}
+.nav-badge {
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  margin-left: 2px;
+}
+
+/* ── 전체 교체 현황 목록 ──────────────────────────────────────── */
+.alerts-list {
+  max-width: 900px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.alert-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.alert-row:last-child { border-bottom: none; }
+.alert-row:hover { background: #f8f9fd; }
+.alert-badge { flex-shrink: 0; min-width: 66px; text-align: center; }
+.alert-main { flex: 1; min-width: 0; }
+.alert-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.alert-sep { color: var(--text-muted); margin: 0 2px; }
+.alert-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.alert-chevron { color: var(--text-muted); flex-shrink: 0; }
 </style>
 </head>
 <body>
@@ -3583,6 +3907,86 @@ body {
   background: color-mix(in srgb, var(--pri) 12%, white);
   box-shadow: 0 0 0 2px rgba(67, 56, 202, 0.18);
 }
+
+/* ── 대시보드 검색/정렬 툴바 ──────────────────────────────────── */
+.dashboard-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1100px;
+  margin: 0 auto 16px;
+}
+.dashboard-toolbar .search-box {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
+}
+.dashboard-toolbar .search-box i {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.dashboard-toolbar .search-box input {
+  padding-left: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.dashboard-toolbar select {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 13px;
+  padding: 6px 14px;
+}
+.nav-badge {
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  margin-left: 2px;
+}
+
+/* ── 전체 교체 현황 목록 ──────────────────────────────────────── */
+.alerts-list {
+  max-width: 900px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.alert-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.alert-row:last-child { border-bottom: none; }
+.alert-row:hover { background: #f8f9fd; }
+.alert-badge { flex-shrink: 0; min-width: 66px; text-align: center; }
+.alert-main { flex: 1; min-width: 0; }
+.alert-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.alert-sep { color: var(--text-muted); margin: 0 2px; }
+.alert-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.alert-chevron { color: var(--text-muted); flex-shrink: 0; }
 </style>
 </head>
 <body>
@@ -3898,6 +4302,592 @@ document.addEventListener("DOMContentLoaded", () => {
       alert(err.message);
     }
   });
+});
+</script>
+</body>
+</html>
+"""
+
+
+ALERTS_HTML = r"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>전체 교체 현황 - 설비 부품 교체 관리 시스템</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<style>
+:root {
+  --pri: #4338ca;
+  --pri-dark: #362f8c;
+  --accent: #6366f1;
+  --bg-a: #eef0fb;
+  --bg-b: #f6f7fb;
+  --surface: #ffffff;
+  --border: #e5e7eb;
+  --text: #1e2432;
+  --text-muted: #6b7280;
+  --radius-lg: 18px;
+  --radius-md: 14px;
+  --radius-sm: 10px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
+  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+    "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  color: var(--text);
+}
+
+/* ── 버튼 공통 리스킨 ─────────────────────────────────────────── */
+.btn {
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: all 0.15s ease;
+}
+.btn-primary {
+  background: var(--pri);
+  border-color: var(--pri);
+  box-shadow: 0 2px 8px rgba(67, 56, 202, 0.35);
+}
+.btn-primary:hover {
+  background: var(--pri-dark);
+  border-color: var(--pri-dark);
+  box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
+}
+.btn-outline-light {
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.btn-outline-light:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #fff;
+}
+.btn-warning {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+}
+.btn-warning:hover { background: #d97706; border-color: #d97706; color: #fff; }
+.btn-outline-secondary { border-color: var(--border); color: var(--text-muted); }
+.btn-outline-secondary:hover { background: #f3f4f6; color: var(--text); }
+.btn-outline-primary { color: var(--pri); border-color: var(--pri); }
+.btn-outline-primary:hover { background: var(--pri); border-color: var(--pri); }
+.btn-outline-danger:hover { box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25); }
+
+.form-control:focus, .form-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 0.2rem rgba(99, 102, 241, 0.2);
+}
+
+/* ── 상단바 ───────────────────────────────────────────────────── */
+.topbar {
+  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
+  color: #fff;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 90;
+  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
+}
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.topbar i.bi { font-size: 18px; opacity: 0.9; }
+.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+
+/* ── 범례 ─────────────────────────────────────────────────────── */
+.legend {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  font-size: 13px;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 9px 20px;
+  box-shadow: var(--shadow-sm);
+}
+.legend-item { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-shadow: 0 0 0 3px currentColor; opacity: 0.9; }
+.dot-ok { background: #22c55e; color: rgba(34, 197, 94, 0.18); }
+.dot-soon { background: #f59e0b; color: rgba(245, 158, 11, 0.18); }
+.dot-overdue { background: #ef4444; color: rgba(239, 68, 68, 0.18); }
+.dot-unknown { background: #9ca3af; color: rgba(156, 163, 175, 0.18); }
+
+/* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
+.equipment-frame {
+  background:
+    radial-gradient(circle, rgba(67, 56, 202, 0.07) 1px, transparent 1px),
+    linear-gradient(180deg, #fbfcff, #eef0f7);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid #dfe3ee;
+  border-radius: var(--radius-lg);
+  padding: 30px 22px 22px;
+  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
+  position: relative;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.equipment-label {
+  position: absolute;
+  top: -14px;
+  left: 22px;
+  background: linear-gradient(120deg, var(--pri), var(--accent));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 14px;
+  border-radius: 999px;
+  box-shadow: 0 3px 10px rgba(67, 56, 202, 0.3);
+}
+
+.unit-shape {
+  --shape-color: var(--pri);
+  border: 3px solid var(--shape-color);
+  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+}
+.unit-shape-header {
+  text-align: center;
+  margin-bottom: 6px;
+}
+.unit-shape-icon {
+  font-size: 42px;
+  display: block;
+  line-height: 1.2;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.12));
+}
+.unit-shape-name {
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--shape-color);
+}
+
+/* ── 대시보드 그리드 ──────────────────────────────────────────── */
+.equipment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+  gap: 16px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.equipment-card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--pri);
+  border-radius: var(--radius-md);
+  padding: 20px 10px 14px;
+  cursor: pointer;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+}
+.equipment-card:hover {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-3px);
+  border-top-color: var(--accent);
+}
+.equipment-card .unit-icon { font-size: 30px; }
+
+/* ── 캔버스 ───────────────────────────────────────────────────── */
+.equipment-canvas {
+  position: relative;
+  width: 100%;
+  min-height: 460px;
+  margin-top: 10px;
+}
+@media (max-width: 768px) {
+  .equipment-canvas { min-height: 620px; }
+}
+
+/* ── 유닛/부품 카드 ───────────────────────────────────────────── */
+.unit-card {
+  --uc: #4338ca;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 140px;
+  min-height: 110px;
+  background: var(--surface);
+  border: 1.5px solid var(--uc);
+  border-radius: var(--radius-md);
+  padding: 14px 10px 10px;
+  cursor: pointer;
+  transition: box-shadow 0.18s ease, transform 0.12s ease;
+  text-align: center;
+  user-select: none;
+  touch-action: none;
+  box-sizing: border-box;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.unit-card:hover {
+  box-shadow: var(--shadow-lg);
+  z-index: 5;
+}
+.edit-mode.unit-card { cursor: grab; }
+.unit-card.dragging {
+  cursor: grabbing;
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+  transition: none;
+}
+.unit-icon-wrap {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 6px;
+  background: #eef0fb;
+  background: color-mix(in srgb, var(--uc) 14%, white);
+}
+.overdue-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(239, 68, 68, 0.4);
+}
+.unit-icon { font-size: 22px; display: block; line-height: 1; }
+.unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
+.unit-status-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+.unit-part-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-weight: 500;
+}
+.unit-edit-actions {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  display: none;
+  gap: 4px;
+}
+.edit-mode .unit-edit-actions { display: flex; }
+.unit-edit-actions button {
+  border: none;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 7px;
+  font-size: 11px;
+  padding: 3px 6px;
+  transition: background 0.15s;
+}
+.unit-edit-actions button:hover { background: rgba(15, 23, 42, 0.14); }
+
+.resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  display: none;
+  cursor: nwse-resize;
+}
+.edit-mode .resize-handle { display: block; }
+.resize-handle::before {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid rgba(67, 56, 202, 0.45);
+  border-bottom: 2px solid rgba(67, 56, 202, 0.45);
+}
+
+.add-unit-btn { margin-top: 16px; display: block; margin-left: auto; margin-right: auto; }
+
+/* ── 부품 목록/배지 ───────────────────────────────────────────── */
+.part-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 15px;
+  margin-bottom: 10px;
+  background: #fafbfe;
+  transition: box-shadow 0.15s;
+}
+.part-card:hover { box-shadow: var(--shadow-sm); }
+.part-card .part-title { font-weight: 700; font-size: 14px; }
+.part-card .part-spec { font-size: 12px; color: var(--text-muted); }
+.badge-ok { background: #d1fae5; color: #065f46; }
+.badge-soon { background: #fef3c7; color: #92400e; }
+.badge-overdue { background: #fee2e2; color: #991b1b; }
+.badge-unknown { background: #e5e7eb; color: #374151; }
+
+.history-row { font-size: 13px; border-bottom: 1px solid #f1f1f1; padding: 7px 0; }
+
+/* ── 메모장 ───────────────────────────────────────────────────── */
+.notes-section {
+  max-width: 1100px;
+  margin: 20px auto 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+}
+.notes-view {
+  min-height: 60px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+  color: #333;
+  line-height: 1.6;
+}
+.notes-view:empty::before,
+.notes-view.is-empty::before {
+  content: "등록된 메모가 없습니다. \"편집\" 버튼을 눌러 설비 정보나 부품 구매처 링크를 기록해보세요.";
+  color: #9ca3af;
+}
+.notes-view a {
+  color: var(--pri);
+  word-break: break-all;
+  font-weight: 500;
+}
+#notesEdit { font-size: 14px; }
+
+/* ── 모달 리스킨 ──────────────────────────────────────────────── */
+.modal-content { border: none; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
+.modal-header { border-bottom: 1px solid var(--border); padding: 18px 22px; }
+.modal-title { font-weight: 700; letter-spacing: -0.01em; }
+.modal-body { padding: 20px 22px; }
+.form-label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+
+/* ── 아이콘 선택기 ────────────────────────────────────────────── */
+.icon-picker {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+  padding: 10px;
+  background: #f8f9fc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  max-height: 168px;
+  overflow-y: auto;
+}
+.icon-choice {
+  width: 34px;
+  height: 34px;
+  border: 1.5px solid transparent;
+  border-radius: 9px;
+  background: #fff;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.icon-choice:hover { background: #eef0fb; transform: translateY(-1px); }
+.icon-choice.selected {
+  border-color: var(--pri);
+  background: color-mix(in srgb, var(--pri) 12%, white);
+  box-shadow: 0 0 0 2px rgba(67, 56, 202, 0.18);
+}
+
+/* ── 대시보드 검색/정렬 툴바 ──────────────────────────────────── */
+.dashboard-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1100px;
+  margin: 0 auto 16px;
+}
+.dashboard-toolbar .search-box {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
+}
+.dashboard-toolbar .search-box i {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.dashboard-toolbar .search-box input {
+  padding-left: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.dashboard-toolbar select {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 13px;
+  padding: 6px 14px;
+}
+.nav-badge {
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  margin-left: 2px;
+}
+
+/* ── 전체 교체 현황 목록 ──────────────────────────────────────── */
+.alerts-list {
+  max-width: 900px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.alert-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.alert-row:last-child { border-bottom: none; }
+.alert-row:hover { background: #f8f9fd; }
+.alert-badge { flex-shrink: 0; min-width: 66px; text-align: center; }
+.alert-main { flex: 1; min-width: 0; }
+.alert-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.alert-sep { color: var(--text-muted); margin: 0 2px; }
+.alert-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.alert-chevron { color: var(--text-muted); flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="d-flex align-items-center gap-2">
+    <a href="/" class="btn btn-sm btn-outline-light"><i class="bi bi-arrow-left"></i> 대시보드</a>
+    <i class="bi bi-exclamation-triangle-fill"></i>
+    <h1>전체 교체 현황</h1>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span id="clock" class="clock"></span>
+  </div>
+</header>
+
+<main class="container-fluid py-4">
+
+  <div class="legend mb-3">
+    <span class="legend-item"><span class="dot dot-overdue"></span> 교체 필요</span>
+    <span class="legend-item"><span class="dot dot-soon"></span> 교체 임박</span>
+  </div>
+
+  <div id="alertsList" class="alerts-list"></div>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+function tick() {
+  const el = document.getElementById("clock");
+  if (el) el.textContent = new Date().toLocaleString("ko-KR");
+}
+
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+async function loadAlerts() {
+  const res = await fetch("/api/alerts");
+  const parts = await res.json();
+  renderAlerts(parts);
+}
+
+function renderAlerts(parts) {
+  const list = document.getElementById("alertsList");
+  if (parts.length === 0) {
+    list.innerHTML = `<p class="text-muted text-center py-5">교체가 필요하거나 임박한 부품이 없습니다.</p>`;
+    return;
+  }
+  list.innerHTML = parts.map(alertRowHtml).join("");
+  parts.forEach((p) => {
+    const row = list.querySelector(`[data-row-id="${p.id}"]`);
+    row.addEventListener("click", () => {
+      window.location.href = `/unit/${p.unit_id}`;
+    });
+  });
+}
+
+function alertRowHtml(p) {
+  const isOverdue = p.status === "overdue";
+  const badge = isOverdue ? "badge-overdue" : "badge-soon";
+  const label = isOverdue ? "교체 필요" : "교체 임박";
+  const daysText = isOverdue ? `${Math.abs(p.days_left)}일 초과` : `${p.days_left}일 남음`;
+  const lastText = p.last_replaced_date ? `최근 교체 ${p.last_replaced_date}` : "교체 이력 없음";
+  return `
+    <div class="alert-row" data-row-id="${p.id}">
+      <span class="badge ${badge} alert-badge">${label}</span>
+      <div class="alert-main">
+        <div class="alert-title">
+          <span>${p.equipment_icon}</span> ${escapeHtml(p.equipment_name)}
+          <span class="alert-sep">›</span> ${escapeHtml(p.unit_name)}
+          <span class="alert-sep">›</span> <strong>${p.icon} ${escapeHtml(p.name)}</strong>
+        </div>
+        <div class="alert-meta">교체 주기 ${p.cycle_days}일 &middot; ${lastText} &middot; ${daysText}</div>
+      </div>
+      <i class="bi bi-chevron-right alert-chevron"></i>
+    </div>`;
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  tick();
+  setInterval(tick, 1000);
+  loadAlerts();
 });
 </script>
 </body>
