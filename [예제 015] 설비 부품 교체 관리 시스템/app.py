@@ -163,16 +163,39 @@ def init_db():
         "SELECT id, '' FROM equipments"
     )
 
-    # 각 설비에 유닛이 하나도 없으면 기본 유닛 구성을 자동으로 반영
+    # 모든 설비에 공통으로 반영되는 기본 유닛 구성 템플릿
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS unit_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            icon TEXT DEFAULT '⚙️',
+            color TEXT DEFAULT '#1a3a5c',
+            pos_x REAL DEFAULT 50,
+            pos_y REAL DEFAULT 50,
+            width REAL DEFAULT 140,
+            height REAL DEFAULT 110,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    template_count = c.execute("SELECT COUNT(*) AS n FROM unit_templates").fetchone()["n"]
+    if template_count == 0:
+        for name, icon, color, pos_x, pos_y in DEFAULT_UNITS:
+            c.execute(
+                "INSERT INTO unit_templates (name, icon, color, pos_x, pos_y) VALUES (?, ?, ?, ?, ?)",
+                (name, icon, color, pos_x, pos_y),
+            )
+
+    # 각 설비에 유닛이 하나도 없으면 기본 유닛 구성 템플릿을 자동으로 반영
+    templates = c.execute("SELECT * FROM unit_templates ORDER BY id").fetchall()
     for eq in c.execute("SELECT id FROM equipments").fetchall():
         unit_count = c.execute(
             "SELECT COUNT(*) AS n FROM units WHERE equipment_id = ?", (eq["id"],)
         ).fetchone()["n"]
         if unit_count == 0:
-            for name, icon, color, pos_x, pos_y in DEFAULT_UNITS:
+            for t in templates:
                 c.execute(
-                    "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y) VALUES (?, ?, ?, ?, ?, ?)",
-                    (eq["id"], name, icon, color, pos_x, pos_y),
+                    "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (eq["id"], t["name"], t["icon"], t["color"], t["pos_x"], t["pos_y"], t["width"], t["height"]),
                 )
 
     conn.commit()
@@ -252,6 +275,11 @@ def equipment_page(equipment_id):
     if not equipment:
         return "설비를 찾을 수 없습니다", 404
     return render_template("equipment.html", equipment_id=equipment_id)
+
+
+@app.route("/config")
+def unit_template_config():
+    return render_template("config.html")
 
 
 @app.route("/unit/<int:unit_id>")
@@ -544,6 +572,107 @@ def update_notes(equipment_id):
     ).fetchone()
     conn.close()
     return jsonify(dict(row))
+
+
+@app.route("/api/unit-templates")
+def list_unit_templates():
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM unit_templates ORDER BY id").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/unit-templates", methods=["POST"])
+def add_unit_template():
+    data = request.get_json()
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "유닛 이름을 입력하세요"}), 400
+    icon = (data.get("icon") or "⚙️").strip()
+    color = (data.get("color") or "#1a3a5c").strip()
+    pos_x = data.get("pos_x")
+    pos_y = data.get("pos_y")
+    if pos_x is None or pos_y is None:
+        pos_x, pos_y = random.uniform(15, 85), random.uniform(20, 80)
+    width = data.get("width") or 140
+    height = data.get("height") or 110
+    conn = get_db()
+    cur = conn.execute(
+        "INSERT INTO unit_templates (name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (name, icon, color, pos_x, pos_y, width, height),
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM unit_templates WHERE id = ?", (cur.lastrowid,)).fetchone()
+    conn.close()
+    return jsonify(dict(row)), 201
+
+
+@app.route("/api/unit-templates/<int:template_id>", methods=["PUT"])
+def update_unit_template(template_id):
+    data = request.get_json()
+    conn = get_db()
+    t = conn.execute("SELECT * FROM unit_templates WHERE id = ?", (template_id,)).fetchone()
+    if not t:
+        conn.close()
+        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
+    name = (data.get("name") or t["name"]).strip()
+    icon = (data.get("icon") or t["icon"]).strip()
+    color = (data.get("color") or t["color"]).strip()
+    pos_x = data.get("pos_x", t["pos_x"])
+    pos_y = data.get("pos_y", t["pos_y"])
+    width = data.get("width", t["width"])
+    height = data.get("height", t["height"])
+    conn.execute(
+        "UPDATE unit_templates SET name = ?, icon = ?, color = ?, pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?",
+        (name, icon, color, pos_x, pos_y, width, height, template_id),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/unit-templates/<int:template_id>", methods=["DELETE"])
+def delete_unit_template(template_id):
+    conn = get_db()
+    conn.execute("DELETE FROM unit_templates WHERE id = ?", (template_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/unit-templates/apply", methods=["POST"])
+def apply_unit_templates():
+    conn = get_db()
+    templates = conn.execute("SELECT * FROM unit_templates ORDER BY id").fetchall()
+    equipments = conn.execute("SELECT id FROM equipments").fetchall()
+    template_names = {t["name"] for t in templates}
+
+    for eq in equipments:
+        existing = {
+            u["name"]: u
+            for u in conn.execute(
+                "SELECT * FROM units WHERE equipment_id = ?", (eq["id"],)
+            ).fetchall()
+        }
+        for t in templates:
+            if t["name"] in existing:
+                u = existing[t["name"]]
+                conn.execute(
+                    "UPDATE units SET icon = ?, color = ?, pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?",
+                    (t["icon"], t["color"], t["pos_x"], t["pos_y"], t["width"], t["height"], u["id"]),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (eq["id"], t["name"], t["icon"], t["color"], t["pos_x"], t["pos_y"], t["width"], t["height"]),
+                )
+        for name, u in existing.items():
+            if name not in template_names:
+                conn.execute("DELETE FROM units WHERE id = ?", (u["id"],))
+
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "equipment_count": len(equipments), "unit_count": len(templates)})
 
 
 if __name__ == "__main__":

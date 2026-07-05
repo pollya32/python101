@@ -179,16 +179,39 @@ def init_db():
         "SELECT id, '' FROM equipments"
     )
 
-    # 각 설비에 유닛이 하나도 없으면 기본 유닛 구성을 자동으로 반영
+    # 모든 설비에 공통으로 반영되는 기본 유닛 구성 템플릿
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS unit_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            icon TEXT DEFAULT '⚙️',
+            color TEXT DEFAULT '#1a3a5c',
+            pos_x REAL DEFAULT 50,
+            pos_y REAL DEFAULT 50,
+            width REAL DEFAULT 140,
+            height REAL DEFAULT 110,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    template_count = c.execute("SELECT COUNT(*) AS n FROM unit_templates").fetchone()["n"]
+    if template_count == 0:
+        for name, icon, color, pos_x, pos_y in DEFAULT_UNITS:
+            c.execute(
+                "INSERT INTO unit_templates (name, icon, color, pos_x, pos_y) VALUES (?, ?, ?, ?, ?)",
+                (name, icon, color, pos_x, pos_y),
+            )
+
+    # 각 설비에 유닛이 하나도 없으면 기본 유닛 구성 템플릿을 자동으로 반영
+    templates = c.execute("SELECT * FROM unit_templates ORDER BY id").fetchall()
     for eq in c.execute("SELECT id FROM equipments").fetchall():
         unit_count = c.execute(
             "SELECT COUNT(*) AS n FROM units WHERE equipment_id = ?", (eq["id"],)
         ).fetchone()["n"]
         if unit_count == 0:
-            for name, icon, color, pos_x, pos_y in DEFAULT_UNITS:
+            for t in templates:
                 c.execute(
-                    "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y) VALUES (?, ?, ?, ?, ?, ?)",
-                    (eq["id"], name, icon, color, pos_x, pos_y),
+                    "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (eq["id"], t["name"], t["icon"], t["color"], t["pos_x"], t["pos_y"], t["width"], t["height"]),
                 )
 
     conn.commit()
@@ -268,6 +291,11 @@ def equipment_page(equipment_id):
     if not equipment:
         return "설비를 찾을 수 없습니다", 404
     return EQUIPMENT_HTML.replace("__EQUIPMENT_ID__", str(equipment_id))
+
+
+@app.route("/config")
+def unit_template_config():
+    return CONFIG_HTML
 
 
 @app.route("/unit/<int:unit_id>")
@@ -562,6 +590,107 @@ def update_notes(equipment_id):
     return jsonify(dict(row))
 
 
+@app.route("/api/unit-templates")
+def list_unit_templates():
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM unit_templates ORDER BY id").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/unit-templates", methods=["POST"])
+def add_unit_template():
+    data = request.get_json()
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "유닛 이름을 입력하세요"}), 400
+    icon = (data.get("icon") or "⚙️").strip()
+    color = (data.get("color") or "#1a3a5c").strip()
+    pos_x = data.get("pos_x")
+    pos_y = data.get("pos_y")
+    if pos_x is None or pos_y is None:
+        pos_x, pos_y = random.uniform(15, 85), random.uniform(20, 80)
+    width = data.get("width") or 140
+    height = data.get("height") or 110
+    conn = get_db()
+    cur = conn.execute(
+        "INSERT INTO unit_templates (name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (name, icon, color, pos_x, pos_y, width, height),
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM unit_templates WHERE id = ?", (cur.lastrowid,)).fetchone()
+    conn.close()
+    return jsonify(dict(row)), 201
+
+
+@app.route("/api/unit-templates/<int:template_id>", methods=["PUT"])
+def update_unit_template(template_id):
+    data = request.get_json()
+    conn = get_db()
+    t = conn.execute("SELECT * FROM unit_templates WHERE id = ?", (template_id,)).fetchone()
+    if not t:
+        conn.close()
+        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
+    name = (data.get("name") or t["name"]).strip()
+    icon = (data.get("icon") or t["icon"]).strip()
+    color = (data.get("color") or t["color"]).strip()
+    pos_x = data.get("pos_x", t["pos_x"])
+    pos_y = data.get("pos_y", t["pos_y"])
+    width = data.get("width", t["width"])
+    height = data.get("height", t["height"])
+    conn.execute(
+        "UPDATE unit_templates SET name = ?, icon = ?, color = ?, pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?",
+        (name, icon, color, pos_x, pos_y, width, height, template_id),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/unit-templates/<int:template_id>", methods=["DELETE"])
+def delete_unit_template(template_id):
+    conn = get_db()
+    conn.execute("DELETE FROM unit_templates WHERE id = ?", (template_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/unit-templates/apply", methods=["POST"])
+def apply_unit_templates():
+    conn = get_db()
+    templates = conn.execute("SELECT * FROM unit_templates ORDER BY id").fetchall()
+    equipments = conn.execute("SELECT id FROM equipments").fetchall()
+    template_names = {t["name"] for t in templates}
+
+    for eq in equipments:
+        existing = {
+            u["name"]: u
+            for u in conn.execute(
+                "SELECT * FROM units WHERE equipment_id = ?", (eq["id"],)
+            ).fetchall()
+        }
+        for t in templates:
+            if t["name"] in existing:
+                u = existing[t["name"]]
+                conn.execute(
+                    "UPDATE units SET icon = ?, color = ?, pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?",
+                    (t["icon"], t["color"], t["pos_x"], t["pos_y"], t["width"], t["height"], u["id"]),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (eq["id"], t["name"], t["icon"], t["color"], t["pos_x"], t["pos_y"], t["width"], t["height"]),
+                )
+        for name, u in existing.items():
+            if name not in template_names:
+                conn.execute("DELETE FROM units WHERE id = ?", (u["id"],))
+
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "equipment_count": len(equipments), "unit_count": len(templates)})
+
+
 DASHBOARD_HTML = r"""<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -824,6 +953,9 @@ body {
   </div>
   <div class="d-flex align-items-center gap-2">
     <span id="clock" class="clock"></span>
+    <a href="/config" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-diagram-3"></i> 기본 유닛 구성
+    </a>
     <button id="editModeBtn" class="btn btn-sm btn-outline-light">
       <i class="bi bi-pencil-square"></i> 설비명 편집
     </button>
@@ -2358,6 +2490,555 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       partEditModal.hide();
       loadParts();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+});
+</script>
+</body>
+</html>
+"""
+
+
+CONFIG_HTML = r"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>기본 유닛 구성 - 설비 부품 교체 관리 시스템</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<style>
+:root {
+  --pri: #1a3a5c;
+  --bg: #eef1f5;
+}
+
+body {
+  background: var(--bg);
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+}
+
+.topbar {
+  background: var(--pri);
+  color: #fff;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 90;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; }
+.clock { font-size: 12px; opacity: 0.8; }
+
+.legend {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: #444;
+}
+.legend-item { display: flex; align-items: center; gap: 6px; }
+.dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+.dot-ok { background: #22c55e; }
+.dot-soon { background: #f59e0b; }
+.dot-overdue { background: #ef4444; }
+.dot-unknown { background: #9ca3af; }
+
+.equipment-frame {
+  background: linear-gradient(180deg, #f8fafc, #e2e8f0);
+  border: 1px solid #cbd5e1;
+  border-radius: 16px;
+  padding: 28px 20px 20px;
+  box-shadow: inset 0 0 0 6px #fff, 0 4px 16px rgba(0, 0, 0, 0.08);
+  position: relative;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.equipment-label {
+  position: absolute;
+  top: -14px;
+  left: 20px;
+  background: var(--pri);
+  color: #fff;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+
+.unit-shape {
+  --shape-color: var(--pri);
+  border: 4px solid var(--shape-color);
+}
+.unit-shape-header {
+  text-align: center;
+  margin-bottom: 6px;
+}
+.unit-shape-icon {
+  font-size: 40px;
+  display: block;
+  line-height: 1.2;
+}
+.unit-shape-name {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--shape-color);
+}
+
+.equipment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.equipment-card {
+  position: relative;
+  background: #fff;
+  border: 2px solid var(--pri);
+  border-radius: 12px;
+  padding: 18px 10px 14px;
+  cursor: pointer;
+  text-align: center;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+.equipment-card:hover {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+}
+.equipment-card .unit-icon { font-size: 32px; }
+
+.equipment-canvas {
+  position: relative;
+  width: 100%;
+  min-height: 460px;
+  margin-top: 10px;
+}
+@media (max-width: 768px) {
+  .equipment-canvas { min-height: 620px; }
+}
+
+.unit-card {
+  --uc: #1a3a5c;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 140px;
+  min-height: 110px;
+  background: #fff;
+  border: 2px solid var(--uc);
+  border-radius: 12px;
+  padding: 12px 10px 10px;
+  cursor: pointer;
+  transition: box-shadow 0.15s;
+  text-align: center;
+  user-select: none;
+  touch-action: none;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.unit-card:hover {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  z-index: 5;
+}
+.edit-mode.unit-card { cursor: grab; }
+.unit-card.dragging {
+  cursor: grabbing;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  z-index: 20;
+  transition: none;
+}
+.unit-icon { font-size: 28px; display: block; margin-bottom: 6px; }
+.unit-name { font-size: 13px; font-weight: 600; color: #1f2937; line-height: 1.3; }
+.unit-status-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.1);
+}
+.unit-part-count {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 4px;
+}
+.unit-edit-actions {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  display: none;
+  gap: 4px;
+}
+.edit-mode .unit-edit-actions { display: flex; }
+.unit-edit-actions button {
+  border: none;
+  background: rgba(0,0,0,.06);
+  border-radius: 6px;
+  font-size: 11px;
+  padding: 2px 5px;
+}
+.unit-edit-actions button:hover { background: rgba(0,0,0,.14); }
+
+.resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  display: none;
+  cursor: nwse-resize;
+}
+.edit-mode .resize-handle { display: block; }
+.resize-handle::before {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid rgba(0, 0, 0, 0.4);
+  border-bottom: 2px solid rgba(0, 0, 0, 0.4);
+}
+
+.add-unit-btn { margin-top: 16px; display: block; margin-left: auto; margin-right: auto; }
+
+.part-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  background: #fafafa;
+}
+.part-card .part-title { font-weight: 700; font-size: 14px; }
+.part-card .part-spec { font-size: 12px; color: #6b7280; }
+.badge-ok { background: #d1fae5; color: #065f46; }
+.badge-soon { background: #fef3c7; color: #92400e; }
+.badge-overdue { background: #fee2e2; color: #991b1b; }
+.badge-unknown { background: #e5e7eb; color: #374151; }
+
+.history-row { font-size: 13px; border-bottom: 1px solid #f1f1f1; padding: 6px 0; }
+
+.notes-section {
+  max-width: 1100px;
+  margin: 20px auto 0;
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+.notes-view {
+  min-height: 60px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+  color: #333;
+  line-height: 1.6;
+}
+.notes-view:empty::before,
+.notes-view.is-empty::before {
+  content: "등록된 메모가 없습니다. \"편집\" 버튼을 눌러 설비 정보나 부품 구매처 링크를 기록해보세요.";
+  color: #9ca3af;
+}
+.notes-view a {
+  color: #2563eb;
+  word-break: break-all;
+}
+#notesEdit { font-size: 14px; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="d-flex align-items-center gap-2">
+    <a href="/" class="btn btn-sm btn-outline-light"><i class="bi bi-arrow-left"></i> 대시보드</a>
+    <i class="bi bi-diagram-3"></i>
+    <h1>기본 유닛 구성 (모든 설비 공통 템플릿)</h1>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span id="clock" class="clock"></span>
+    <button id="applyBtn" class="btn btn-sm btn-warning">
+      <i class="bi bi-cloud-arrow-up"></i> 모든 설비에 적용
+    </button>
+  </div>
+</header>
+
+<main class="container-fluid py-4">
+
+  <p class="text-muted small mb-3">
+    여기서 구성한 유닛(이름·아이콘·색상·위치·크기)은 <strong>모든 설비에 공통으로 적용</strong>되는 기본 템플릿입니다.
+    유닛을 자유롭게 추가/편집/삭제/드래그 배치한 뒤 "모든 설비에 적용" 버튼을 눌러야 실제 설비 페이지에 반영됩니다.
+  </p>
+
+  <div id="templateFrame" class="equipment-frame">
+    <div class="equipment-label">유닛을 드래그로 배치 · 모서리로 크기 조절 · 클릭해서 이름/아이콘/색상 편집</div>
+    <div id="canvas" class="equipment-canvas"></div>
+    <button id="addUnitBtn" class="btn btn-sm btn-outline-primary add-unit-btn">
+      <i class="bi bi-plus-lg"></i> 유닛 추가
+    </button>
+  </div>
+
+</main>
+
+<!-- 유닛 추가/편집 모달 -->
+<div class="modal fade" id="unitEditModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="unitEditTitle">유닛 추가</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="unitEditForm">
+          <input type="hidden" id="unitEditId">
+          <div class="mb-2">
+            <label class="form-label">유닛 이름</label>
+            <input type="text" class="form-control" id="unitEditName" required>
+          </div>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label">아이콘 (이모지)</label>
+              <input type="text" class="form-control" id="unitEditIcon" placeholder="⚙️">
+            </div>
+            <div class="col-6">
+              <label class="form-label">색상</label>
+              <input type="color" class="form-control form-control-color w-100" id="unitEditColor" value="#1a3a5c">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary w-100 mt-3">저장</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+let unitEditModal;
+
+function tick() {
+  const el = document.getElementById("clock");
+  if (el) el.textContent = new Date().toLocaleString("ko-KR");
+}
+
+async function fetchJson(url, options) {
+  const res = await fetch(url, options);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || "요청 처리 중 오류가 발생했습니다");
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+async function loadTemplates() {
+  const templates = await fetchJson("/api/unit-templates");
+  renderCanvas(templates);
+}
+
+function renderCanvas(templates) {
+  const canvas = document.getElementById("canvas");
+  canvas.innerHTML = templates.map(templateCardHtml).join("");
+  templates.forEach((t) => {
+    const card = canvas.querySelector(`[data-template-id="${t.id}"]`);
+    card.style.left = `${t.pos_x}%`;
+    card.style.top = `${t.pos_y}%`;
+    card.style.width = `${t.width}px`;
+    card.style.height = `${t.height}px`;
+
+    card.querySelector(".edit-unit-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openUnitEditModal(t);
+    });
+    card.querySelector(".delete-unit-btn")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm(`"${t.name}" 유닛을 기본 구성에서 삭제할까요?`)) return;
+      await fetchJson(`/api/unit-templates/${t.id}`, { method: "DELETE" });
+      loadTemplates();
+    });
+
+    makeDraggable(card, t);
+    makeResizable(card, t);
+  });
+}
+
+const MIN_UNIT_WIDTH = 90;
+const MIN_UNIT_HEIGHT = 80;
+const MAX_UNIT_WIDTH = 320;
+const MAX_UNIT_HEIGHT = 260;
+
+function makeResizable(card, template) {
+  const handle = card.querySelector(".resize-handle");
+  if (!handle) return;
+
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startWidth = card.offsetWidth;
+    const startHeight = card.offsetHeight;
+
+    card.classList.add("dragging");
+
+    function onMove(ev) {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      const w = Math.min(Math.max(startWidth + dx, MIN_UNIT_WIDTH), MAX_UNIT_WIDTH);
+      const h = Math.min(Math.max(startHeight + dy, MIN_UNIT_HEIGHT), MAX_UNIT_HEIGHT);
+      card.style.width = `${w}px`;
+      card.style.height = `${h}px`;
+    }
+
+    async function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      card.classList.remove("dragging");
+      const width = card.offsetWidth;
+      const height = card.offsetHeight;
+      await fetchJson(`/api/unit-templates/${template.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ width, height }),
+      });
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+function makeDraggable(card, template) {
+  card.addEventListener("mousedown", (e) => {
+    if (e.target.closest(".unit-edit-actions")) return;
+    e.preventDefault();
+
+    const canvas = document.getElementById("canvas");
+    const rect = canvas.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startLeft = (parseFloat(card.style.left) / 100) * rect.width;
+    const startTop = (parseFloat(card.style.top) / 100) * rect.height;
+    let moved = false;
+
+    card.classList.add("dragging");
+
+    function onMove(ev) {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved = true;
+      const px = Math.min(Math.max(startLeft + dx, rect.width * 0.04), rect.width * 0.96);
+      const py = Math.min(Math.max(startTop + dy, rect.height * 0.04), rect.height * 0.96);
+      card.style.left = `${(px / rect.width) * 100}%`;
+      card.style.top = `${(py / rect.height) * 100}%`;
+    }
+
+    async function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      card.classList.remove("dragging");
+      if (moved) {
+        const pos_x = parseFloat(card.style.left);
+        const pos_y = parseFloat(card.style.top);
+        await fetchJson(`/api/unit-templates/${template.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pos_x, pos_y }),
+        });
+      } else {
+        openUnitEditModal(template);
+      }
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+function templateCardHtml(t) {
+  return `
+    <div class="unit-card edit-mode" data-template-id="${t.id}" style="--uc:${t.color}">
+      <span class="unit-icon">${t.icon}</span>
+      <div class="unit-name">${escapeHtml(t.name)}</div>
+      <div class="unit-edit-actions">
+        <button class="edit-unit-btn" title="편집"><i class="bi bi-pencil"></i></button>
+        <button class="delete-unit-btn" title="삭제"><i class="bi bi-trash"></i></button>
+      </div>
+      <div class="resize-handle" title="크기 조절"></div>
+    </div>`;
+}
+
+function openUnitEditModal(template) {
+  document.getElementById("unitEditTitle").textContent = template ? "유닛 편집" : "유닛 추가";
+  document.getElementById("unitEditId").value = template ? template.id : "";
+  document.getElementById("unitEditName").value = template ? template.name : "";
+  document.getElementById("unitEditIcon").value = template ? template.icon : "⚙️";
+  document.getElementById("unitEditColor").value = template ? template.color : "#1a3a5c";
+  unitEditModal.show();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  unitEditModal = new bootstrap.Modal(document.getElementById("unitEditModal"));
+
+  tick();
+  setInterval(tick, 1000);
+  loadTemplates();
+
+  document.getElementById("addUnitBtn").addEventListener("click", () => openUnitEditModal(null));
+
+  document.getElementById("applyBtn").addEventListener("click", async () => {
+    const ok = confirm(
+      "현재 기본 유닛 구성을 20개 설비 전체에 적용합니다.\n" +
+      "- 이름이 같은 유닛은 위치/아이콘/색상이 이 구성대로 갱신됩니다.\n" +
+      "- 여기 없는 이름의 유닛은 각 설비에서 삭제되며, 등록된 부품/이력도 함께 삭제됩니다.\n\n" +
+      "계속하시겠습니까?"
+    );
+    if (!ok) return;
+    try {
+      const result = await fetchJson("/api/unit-templates/apply", { method: "POST" });
+      alert(`설비 ${result.equipment_count}대에 유닛 구성(${result.unit_count}개)을 적용했습니다.`);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById("unitEditForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = document.getElementById("unitEditId").value;
+    const payload = {
+      name: document.getElementById("unitEditName").value.trim(),
+      icon: document.getElementById("unitEditIcon").value.trim(),
+      color: document.getElementById("unitEditColor").value,
+    };
+    try {
+      if (id) {
+        await fetchJson(`/api/unit-templates/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await fetchJson(`/api/unit-templates`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
+      unitEditModal.hide();
+      loadTemplates();
     } catch (err) {
       alert(err.message);
     }

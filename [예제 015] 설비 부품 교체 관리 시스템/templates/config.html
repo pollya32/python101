@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>기본 유닛 구성 - 설비 부품 교체 관리 시스템</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="d-flex align-items-center gap-2">
+    <a href="/" class="btn btn-sm btn-outline-light"><i class="bi bi-arrow-left"></i> 대시보드</a>
+    <i class="bi bi-diagram-3"></i>
+    <h1>기본 유닛 구성 (모든 설비 공통 템플릿)</h1>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span id="clock" class="clock"></span>
+    <button id="applyBtn" class="btn btn-sm btn-warning">
+      <i class="bi bi-cloud-arrow-up"></i> 모든 설비에 적용
+    </button>
+  </div>
+</header>
+
+<main class="container-fluid py-4">
+
+  <p class="text-muted small mb-3">
+    여기서 구성한 유닛(이름·아이콘·색상·위치·크기)은 <strong>모든 설비에 공통으로 적용</strong>되는 기본 템플릿입니다.
+    유닛을 자유롭게 추가/편집/삭제/드래그 배치한 뒤 "모든 설비에 적용" 버튼을 눌러야 실제 설비 페이지에 반영됩니다.
+  </p>
+
+  <div id="templateFrame" class="equipment-frame">
+    <div class="equipment-label">유닛을 드래그로 배치 · 모서리로 크기 조절 · 클릭해서 이름/아이콘/색상 편집</div>
+    <div id="canvas" class="equipment-canvas"></div>
+    <button id="addUnitBtn" class="btn btn-sm btn-outline-primary add-unit-btn">
+      <i class="bi bi-plus-lg"></i> 유닛 추가
+    </button>
+  </div>
+
+</main>
+
+<!-- 유닛 추가/편집 모달 -->
+<div class="modal fade" id="unitEditModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="unitEditTitle">유닛 추가</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="unitEditForm">
+          <input type="hidden" id="unitEditId">
+          <div class="mb-2">
+            <label class="form-label">유닛 이름</label>
+            <input type="text" class="form-control" id="unitEditName" required>
+          </div>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label">아이콘 (이모지)</label>
+              <input type="text" class="form-control" id="unitEditIcon" placeholder="⚙️">
+            </div>
+            <div class="col-6">
+              <label class="form-label">색상</label>
+              <input type="color" class="form-control form-control-color w-100" id="unitEditColor" value="#1a3a5c">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary w-100 mt-3">저장</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/static/config.js"></script>
+</body>
+</html>
