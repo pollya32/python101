@@ -1,8 +1,11 @@
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file, Response
 import sqlite3
 import os
+import csv
+import io
 import random
 import socket
+from urllib.parse import quote
 from datetime import date, datetime, timedelta
 
 app = Flask(__name__)
@@ -347,6 +350,45 @@ def get_alert_parts():
     return result
 
 
+def search_parts(query):
+    """부품명/규격으로 모든 설비를 통틀어 검색"""
+    conn = get_db()
+    like = f"%{query}%"
+    rows = conn.execute("""
+        SELECT p.*, u.id AS unit_id, u.name AS unit_name,
+               e.id AS equipment_id, e.name AS equipment_name, e.icon AS equipment_icon
+        FROM parts p
+        JOIN units u ON p.unit_id = u.id
+        JOIN equipments e ON u.equipment_id = e.id
+        WHERE p.name LIKE ? OR p.spec LIKE ?
+        ORDER BY e.id, u.id, p.id
+    """, (like, like)).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        info = part_status(r["cycle_days"], r["last_replaced_date"])
+        d = dict(r)
+        d.update(info)
+        result.append(d)
+    return result
+
+
+def csv_response(filename, header, rows):
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(header)
+    writer.writerows(rows)
+    data = "﻿" + buf.getvalue()
+    encoded_name = quote(filename)
+    return Response(
+        data,
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename=export.csv; filename*=UTF-8''{encoded_name}"
+        },
+    )
+
+
 @app.route("/")
 def dashboard():
     return render_template("dashboard.html")
@@ -355,6 +397,11 @@ def dashboard():
 @app.route("/alerts")
 def alerts_page():
     return render_template("alerts.html")
+
+
+@app.route("/search")
+def search_page():
+    return render_template("search.html")
 
 
 @app.route("/equipment/<int:equipment_id>")
@@ -811,6 +858,30 @@ def apply_unit_templates():
 @app.route("/api/alerts")
 def api_alerts():
     return jsonify(get_alert_parts())
+
+
+@app.route("/api/alerts/export")
+def export_alerts_csv():
+    parts = get_alert_parts()
+    header = ["상태", "설비", "유닛", "부품명", "규격", "교체주기(일)", "최근교체일", "다음교체예정일", "남은/초과일수", "비고"]
+    rows = []
+    for p in parts:
+        days_text = f"{abs(p['days_left'])}일 초과" if p["status"] == "overdue" else f"{p['days_left']}일 남음"
+        rows.append([
+            p["label"], p["equipment_name"], p["unit_name"], p["name"], p.get("spec") or "",
+            p["cycle_days"], p.get("last_replaced_date") or "", p.get("next_due") or "",
+            days_text, p.get("note") or "",
+        ])
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return csv_response(f"교체현황_{timestamp}.csv", header, rows)
+
+
+@app.route("/api/search")
+def api_search():
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        return jsonify([])
+    return jsonify(search_parts(q))
 
 
 @app.route("/api/backup")
