@@ -1,0 +1,1213 @@
+"""
+설비 부품 교체 관리 시스템 — 단일 파일 버전
+=====================================================
+설치: pip install flask
+실행: python 설비부품교체관리_단일파일.py
+접속: http://localhost:5000
+
+이 파일 하나만 다운로드하면 폴더 구조 없이 바로 실행할 수 있습니다.
+(templates/static 폴더가 필요한 app.py 버전과 동일한 기능을 담은 단일 파일본)
+"""
+
+import sqlite3
+import os
+import random
+from datetime import date, datetime, timedelta
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+try:
+    _base = os.path.dirname(os.path.abspath(__file__))
+except NameError:
+    _base = os.getcwd()
+DB_PATH = os.path.join(_base, "equipment_data.db")
+
+# 사진 속 설비(로드포트 4개 + HMI 제어패널 + 공정모듈 + 배기/시그널타워) 구조를 본뜬 기본 유닛
+# pos_x, pos_y는 설비 캔버스 안에서 유닛 중심의 위치(% 좌표)
+DEFAULT_UNITS = [
+    ("배기 유닛 / 시그널 타워", "🚨", "#6b7280", 50, 18),
+    ("로드포트 1", "📦", "#2563eb", 10, 60),
+    ("로드포트 2", "📦", "#2563eb", 26, 60),
+    ("로드포트 3", "📦", "#2563eb", 42, 60),
+    ("로드포트 4", "📦", "#2563eb", 58, 60),
+    ("HMI 제어 패널", "🖥️", "#0f766e", 76, 60),
+    ("공정 모듈 (파워유닛)", "🔧", "#7c3aed", 92, 60),
+]
+
+
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+def init_db():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS units (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            icon TEXT DEFAULT '⚙️',
+            color TEXT DEFAULT '#1a3a5c',
+            pos_x REAL DEFAULT 50,
+            pos_y REAL DEFAULT 50,
+            width REAL DEFAULT 140,
+            height REAL DEFAULT 110,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    existing_cols = {r["name"] for r in c.execute("PRAGMA table_info(units)").fetchall()}
+    if "pos_x" not in existing_cols:
+        c.execute("ALTER TABLE units ADD COLUMN pos_x REAL")
+        c.execute("ALTER TABLE units ADD COLUMN pos_y REAL")
+    if "width" not in existing_cols:
+        c.execute("ALTER TABLE units ADD COLUMN width REAL")
+        c.execute("ALTER TABLE units ADD COLUMN height REAL")
+    unplaced = c.execute(
+        "SELECT id FROM units WHERE pos_x IS NULL OR pos_y IS NULL ORDER BY id"
+    ).fetchall()
+    for i, row in enumerate(unplaced):
+        x = 10 + (i * 84 / max(len(unplaced) - 1, 1)) if len(unplaced) > 1 else 50
+        c.execute("UPDATE units SET pos_x = ?, pos_y = ? WHERE id = ?", (x, 50, row["id"]))
+    c.execute("UPDATE units SET width = 140 WHERE width IS NULL")
+    c.execute("UPDATE units SET height = 110 WHERE height IS NULL")
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS parts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            unit_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            spec TEXT,
+            cycle_days INTEGER NOT NULL DEFAULT 90,
+            last_replaced_date TEXT,
+            note TEXT,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS replacement_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            part_id INTEGER NOT NULL,
+            replaced_date TEXT NOT NULL,
+            note TEXT,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (part_id) REFERENCES parts(id) ON DELETE CASCADE
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS equipment_notes (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            content TEXT DEFAULT '',
+            updated_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    c.execute("INSERT OR IGNORE INTO equipment_notes (id, content) VALUES (1, '')")
+    row = c.execute("SELECT COUNT(*) AS n FROM units").fetchone()
+    if row["n"] == 0:
+        for name, icon, color, pos_x, pos_y in DEFAULT_UNITS:
+            c.execute(
+                "INSERT INTO units (name, icon, color, pos_x, pos_y) VALUES (?, ?, ?, ?, ?)",
+                (name, icon, color, pos_x, pos_y),
+            )
+    conn.commit()
+    conn.close()
+
+
+def part_status(cycle_days, last_replaced_date):
+    """부품 교체 주기 대비 경과 상태 계산"""
+    if not last_replaced_date:
+        return {"status": "unknown", "label": "미기록", "days_left": None, "next_due": None}
+    last = datetime.strptime(last_replaced_date, "%Y-%m-%d").date()
+    next_due = last + timedelta(days=cycle_days)
+    days_left = (next_due - date.today()).days
+    if days_left < 0:
+        status, label = "overdue", "교체 필요"
+    elif cycle_days > 0 and days_left <= max(cycle_days * 0.2, 3):
+        status, label = "soon", "교체 임박"
+    else:
+        status, label = "ok", "정상"
+    return {
+        "status": status,
+        "label": label,
+        "days_left": days_left,
+        "next_due": next_due.isoformat(),
+    }
+
+
+def serialize_part(row):
+    info = part_status(row["cycle_days"], row["last_replaced_date"])
+    d = dict(row)
+    d.update(info)
+    return d
+
+
+@app.route("/")
+def index():
+    return HTML_PAGE
+
+
+@app.route("/api/units")
+def list_units():
+    conn = get_db()
+    units = conn.execute("SELECT * FROM units ORDER BY id").fetchall()
+    result = []
+    for u in units:
+        parts = conn.execute(
+            "SELECT * FROM parts WHERE unit_id = ?", (u["id"],)
+        ).fetchall()
+        statuses = [part_status(p["cycle_days"], p["last_replaced_date"])["status"] for p in parts]
+        if "overdue" in statuses:
+            overall = "overdue"
+        elif "soon" in statuses:
+            overall = "soon"
+        elif "unknown" in statuses:
+            overall = "unknown" if not any(s == "ok" for s in statuses) else "ok"
+        elif statuses:
+            overall = "ok"
+        else:
+            overall = "empty"
+        d = dict(u)
+        d["part_count"] = len(parts)
+        d["overall_status"] = overall
+        result.append(d)
+    conn.close()
+    return jsonify(result)
+
+
+@app.route("/api/units", methods=["POST"])
+def add_unit():
+    data = request.get_json()
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "유닛 이름을 입력하세요"}), 400
+    icon = (data.get("icon") or "⚙️").strip()
+    color = (data.get("color") or "#1a3a5c").strip()
+    pos_x = data.get("pos_x")
+    pos_y = data.get("pos_y")
+    if pos_x is None or pos_y is None:
+        pos_x, pos_y = random.uniform(15, 85), random.uniform(20, 80)
+    width = data.get("width") or 140
+    height = data.get("height") or 110
+    conn = get_db()
+    cur = conn.execute(
+        "INSERT INTO units (name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (name, icon, color, pos_x, pos_y, width, height),
+    )
+    conn.commit()
+    new_id = cur.lastrowid
+    unit = conn.execute("SELECT * FROM units WHERE id = ?", (new_id,)).fetchone()
+    conn.close()
+    d = dict(unit)
+    d["part_count"] = 0
+    d["overall_status"] = "empty"
+    return jsonify(d), 201
+
+
+@app.route("/api/units/<int:unit_id>", methods=["PUT"])
+def update_unit(unit_id):
+    data = request.get_json()
+    conn = get_db()
+    unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
+    if not unit:
+        conn.close()
+        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
+    name = (data.get("name") or unit["name"]).strip()
+    icon = (data.get("icon") or unit["icon"]).strip()
+    color = (data.get("color") or unit["color"]).strip()
+    pos_x = data.get("pos_x", unit["pos_x"])
+    pos_y = data.get("pos_y", unit["pos_y"])
+    width = data.get("width", unit["width"])
+    height = data.get("height", unit["height"])
+    conn.execute(
+        "UPDATE units SET name = ?, icon = ?, color = ?, pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?",
+        (name, icon, color, pos_x, pos_y, width, height, unit_id),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/units/<int:unit_id>", methods=["DELETE"])
+def delete_unit(unit_id):
+    conn = get_db()
+    conn.execute("DELETE FROM units WHERE id = ?", (unit_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/units/<int:unit_id>/parts")
+def list_parts(unit_id):
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM parts WHERE unit_id = ? ORDER BY id", (unit_id,)
+    ).fetchall()
+    conn.close()
+    return jsonify([serialize_part(r) for r in rows])
+
+
+@app.route("/api/units/<int:unit_id>/parts", methods=["POST"])
+def add_part(unit_id):
+    data = request.get_json()
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "부품 이름을 입력하세요"}), 400
+    spec = (data.get("spec") or "").strip()
+    cycle_days = int(data.get("cycle_days") or 90)
+    last_replaced_date = data.get("last_replaced_date") or None
+    note = (data.get("note") or "").strip()
+
+    conn = get_db()
+    cur = conn.execute(
+        """INSERT INTO parts (unit_id, name, spec, cycle_days, last_replaced_date, note)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (unit_id, name, spec, cycle_days, last_replaced_date, note),
+    )
+    part_id = cur.lastrowid
+    if last_replaced_date:
+        conn.execute(
+            "INSERT INTO replacement_history (part_id, replaced_date, note) VALUES (?, ?, ?)",
+            (part_id, last_replaced_date, "최초 등록"),
+        )
+    conn.commit()
+    row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
+    conn.close()
+    return jsonify(serialize_part(row)), 201
+
+
+@app.route("/api/parts/<int:part_id>", methods=["PUT"])
+def update_part(part_id):
+    data = request.get_json()
+    conn = get_db()
+    part = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
+    if not part:
+        conn.close()
+        return jsonify({"error": "부품을 찾을 수 없습니다"}), 404
+    name = (data.get("name") or part["name"]).strip()
+    spec = data.get("spec", part["spec"])
+    cycle_days = int(data.get("cycle_days") or part["cycle_days"])
+    note = data.get("note", part["note"])
+    conn.execute(
+        "UPDATE parts SET name = ?, spec = ?, cycle_days = ?, note = ? WHERE id = ?",
+        (name, spec, cycle_days, note, part_id),
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
+    conn.close()
+    return jsonify(serialize_part(row))
+
+
+@app.route("/api/parts/<int:part_id>", methods=["DELETE"])
+def delete_part(part_id):
+    conn = get_db()
+    conn.execute("DELETE FROM parts WHERE id = ?", (part_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/parts/<int:part_id>/replace", methods=["POST"])
+def replace_part(part_id):
+    data = request.get_json()
+    replaced_date = data.get("replaced_date") or str(date.today())
+    note = (data.get("note") or "").strip()
+
+    conn = get_db()
+    part = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
+    if not part:
+        conn.close()
+        return jsonify({"error": "부품을 찾을 수 없습니다"}), 404
+    conn.execute(
+        "INSERT INTO replacement_history (part_id, replaced_date, note) VALUES (?, ?, ?)",
+        (part_id, replaced_date, note),
+    )
+    conn.execute(
+        "UPDATE parts SET last_replaced_date = ? WHERE id = ? AND (last_replaced_date IS NULL OR ? >= last_replaced_date)",
+        (replaced_date, part_id, replaced_date),
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
+    conn.close()
+    return jsonify(serialize_part(row)), 201
+
+
+@app.route("/api/parts/<int:part_id>/history")
+def part_history(part_id):
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM replacement_history WHERE part_id = ? ORDER BY replaced_date DESC, id DESC",
+        (part_id,),
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/history/<int:history_id>", methods=["DELETE"])
+def delete_history(history_id):
+    conn = get_db()
+    conn.execute("DELETE FROM replacement_history WHERE id = ?", (history_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/notes")
+def get_notes():
+    conn = get_db()
+    row = conn.execute("SELECT content, updated_at FROM equipment_notes WHERE id = 1").fetchone()
+    conn.close()
+    return jsonify(dict(row))
+
+
+@app.route("/api/notes", methods=["PUT"])
+def update_notes():
+    data = request.get_json()
+    content = data.get("content") or ""
+    conn = get_db()
+    conn.execute(
+        "UPDATE equipment_notes SET content = ?, updated_at = datetime('now','localtime') WHERE id = 1",
+        (content,),
+    )
+    conn.commit()
+    row = conn.execute("SELECT content, updated_at FROM equipment_notes WHERE id = 1").fetchone()
+    conn.close()
+    return jsonify(dict(row))
+
+
+HTML_PAGE = r"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>설비 부품 교체 관리 시스템</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<style>
+:root {
+  --pri: #1a3a5c;
+  --bg: #eef1f5;
+}
+
+body {
+  background: var(--bg);
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+}
+
+.topbar {
+  background: var(--pri);
+  color: #fff;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 90;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; }
+.clock { font-size: 12px; opacity: 0.8; }
+
+.legend {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: #444;
+}
+.legend-item { display: flex; align-items: center; gap: 6px; }
+.dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+.dot-ok { background: #22c55e; }
+.dot-soon { background: #f59e0b; }
+.dot-overdue { background: #ef4444; }
+.dot-unknown { background: #9ca3af; }
+
+.equipment-frame {
+  background: linear-gradient(180deg, #f8fafc, #e2e8f0);
+  border: 1px solid #cbd5e1;
+  border-radius: 16px;
+  padding: 28px 20px 20px;
+  box-shadow: inset 0 0 0 6px #fff, 0 4px 16px rgba(0, 0, 0, 0.08);
+  position: relative;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.equipment-label {
+  position: absolute;
+  top: -14px;
+  left: 20px;
+  background: var(--pri);
+  color: #fff;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+
+.equipment-canvas {
+  position: relative;
+  width: 100%;
+  min-height: 460px;
+  margin-top: 10px;
+}
+@media (max-width: 768px) {
+  .equipment-canvas { min-height: 620px; }
+}
+
+.unit-card {
+  --uc: #1a3a5c;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 140px;
+  min-height: 110px;
+  background: #fff;
+  border: 2px solid var(--uc);
+  border-radius: 12px;
+  padding: 12px 10px 10px;
+  cursor: pointer;
+  transition: box-shadow 0.15s;
+  text-align: center;
+  user-select: none;
+  touch-action: none;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.unit-card:hover {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  z-index: 5;
+}
+.edit-mode.unit-card { cursor: grab; }
+.unit-card.dragging {
+  cursor: grabbing;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  z-index: 20;
+  transition: none;
+}
+.unit-icon { font-size: 28px; display: block; margin-bottom: 6px; }
+.unit-name { font-size: 13px; font-weight: 600; color: #1f2937; line-height: 1.3; }
+.unit-status-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.1);
+}
+.unit-part-count {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 4px;
+}
+.unit-edit-actions {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  display: none;
+  gap: 4px;
+}
+.edit-mode .unit-edit-actions { display: flex; }
+.unit-edit-actions button {
+  border: none;
+  background: rgba(0,0,0,.06);
+  border-radius: 6px;
+  font-size: 11px;
+  padding: 2px 5px;
+}
+.unit-edit-actions button:hover { background: rgba(0,0,0,.14); }
+
+.resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  display: none;
+  cursor: nwse-resize;
+}
+.edit-mode .resize-handle { display: block; }
+.resize-handle::before {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid rgba(0, 0, 0, 0.4);
+  border-bottom: 2px solid rgba(0, 0, 0, 0.4);
+}
+
+.add-unit-btn { margin-top: 16px; display: block; margin-left: auto; margin-right: auto; }
+
+.part-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  background: #fafafa;
+}
+.part-card .part-title { font-weight: 700; font-size: 14px; }
+.part-card .part-spec { font-size: 12px; color: #6b7280; }
+.badge-ok { background: #d1fae5; color: #065f46; }
+.badge-soon { background: #fef3c7; color: #92400e; }
+.badge-overdue { background: #fee2e2; color: #991b1b; }
+.badge-unknown { background: #e5e7eb; color: #374151; }
+
+.history-row { font-size: 13px; border-bottom: 1px solid #f1f1f1; padding: 6px 0; }
+
+.notes-section {
+  max-width: 1100px;
+  margin: 20px auto 0;
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+.notes-view {
+  min-height: 60px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+  color: #333;
+  line-height: 1.6;
+}
+.notes-view:empty::before,
+.notes-view.is-empty::before {
+  content: "등록된 메모가 없습니다. \"편집\" 버튼을 눌러 설비 정보나 부품 구매처 링크를 기록해보세요.";
+  color: #9ca3af;
+}
+.notes-view a {
+  color: #2563eb;
+  word-break: break-all;
+}
+#notesEdit { font-size: 14px; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="d-flex align-items-center gap-2">
+    <i class="bi bi-cpu"></i>
+    <h1>설비 부품 교체 관리 시스템</h1>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span id="clock" class="clock"></span>
+    <button id="editModeBtn" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-pencil-square"></i> 설비 구성 편집
+    </button>
+  </div>
+</header>
+
+<main class="container-fluid py-4">
+
+  <div class="legend mb-3">
+    <span class="legend-item"><span class="dot dot-ok"></span> 정상</span>
+    <span class="legend-item"><span class="dot dot-soon"></span> 교체 임박</span>
+    <span class="legend-item"><span class="dot dot-overdue"></span> 교체 필요</span>
+    <span class="legend-item"><span class="dot dot-unknown"></span> 미기록 / 부품 없음</span>
+  </div>
+
+  <div id="equipment" class="equipment-frame">
+    <div class="equipment-label" id="equipmentLabel">CHALLENGER 설비 (유닛을 클릭해서 부품을 관리 · 편집 모드에서 드래그로 배치 변경)</div>
+    <div id="canvas" class="equipment-canvas"></div>
+    <button id="addUnitBtn" class="btn btn-sm btn-outline-primary add-unit-btn d-none">
+      <i class="bi bi-plus-lg"></i> 유닛 추가
+    </button>
+  </div>
+
+  <div class="notes-section">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h6 class="mb-0"><i class="bi bi-journal-text"></i> 설비 메모 / 구매처 링크</h6>
+      <div class="d-flex align-items-center gap-2">
+        <span id="notesSavedAt" class="text-muted small"></span>
+        <button id="editNotesBtn" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-pencil"></i> 편집
+        </button>
+        <button id="saveNotesBtn" class="btn btn-sm btn-primary d-none">저장</button>
+        <button id="cancelNotesBtn" class="btn btn-sm btn-outline-secondary d-none">취소</button>
+      </div>
+    </div>
+    <div id="notesView" class="notes-view"></div>
+    <textarea id="notesEdit" class="form-control d-none" rows="8"
+      placeholder="설비 정보, 부품 구매 사이트 URL 등을 자유롭게 기록하세요. (http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></textarea>
+  </div>
+
+</main>
+
+<!-- 유닛 상세 (부품 교체일 관리) 모달 -->
+<div class="modal fade" id="unitModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="unitModalTitle">유닛</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="mb-0">등록된 부품</h6>
+          <button id="showAddPartBtn" class="btn btn-sm btn-primary">
+            <i class="bi bi-plus-lg"></i> 부품 등록
+          </button>
+        </div>
+
+        <form id="addPartForm" class="row g-2 mb-3 d-none">
+          <div class="col-md-4">
+            <input type="text" class="form-control form-control-sm" id="partName" placeholder="부품명 (예: O-Ring)" required>
+          </div>
+          <div class="col-md-3">
+            <input type="text" class="form-control form-control-sm" id="partSpec" placeholder="규격 / 모델명">
+          </div>
+          <div class="col-md-2">
+            <input type="number" class="form-control form-control-sm" id="partCycle" placeholder="교체주기(일)" value="90" min="1" required>
+          </div>
+          <div class="col-md-3">
+            <input type="date" class="form-control form-control-sm" id="partLastDate">
+          </div>
+          <div class="col-12">
+            <input type="text" class="form-control form-control-sm" id="partNote" placeholder="비고">
+          </div>
+          <div class="col-12 text-end">
+            <button type="button" class="btn btn-sm btn-secondary" id="cancelAddPartBtn">취소</button>
+            <button type="submit" class="btn btn-sm btn-primary">등록</button>
+          </div>
+        </form>
+
+        <div id="partsList"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 교체 기록 모달 -->
+<div class="modal fade" id="replaceModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">부품 교체 기록</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="replaceForm">
+          <div class="mb-2">
+            <label class="form-label">교체일</label>
+            <input type="date" class="form-control" id="replaceDate" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">비고</label>
+            <input type="text" class="form-control" id="replaceNote" placeholder="교체 사유 / 작업자 등">
+          </div>
+          <button type="submit" class="btn btn-primary w-100">기록 저장</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 교체 이력 모달 -->
+<div class="modal fade" id="historyModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">교체 이력</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="historyList"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 유닛 추가/편집 모달 -->
+<div class="modal fade" id="unitEditModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="unitEditTitle">유닛 추가</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="unitEditForm">
+          <input type="hidden" id="unitEditId">
+          <div class="mb-2">
+            <label class="form-label">유닛 이름</label>
+            <input type="text" class="form-control" id="unitEditName" required>
+          </div>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label">아이콘 (이모지)</label>
+              <input type="text" class="form-control" id="unitEditIcon" placeholder="⚙️">
+            </div>
+            <div class="col-6">
+              <label class="form-label">색상</label>
+              <input type="color" class="form-control form-control-color w-100" id="unitEditColor" value="#1a3a5c">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary w-100 mt-3">저장</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+let editMode = false;
+let currentUnitId = null;
+let currentPartId = null;
+let unitModal, replaceModal, historyModal, unitEditModal;
+
+const statusBadge = { ok: "badge-ok", soon: "badge-soon", overdue: "badge-overdue", unknown: "badge-unknown" };
+const statusLabel = { ok: "정상", soon: "교체 임박", overdue: "교체 필요", unknown: "미기록" };
+
+function tick() {
+  const el = document.getElementById("clock");
+  if (el) el.textContent = new Date().toLocaleString("ko-KR");
+}
+
+async function fetchJson(url, options) {
+  const res = await fetch(url, options);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || "요청 처리 중 오류가 발생했습니다");
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+async function loadUnits() {
+  const units = await fetchJson("/api/units");
+  renderCanvas(units);
+}
+
+function renderCanvas(units) {
+  const canvas = document.getElementById("canvas");
+  canvas.innerHTML = units.map(unitCardHtml).join("");
+  units.forEach((u) => {
+    const card = canvas.querySelector(`[data-unit-id="${u.id}"]`);
+    card.style.left = `${u.pos_x}%`;
+    card.style.top = `${u.pos_y}%`;
+    card.style.width = `${u.width}px`;
+    card.style.height = `${u.height}px`;
+
+    card.querySelector(".edit-unit-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openUnitEditModal(u);
+    });
+    card.querySelector(".delete-unit-btn")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm(`"${u.name}" 유닛을 삭제할까요? 등록된 부품/이력도 함께 삭제됩니다.`)) return;
+      await fetchJson(`/api/units/${u.id}`, { method: "DELETE" });
+      loadUnits();
+    });
+
+    makeDraggable(card, u);
+    makeResizable(card, u);
+  });
+}
+
+const MIN_UNIT_WIDTH = 90;
+const MIN_UNIT_HEIGHT = 80;
+const MAX_UNIT_WIDTH = 320;
+const MAX_UNIT_HEIGHT = 260;
+
+function makeResizable(card, unit) {
+  const handle = card.querySelector(".resize-handle");
+  if (!handle) return;
+
+  handle.addEventListener("mousedown", (e) => {
+    if (!editMode) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startWidth = card.offsetWidth;
+    const startHeight = card.offsetHeight;
+
+    card.classList.add("dragging");
+
+    function onMove(ev) {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      const w = Math.min(Math.max(startWidth + dx, MIN_UNIT_WIDTH), MAX_UNIT_WIDTH);
+      const h = Math.min(Math.max(startHeight + dy, MIN_UNIT_HEIGHT), MAX_UNIT_HEIGHT);
+      card.style.width = `${w}px`;
+      card.style.height = `${h}px`;
+    }
+
+    async function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      card.classList.remove("dragging");
+      const width = card.offsetWidth;
+      const height = card.offsetHeight;
+      await fetchJson(`/api/units/${unit.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ width, height }),
+      });
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+function makeDraggable(card, unit) {
+  card.addEventListener("mousedown", (e) => {
+    if (!editMode) return;
+    if (e.target.closest(".unit-edit-actions")) return;
+    e.preventDefault();
+
+    const canvas = document.getElementById("canvas");
+    const rect = canvas.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startLeft = (parseFloat(card.style.left) / 100) * rect.width;
+    const startTop = (parseFloat(card.style.top) / 100) * rect.height;
+    let moved = false;
+
+    card.classList.add("dragging");
+
+    function onMove(ev) {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved = true;
+      const px = Math.min(Math.max(startLeft + dx, rect.width * 0.04), rect.width * 0.96);
+      const py = Math.min(Math.max(startTop + dy, rect.height * 0.04), rect.height * 0.96);
+      card.style.left = `${(px / rect.width) * 100}%`;
+      card.style.top = `${(py / rect.height) * 100}%`;
+    }
+
+    async function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      card.classList.remove("dragging");
+      if (moved) {
+        const pos_x = parseFloat(card.style.left);
+        const pos_y = parseFloat(card.style.top);
+        await fetchJson(`/api/units/${unit.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pos_x, pos_y }),
+        });
+      } else {
+        openUnitModal(unit.id, unit.name);
+      }
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+
+  card.addEventListener("click", (e) => {
+    if (editMode) return;
+    if (e.target.closest(".unit-edit-actions")) return;
+    openUnitModal(unit.id, unit.name);
+  });
+}
+
+function unitCardHtml(u) {
+  return `
+    <div class="unit-card ${editMode ? "edit-mode" : ""}" data-unit-id="${u.id}" style="--uc:${u.color}">
+      <span class="unit-status-dot dot-${u.overall_status}"></span>
+      <span class="unit-icon">${u.icon}</span>
+      <div class="unit-name">${escapeHtml(u.name)}</div>
+      <div class="unit-part-count">${u.part_count}개 부품 등록</div>
+      <div class="unit-edit-actions">
+        <button class="edit-unit-btn" title="편집"><i class="bi bi-pencil"></i></button>
+        <button class="delete-unit-btn" title="삭제"><i class="bi bi-trash"></i></button>
+      </div>
+      <div class="resize-handle" title="크기 조절"></div>
+    </div>`;
+}
+
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+function linkifyText(text) {
+  const escaped = escapeHtml(text);
+  return escaped.replace(
+    /(https?:\/\/[^\s<]+)/g,
+    '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+  );
+}
+
+let lastNotesContent = "";
+
+async function loadNotes() {
+  const data = await fetchJson("/api/notes");
+  lastNotesContent = data.content || "";
+  renderNotesView(lastNotesContent);
+  document.getElementById("notesEdit").value = lastNotesContent;
+  document.getElementById("notesSavedAt").textContent = data.updated_at
+    ? `최종 수정: ${data.updated_at}`
+    : "";
+}
+
+function renderNotesView(content) {
+  const view = document.getElementById("notesView");
+  if (!content || !content.trim()) {
+    view.innerHTML = "";
+    view.classList.add("is-empty");
+  } else {
+    view.classList.remove("is-empty");
+    view.innerHTML = linkifyText(content);
+  }
+}
+
+function setNotesEditing(editing) {
+  document.getElementById("notesView").classList.toggle("d-none", editing);
+  document.getElementById("notesEdit").classList.toggle("d-none", !editing);
+  document.getElementById("editNotesBtn").classList.toggle("d-none", editing);
+  document.getElementById("saveNotesBtn").classList.toggle("d-none", !editing);
+  document.getElementById("cancelNotesBtn").classList.toggle("d-none", !editing);
+  if (editing) document.getElementById("notesEdit").focus();
+}
+
+async function openUnitModal(unitId, unitName) {
+  currentUnitId = unitId;
+  document.getElementById("unitModalTitle").textContent = unitName;
+  document.getElementById("addPartForm").classList.add("d-none");
+  document.getElementById("addPartForm").reset();
+  await loadParts(unitId);
+  unitModal.show();
+}
+
+async function loadParts(unitId) {
+  const parts = await fetchJson(`/api/units/${unitId}/parts`);
+  const list = document.getElementById("partsList");
+  if (parts.length === 0) {
+    list.innerHTML = `<p class="text-muted">등록된 부품이 없습니다. "부품 등록" 버튼으로 추가하세요.</p>`;
+    return;
+  }
+  list.innerHTML = parts.map(partCardHtml).join("");
+  parts.forEach((p) => {
+    const card = list.querySelector(`[data-part-id="${p.id}"]`);
+    card.querySelector(".replace-btn").addEventListener("click", () => openReplaceModal(p.id));
+    card.querySelector(".history-btn").addEventListener("click", () => openHistoryModal(p.id, p.name));
+    card.querySelector(".delete-part-btn").addEventListener("click", async () => {
+      if (!confirm(`"${p.name}" 부품을 삭제할까요?`)) return;
+      await fetchJson(`/api/parts/${p.id}`, { method: "DELETE" });
+      loadParts(unitId);
+      loadUnits();
+    });
+  });
+}
+
+function partCardHtml(p) {
+  const badge = statusBadge[p.status];
+  const label = statusLabel[p.status];
+  const lastText = p.last_replaced_date ? `최근 교체: ${p.last_replaced_date}` : "교체 이력 없음";
+  const dueText = p.next_due ? `다음 교체 예정: ${p.next_due} (${p.days_left >= 0 ? p.days_left + "일 남음" : Math.abs(p.days_left) + "일 초과"})` : "";
+  return `
+    <div class="part-card" data-part-id="${p.id}">
+      <div class="d-flex justify-content-between align-items-start">
+        <div>
+          <span class="part-title">${escapeHtml(p.name)}</span>
+          <span class="badge ${badge} ms-1">${label}</span>
+          ${p.spec ? `<div class="part-spec">${escapeHtml(p.spec)}</div>` : ""}
+        </div>
+        <div class="text-end">
+          <button class="btn btn-sm btn-outline-secondary history-btn"><i class="bi bi-clock-history"></i></button>
+          <button class="btn btn-sm btn-outline-danger delete-part-btn"><i class="bi bi-trash"></i></button>
+        </div>
+      </div>
+      <div class="mt-2 small text-muted">
+        교체 주기: ${p.cycle_days}일 &middot; ${lastText}
+        ${dueText ? `<br>${dueText}` : ""}
+        ${p.note ? `<br>비고: ${escapeHtml(p.note)}` : ""}
+      </div>
+      <button class="btn btn-sm btn-primary mt-2 replace-btn"><i class="bi bi-arrow-repeat"></i> 교체 기록 추가</button>
+    </div>`;
+}
+
+function openReplaceModal(partId) {
+  currentPartId = partId;
+  document.getElementById("replaceDate").value = new Date().toISOString().slice(0, 10);
+  document.getElementById("replaceNote").value = "";
+  replaceModal.show();
+}
+
+async function openHistoryModal(partId, partName) {
+  const history = await fetchJson(`/api/parts/${partId}/history`);
+  const list = document.getElementById("historyList");
+  document.querySelector("#historyModal .modal-title").textContent = `교체 이력 - ${partName}`;
+  if (history.length === 0) {
+    list.innerHTML = `<p class="text-muted">교체 이력이 없습니다.</p>`;
+  } else {
+    list.innerHTML = history
+      .map(
+        (h) => `
+      <div class="history-row d-flex justify-content-between">
+        <div><strong>${h.replaced_date}</strong> ${h.note ? " - " + escapeHtml(h.note) : ""}</div>
+        <button class="btn btn-sm btn-link text-danger p-0 del-history-btn" data-id="${h.id}">삭제</button>
+      </div>`
+      )
+      .join("");
+    list.querySelectorAll(".del-history-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        await fetchJson(`/api/history/${btn.dataset.id}`, { method: "DELETE" });
+        openHistoryModal(partId, partName);
+        if (currentUnitId) loadParts(currentUnitId);
+        loadUnits();
+      });
+    });
+  }
+  historyModal.show();
+}
+
+function openUnitEditModal(unit) {
+  document.getElementById("unitEditTitle").textContent = unit ? "유닛 편집" : "유닛 추가";
+  document.getElementById("unitEditId").value = unit ? unit.id : "";
+  document.getElementById("unitEditName").value = unit ? unit.name : "";
+  document.getElementById("unitEditIcon").value = unit ? unit.icon : "⚙️";
+  document.getElementById("unitEditColor").value = unit ? unit.color : "#1a3a5c";
+  unitEditModal.show();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  unitModal = new bootstrap.Modal(document.getElementById("unitModal"));
+  replaceModal = new bootstrap.Modal(document.getElementById("replaceModal"));
+  historyModal = new bootstrap.Modal(document.getElementById("historyModal"));
+  unitEditModal = new bootstrap.Modal(document.getElementById("unitEditModal"));
+
+  tick();
+  setInterval(tick, 1000);
+  loadUnits();
+  loadNotes();
+
+  document.getElementById("editNotesBtn").addEventListener("click", () => setNotesEditing(true));
+  document.getElementById("cancelNotesBtn").addEventListener("click", () => {
+    document.getElementById("notesEdit").value = lastNotesContent;
+    setNotesEditing(false);
+  });
+  document.getElementById("saveNotesBtn").addEventListener("click", async () => {
+    const content = document.getElementById("notesEdit").value;
+    try {
+      const data = await fetchJson("/api/notes", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      });
+      lastNotesContent = data.content || "";
+      renderNotesView(lastNotesContent);
+      document.getElementById("notesSavedAt").textContent = data.updated_at
+        ? `최종 수정: ${data.updated_at}`
+        : "";
+      setNotesEditing(false);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById("editModeBtn").addEventListener("click", (e) => {
+    editMode = !editMode;
+    e.currentTarget.classList.toggle("btn-outline-light", !editMode);
+    e.currentTarget.classList.toggle("btn-warning", editMode);
+    document.getElementById("addUnitBtn").classList.toggle("d-none", !editMode);
+    loadUnits();
+  });
+
+  document.getElementById("addUnitBtn").addEventListener("click", () => openUnitEditModal(null));
+
+  document.getElementById("showAddPartBtn").addEventListener("click", () => {
+    document.getElementById("addPartForm").classList.remove("d-none");
+    document.getElementById("partLastDate").value = "";
+  });
+  document.getElementById("cancelAddPartBtn").addEventListener("click", () => {
+    document.getElementById("addPartForm").classList.add("d-none");
+    document.getElementById("addPartForm").reset();
+  });
+
+  document.getElementById("addPartForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = {
+      name: document.getElementById("partName").value.trim(),
+      spec: document.getElementById("partSpec").value.trim(),
+      cycle_days: parseInt(document.getElementById("partCycle").value, 10),
+      last_replaced_date: document.getElementById("partLastDate").value || null,
+      note: document.getElementById("partNote").value.trim(),
+    };
+    try {
+      await fetchJson(`/api/units/${currentUnitId}/parts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      e.target.reset();
+      e.target.classList.add("d-none");
+      loadParts(currentUnitId);
+      loadUnits();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById("replaceForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = {
+      replaced_date: document.getElementById("replaceDate").value,
+      note: document.getElementById("replaceNote").value.trim(),
+    };
+    try {
+      await fetchJson(`/api/parts/${currentPartId}/replace`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      replaceModal.hide();
+      loadParts(currentUnitId);
+      loadUnits();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById("unitEditForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = document.getElementById("unitEditId").value;
+    const payload = {
+      name: document.getElementById("unitEditName").value.trim(),
+      icon: document.getElementById("unitEditIcon").value.trim(),
+      color: document.getElementById("unitEditColor").value,
+    };
+    try {
+      if (id) {
+        await fetchJson(`/api/units/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await fetchJson(`/api/units`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
+      unitEditModal.hide();
+      loadUnits();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+});
+</script>
+</body>
+</html>
+"""
+
+
+if __name__ == "__main__":
+    init_db()
+    print("설비 부품 교체 관리 시스템 시작! → http://localhost:5000")
+    app.run(host="0.0.0.0", port=5000, debug=True)
