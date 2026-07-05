@@ -1,20 +1,22 @@
 from flask import Flask, render_template, request, jsonify
 import sqlite3
 import os
+import random
 from datetime import date, datetime, timedelta
 
 app = Flask(__name__)
 DB_PATH = os.path.join(os.path.dirname(__file__), "equipment.db")
 
 # 사진 속 설비(로드포트 4개 + HMI 제어패널 + 공정모듈 + 배기/시그널타워) 구조를 본뜬 기본 유닛
+# pos_x, pos_y는 설비 캔버스 안에서 유닛 중심의 위치(% 좌표)
 DEFAULT_UNITS = [
-    ("배기 유닛 / 시그널 타워", "🚨", "#6b7280", "top", 0),
-    ("로드포트 1", "📦", "#2563eb", "main", 1),
-    ("로드포트 2", "📦", "#2563eb", "main", 2),
-    ("로드포트 3", "📦", "#2563eb", "main", 3),
-    ("로드포트 4", "📦", "#2563eb", "main", 4),
-    ("HMI 제어 패널", "🖥️", "#0f766e", "main", 5),
-    ("공정 모듈 (파워유닛)", "🔧", "#7c3aed", "main", 6),
+    ("배기 유닛 / 시그널 타워", "🚨", "#6b7280", 50, 18),
+    ("로드포트 1", "📦", "#2563eb", 10, 60),
+    ("로드포트 2", "📦", "#2563eb", 26, 60),
+    ("로드포트 3", "📦", "#2563eb", 42, 60),
+    ("로드포트 4", "📦", "#2563eb", 58, 60),
+    ("HMI 제어 패널", "🖥️", "#0f766e", 76, 60),
+    ("공정 모듈 (파워유닛)", "🔧", "#7c3aed", 92, 60),
 ]
 
 
@@ -34,11 +36,21 @@ def init_db():
             name TEXT NOT NULL,
             icon TEXT DEFAULT '⚙️',
             color TEXT DEFAULT '#1a3a5c',
-            row TEXT DEFAULT 'main',
-            sort_order INTEGER DEFAULT 0,
+            pos_x REAL DEFAULT 50,
+            pos_y REAL DEFAULT 50,
             created_at TEXT DEFAULT (datetime('now','localtime'))
         )
     """)
+    existing_cols = {r["name"] for r in c.execute("PRAGMA table_info(units)").fetchall()}
+    if "pos_x" not in existing_cols:
+        c.execute("ALTER TABLE units ADD COLUMN pos_x REAL")
+        c.execute("ALTER TABLE units ADD COLUMN pos_y REAL")
+    unplaced = c.execute(
+        "SELECT id FROM units WHERE pos_x IS NULL OR pos_y IS NULL ORDER BY id"
+    ).fetchall()
+    for i, row in enumerate(unplaced):
+        x = 10 + (i * 84 / max(len(unplaced) - 1, 1)) if len(unplaced) > 1 else 50
+        c.execute("UPDATE units SET pos_x = ?, pos_y = ? WHERE id = ?", (x, 50, row["id"]))
     c.execute("""
         CREATE TABLE IF NOT EXISTS parts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,10 +76,10 @@ def init_db():
     """)
     row = c.execute("SELECT COUNT(*) AS n FROM units").fetchone()
     if row["n"] == 0:
-        for name, icon, color, row_key, order in DEFAULT_UNITS:
+        for name, icon, color, pos_x, pos_y in DEFAULT_UNITS:
             c.execute(
-                "INSERT INTO units (name, icon, color, row, sort_order) VALUES (?, ?, ?, ?, ?)",
-                (name, icon, color, row_key, order),
+                "INSERT INTO units (name, icon, color, pos_x, pos_y) VALUES (?, ?, ?, ?, ?)",
+                (name, icon, color, pos_x, pos_y),
             )
     conn.commit()
     conn.close()
@@ -109,7 +121,7 @@ def index():
 @app.route("/api/units")
 def list_units():
     conn = get_db()
-    units = conn.execute("SELECT * FROM units ORDER BY row, sort_order, id").fetchall()
+    units = conn.execute("SELECT * FROM units ORDER BY id").fetchall()
     result = []
     for u in units:
         parts = conn.execute(
@@ -142,14 +154,14 @@ def add_unit():
         return jsonify({"error": "유닛 이름을 입력하세요"}), 400
     icon = (data.get("icon") or "⚙️").strip()
     color = (data.get("color") or "#1a3a5c").strip()
-    row_key = data.get("row") or "extra"
+    pos_x = data.get("pos_x")
+    pos_y = data.get("pos_y")
+    if pos_x is None or pos_y is None:
+        pos_x, pos_y = random.uniform(15, 85), random.uniform(20, 80)
     conn = get_db()
-    max_order = conn.execute(
-        "SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM units WHERE row = ?", (row_key,)
-    ).fetchone()["n"]
     cur = conn.execute(
-        "INSERT INTO units (name, icon, color, row, sort_order) VALUES (?, ?, ?, ?, ?)",
-        (name, icon, color, row_key, max_order),
+        "INSERT INTO units (name, icon, color, pos_x, pos_y) VALUES (?, ?, ?, ?, ?)",
+        (name, icon, color, pos_x, pos_y),
     )
     conn.commit()
     new_id = cur.lastrowid
@@ -172,9 +184,11 @@ def update_unit(unit_id):
     name = (data.get("name") or unit["name"]).strip()
     icon = (data.get("icon") or unit["icon"]).strip()
     color = (data.get("color") or unit["color"]).strip()
+    pos_x = data.get("pos_x", unit["pos_x"])
+    pos_y = data.get("pos_y", unit["pos_y"])
     conn.execute(
-        "UPDATE units SET name = ?, icon = ?, color = ? WHERE id = ?",
-        (name, icon, color, unit_id),
+        "UPDATE units SET name = ?, icon = ?, color = ?, pos_x = ?, pos_y = ? WHERE id = ?",
+        (name, icon, color, pos_x, pos_y, unit_id),
     )
     conn.commit()
     conn.close()

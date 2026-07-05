@@ -57,44 +57,46 @@ body {
   border-radius: 999px;
 }
 
-.unit-row {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  justify-content: center;
+.equipment-canvas {
+  position: relative;
+  width: 100%;
+  min-height: 460px;
   margin-top: 10px;
 }
-.unit-row-top { margin-top: 4px; }
-.unit-row-extra:empty { margin: 0; }
+@media (max-width: 768px) {
+  .equipment-canvas { min-height: 620px; }
+}
 
 .unit-card {
   --uc: #1a3a5c;
-  position: relative;
-  width: 150px;
-  min-height: 120px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 140px;
+  min-height: 110px;
   background: #fff;
   border: 2px solid var(--uc);
   border-radius: 12px;
   padding: 12px 10px 10px;
   cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition: box-shadow 0.15s;
   text-align: center;
+  user-select: none;
+  touch-action: none;
 }
 .unit-card:hover {
-  transform: translateY(-3px);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  z-index: 5;
 }
-.unit-row-top .unit-card {
-  width: 100%;
-  max-width: 100%;
-  min-height: 70px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
+.edit-mode.unit-card { cursor: grab; }
+.unit-card.dragging {
+  cursor: grabbing;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  z-index: 20;
+  transition: none;
 }
 .unit-icon { font-size: 28px; display: block; margin-bottom: 6px; }
-.unit-row-top .unit-icon { font-size: 22px; margin: 0; }
 .unit-name { font-size: 13px; font-weight: 600; color: #1f2937; line-height: 1.3; }
 .unit-status-dot {
   position: absolute;

@@ -22,23 +22,17 @@ async function fetchJson(url, options) {
 
 async function loadUnits() {
   const units = await fetchJson("/api/units");
-  const rows = { top: [], main: [], extra: [] };
-  units.forEach((u) => (rows[u.row] || rows.extra).push(u));
-
-  renderRow("rowTop", rows.top);
-  renderRow("rowMain", rows.main);
-  renderRow("rowExtra", rows.extra);
+  renderCanvas(units);
 }
 
-function renderRow(elId, units) {
-  const container = document.getElementById(elId);
-  container.innerHTML = units.map(unitCardHtml).join("");
+function renderCanvas(units) {
+  const canvas = document.getElementById("canvas");
+  canvas.innerHTML = units.map(unitCardHtml).join("");
   units.forEach((u) => {
-    const card = container.querySelector(`[data-unit-id="${u.id}"]`);
-    card.addEventListener("click", (e) => {
-      if (e.target.closest(".unit-edit-actions")) return;
-      openUnitModal(u.id, u.name);
-    });
+    const card = canvas.querySelector(`[data-unit-id="${u.id}"]`);
+    card.style.left = `${u.pos_x}%`;
+    card.style.top = `${u.pos_y}%`;
+
     card.querySelector(".edit-unit-btn")?.addEventListener("click", (e) => {
       e.stopPropagation();
       openUnitEditModal(u);
@@ -49,6 +43,62 @@ function renderRow(elId, units) {
       await fetchJson(`/api/units/${u.id}`, { method: "DELETE" });
       loadUnits();
     });
+
+    makeDraggable(card, u);
+  });
+}
+
+function makeDraggable(card, unit) {
+  card.addEventListener("mousedown", (e) => {
+    if (!editMode) return;
+    if (e.target.closest(".unit-edit-actions")) return;
+    e.preventDefault();
+
+    const canvas = document.getElementById("canvas");
+    const rect = canvas.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startLeft = (parseFloat(card.style.left) / 100) * rect.width;
+    const startTop = (parseFloat(card.style.top) / 100) * rect.height;
+    let moved = false;
+
+    card.classList.add("dragging");
+
+    function onMove(ev) {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved = true;
+      const px = Math.min(Math.max(startLeft + dx, rect.width * 0.04), rect.width * 0.96);
+      const py = Math.min(Math.max(startTop + dy, rect.height * 0.04), rect.height * 0.96);
+      card.style.left = `${(px / rect.width) * 100}%`;
+      card.style.top = `${(py / rect.height) * 100}%`;
+    }
+
+    async function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      card.classList.remove("dragging");
+      if (moved) {
+        const pos_x = parseFloat(card.style.left);
+        const pos_y = parseFloat(card.style.top);
+        await fetchJson(`/api/units/${unit.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pos_x, pos_y }),
+        });
+      } else {
+        openUnitModal(unit.id, unit.name);
+      }
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+
+  card.addEventListener("click", (e) => {
+    if (editMode) return;
+    if (e.target.closest(".unit-edit-actions")) return;
+    openUnitModal(unit.id, unit.name);
   });
 }
 
@@ -253,7 +303,6 @@ document.addEventListener("DOMContentLoaded", () => {
       name: document.getElementById("unitEditName").value.trim(),
       icon: document.getElementById("unitEditIcon").value.trim(),
       color: document.getElementById("unitEditColor").value,
-      row: "extra",
     };
     try {
       if (id) {
