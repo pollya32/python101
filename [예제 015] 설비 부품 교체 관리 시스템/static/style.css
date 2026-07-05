@@ -158,15 +158,20 @@ body {
 }
 
 /* ── 대시보드 그리드 ──────────────────────────────────────────── */
-.equipment-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
-  gap: 16px;
-  max-width: 1100px;
-  margin: 0 auto;
+.dashboard-canvas {
+  max-width: 1300px;
+  margin: 10px auto 0;
+  min-height: 640px;
+}
+@media (max-width: 768px) {
+  .dashboard-canvas { min-height: 900px; }
 }
 .equipment-card {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 150px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-top: 3px solid var(--pri);
@@ -175,12 +180,22 @@ body {
   cursor: pointer;
   text-align: center;
   box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  user-select: none;
+  touch-action: none;
+  box-sizing: border-box;
 }
 .equipment-card:hover {
   box-shadow: var(--shadow-lg);
-  transform: translateY(-3px);
   border-top-color: var(--accent);
+  z-index: 5;
+}
+.equipment-card.edit-mode { cursor: grab; }
+.equipment-card.dragging {
+  cursor: grabbing;
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+  transition: none;
 }
 .equipment-card .unit-icon { font-size: 30px; }
 

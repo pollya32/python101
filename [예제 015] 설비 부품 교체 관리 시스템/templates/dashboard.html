@@ -50,12 +50,16 @@
       <input type="text" id="equipmentSearch" class="form-control form-control-sm" placeholder="설비 이름 검색">
     </div>
     <select id="equipmentSort" class="form-select form-select-sm w-auto">
+      <option value="custom" selected>자유 배치</option>
       <option value="name">이름순</option>
       <option value="overdue">교체 필요 많은 순</option>
     </select>
   </div>
 
-  <div id="equipmentGrid" class="equipment-grid"></div>
+  <div class="equipment-frame">
+    <div class="equipment-label">편집 모드에서 설비를 드래그해 자유롭게 배치 · 클릭하면 상세 페이지로 이동</div>
+    <div id="equipmentGrid" class="equipment-canvas dashboard-canvas"></div>
+  </div>
   <p id="noResultsMsg" class="text-muted text-center py-4 d-none">검색 결과가 없습니다.</p>
 
 </main>

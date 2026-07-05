@@ -11,6 +11,15 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "equipment.db")
 EQUIPMENT_COUNT = 20
 EQUIPMENT_PREFIX = "TEAG"
 
+
+def dashboard_grid_pos(index, cols=5):
+    """대시보드 캔버스 안에서 index번째 설비의 기본 격자 위치(% 좌표)를 계산한다."""
+    row = index // cols
+    col = index % cols
+    x = 10 + col * (80 / max(cols - 1, 1))
+    y = min(15 + row * 22, 92)
+    return round(x, 2), round(y, 2)
+
 # 사진 속 설비(로드포트 4개 + HMI 제어패널 + 공정모듈 + 배기/시그널타워) 구조를 본뜬 기본 유닛
 # pos_x, pos_y는 설비 캔버스 안에서 유닛 중심의 위치(% 좌표)
 DEFAULT_UNITS = [
@@ -53,6 +62,8 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
             icon TEXT DEFAULT '🏭',
+            pos_x REAL DEFAULT 50,
+            pos_y REAL DEFAULT 50,
             created_at TEXT DEFAULT (datetime('now','localtime'))
         )
     """)
@@ -60,13 +71,23 @@ def init_db():
     if "icon" not in existing_eq_cols:
         c.execute("ALTER TABLE equipments ADD COLUMN icon TEXT DEFAULT '🏭'")
         c.execute("UPDATE equipments SET icon = '🏭' WHERE icon IS NULL")
+    if "pos_x" not in existing_eq_cols:
+        c.execute("ALTER TABLE equipments ADD COLUMN pos_x REAL")
+        c.execute("ALTER TABLE equipments ADD COLUMN pos_y REAL")
     eq_count = c.execute("SELECT COUNT(*) AS n FROM equipments").fetchone()["n"]
     if eq_count == 0:
         for i in range(1, EQUIPMENT_COUNT + 1):
+            x, y = dashboard_grid_pos(i - 1)
             c.execute(
-                "INSERT INTO equipments (id, name) VALUES (?, ?)",
-                (i, f"{EQUIPMENT_PREFIX}{i:02d}호기"),
+                "INSERT INTO equipments (id, name, pos_x, pos_y) VALUES (?, ?, ?, ?)",
+                (i, f"{EQUIPMENT_PREFIX}{i:02d}호기", x, y),
             )
+    unplaced_eq = c.execute(
+        "SELECT id FROM equipments WHERE pos_x IS NULL OR pos_y IS NULL ORDER BY id"
+    ).fetchall()
+    for i, row in enumerate(unplaced_eq):
+        x, y = dashboard_grid_pos(i)
+        c.execute("UPDATE equipments SET pos_x = ?, pos_y = ? WHERE id = ?", (x, y, row["id"]))
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS units (
@@ -379,7 +400,12 @@ def add_equipment():
     icon = (data.get("icon") or "🏭").strip()
     conn = get_db()
     try:
-        cur = conn.execute("INSERT INTO equipments (name, icon) VALUES (?, ?)", (name, icon))
+        count = conn.execute("SELECT COUNT(*) AS n FROM equipments").fetchone()["n"]
+        pos_x, pos_y = dashboard_grid_pos(count)
+        cur = conn.execute(
+            "INSERT INTO equipments (name, icon, pos_x, pos_y) VALUES (?, ?, ?, ?)",
+            (name, icon, pos_x, pos_y),
+        )
         new_id = cur.lastrowid
         conn.execute(
             "INSERT INTO equipment_notes (equipment_id, content) VALUES (?, '')", (new_id,)
@@ -410,17 +436,20 @@ def get_equipment(equipment_id):
 @app.route("/api/equipments/<int:equipment_id>", methods=["PUT"])
 def update_equipment(equipment_id):
     data = request.get_json()
-    name = (data.get("name") or "").strip()
-    if not name:
-        return jsonify({"error": "설비 이름을 입력하세요"}), 400
     conn = get_db()
     equipment = conn.execute("SELECT * FROM equipments WHERE id = ?", (equipment_id,)).fetchone()
     if not equipment:
         conn.close()
         return jsonify({"error": "설비를 찾을 수 없습니다"}), 404
+    name = (data.get("name") or equipment["name"]).strip()
     icon = (data.get("icon") or equipment["icon"]).strip()
+    pos_x = data.get("pos_x", equipment["pos_x"])
+    pos_y = data.get("pos_y", equipment["pos_y"])
     try:
-        conn.execute("UPDATE equipments SET name = ?, icon = ? WHERE id = ?", (name, icon, equipment_id))
+        conn.execute(
+            "UPDATE equipments SET name = ?, icon = ?, pos_x = ?, pos_y = ? WHERE id = ?",
+            (name, icon, pos_x, pos_y, equipment_id),
+        )
         conn.commit()
     except sqlite3.IntegrityError:
         conn.close()

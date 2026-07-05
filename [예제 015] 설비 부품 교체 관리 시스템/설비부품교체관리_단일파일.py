@@ -27,6 +27,15 @@ DB_PATH = os.path.join(_base, "equipment_data.db")
 EQUIPMENT_COUNT = 20
 EQUIPMENT_PREFIX = "TEAG"
 
+
+def dashboard_grid_pos(index, cols=5):
+    """대시보드 캔버스 안에서 index번째 설비의 기본 격자 위치(% 좌표)를 계산한다."""
+    row = index // cols
+    col = index % cols
+    x = 10 + col * (80 / max(cols - 1, 1))
+    y = min(15 + row * 22, 92)
+    return round(x, 2), round(y, 2)
+
 # 사진 속 설비(로드포트 4개 + HMI 제어패널 + 공정모듈 + 배기/시그널타워) 구조를 본뜬 기본 유닛
 # pos_x, pos_y는 설비 캔버스 안에서 유닛 중심의 위치(% 좌표)
 DEFAULT_UNITS = [
@@ -69,6 +78,8 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
             icon TEXT DEFAULT '🏭',
+            pos_x REAL DEFAULT 50,
+            pos_y REAL DEFAULT 50,
             created_at TEXT DEFAULT (datetime('now','localtime'))
         )
     """)
@@ -76,13 +87,23 @@ def init_db():
     if "icon" not in existing_eq_cols:
         c.execute("ALTER TABLE equipments ADD COLUMN icon TEXT DEFAULT '🏭'")
         c.execute("UPDATE equipments SET icon = '🏭' WHERE icon IS NULL")
+    if "pos_x" not in existing_eq_cols:
+        c.execute("ALTER TABLE equipments ADD COLUMN pos_x REAL")
+        c.execute("ALTER TABLE equipments ADD COLUMN pos_y REAL")
     eq_count = c.execute("SELECT COUNT(*) AS n FROM equipments").fetchone()["n"]
     if eq_count == 0:
         for i in range(1, EQUIPMENT_COUNT + 1):
+            x, y = dashboard_grid_pos(i - 1)
             c.execute(
-                "INSERT INTO equipments (id, name) VALUES (?, ?)",
-                (i, f"{EQUIPMENT_PREFIX}{i:02d}호기"),
+                "INSERT INTO equipments (id, name, pos_x, pos_y) VALUES (?, ?, ?, ?)",
+                (i, f"{EQUIPMENT_PREFIX}{i:02d}호기", x, y),
             )
+    unplaced_eq = c.execute(
+        "SELECT id FROM equipments WHERE pos_x IS NULL OR pos_y IS NULL ORDER BY id"
+    ).fetchall()
+    for i, row in enumerate(unplaced_eq):
+        x, y = dashboard_grid_pos(i)
+        c.execute("UPDATE equipments SET pos_x = ?, pos_y = ? WHERE id = ?", (x, y, row["id"]))
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS units (
@@ -395,7 +416,12 @@ def add_equipment():
     icon = (data.get("icon") or "🏭").strip()
     conn = get_db()
     try:
-        cur = conn.execute("INSERT INTO equipments (name, icon) VALUES (?, ?)", (name, icon))
+        count = conn.execute("SELECT COUNT(*) AS n FROM equipments").fetchone()["n"]
+        pos_x, pos_y = dashboard_grid_pos(count)
+        cur = conn.execute(
+            "INSERT INTO equipments (name, icon, pos_x, pos_y) VALUES (?, ?, ?, ?)",
+            (name, icon, pos_x, pos_y),
+        )
         new_id = cur.lastrowid
         conn.execute(
             "INSERT INTO equipment_notes (equipment_id, content) VALUES (?, '')", (new_id,)
@@ -426,17 +452,20 @@ def get_equipment(equipment_id):
 @app.route("/api/equipments/<int:equipment_id>", methods=["PUT"])
 def update_equipment(equipment_id):
     data = request.get_json()
-    name = (data.get("name") or "").strip()
-    if not name:
-        return jsonify({"error": "설비 이름을 입력하세요"}), 400
     conn = get_db()
     equipment = conn.execute("SELECT * FROM equipments WHERE id = ?", (equipment_id,)).fetchone()
     if not equipment:
         conn.close()
         return jsonify({"error": "설비를 찾을 수 없습니다"}), 404
+    name = (data.get("name") or equipment["name"]).strip()
     icon = (data.get("icon") or equipment["icon"]).strip()
+    pos_x = data.get("pos_x", equipment["pos_x"])
+    pos_y = data.get("pos_y", equipment["pos_y"])
     try:
-        conn.execute("UPDATE equipments SET name = ?, icon = ? WHERE id = ?", (name, icon, equipment_id))
+        conn.execute(
+            "UPDATE equipments SET name = ?, icon = ?, pos_x = ?, pos_y = ? WHERE id = ?",
+            (name, icon, pos_x, pos_y, equipment_id),
+        )
         conn.commit()
     except sqlite3.IntegrityError:
         conn.close()
@@ -979,15 +1008,20 @@ body {
 }
 
 /* ── 대시보드 그리드 ──────────────────────────────────────────── */
-.equipment-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
-  gap: 16px;
-  max-width: 1100px;
-  margin: 0 auto;
+.dashboard-canvas {
+  max-width: 1300px;
+  margin: 10px auto 0;
+  min-height: 640px;
+}
+@media (max-width: 768px) {
+  .dashboard-canvas { min-height: 900px; }
 }
 .equipment-card {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 150px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-top: 3px solid var(--pri);
@@ -996,12 +1030,22 @@ body {
   cursor: pointer;
   text-align: center;
   box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  user-select: none;
+  touch-action: none;
+  box-sizing: border-box;
 }
 .equipment-card:hover {
   box-shadow: var(--shadow-lg);
-  transform: translateY(-3px);
   border-top-color: var(--accent);
+  z-index: 5;
+}
+.equipment-card.edit-mode { cursor: grab; }
+.equipment-card.dragging {
+  cursor: grabbing;
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+  transition: none;
 }
 .equipment-card .unit-icon { font-size: 30px; }
 
@@ -1376,12 +1420,16 @@ body {
       <input type="text" id="equipmentSearch" class="form-control form-control-sm" placeholder="설비 이름 검색">
     </div>
     <select id="equipmentSort" class="form-select form-select-sm w-auto">
+      <option value="custom" selected>자유 배치</option>
       <option value="name">이름순</option>
       <option value="overdue">교체 필요 많은 순</option>
     </select>
   </div>
 
-  <div id="equipmentGrid" class="equipment-grid"></div>
+  <div class="equipment-frame">
+    <div class="equipment-label">편집 모드에서 설비를 드래그해 자유롭게 배치 · 클릭하면 상세 페이지로 이동</div>
+    <div id="equipmentGrid" class="equipment-canvas dashboard-canvas"></div>
+  </div>
   <p id="noResultsMsg" class="text-muted text-center py-4 d-none">검색 결과가 없습니다.</p>
 
 </main>
@@ -1460,6 +1508,14 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
+function gridPos(index, cols = 5) {
+  const row = Math.floor(index / cols);
+  const col = index % cols;
+  const x = 10 + col * (80 / Math.max(cols - 1, 1));
+  const y = Math.min(15 + row * 22, 92);
+  return { x, y };
+}
+
 async function loadEquipments() {
   allEquipments = await fetchJson("/api/equipments");
   updateAlertsNavBadge();
@@ -1478,18 +1534,32 @@ function applyFilterSort() {
   let list = allEquipments.filter((eq) => eq.name.toLowerCase().includes(q));
   if (sortBy === "overdue") {
     list = [...list].sort((a, b) => b.overdue_count - a.overdue_count || a.id - b.id);
+  } else if (sortBy === "name") {
+    list = [...list].sort((a, b) => a.name.localeCompare(b.name, "ko") || a.id - b.id);
   } else {
     list = [...list].sort((a, b) => a.id - b.id);
   }
   document.getElementById("noResultsMsg").classList.toggle("d-none", list.length > 0);
-  renderGrid(list);
+  renderGrid(list, sortBy);
 }
 
-function renderGrid(equipments) {
+function renderGrid(equipments, sortBy) {
   const grid = document.getElementById("equipmentGrid");
   grid.innerHTML = equipments.map(equipmentCardHtml).join("");
-  equipments.forEach((eq) => {
+  equipments.forEach((eq, idx) => {
     const card = grid.querySelector(`[data-equipment-id="${eq.id}"]`);
+    let x, y;
+    if (sortBy === "custom") {
+      x = eq.pos_x;
+      y = eq.pos_y;
+    } else {
+      const p = gridPos(idx);
+      x = p.x;
+      y = p.y;
+    }
+    card.style.left = `${x}%`;
+    card.style.top = `${y}%`;
+
     card.querySelector(".edit-unit-btn")?.addEventListener("click", (e) => {
       e.stopPropagation();
       openEquipmentEditModal(eq);
@@ -1505,6 +1575,59 @@ function renderGrid(equipments) {
       if (e.target.closest(".unit-edit-actions")) return;
       window.location.href = `/equipment/${eq.id}`;
     });
+
+    makeDraggable(card, eq);
+  });
+}
+
+function makeDraggable(card, eq) {
+  card.addEventListener("mousedown", (e) => {
+    if (!editMode) return;
+    if (e.target.closest(".unit-edit-actions")) return;
+    e.preventDefault();
+
+    const canvas = document.getElementById("equipmentGrid");
+    const rect = canvas.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startLeft = (parseFloat(card.style.left) / 100) * rect.width;
+    const startTop = (parseFloat(card.style.top) / 100) * rect.height;
+    let moved = false;
+
+    card.classList.add("dragging");
+
+    function onMove(ev) {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved = true;
+      const px = Math.min(Math.max(startLeft + dx, rect.width * 0.04), rect.width * 0.96);
+      const py = Math.min(Math.max(startTop + dy, rect.height * 0.04), rect.height * 0.96);
+      card.style.left = `${(px / rect.width) * 100}%`;
+      card.style.top = `${(py / rect.height) * 100}%`;
+    }
+
+    async function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      card.classList.remove("dragging");
+      if (moved) {
+        const pos_x = parseFloat(card.style.left);
+        const pos_y = parseFloat(card.style.top);
+        eq.pos_x = pos_x;
+        eq.pos_y = pos_y;
+        await fetchJson(`/api/equipments/${eq.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pos_x, pos_y }),
+        });
+        const sortSelect = document.getElementById("equipmentSort");
+        if (sortSelect.value !== "custom") sortSelect.value = "custom";
+        applyFilterSort();
+      }
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
   });
 }
 
@@ -1757,15 +1880,20 @@ body {
 }
 
 /* ── 대시보드 그리드 ──────────────────────────────────────────── */
-.equipment-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
-  gap: 16px;
-  max-width: 1100px;
-  margin: 0 auto;
+.dashboard-canvas {
+  max-width: 1300px;
+  margin: 10px auto 0;
+  min-height: 640px;
+}
+@media (max-width: 768px) {
+  .dashboard-canvas { min-height: 900px; }
 }
 .equipment-card {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 150px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-top: 3px solid var(--pri);
@@ -1774,12 +1902,22 @@ body {
   cursor: pointer;
   text-align: center;
   box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  user-select: none;
+  touch-action: none;
+  box-sizing: border-box;
 }
 .equipment-card:hover {
   box-shadow: var(--shadow-lg);
-  transform: translateY(-3px);
   border-top-color: var(--accent);
+  z-index: 5;
+}
+.equipment-card.edit-mode { cursor: grab; }
+.equipment-card.dragging {
+  cursor: grabbing;
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+  transition: none;
 }
 .equipment-card .unit-icon { font-size: 30px; }
 
@@ -2824,15 +2962,20 @@ body {
 }
 
 /* ── 대시보드 그리드 ──────────────────────────────────────────── */
-.equipment-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
-  gap: 16px;
-  max-width: 1100px;
-  margin: 0 auto;
+.dashboard-canvas {
+  max-width: 1300px;
+  margin: 10px auto 0;
+  min-height: 640px;
+}
+@media (max-width: 768px) {
+  .dashboard-canvas { min-height: 900px; }
 }
 .equipment-card {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 150px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-top: 3px solid var(--pri);
@@ -2841,12 +2984,22 @@ body {
   cursor: pointer;
   text-align: center;
   box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  user-select: none;
+  touch-action: none;
+  box-sizing: border-box;
 }
 .equipment-card:hover {
   box-shadow: var(--shadow-lg);
-  transform: translateY(-3px);
   border-top-color: var(--accent);
+  z-index: 5;
+}
+.equipment-card.edit-mode { cursor: grab; }
+.equipment-card.dragging {
+  cursor: grabbing;
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+  transition: none;
 }
 .equipment-card .unit-icon { font-size: 30px; }
 
@@ -3915,15 +4068,20 @@ body {
 }
 
 /* ── 대시보드 그리드 ──────────────────────────────────────────── */
-.equipment-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
-  gap: 16px;
-  max-width: 1100px;
-  margin: 0 auto;
+.dashboard-canvas {
+  max-width: 1300px;
+  margin: 10px auto 0;
+  min-height: 640px;
+}
+@media (max-width: 768px) {
+  .dashboard-canvas { min-height: 900px; }
 }
 .equipment-card {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 150px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-top: 3px solid var(--pri);
@@ -3932,12 +4090,22 @@ body {
   cursor: pointer;
   text-align: center;
   box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  user-select: none;
+  touch-action: none;
+  box-sizing: border-box;
 }
 .equipment-card:hover {
   box-shadow: var(--shadow-lg);
-  transform: translateY(-3px);
   border-top-color: var(--accent);
+  z-index: 5;
+}
+.equipment-card.edit-mode { cursor: grab; }
+.equipment-card.dragging {
+  cursor: grabbing;
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+  transition: none;
 }
 .equipment-card .unit-icon { font-size: 30px; }
 
@@ -4867,15 +5035,20 @@ body {
 }
 
 /* ── 대시보드 그리드 ──────────────────────────────────────────── */
-.equipment-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
-  gap: 16px;
-  max-width: 1100px;
-  margin: 0 auto;
+.dashboard-canvas {
+  max-width: 1300px;
+  margin: 10px auto 0;
+  min-height: 640px;
+}
+@media (max-width: 768px) {
+  .dashboard-canvas { min-height: 900px; }
 }
 .equipment-card {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 150px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-top: 3px solid var(--pri);
@@ -4884,12 +5057,22 @@ body {
   cursor: pointer;
   text-align: center;
   box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  user-select: none;
+  touch-action: none;
+  box-sizing: border-box;
 }
 .equipment-card:hover {
   box-shadow: var(--shadow-lg);
-  transform: translateY(-3px);
   border-top-color: var(--accent);
+  z-index: 5;
+}
+.equipment-card.edit-mode { cursor: grab; }
+.equipment-card.dragging {
+  cursor: grabbing;
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+  transition: none;
 }
 .equipment-card .unit-icon { font-size: 30px; }
 
