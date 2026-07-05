@@ -33,7 +33,10 @@
   </div>
 
   <div id="unitShape" class="equipment-frame unit-shape">
-    <div class="equipment-label">부품을 클릭해서 교체일 관리 · 편집 모드에서 드래그로 배치/크기 변경</div>
+    <div class="equipment-label" id="unitLabel">부품을 클릭해서 교체일 관리 · 편집 모드에서 드래그로 배치/크기 변경</div>
+    <div id="masterHint" class="master-hint d-none">
+      <i class="bi bi-broadcast"></i> 기준 설비: 여기서 추가하는 부품은 동일한 이름의 유닛을 가진 나머지 설비에도 자동으로 적용됩니다.
+    </div>
     <div class="unit-shape-header">
       <span class="unit-shape-icon" id="unitIcon">⚙️</span>
       <span class="unit-shape-name" id="unitName">유닛</span>

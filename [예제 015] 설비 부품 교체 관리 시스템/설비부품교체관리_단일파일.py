@@ -29,6 +29,7 @@ DB_PATH = os.path.join(_base, "equipment_data.db")
 
 EQUIPMENT_COUNT = 20
 EQUIPMENT_PREFIX = "TEAG"
+MASTER_EQUIPMENT_ID = 1  # TEAG01호기: 이 설비에 추가한 부품은 동일한 이름의 유닛을 가진 나머지 설비에도 자동 복제된다
 
 
 def dashboard_grid_pos(index, cols=5):
@@ -287,6 +288,35 @@ def serialize_part(row):
     d = dict(row)
     d.update(info)
     return d
+
+
+def propagate_part_to_other_equipment(conn, unit_id, part_row):
+    """기준 설비(TEAG01호기)의 유닛에 부품이 추가되면, 동일한 이름의 유닛을 가진
+    나머지 설비에도 같은 부품을 복제한다. 복제된 부품은 각 설비에서 개별적으로 수정/삭제할 수 있다."""
+    unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
+    if not unit or unit["equipment_id"] != MASTER_EQUIPMENT_ID:
+        return 0
+    target_units = conn.execute(
+        "SELECT id FROM units WHERE name = ? AND equipment_id != ?",
+        (unit["name"], MASTER_EQUIPMENT_ID),
+    ).fetchall()
+    for t in target_units:
+        cur = conn.execute(
+            """INSERT INTO parts (unit_id, name, spec, cycle_days, last_replaced_date, note, icon, pos_x, pos_y, width, height)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                t["id"], part_row["name"], part_row["spec"], part_row["cycle_days"],
+                part_row["last_replaced_date"], part_row["note"], part_row["icon"],
+                part_row["pos_x"], part_row["pos_y"], part_row["width"], part_row["height"],
+            ),
+        )
+        new_part_id = cur.lastrowid
+        if part_row["last_replaced_date"]:
+            conn.execute(
+                "INSERT INTO replacement_history (part_id, replaced_date, note) VALUES (?, ?, ?)",
+                (new_part_id, part_row["last_replaced_date"], "최초 등록 (TEAG01호기 동기화)"),
+            )
+    return len(target_units)
 
 
 def unit_with_status(conn, u):
@@ -655,10 +685,13 @@ def add_part(unit_id):
             "INSERT INTO replacement_history (part_id, replaced_date, note) VALUES (?, ?, ?)",
             (part_id, last_replaced_date, "최초 등록"),
         )
-    conn.commit()
     row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
+    propagated_count = propagate_part_to_other_equipment(conn, unit_id, row)
+    conn.commit()
     conn.close()
-    return jsonify(serialize_part(row)), 201
+    result = serialize_part(row)
+    result["propagated_count"] = propagated_count
+    return jsonify(result), 201
 
 
 @app.route("/api/parts/<int:part_id>", methods=["PUT"])
@@ -1042,6 +1075,17 @@ body {
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
+}
+.master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.12), rgba(245, 158, 11, 0.12));
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  color: #92400e;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  margin-bottom: 14px;
+  text-align: center;
 }
 .equipment-label {
   position: absolute;
@@ -1917,6 +1961,17 @@ body {
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
+}
+.master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.12), rgba(245, 158, 11, 0.12));
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  color: #92400e;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  margin-bottom: 14px;
+  text-align: center;
 }
 .equipment-label {
   position: absolute;
@@ -3000,6 +3055,17 @@ body {
   max-width: 1100px;
   margin: 0 auto;
 }
+.master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.12), rgba(245, 158, 11, 0.12));
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  color: #92400e;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  margin-bottom: 14px;
+  text-align: center;
+}
 .equipment-label {
   position: absolute;
   top: -14px;
@@ -3431,7 +3497,10 @@ body {
   </div>
 
   <div id="unitShape" class="equipment-frame unit-shape">
-    <div class="equipment-label">부품을 클릭해서 교체일 관리 · 편집 모드에서 드래그로 배치/크기 변경</div>
+    <div class="equipment-label" id="unitLabel">부품을 클릭해서 교체일 관리 · 편집 모드에서 드래그로 배치/크기 변경</div>
+    <div id="masterHint" class="master-hint d-none">
+      <i class="bi bi-broadcast"></i> 기준 설비: 여기서 추가하는 부품은 동일한 이름의 유닛을 가진 나머지 설비에도 자동으로 적용됩니다.
+    </div>
     <div class="unit-shape-header">
       <span class="unit-shape-icon" id="unitIcon">⚙️</span>
       <span class="unit-shape-name" id="unitName">유닛</span>
@@ -3563,6 +3632,8 @@ let editMode = false;
 let currentPartId = null;
 let partDetailModal, replaceModal, historyModal, partEditModal;
 let currentParts = [];
+let currentEquipmentId = null;
+const MASTER_EQUIPMENT_ID = 1;
 
 const statusColor = { ok: "#22c55e", soon: "#f59e0b", overdue: "#ef4444", unknown: "#9ca3af" };
 const statusBadge = { ok: "badge-ok", soon: "badge-soon", overdue: "badge-overdue", unknown: "badge-unknown" };
@@ -3612,11 +3683,13 @@ function escapeHtml(s) {
 async function loadUnitHeader() {
   try {
     const unit = await fetchJson(`/api/units/${UNIT_ID}`);
+    currentEquipmentId = unit.equipment_id;
     document.getElementById("unitPageTitle").textContent = unit.name;
     document.getElementById("unitIcon").textContent = unit.icon;
     document.getElementById("unitName").textContent = unit.name;
     document.getElementById("unitShape").style.setProperty("--shape-color", unit.color);
     document.getElementById("backToEquipmentBtn").href = `/equipment/${unit.equipment_id}`;
+    document.getElementById("masterHint").classList.toggle("d-none", unit.equipment_id !== MASTER_EQUIPMENT_ID);
   } catch (err) {
     alert("유닛 정보를 불러올 수 없습니다.");
     window.location.href = "/";
@@ -3954,11 +4027,14 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       } else {
         payload.last_replaced_date = document.getElementById("partEditLastDate").value || null;
-        await fetchJson(`/api/units/${UNIT_ID}/parts`, {
+        const created = await fetchJson(`/api/units/${UNIT_ID}/parts`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        if (created.propagated_count > 0) {
+          alert(`이 부품이 나머지 ${created.propagated_count}개 설비의 동일한 유닛에도 자동으로 적용되었습니다.`);
+        }
       }
       partEditModal.hide();
       loadParts();
@@ -4105,6 +4181,17 @@ body {
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
+}
+.master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.12), rgba(245, 158, 11, 0.12));
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  color: #92400e;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  margin-bottom: 14px;
+  text-align: center;
 }
 .equipment-label {
   position: absolute;
@@ -5073,6 +5160,17 @@ body {
   max-width: 1100px;
   margin: 0 auto;
 }
+.master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.12), rgba(245, 158, 11, 0.12));
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  color: #92400e;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  margin-bottom: 14px;
+  text-align: center;
+}
 .equipment-label {
   position: absolute;
   top: -14px;
@@ -5704,6 +5802,17 @@ body {
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
+}
+.master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.12), rgba(245, 158, 11, 0.12));
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  color: #92400e;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  margin-bottom: 14px;
+  text-align: center;
 }
 .equipment-label {
   position: absolute;

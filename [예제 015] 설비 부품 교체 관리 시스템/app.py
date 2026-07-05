@@ -13,6 +13,7 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "equipment.db")
 
 EQUIPMENT_COUNT = 20
 EQUIPMENT_PREFIX = "TEAG"
+MASTER_EQUIPMENT_ID = 1  # TEAG01호기: 이 설비에 추가한 부품은 동일한 이름의 유닛을 가진 나머지 설비에도 자동 복제된다
 
 
 def dashboard_grid_pos(index, cols=5):
@@ -271,6 +272,35 @@ def serialize_part(row):
     d = dict(row)
     d.update(info)
     return d
+
+
+def propagate_part_to_other_equipment(conn, unit_id, part_row):
+    """기준 설비(TEAG01호기)의 유닛에 부품이 추가되면, 동일한 이름의 유닛을 가진
+    나머지 설비에도 같은 부품을 복제한다. 복제된 부품은 각 설비에서 개별적으로 수정/삭제할 수 있다."""
+    unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
+    if not unit or unit["equipment_id"] != MASTER_EQUIPMENT_ID:
+        return 0
+    target_units = conn.execute(
+        "SELECT id FROM units WHERE name = ? AND equipment_id != ?",
+        (unit["name"], MASTER_EQUIPMENT_ID),
+    ).fetchall()
+    for t in target_units:
+        cur = conn.execute(
+            """INSERT INTO parts (unit_id, name, spec, cycle_days, last_replaced_date, note, icon, pos_x, pos_y, width, height)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                t["id"], part_row["name"], part_row["spec"], part_row["cycle_days"],
+                part_row["last_replaced_date"], part_row["note"], part_row["icon"],
+                part_row["pos_x"], part_row["pos_y"], part_row["width"], part_row["height"],
+            ),
+        )
+        new_part_id = cur.lastrowid
+        if part_row["last_replaced_date"]:
+            conn.execute(
+                "INSERT INTO replacement_history (part_id, replaced_date, note) VALUES (?, ?, ?)",
+                (new_part_id, part_row["last_replaced_date"], "최초 등록 (TEAG01호기 동기화)"),
+            )
+    return len(target_units)
 
 
 def unit_with_status(conn, u):
@@ -639,10 +669,13 @@ def add_part(unit_id):
             "INSERT INTO replacement_history (part_id, replaced_date, note) VALUES (?, ?, ?)",
             (part_id, last_replaced_date, "최초 등록"),
         )
-    conn.commit()
     row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
+    propagated_count = propagate_part_to_other_equipment(conn, unit_id, row)
+    conn.commit()
     conn.close()
-    return jsonify(serialize_part(row)), 201
+    result = serialize_part(row)
+    result["propagated_count"] = propagated_count
+    return jsonify(result), 201
 
 
 @app.route("/api/parts/<int:part_id>", methods=["PUT"])

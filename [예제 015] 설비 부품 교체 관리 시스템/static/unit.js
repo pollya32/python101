@@ -2,6 +2,8 @@ let editMode = false;
 let currentPartId = null;
 let partDetailModal, replaceModal, historyModal, partEditModal;
 let currentParts = [];
+let currentEquipmentId = null;
+const MASTER_EQUIPMENT_ID = 1;
 
 const statusColor = { ok: "#22c55e", soon: "#f59e0b", overdue: "#ef4444", unknown: "#9ca3af" };
 const statusBadge = { ok: "badge-ok", soon: "badge-soon", overdue: "badge-overdue", unknown: "badge-unknown" };
@@ -51,11 +53,13 @@ function escapeHtml(s) {
 async function loadUnitHeader() {
   try {
     const unit = await fetchJson(`/api/units/${UNIT_ID}`);
+    currentEquipmentId = unit.equipment_id;
     document.getElementById("unitPageTitle").textContent = unit.name;
     document.getElementById("unitIcon").textContent = unit.icon;
     document.getElementById("unitName").textContent = unit.name;
     document.getElementById("unitShape").style.setProperty("--shape-color", unit.color);
     document.getElementById("backToEquipmentBtn").href = `/equipment/${unit.equipment_id}`;
+    document.getElementById("masterHint").classList.toggle("d-none", unit.equipment_id !== MASTER_EQUIPMENT_ID);
   } catch (err) {
     alert("유닛 정보를 불러올 수 없습니다.");
     window.location.href = "/";
@@ -393,11 +397,14 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       } else {
         payload.last_replaced_date = document.getElementById("partEditLastDate").value || null;
-        await fetchJson(`/api/units/${UNIT_ID}/parts`, {
+        const created = await fetchJson(`/api/units/${UNIT_ID}/parts`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        if (created.propagated_count > 0) {
+          alert(`이 부품이 나머지 ${created.propagated_count}개 설비의 동일한 유닛에도 자동으로 적용되었습니다.`);
+        }
       }
       partEditModal.hide();
       loadParts();
