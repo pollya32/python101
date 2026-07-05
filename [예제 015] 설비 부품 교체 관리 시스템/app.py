@@ -134,6 +134,8 @@ def init_db():
             name TEXT NOT NULL,
             spec TEXT,
             cycle_days INTEGER NOT NULL DEFAULT 90,
+            cycle_unit TEXT DEFAULT '일',
+            cost REAL DEFAULT 0,
             last_replaced_date TEXT,
             note TEXT,
             icon TEXT DEFAULT '🔩',
@@ -153,6 +155,12 @@ def init_db():
         c.execute("ALTER TABLE parts ADD COLUMN pos_y REAL")
         c.execute("ALTER TABLE parts ADD COLUMN width REAL")
         c.execute("ALTER TABLE parts ADD COLUMN height REAL")
+    if "cost" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN cost REAL DEFAULT 0")
+        c.execute("UPDATE parts SET cost = 0 WHERE cost IS NULL")
+    if "cycle_unit" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN cycle_unit TEXT DEFAULT '일'")
+        c.execute("UPDATE parts SET cycle_unit = '일' WHERE cycle_unit IS NULL")
     for unit_row in c.execute("SELECT DISTINCT unit_id FROM parts").fetchall():
         unplaced_parts = c.execute(
             "SELECT id FROM parts WHERE unit_id = ? AND (pos_x IS NULL OR pos_y IS NULL) ORDER BY id",
@@ -307,20 +315,20 @@ def apply_unit_parts_to_other_equipment(conn, unit_id):
             if mp["name"] in existing:
                 ep = existing[mp["name"]]
                 conn.execute(
-                    """UPDATE parts SET spec = ?, cycle_days = ?, note = ?, icon = ?,
+                    """UPDATE parts SET spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, icon = ?,
                        pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?""",
                     (
-                        mp["spec"], mp["cycle_days"], mp["note"], mp["icon"],
+                        mp["spec"], mp["cycle_days"], mp["cycle_unit"], mp["cost"], mp["note"], mp["icon"],
                         mp["pos_x"], mp["pos_y"], mp["width"], mp["height"], ep["id"],
                     ),
                 )
             else:
                 conn.execute(
-                    """INSERT INTO parts (unit_id, name, spec, cycle_days, note, icon, pos_x, pos_y, width, height)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, note, icon, pos_x, pos_y, width, height)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
-                        t["id"], mp["name"], mp["spec"], mp["cycle_days"], mp["note"], mp["icon"],
-                        mp["pos_x"], mp["pos_y"], mp["width"], mp["height"],
+                        t["id"], mp["name"], mp["spec"], mp["cycle_days"], mp["cycle_unit"], mp["cost"],
+                        mp["note"], mp["icon"], mp["pos_x"], mp["pos_y"], mp["width"], mp["height"],
                     ),
                 )
         for name, ep in existing.items():
@@ -459,6 +467,11 @@ def alerts_page():
 @app.route("/search")
 def search_page():
     return render_template("search.html")
+
+
+@app.route("/stats")
+def stats_page():
+    return render_template("stats.html")
 
 
 @app.route("/equipment/<int:equipment_id>")
@@ -674,6 +687,8 @@ def add_part(unit_id):
         return jsonify({"error": "부품 이름을 입력하세요"}), 400
     spec = (data.get("spec") or "").strip()
     cycle_days = int(data.get("cycle_days") or 90)
+    cycle_unit = (data.get("cycle_unit") or "일").strip()
+    cost = float(data.get("cost") or 0)
     last_replaced_date = data.get("last_replaced_date") or None
     note = (data.get("note") or "").strip()
     icon = (data.get("icon") or "🔩").strip()
@@ -686,9 +701,9 @@ def add_part(unit_id):
 
     conn = get_db()
     cur = conn.execute(
-        """INSERT INTO parts (unit_id, name, spec, cycle_days, last_replaced_date, note, icon, pos_x, pos_y, width, height)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (unit_id, name, spec, cycle_days, last_replaced_date, note, icon, pos_x, pos_y, width, height),
+        """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, icon, pos_x, pos_y, width, height)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, icon, pos_x, pos_y, width, height),
     )
     part_id = cur.lastrowid
     if last_replaced_date:
@@ -729,6 +744,8 @@ def update_part(part_id):
     name = (data.get("name") or part["name"]).strip()
     spec = data.get("spec", part["spec"])
     cycle_days = int(data.get("cycle_days") or part["cycle_days"])
+    cycle_unit = (data.get("cycle_unit") or part["cycle_unit"]).strip()
+    cost = data.get("cost", part["cost"])
     note = data.get("note", part["note"])
     icon = (data.get("icon") or part["icon"]).strip()
     pos_x = data.get("pos_x", part["pos_x"])
@@ -736,8 +753,9 @@ def update_part(part_id):
     width = data.get("width", part["width"])
     height = data.get("height", part["height"])
     conn.execute(
-        "UPDATE parts SET name = ?, spec = ?, cycle_days = ?, note = ?, icon = ?, pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?",
-        (name, spec, cycle_days, note, icon, pos_x, pos_y, width, height, part_id),
+        """UPDATE parts SET name = ?, spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, icon = ?,
+           pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?""",
+        (name, spec, cycle_days, cycle_unit, cost, note, icon, pos_x, pos_y, width, height, part_id),
     )
     conn.commit()
     row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
@@ -983,6 +1001,51 @@ def api_search():
     if not q:
         return jsonify([])
     return jsonify(search_parts(q))
+
+
+@app.route("/api/stats")
+def api_stats():
+    unit_names = request.args.getlist("unit_name")
+    conn = get_db()
+
+    query = """
+        SELECT u.id AS unit_id, u.name AS unit_name, u.icon AS unit_icon,
+               e.id AS equipment_id, e.name AS equipment_name, e.icon AS equipment_icon,
+               (SELECT COUNT(*) FROM parts p WHERE p.unit_id = u.id) AS part_count,
+               (SELECT COALESCE(SUM(p.cost), 0) FROM parts p WHERE p.unit_id = u.id) AS total_cost,
+               (SELECT MIN(p.cycle_days) FROM parts p WHERE p.unit_id = u.id) AS min_cycle_days,
+               (SELECT COUNT(*) FROM replacement_history rh
+                JOIN parts p ON rh.part_id = p.id WHERE p.unit_id = u.id) AS usage_count
+        FROM units u
+        JOIN equipments e ON u.equipment_id = e.id
+    """
+    params = []
+    if unit_names:
+        placeholders = ",".join("?" for _ in unit_names)
+        query += f" WHERE u.name IN ({placeholders})"
+        params = unit_names
+    query += " ORDER BY u.id"
+    rows = [dict(r) for r in conn.execute(query, params).fetchall()]
+
+    all_unit_names = [
+        r["name"] for r in conn.execute("SELECT DISTINCT name FROM units ORDER BY name").fetchall()
+    ]
+    conn.close()
+
+    by_cost = sorted(rows, key=lambda r: r["total_cost"], reverse=True)
+    by_usage = sorted(rows, key=lambda r: r["usage_count"], reverse=True)
+    by_short_cycle = sorted(
+        (r for r in rows if r["min_cycle_days"] is not None), key=lambda r: r["min_cycle_days"]
+    )
+    by_part_count = sorted(rows, key=lambda r: r["part_count"], reverse=True)
+
+    return jsonify({
+        "by_cost": by_cost,
+        "by_usage": by_usage,
+        "by_short_cycle": by_short_cycle,
+        "by_part_count": by_part_count,
+        "unit_names": all_unit_names,
+    })
 
 
 @app.route("/api/backup")

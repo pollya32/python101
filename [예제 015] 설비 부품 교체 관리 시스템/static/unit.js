@@ -313,6 +313,8 @@ function copyPart(part) {
     name: part.name,
     spec: part.spec,
     cycle_days: part.cycle_days,
+    cycle_unit: part.cycle_unit,
+    cost: part.cost,
     note: part.note,
     icon: part.icon,
     width: part.width,
@@ -353,6 +355,8 @@ async function pastePart() {
       name: `${clipboard.name} 복사본`,
       spec: clipboard.spec,
       cycle_days: clipboard.cycle_days,
+      cycle_unit: clipboard.cycle_unit,
+      cost: clipboard.cost,
       note: clipboard.note,
       icon: clipboard.icon,
       width: clipboard.width,
@@ -360,6 +364,25 @@ async function pastePart() {
     }),
   });
   loadParts();
+}
+
+function formatCycleDisplay(cycleDays, cycleUnit) {
+  if (cycleUnit === "년") {
+    const years = Math.round((cycleDays / 365) * 100) / 100;
+    return `${years}년`;
+  }
+  return `${cycleDays}일`;
+}
+
+function cycleDaysToDisplayValue(cycleDays, cycleUnit) {
+  if (cycleUnit === "년") {
+    return Math.round((cycleDays / 365) * 100) / 100;
+  }
+  return cycleDays;
+}
+
+function formatCost(cost) {
+  return `${Number(cost || 0).toLocaleString("ko-KR")}원`;
 }
 
 function openPartDetailModal(partId) {
@@ -377,7 +400,7 @@ function openPartDetailModal(partId) {
     <span class="badge ${badge} mb-2">${label}</span>
     ${p.spec ? `<div class="part-spec mb-1">규격: ${escapeHtml(p.spec)}</div>` : ""}
     <div class="small text-muted">
-      교체 주기: ${p.cycle_days}일 &middot; ${lastText}
+      교체 주기: ${formatCycleDisplay(p.cycle_days, p.cycle_unit)} &middot; 금액: ${formatCost(p.cost)} &middot; ${lastText}
       ${dueText ? `<br>${dueText}` : ""}
       ${p.note ? `<br>비고: ${escapeHtml(p.note)}` : ""}
     </div>`;
@@ -424,7 +447,10 @@ function openPartEditModal(part) {
   document.getElementById("partEditSpec").value = part ? part.spec || "" : "";
   const icon = part ? part.icon : "🔩";
   document.getElementById("partEditIcon").value = icon;
-  document.getElementById("partEditCycle").value = part ? part.cycle_days : 90;
+  const cycleUnit = part ? part.cycle_unit || "일" : "일";
+  document.getElementById("partEditCycleUnit").value = cycleUnit;
+  document.getElementById("partEditCycle").value = part ? cycleDaysToDisplayValue(part.cycle_days, cycleUnit) : 90;
+  document.getElementById("partEditCost").value = part ? part.cost || 0 : 0;
   document.getElementById("partEditNote").value = part ? part.note || "" : "";
   document.getElementById("partEditLastDate").value = "";
   document.getElementById("partEditLastDateWrap").classList.toggle("d-none", !!part);
@@ -511,11 +537,16 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("partEditForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = document.getElementById("partEditId").value;
+    const cycleUnit = document.getElementById("partEditCycleUnit").value;
+    const cycleValue = parseFloat(document.getElementById("partEditCycle").value);
+    const cycleDays = cycleUnit === "년" ? Math.round(cycleValue * 365) : Math.round(cycleValue);
     const payload = {
       name: document.getElementById("partEditName").value.trim(),
       spec: document.getElementById("partEditSpec").value.trim(),
       icon: document.getElementById("partEditIcon").value.trim(),
-      cycle_days: parseInt(document.getElementById("partEditCycle").value, 10),
+      cycle_days: cycleDays,
+      cycle_unit: cycleUnit,
+      cost: parseFloat(document.getElementById("partEditCost").value) || 0,
       note: document.getElementById("partEditNote").value.trim(),
     };
     try {

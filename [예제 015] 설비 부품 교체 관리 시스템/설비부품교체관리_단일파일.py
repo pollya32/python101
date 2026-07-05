@@ -150,6 +150,8 @@ def init_db():
             name TEXT NOT NULL,
             spec TEXT,
             cycle_days INTEGER NOT NULL DEFAULT 90,
+            cycle_unit TEXT DEFAULT '일',
+            cost REAL DEFAULT 0,
             last_replaced_date TEXT,
             note TEXT,
             icon TEXT DEFAULT '🔩',
@@ -169,6 +171,12 @@ def init_db():
         c.execute("ALTER TABLE parts ADD COLUMN pos_y REAL")
         c.execute("ALTER TABLE parts ADD COLUMN width REAL")
         c.execute("ALTER TABLE parts ADD COLUMN height REAL")
+    if "cost" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN cost REAL DEFAULT 0")
+        c.execute("UPDATE parts SET cost = 0 WHERE cost IS NULL")
+    if "cycle_unit" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN cycle_unit TEXT DEFAULT '일'")
+        c.execute("UPDATE parts SET cycle_unit = '일' WHERE cycle_unit IS NULL")
     for unit_row in c.execute("SELECT DISTINCT unit_id FROM parts").fetchall():
         unplaced_parts = c.execute(
             "SELECT id FROM parts WHERE unit_id = ? AND (pos_x IS NULL OR pos_y IS NULL) ORDER BY id",
@@ -323,20 +331,20 @@ def apply_unit_parts_to_other_equipment(conn, unit_id):
             if mp["name"] in existing:
                 ep = existing[mp["name"]]
                 conn.execute(
-                    """UPDATE parts SET spec = ?, cycle_days = ?, note = ?, icon = ?,
+                    """UPDATE parts SET spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, icon = ?,
                        pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?""",
                     (
-                        mp["spec"], mp["cycle_days"], mp["note"], mp["icon"],
+                        mp["spec"], mp["cycle_days"], mp["cycle_unit"], mp["cost"], mp["note"], mp["icon"],
                         mp["pos_x"], mp["pos_y"], mp["width"], mp["height"], ep["id"],
                     ),
                 )
             else:
                 conn.execute(
-                    """INSERT INTO parts (unit_id, name, spec, cycle_days, note, icon, pos_x, pos_y, width, height)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, note, icon, pos_x, pos_y, width, height)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
-                        t["id"], mp["name"], mp["spec"], mp["cycle_days"], mp["note"], mp["icon"],
-                        mp["pos_x"], mp["pos_y"], mp["width"], mp["height"],
+                        t["id"], mp["name"], mp["spec"], mp["cycle_days"], mp["cycle_unit"], mp["cost"],
+                        mp["note"], mp["icon"], mp["pos_x"], mp["pos_y"], mp["width"], mp["height"],
                     ),
                 )
         for name, ep in existing.items():
@@ -475,6 +483,11 @@ def alerts_page():
 @app.route("/search")
 def search_page():
     return SEARCH_HTML
+
+
+@app.route("/stats")
+def stats_page():
+    return STATS_HTML
 
 
 @app.route("/equipment/<int:equipment_id>")
@@ -690,6 +703,8 @@ def add_part(unit_id):
         return jsonify({"error": "부품 이름을 입력하세요"}), 400
     spec = (data.get("spec") or "").strip()
     cycle_days = int(data.get("cycle_days") or 90)
+    cycle_unit = (data.get("cycle_unit") or "일").strip()
+    cost = float(data.get("cost") or 0)
     last_replaced_date = data.get("last_replaced_date") or None
     note = (data.get("note") or "").strip()
     icon = (data.get("icon") or "🔩").strip()
@@ -702,9 +717,9 @@ def add_part(unit_id):
 
     conn = get_db()
     cur = conn.execute(
-        """INSERT INTO parts (unit_id, name, spec, cycle_days, last_replaced_date, note, icon, pos_x, pos_y, width, height)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (unit_id, name, spec, cycle_days, last_replaced_date, note, icon, pos_x, pos_y, width, height),
+        """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, icon, pos_x, pos_y, width, height)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, icon, pos_x, pos_y, width, height),
     )
     part_id = cur.lastrowid
     if last_replaced_date:
@@ -745,6 +760,8 @@ def update_part(part_id):
     name = (data.get("name") or part["name"]).strip()
     spec = data.get("spec", part["spec"])
     cycle_days = int(data.get("cycle_days") or part["cycle_days"])
+    cycle_unit = (data.get("cycle_unit") or part["cycle_unit"]).strip()
+    cost = data.get("cost", part["cost"])
     note = data.get("note", part["note"])
     icon = (data.get("icon") or part["icon"]).strip()
     pos_x = data.get("pos_x", part["pos_x"])
@@ -752,8 +769,9 @@ def update_part(part_id):
     width = data.get("width", part["width"])
     height = data.get("height", part["height"])
     conn.execute(
-        "UPDATE parts SET name = ?, spec = ?, cycle_days = ?, note = ?, icon = ?, pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?",
-        (name, spec, cycle_days, note, icon, pos_x, pos_y, width, height, part_id),
+        """UPDATE parts SET name = ?, spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, icon = ?,
+           pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?""",
+        (name, spec, cycle_days, cycle_unit, cost, note, icon, pos_x, pos_y, width, height, part_id),
     )
     conn.commit()
     row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
@@ -999,6 +1017,51 @@ def api_search():
     if not q:
         return jsonify([])
     return jsonify(search_parts(q))
+
+
+@app.route("/api/stats")
+def api_stats():
+    unit_names = request.args.getlist("unit_name")
+    conn = get_db()
+
+    query = """
+        SELECT u.id AS unit_id, u.name AS unit_name, u.icon AS unit_icon,
+               e.id AS equipment_id, e.name AS equipment_name, e.icon AS equipment_icon,
+               (SELECT COUNT(*) FROM parts p WHERE p.unit_id = u.id) AS part_count,
+               (SELECT COALESCE(SUM(p.cost), 0) FROM parts p WHERE p.unit_id = u.id) AS total_cost,
+               (SELECT MIN(p.cycle_days) FROM parts p WHERE p.unit_id = u.id) AS min_cycle_days,
+               (SELECT COUNT(*) FROM replacement_history rh
+                JOIN parts p ON rh.part_id = p.id WHERE p.unit_id = u.id) AS usage_count
+        FROM units u
+        JOIN equipments e ON u.equipment_id = e.id
+    """
+    params = []
+    if unit_names:
+        placeholders = ",".join("?" for _ in unit_names)
+        query += f" WHERE u.name IN ({placeholders})"
+        params = unit_names
+    query += " ORDER BY u.id"
+    rows = [dict(r) for r in conn.execute(query, params).fetchall()]
+
+    all_unit_names = [
+        r["name"] for r in conn.execute("SELECT DISTINCT name FROM units ORDER BY name").fetchall()
+    ]
+    conn.close()
+
+    by_cost = sorted(rows, key=lambda r: r["total_cost"], reverse=True)
+    by_usage = sorted(rows, key=lambda r: r["usage_count"], reverse=True)
+    by_short_cycle = sorted(
+        (r for r in rows if r["min_cycle_days"] is not None), key=lambda r: r["min_cycle_days"]
+    )
+    by_part_count = sorted(rows, key=lambda r: r["part_count"], reverse=True)
+
+    return jsonify({
+        "by_cost": by_cost,
+        "by_usage": by_usage,
+        "by_short_cycle": by_short_cycle,
+        "by_part_count": by_part_count,
+        "unit_names": all_unit_names,
+    })
 
 
 @app.route("/api/backup")
@@ -1559,6 +1622,65 @@ body {
 .alert-sep { color: var(--text-muted); margin: 0 2px; }
 .alert-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 .alert-chevron { color: var(--text-muted); flex-shrink: 0; }
+
+/* ── 통계 페이지 ───────────────────────────────────────────────── */
+.unit-filter-menu {
+  max-height: 320px;
+  overflow-y: auto;
+  min-width: 240px;
+}
+.unit-filter-menu .form-check { padding-left: 1.6em; }
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+@media (max-width: 900px) {
+  .stats-grid { grid-template-columns: 1fr; }
+}
+.stats-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 0 6px;
+}
+.stats-panel h6 {
+  font-weight: 700;
+  padding: 0 18px 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid #f1f2f6;
+}
+.stats-list {
+  max-height: 380px;
+  overflow-y: auto;
+}
+.stats-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.stats-row:last-child { border-bottom: none; }
+.stats-row:hover { background: #f8f9fd; }
+.stats-rank {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--pri) 12%, white);
+  color: var(--pri);
+  font-size: 11px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 </style>
 </head>
 <body>
@@ -1576,6 +1698,9 @@ body {
     <a href="/search" class="btn btn-sm btn-outline-light">
       <i class="bi bi-search"></i> 부품 검색
     </a>
+    <button id="statsBtn" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-bar-chart-fill"></i> 통계
+    </button>
     <a href="/config" class="btn btn-sm btn-outline-light">
       <i class="bi bi-diagram-3"></i> 기본 유닛 구성
     </a>
@@ -1859,6 +1984,9 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("addEquipmentBtn").addEventListener("click", () => openEquipmentEditModal(null));
+  document.getElementById("statsBtn").addEventListener("click", () => {
+    window.open("/stats", "_blank", "noopener,noreferrer");
+  });
 
   document.getElementById("equipmentSearch").addEventListener("input", applyFilterSort);
   document.getElementById("equipmentSort").addEventListener("change", applyFilterSort);
@@ -2445,6 +2573,65 @@ body {
 .alert-sep { color: var(--text-muted); margin: 0 2px; }
 .alert-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 .alert-chevron { color: var(--text-muted); flex-shrink: 0; }
+
+/* ── 통계 페이지 ───────────────────────────────────────────────── */
+.unit-filter-menu {
+  max-height: 320px;
+  overflow-y: auto;
+  min-width: 240px;
+}
+.unit-filter-menu .form-check { padding-left: 1.6em; }
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+@media (max-width: 900px) {
+  .stats-grid { grid-template-columns: 1fr; }
+}
+.stats-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 0 6px;
+}
+.stats-panel h6 {
+  font-weight: 700;
+  padding: 0 18px 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid #f1f2f6;
+}
+.stats-list {
+  max-height: 380px;
+  overflow-y: auto;
+}
+.stats-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.stats-row:last-child { border-bottom: none; }
+.stats-row:hover { background: #f8f9fd; }
+.stats-rank {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--pri) 12%, white);
+  color: var(--pri);
+  font-size: 11px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 </style>
 </head>
 <body>
@@ -2847,6 +3034,9 @@ async function copyUnit(unit) {
       name: p.name,
       spec: p.spec,
       cycle_days: p.cycle_days,
+      cycle_unit: p.cycle_unit,
+      cost: p.cost,
+      note: p.note,
       icon: p.icon,
     })),
   };
@@ -3538,6 +3728,65 @@ body {
 .alert-sep { color: var(--text-muted); margin: 0 2px; }
 .alert-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 .alert-chevron { color: var(--text-muted); flex-shrink: 0; }
+
+/* ── 통계 페이지 ───────────────────────────────────────────────── */
+.unit-filter-menu {
+  max-height: 320px;
+  overflow-y: auto;
+  min-width: 240px;
+}
+.unit-filter-menu .form-check { padding-left: 1.6em; }
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+@media (max-width: 900px) {
+  .stats-grid { grid-template-columns: 1fr; }
+}
+.stats-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 0 6px;
+}
+.stats-panel h6 {
+  font-weight: 700;
+  padding: 0 18px 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid #f1f2f6;
+}
+.stats-list {
+  max-height: 380px;
+  overflow-y: auto;
+}
+.stats-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.stats-row:last-child { border-bottom: none; }
+.stats-row:hover { background: #f8f9fd; }
+.stats-rank {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--pri) 12%, white);
+  color: var(--pri);
+  font-size: 11px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 </style>
 </head>
 <body>
@@ -3697,17 +3946,29 @@ body {
           <div id="partIconPicker" class="icon-picker"></div>
           <div class="row g-2 mt-1">
             <div class="col-6">
-              <label class="form-label">교체 주기(일)</label>
-              <input type="number" class="form-control" id="partEditCycle" value="90" min="1" required>
+              <label class="form-label">교체 주기</label>
+              <div class="input-group">
+                <input type="number" class="form-control" id="partEditCycle" value="90" min="1" required>
+                <select class="form-select flex-grow-0 w-auto" id="partEditCycleUnit">
+                  <option value="일">일</option>
+                  <option value="년">년</option>
+                </select>
+              </div>
             </div>
             <div class="col-6" id="partEditLastDateWrap">
               <label class="form-label">최초 교체일 (선택)</label>
               <input type="date" class="form-control" id="partEditLastDate">
             </div>
           </div>
-          <div class="mb-2 mt-2">
-            <label class="form-label">비고</label>
-            <input type="text" class="form-control" id="partEditNote">
+          <div class="row g-2 mt-1">
+            <div class="col-6">
+              <label class="form-label">금액 (원)</label>
+              <input type="number" class="form-control" id="partEditCost" value="0" min="0" step="100">
+            </div>
+            <div class="col-6">
+              <label class="form-label">비고</label>
+              <input type="text" class="form-control" id="partEditNote">
+            </div>
           </div>
           <button type="submit" class="btn btn-primary w-100 mt-2">저장</button>
         </form>
@@ -4034,6 +4295,8 @@ function copyPart(part) {
     name: part.name,
     spec: part.spec,
     cycle_days: part.cycle_days,
+    cycle_unit: part.cycle_unit,
+    cost: part.cost,
     note: part.note,
     icon: part.icon,
     width: part.width,
@@ -4074,6 +4337,8 @@ async function pastePart() {
       name: `${clipboard.name} 복사본`,
       spec: clipboard.spec,
       cycle_days: clipboard.cycle_days,
+      cycle_unit: clipboard.cycle_unit,
+      cost: clipboard.cost,
       note: clipboard.note,
       icon: clipboard.icon,
       width: clipboard.width,
@@ -4081,6 +4346,25 @@ async function pastePart() {
     }),
   });
   loadParts();
+}
+
+function formatCycleDisplay(cycleDays, cycleUnit) {
+  if (cycleUnit === "년") {
+    const years = Math.round((cycleDays / 365) * 100) / 100;
+    return `${years}년`;
+  }
+  return `${cycleDays}일`;
+}
+
+function cycleDaysToDisplayValue(cycleDays, cycleUnit) {
+  if (cycleUnit === "년") {
+    return Math.round((cycleDays / 365) * 100) / 100;
+  }
+  return cycleDays;
+}
+
+function formatCost(cost) {
+  return `${Number(cost || 0).toLocaleString("ko-KR")}원`;
 }
 
 function openPartDetailModal(partId) {
@@ -4098,7 +4382,7 @@ function openPartDetailModal(partId) {
     <span class="badge ${badge} mb-2">${label}</span>
     ${p.spec ? `<div class="part-spec mb-1">규격: ${escapeHtml(p.spec)}</div>` : ""}
     <div class="small text-muted">
-      교체 주기: ${p.cycle_days}일 &middot; ${lastText}
+      교체 주기: ${formatCycleDisplay(p.cycle_days, p.cycle_unit)} &middot; 금액: ${formatCost(p.cost)} &middot; ${lastText}
       ${dueText ? `<br>${dueText}` : ""}
       ${p.note ? `<br>비고: ${escapeHtml(p.note)}` : ""}
     </div>`;
@@ -4145,7 +4429,10 @@ function openPartEditModal(part) {
   document.getElementById("partEditSpec").value = part ? part.spec || "" : "";
   const icon = part ? part.icon : "🔩";
   document.getElementById("partEditIcon").value = icon;
-  document.getElementById("partEditCycle").value = part ? part.cycle_days : 90;
+  const cycleUnit = part ? part.cycle_unit || "일" : "일";
+  document.getElementById("partEditCycleUnit").value = cycleUnit;
+  document.getElementById("partEditCycle").value = part ? cycleDaysToDisplayValue(part.cycle_days, cycleUnit) : 90;
+  document.getElementById("partEditCost").value = part ? part.cost || 0 : 0;
   document.getElementById("partEditNote").value = part ? part.note || "" : "";
   document.getElementById("partEditLastDate").value = "";
   document.getElementById("partEditLastDateWrap").classList.toggle("d-none", !!part);
@@ -4232,11 +4519,16 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("partEditForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = document.getElementById("partEditId").value;
+    const cycleUnit = document.getElementById("partEditCycleUnit").value;
+    const cycleValue = parseFloat(document.getElementById("partEditCycle").value);
+    const cycleDays = cycleUnit === "년" ? Math.round(cycleValue * 365) : Math.round(cycleValue);
     const payload = {
       name: document.getElementById("partEditName").value.trim(),
       spec: document.getElementById("partEditSpec").value.trim(),
       icon: document.getElementById("partEditIcon").value.trim(),
-      cycle_days: parseInt(document.getElementById("partEditCycle").value, 10),
+      cycle_days: cycleDays,
+      cycle_unit: cycleUnit,
+      cost: parseFloat(document.getElementById("partEditCost").value) || 0,
       note: document.getElementById("partEditNote").value.trim(),
     };
     try {
@@ -4831,6 +5123,65 @@ body {
 .alert-sep { color: var(--text-muted); margin: 0 2px; }
 .alert-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 .alert-chevron { color: var(--text-muted); flex-shrink: 0; }
+
+/* ── 통계 페이지 ───────────────────────────────────────────────── */
+.unit-filter-menu {
+  max-height: 320px;
+  overflow-y: auto;
+  min-width: 240px;
+}
+.unit-filter-menu .form-check { padding-left: 1.6em; }
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+@media (max-width: 900px) {
+  .stats-grid { grid-template-columns: 1fr; }
+}
+.stats-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 0 6px;
+}
+.stats-panel h6 {
+  font-weight: 700;
+  padding: 0 18px 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid #f1f2f6;
+}
+.stats-list {
+  max-height: 380px;
+  overflow-y: auto;
+}
+.stats-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.stats-row:last-child { border-bottom: none; }
+.stats-row:hover { background: #f8f9fd; }
+.stats-rank {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--pri) 12%, white);
+  color: var(--pri);
+  font-size: 11px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 </style>
 </head>
 <body>
@@ -5809,6 +6160,65 @@ body {
 .alert-sep { color: var(--text-muted); margin: 0 2px; }
 .alert-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 .alert-chevron { color: var(--text-muted); flex-shrink: 0; }
+
+/* ── 통계 페이지 ───────────────────────────────────────────────── */
+.unit-filter-menu {
+  max-height: 320px;
+  overflow-y: auto;
+  min-width: 240px;
+}
+.unit-filter-menu .form-check { padding-left: 1.6em; }
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+@media (max-width: 900px) {
+  .stats-grid { grid-template-columns: 1fr; }
+}
+.stats-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 0 6px;
+}
+.stats-panel h6 {
+  font-weight: 700;
+  padding: 0 18px 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid #f1f2f6;
+}
+.stats-list {
+  max-height: 380px;
+  overflow-y: auto;
+}
+.stats-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.stats-row:last-child { border-bottom: none; }
+.stats-row:hover { background: #f8f9fd; }
+.stats-rank {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--pri) 12%, white);
+  color: var(--pri);
+  font-size: 11px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 </style>
 </head>
 <body>
@@ -6452,6 +6862,65 @@ body {
 .alert-sep { color: var(--text-muted); margin: 0 2px; }
 .alert-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 .alert-chevron { color: var(--text-muted); flex-shrink: 0; }
+
+/* ── 통계 페이지 ───────────────────────────────────────────────── */
+.unit-filter-menu {
+  max-height: 320px;
+  overflow-y: auto;
+  min-width: 240px;
+}
+.unit-filter-menu .form-check { padding-left: 1.6em; }
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+@media (max-width: 900px) {
+  .stats-grid { grid-template-columns: 1fr; }
+}
+.stats-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 0 6px;
+}
+.stats-panel h6 {
+  font-weight: 700;
+  padding: 0 18px 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid #f1f2f6;
+}
+.stats-list {
+  max-height: 380px;
+  overflow-y: auto;
+}
+.stats-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.stats-row:last-child { border-bottom: none; }
+.stats-row:hover { background: #f8f9fd; }
+.stats-rank {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--pri) 12%, white);
+  color: var(--pri);
+  font-size: 11px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 </style>
 </head>
 <body>
@@ -6565,6 +7034,780 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("partSearchInput").addEventListener("input", () => {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(runSearch, 200);
+  });
+});
+</script>
+</body>
+</html>
+"""
+
+
+STATS_HTML = r"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>통계 - 설비 부품 교체 관리 시스템</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<style>
+:root {
+  --pri: #4338ca;
+  --pri-dark: #362f8c;
+  --accent: #6366f1;
+  --bg-a: #e5e7eb;
+  --bg-b: #f3f4f6;
+  --surface: #ffffff;
+  --border: #e5e7eb;
+  --text: #1e2432;
+  --text-muted: #6b7280;
+  --radius-lg: 18px;
+  --radius-md: 14px;
+  --radius-sm: 10px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
+  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+    "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  color: var(--text);
+}
+
+/* ── 버튼 공통 리스킨 ─────────────────────────────────────────── */
+.btn {
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: all 0.15s ease;
+}
+.btn-primary {
+  background: var(--pri);
+  border-color: var(--pri);
+  box-shadow: 0 2px 8px rgba(67, 56, 202, 0.35);
+}
+.btn-primary:hover {
+  background: var(--pri-dark);
+  border-color: var(--pri-dark);
+  box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
+}
+.btn-outline-light {
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.btn-outline-light:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #fff;
+}
+.btn-warning {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+}
+.btn-warning:hover { background: #d97706; border-color: #d97706; color: #fff; }
+.btn-outline-secondary { border-color: var(--border); color: var(--text-muted); }
+.btn-outline-secondary:hover { background: #f3f4f6; color: var(--text); }
+.btn-outline-primary { color: var(--pri); border-color: var(--pri); }
+.btn-outline-primary:hover { background: var(--pri); border-color: var(--pri); }
+.btn-outline-danger:hover { box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25); }
+
+.form-control:focus, .form-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 0.2rem rgba(99, 102, 241, 0.2);
+}
+
+/* ── 상단바 ───────────────────────────────────────────────────── */
+.topbar {
+  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
+  color: #fff;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 90;
+  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
+}
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.topbar i.bi { font-size: 18px; opacity: 0.9; }
+.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+
+/* ── 범례 ─────────────────────────────────────────────────────── */
+.legend {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  font-size: 13px;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 9px 20px;
+  box-shadow: var(--shadow-sm);
+}
+.legend-item { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-shadow: 0 0 0 3px currentColor; opacity: 0.9; }
+.dot-ok { background: #22c55e; color: rgba(34, 197, 94, 0.18); }
+.dot-soon { background: #f59e0b; color: rgba(245, 158, 11, 0.18); }
+.dot-overdue { background: #ef4444; color: rgba(239, 68, 68, 0.18); }
+.dot-unknown { background: #9ca3af; color: rgba(156, 163, 175, 0.18); }
+
+/* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
+.equipment-frame {
+  background:
+    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
+    linear-gradient(180deg, #fcfcfd, #e9eaed);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid #dcdee2;
+  border-radius: var(--radius-lg);
+  padding: 30px 22px 22px;
+  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
+  position: relative;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.12), rgba(245, 158, 11, 0.12));
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  color: #92400e;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  margin-bottom: 14px;
+  text-align: center;
+}
+.equipment-label {
+  position: absolute;
+  top: -14px;
+  left: 22px;
+  background: linear-gradient(120deg, var(--pri), var(--accent));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 14px;
+  border-radius: 999px;
+  box-shadow: 0 3px 10px rgba(67, 56, 202, 0.3);
+}
+
+.unit-shape {
+  --shape-color: var(--pri);
+  border: 3px solid var(--shape-color);
+  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+}
+.unit-shape-header {
+  text-align: center;
+  margin-bottom: 6px;
+}
+.unit-shape-icon {
+  font-size: 42px;
+  display: block;
+  line-height: 1.2;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.12));
+}
+.unit-shape-name {
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--shape-color);
+}
+
+/* ── 대시보드 그리드 ──────────────────────────────────────────── */
+.equipment-canvas.dashboard-canvas {
+  max-width: 1300px;
+  margin: 10px auto 0;
+  min-height: 860px;
+}
+@media (max-width: 768px) {
+  .equipment-canvas.dashboard-canvas { min-height: 1150px; }
+}
+.equipment-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 150px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--pri);
+  border-radius: var(--radius-md);
+  padding: 20px 10px 14px;
+  cursor: pointer;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  user-select: none;
+  touch-action: none;
+  box-sizing: border-box;
+}
+.equipment-card:hover {
+  box-shadow: var(--shadow-lg);
+  border-top-color: var(--accent);
+  z-index: 5;
+}
+.equipment-card.edit-mode { cursor: grab; }
+.equipment-card.dragging {
+  cursor: grabbing;
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+  transition: none;
+}
+.equipment-card .unit-icon { font-size: 30px; }
+
+/* ── 캔버스 ───────────────────────────────────────────────────── */
+.equipment-canvas {
+  position: relative;
+  width: 100%;
+  min-height: 460px;
+  margin-top: 10px;
+}
+@media (max-width: 768px) {
+  .equipment-canvas { min-height: 620px; }
+}
+
+/* ── 유닛/부품 카드 ───────────────────────────────────────────── */
+.unit-card {
+  --uc: #4338ca;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 140px;
+  min-height: 110px;
+  background: var(--surface);
+  border: 1.5px solid var(--uc);
+  border-radius: var(--radius-md);
+  padding: 14px 10px 10px;
+  cursor: pointer;
+  transition: box-shadow 0.18s ease, transform 0.12s ease;
+  text-align: center;
+  user-select: none;
+  touch-action: none;
+  box-sizing: border-box;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.unit-card:hover {
+  box-shadow: var(--shadow-lg);
+  z-index: 5;
+}
+.edit-mode.unit-card { cursor: grab; }
+.unit-card.dragging {
+  cursor: grabbing;
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+  transition: none;
+}
+.unit-icon-wrap {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 6px;
+  background: #eef0fb;
+  background: color-mix(in srgb, var(--uc) 14%, white);
+}
+.overdue-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(239, 68, 68, 0.4);
+}
+.unit-icon { font-size: 22px; display: block; line-height: 1; }
+.unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
+.unit-status-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+.unit-part-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-weight: 500;
+}
+.unit-edit-actions {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  display: none;
+  gap: 4px;
+}
+.edit-mode .unit-edit-actions { display: flex; }
+.unit-edit-actions button {
+  border: none;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 7px;
+  font-size: 11px;
+  padding: 3px 6px;
+  transition: background 0.15s;
+}
+.unit-edit-actions button:hover { background: rgba(15, 23, 42, 0.14); }
+
+.resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  display: none;
+  cursor: nwse-resize;
+}
+.edit-mode .resize-handle { display: block; }
+.resize-handle::before {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid rgba(67, 56, 202, 0.45);
+  border-bottom: 2px solid rgba(67, 56, 202, 0.45);
+}
+
+.resize-handle-h {
+  position: absolute;
+  right: -3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 30px;
+  display: none;
+  cursor: ew-resize;
+}
+.edit-mode .resize-handle-h { display: block; }
+.resize-handle-h::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+  background: rgba(67, 56, 202, 0.4);
+}
+
+.canvas-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* ── 부품 목록/배지 ───────────────────────────────────────────── */
+.part-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 15px;
+  margin-bottom: 10px;
+  background: #fafbfe;
+  transition: box-shadow 0.15s;
+}
+.part-card:hover { box-shadow: var(--shadow-sm); }
+.part-card .part-title { font-weight: 700; font-size: 14px; }
+.part-card .part-spec { font-size: 12px; color: var(--text-muted); }
+.badge-ok { background: #d1fae5; color: #065f46; }
+.badge-soon { background: #fef3c7; color: #92400e; }
+.badge-overdue { background: #fee2e2; color: #991b1b; }
+.badge-unknown { background: #e5e7eb; color: #374151; }
+
+.history-row { font-size: 13px; border-bottom: 1px solid #f1f1f1; padding: 7px 0; }
+
+/* ── 메모장 ───────────────────────────────────────────────────── */
+.notes-section {
+  max-width: 1100px;
+  margin: 20px auto 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+}
+.notes-view {
+  min-height: 60px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+  color: #333;
+  line-height: 1.6;
+}
+.notes-view:empty::before,
+.notes-view.is-empty::before {
+  content: "등록된 메모가 없습니다. \"편집\" 버튼을 눌러 설비 정보나 부품 구매처 링크를 기록해보세요.";
+  color: #9ca3af;
+}
+.notes-view a {
+  color: var(--pri);
+  word-break: break-all;
+  font-weight: 500;
+}
+#notesEdit { font-size: 14px; }
+
+/* ── 모달 리스킨 ──────────────────────────────────────────────── */
+.modal-content { border: none; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
+.modal-header { border-bottom: 1px solid var(--border); padding: 18px 22px; }
+.modal-title { font-weight: 700; letter-spacing: -0.01em; }
+.modal-body { padding: 20px 22px; }
+.form-label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+
+/* ── 아이콘 선택기 ────────────────────────────────────────────── */
+.icon-picker {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+  padding: 10px;
+  background: #f8f9fc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  max-height: 168px;
+  overflow-y: auto;
+}
+.icon-choice {
+  width: 34px;
+  height: 34px;
+  border: 1.5px solid transparent;
+  border-radius: 9px;
+  background: #fff;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.icon-choice:hover { background: #eef0fb; transform: translateY(-1px); }
+.icon-choice.selected {
+  border-color: var(--pri);
+  background: color-mix(in srgb, var(--pri) 12%, white);
+  box-shadow: 0 0 0 2px rgba(67, 56, 202, 0.18);
+}
+
+/* ── 대시보드 검색/정렬 툴바 ──────────────────────────────────── */
+.dashboard-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1100px;
+  margin: 0 auto 16px;
+}
+.dashboard-toolbar .search-box {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
+}
+.dashboard-toolbar .search-box i {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.dashboard-toolbar .search-box input {
+  padding-left: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.dashboard-toolbar select {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 13px;
+  padding: 6px 14px;
+}
+.nav-badge {
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  margin-left: 2px;
+}
+
+/* ── 전체 교체 현황 목록 ──────────────────────────────────────── */
+.alerts-list {
+  max-width: 900px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.alert-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.alert-row:last-child { border-bottom: none; }
+.alert-row:hover { background: #f8f9fd; }
+.alert-badge { flex-shrink: 0; min-width: 66px; text-align: center; }
+.alert-main { flex: 1; min-width: 0; }
+.alert-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.alert-sep { color: var(--text-muted); margin: 0 2px; }
+.alert-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.alert-chevron { color: var(--text-muted); flex-shrink: 0; }
+
+/* ── 통계 페이지 ───────────────────────────────────────────────── */
+.unit-filter-menu {
+  max-height: 320px;
+  overflow-y: auto;
+  min-width: 240px;
+}
+.unit-filter-menu .form-check { padding-left: 1.6em; }
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+@media (max-width: 900px) {
+  .stats-grid { grid-template-columns: 1fr; }
+}
+.stats-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 0 6px;
+}
+.stats-panel h6 {
+  font-weight: 700;
+  padding: 0 18px 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid #f1f2f6;
+}
+.stats-list {
+  max-height: 380px;
+  overflow-y: auto;
+}
+.stats-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.stats-row:last-child { border-bottom: none; }
+.stats-row:hover { background: #f8f9fd; }
+.stats-rank {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--pri) 12%, white);
+  color: var(--pri);
+  font-size: 11px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="d-flex align-items-center gap-2">
+    <i class="bi bi-bar-chart-fill"></i>
+    <h1>부품/유닛 통계</h1>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span id="clock" class="clock"></span>
+  </div>
+</header>
+
+<main class="container-fluid py-4">
+
+  <div class="dashboard-toolbar">
+    <div class="dropdown">
+      <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button" id="unitFilterBtn"
+        data-bs-toggle="dropdown" data-bs-auto-close="outside">
+        <i class="bi bi-funnel"></i> 유닛 선택<span id="unitFilterCount"></span>
+      </button>
+      <div class="dropdown-menu p-2 unit-filter-menu" id="unitFilterMenu"></div>
+    </div>
+    <button id="clearFilterBtn" class="btn btn-sm btn-outline-secondary d-none">
+      <i class="bi bi-x-lg"></i> 필터 해제
+    </button>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stats-panel">
+      <h6><i class="bi bi-cash-coin"></i> 금액순</h6>
+      <div id="statsCost" class="stats-list"></div>
+    </div>
+    <div class="stats-panel">
+      <h6><i class="bi bi-arrow-repeat"></i> 사용량 많은순</h6>
+      <div id="statsUsage" class="stats-list"></div>
+    </div>
+    <div class="stats-panel">
+      <h6><i class="bi bi-hourglass-split"></i> 교체 주기 짧은순</h6>
+      <div id="statsCycle" class="stats-list"></div>
+    </div>
+    <div class="stats-panel">
+      <h6><i class="bi bi-box-seam"></i> 부품수 많은순</h6>
+      <div id="statsPartCount" class="stats-list"></div>
+    </div>
+  </div>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+let selectedUnitNames = [];
+
+function tick() {
+  const el = document.getElementById("clock");
+  if (el) el.textContent = new Date().toLocaleString("ko-KR");
+}
+
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+function formatMoney(v) {
+  return `${Number(v || 0).toLocaleString("ko-KR")}원`;
+}
+
+async function loadStats() {
+  const params = new URLSearchParams();
+  selectedUnitNames.forEach((name) => params.append("unit_name", name));
+  const res = await fetch(`/api/stats?${params.toString()}`);
+  const data = await res.json();
+  renderUnitFilter(data.unit_names);
+  renderPanel("statsCost", data.by_cost, (r) => formatMoney(r.total_cost));
+  renderPanel("statsUsage", data.by_usage, (r) => `${r.usage_count}회 교체`);
+  renderPanel("statsCycle", data.by_short_cycle, (r) => `${r.min_cycle_days}일 주기`);
+  renderPanel("statsPartCount", data.by_part_count, (r) => `${r.part_count}개`);
+}
+
+function renderPanel(elId, rows, metricText) {
+  const el = document.getElementById(elId);
+  if (rows.length === 0) {
+    el.innerHTML = `<p class="text-muted text-center py-4 mb-0">데이터가 없습니다.</p>`;
+    return;
+  }
+  el.innerHTML = rows
+    .map(
+      (r, i) => `
+    <div class="stats-row" data-unit-id="${r.unit_id}">
+      <span class="stats-rank">${i + 1}</span>
+      <div class="alert-main">
+        <div class="alert-title">
+          <span>${r.equipment_icon}</span> ${escapeHtml(r.equipment_name)}
+          <span class="alert-sep">›</span> ${r.unit_icon} ${escapeHtml(r.unit_name)}
+        </div>
+        <div class="alert-meta">${metricText(r)}</div>
+      </div>
+      <i class="bi bi-chevron-right alert-chevron"></i>
+    </div>`
+    )
+    .join("");
+  rows.forEach((r) => {
+    const row = el.querySelector(`[data-unit-id="${r.unit_id}"]`);
+    row.addEventListener("click", () => {
+      window.location.href = `/unit/${r.unit_id}`;
+    });
+  });
+}
+
+function renderUnitFilter(names) {
+  const menu = document.getElementById("unitFilterMenu");
+  if (menu.dataset.rendered === "1") return;
+  menu.dataset.rendered = "1";
+  menu.innerHTML = names
+    .map(
+      (name, i) => `
+    <div class="form-check">
+      <input class="form-check-input" type="checkbox" value="${escapeHtml(name)}" id="unitFilter${i}">
+      <label class="form-check-label" for="unitFilter${i}">${escapeHtml(name)}</label>
+    </div>`
+    )
+    .join("");
+  menu.querySelectorAll(".form-check-input").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      selectedUnitNames = Array.from(menu.querySelectorAll(".form-check-input:checked")).map(
+        (el) => el.value
+      );
+      updateFilterUi();
+      loadStats();
+    });
+  });
+}
+
+function updateFilterUi() {
+  const countEl = document.getElementById("unitFilterCount");
+  const clearBtn = document.getElementById("clearFilterBtn");
+  if (selectedUnitNames.length > 0) {
+    countEl.innerHTML = `<span class="nav-badge">${selectedUnitNames.length}</span>`;
+    clearBtn.classList.remove("d-none");
+  } else {
+    countEl.innerHTML = "";
+    clearBtn.classList.add("d-none");
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  tick();
+  setInterval(tick, 1000);
+  loadStats();
+
+  document.getElementById("clearFilterBtn").addEventListener("click", () => {
+    selectedUnitNames = [];
+    document
+      .querySelectorAll("#unitFilterMenu .form-check-input")
+      .forEach((cb) => (cb.checked = false));
+    updateFilterUi();
+    loadStats();
   });
 });
 </script>

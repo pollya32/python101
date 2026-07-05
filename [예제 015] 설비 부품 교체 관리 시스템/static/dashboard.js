@@ -208,6 +208,9 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("addEquipmentBtn").addEventListener("click", () => openEquipmentEditModal(null));
+  document.getElementById("statsBtn").addEventListener("click", () => {
+    window.open("/stats", "_blank", "noopener,noreferrer");
+  });
 
   document.getElementById("equipmentSearch").addEventListener("input", applyFilterSort);
   document.getElementById("equipmentSort").addEventListener("change", applyFilterSort);

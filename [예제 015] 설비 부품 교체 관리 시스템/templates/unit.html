@@ -165,17 +165,29 @@
           <div id="partIconPicker" class="icon-picker"></div>
           <div class="row g-2 mt-1">
             <div class="col-6">
-              <label class="form-label">교체 주기(일)</label>
-              <input type="number" class="form-control" id="partEditCycle" value="90" min="1" required>
+              <label class="form-label">교체 주기</label>
+              <div class="input-group">
+                <input type="number" class="form-control" id="partEditCycle" value="90" min="1" required>
+                <select class="form-select flex-grow-0 w-auto" id="partEditCycleUnit">
+                  <option value="일">일</option>
+                  <option value="년">년</option>
+                </select>
+              </div>
             </div>
             <div class="col-6" id="partEditLastDateWrap">
               <label class="form-label">최초 교체일 (선택)</label>
               <input type="date" class="form-control" id="partEditLastDate">
             </div>
           </div>
-          <div class="mb-2 mt-2">
-            <label class="form-label">비고</label>
-            <input type="text" class="form-control" id="partEditNote">
+          <div class="row g-2 mt-1">
+            <div class="col-6">
+              <label class="form-label">금액 (원)</label>
+              <input type="number" class="form-control" id="partEditCost" value="0" min="0" step="100">
+            </div>
+            <div class="col-6">
+              <label class="form-label">비고</label>
+              <input type="text" class="form-control" id="partEditNote">
+            </div>
           </div>
           <button type="submit" class="btn btn-primary w-100 mt-2">저장</button>
         </form>

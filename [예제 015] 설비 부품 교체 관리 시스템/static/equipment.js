@@ -305,6 +305,9 @@ async function copyUnit(unit) {
       name: p.name,
       spec: p.spec,
       cycle_days: p.cycle_days,
+      cycle_unit: p.cycle_unit,
+      cost: p.cost,
+      note: p.note,
       icon: p.icon,
     })),
   };
