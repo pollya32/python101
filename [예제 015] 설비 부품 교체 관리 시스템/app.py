@@ -283,33 +283,51 @@ def serialize_part(row):
     return d
 
 
-def propagate_part_to_other_equipment(conn, unit_id, part_row):
-    """기준 설비(TEAG01호기)의 유닛에 부품이 추가되면, 동일한 이름의 유닛을 가진
-    나머지 설비에도 같은 부품을 복제한다. 복제된 부품은 각 설비에서 개별적으로 수정/삭제할 수 있다."""
-    unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
-    if not unit or unit["equipment_id"] != MASTER_EQUIPMENT_ID:
-        return 0
+def apply_unit_parts_to_other_equipment(conn, unit_id):
+    """기준 설비(TEAG01호기)의 특정 유닛에 등록된 부품 구성 전체를, 동일한 이름의 유닛을 가진
+    나머지 설비에 일괄 동기화한다. 이름이 같은 부품은 규격/교체주기/비고/아이콘/위치/크기가
+    갱신되고, 새 부품은 추가되며, 여기 없는 이름의 부품은 삭제된다(교체 이력도 함께 삭제)."""
+    master_unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
+    master_parts = conn.execute(
+        "SELECT * FROM parts WHERE unit_id = ? ORDER BY id", (unit_id,)
+    ).fetchall()
+    master_names = {p["name"] for p in master_parts}
+
     target_units = conn.execute(
         "SELECT id FROM units WHERE name = ? AND equipment_id != ?",
-        (unit["name"], MASTER_EQUIPMENT_ID),
+        (master_unit["name"], MASTER_EQUIPMENT_ID),
     ).fetchall()
+
     for t in target_units:
-        cur = conn.execute(
-            """INSERT INTO parts (unit_id, name, spec, cycle_days, last_replaced_date, note, icon, pos_x, pos_y, width, height)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                t["id"], part_row["name"], part_row["spec"], part_row["cycle_days"],
-                part_row["last_replaced_date"], part_row["note"], part_row["icon"],
-                part_row["pos_x"], part_row["pos_y"], part_row["width"], part_row["height"],
-            ),
-        )
-        new_part_id = cur.lastrowid
-        if part_row["last_replaced_date"]:
-            conn.execute(
-                "INSERT INTO replacement_history (part_id, replaced_date, note) VALUES (?, ?, ?)",
-                (new_part_id, part_row["last_replaced_date"], "최초 등록 (TEAG01호기 동기화)"),
-            )
-    return len(target_units)
+        existing = {
+            p["name"]: p
+            for p in conn.execute("SELECT * FROM parts WHERE unit_id = ?", (t["id"],)).fetchall()
+        }
+        for mp in master_parts:
+            if mp["name"] in existing:
+                ep = existing[mp["name"]]
+                conn.execute(
+                    """UPDATE parts SET spec = ?, cycle_days = ?, note = ?, icon = ?,
+                       pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?""",
+                    (
+                        mp["spec"], mp["cycle_days"], mp["note"], mp["icon"],
+                        mp["pos_x"], mp["pos_y"], mp["width"], mp["height"], ep["id"],
+                    ),
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO parts (unit_id, name, spec, cycle_days, note, icon, pos_x, pos_y, width, height)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        t["id"], mp["name"], mp["spec"], mp["cycle_days"], mp["note"], mp["icon"],
+                        mp["pos_x"], mp["pos_y"], mp["width"], mp["height"],
+                    ),
+                )
+        for name, ep in existing.items():
+            if name not in master_names:
+                conn.execute("DELETE FROM parts WHERE id = ?", (ep["id"],))
+
+    return len(target_units), len(master_parts)
 
 
 def unit_with_status(conn, u):
@@ -678,13 +696,26 @@ def add_part(unit_id):
             "INSERT INTO replacement_history (part_id, replaced_date, note) VALUES (?, ?, ?)",
             (part_id, last_replaced_date, "최초 등록"),
         )
+    conn.commit()
     row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
-    propagated_count = propagate_part_to_other_equipment(conn, unit_id, row)
+    conn.close()
+    return jsonify(serialize_part(row)), 201
+
+
+@app.route("/api/units/<int:unit_id>/apply-parts", methods=["POST"])
+def apply_unit_parts(unit_id):
+    conn = get_db()
+    unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
+    if not unit:
+        conn.close()
+        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
+    if unit["equipment_id"] != MASTER_EQUIPMENT_ID:
+        conn.close()
+        return jsonify({"error": "기준 설비(TEAG01호기)의 유닛에서만 사용할 수 있습니다"}), 400
+    equipment_count, part_count = apply_unit_parts_to_other_equipment(conn, unit_id)
     conn.commit()
     conn.close()
-    result = serialize_part(row)
-    result["propagated_count"] = propagated_count
-    return jsonify(result), 201
+    return jsonify({"ok": True, "equipment_count": equipment_count, "part_count": part_count})
 
 
 @app.route("/api/parts/<int:part_id>", methods=["PUT"])

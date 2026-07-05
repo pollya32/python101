@@ -99,7 +99,9 @@ async function loadUnitHeader() {
     document.getElementById("unitName").textContent = unit.name;
     document.getElementById("unitShape").style.setProperty("--shape-color", unit.color);
     document.getElementById("backToEquipmentBtn").href = `/equipment/${unit.equipment_id}`;
-    document.getElementById("masterHint").classList.toggle("d-none", unit.equipment_id !== MASTER_EQUIPMENT_ID);
+    const isMaster = unit.equipment_id === MASTER_EQUIPMENT_ID;
+    document.getElementById("masterHint").classList.toggle("d-none", !isMaster);
+    document.getElementById("applyPartsBtn").classList.toggle("d-none", !isMaster);
   } catch (err) {
     alert("유닛 정보를 불러올 수 없습니다.");
     window.location.href = "/";
@@ -344,7 +346,7 @@ async function pastePart() {
     alert("복사된 부품이 없습니다. 먼저 부품의 복사 아이콘을 눌러주세요.");
     return;
   }
-  const created = await fetchJson(`/api/units/${UNIT_ID}/parts`, {
+  await fetchJson(`/api/units/${UNIT_ID}/parts`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -357,9 +359,6 @@ async function pastePart() {
       height: clipboard.height,
     }),
   });
-  if (created.propagated_count > 0) {
-    alert(`이 부품이 나머지 ${created.propagated_count}개 설비의 동일한 유닛에도 자동으로 적용되었습니다.`);
-  }
   loadParts();
 }
 
@@ -528,17 +527,30 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       } else {
         payload.last_replaced_date = document.getElementById("partEditLastDate").value || null;
-        const created = await fetchJson(`/api/units/${UNIT_ID}/parts`, {
+        await fetchJson(`/api/units/${UNIT_ID}/parts`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        if (created.propagated_count > 0) {
-          alert(`이 부품이 나머지 ${created.propagated_count}개 설비의 동일한 유닛에도 자동으로 적용되었습니다.`);
-        }
       }
       partEditModal.hide();
       loadParts();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById("applyPartsBtn").addEventListener("click", async () => {
+    const ok = confirm(
+      "현재 이 유닛의 부품 구성을 동일한 이름의 유닛을 가진 나머지 설비 전체에 적용합니다.\n" +
+      "- 이름이 같은 부품은 규격/교체주기/비고/아이콘/위치/크기가 이 구성대로 갱신됩니다.\n" +
+      "- 여기 없는 이름의 부품은 각 설비에서 삭제되며, 등록된 교체 이력도 함께 삭제됩니다.\n\n" +
+      "계속하시겠습니까?"
+    );
+    if (!ok) return;
+    try {
+      const result = await fetchJson(`/api/units/${UNIT_ID}/apply-parts`, { method: "POST" });
+      alert(`설비 ${result.equipment_count}대에 부품 구성(${result.part_count}개)을 적용했습니다.`);
     } catch (err) {
       alert(err.message);
     }
