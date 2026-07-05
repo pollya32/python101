@@ -7,6 +7,9 @@ from datetime import date, datetime, timedelta
 app = Flask(__name__)
 DB_PATH = os.path.join(os.path.dirname(__file__), "equipment.db")
 
+EQUIPMENT_COUNT = 20
+EQUIPMENT_PREFIX = "TEAG"
+
 # 사진 속 설비(로드포트 4개 + HMI 제어패널 + 공정모듈 + 배기/시그널타워) 구조를 본뜬 기본 유닛
 # pos_x, pos_y는 설비 캔버스 안에서 유닛 중심의 위치(% 좌표)
 DEFAULT_UNITS = [
@@ -30,9 +33,26 @@ def get_db():
 def init_db():
     conn = get_db()
     c = conn.cursor()
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS equipments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    eq_count = c.execute("SELECT COUNT(*) AS n FROM equipments").fetchone()["n"]
+    if eq_count == 0:
+        for i in range(1, EQUIPMENT_COUNT + 1):
+            c.execute(
+                "INSERT INTO equipments (id, name) VALUES (?, ?)",
+                (i, f"{EQUIPMENT_PREFIX}{i:02d}호기"),
+            )
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS units (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            equipment_id INTEGER NOT NULL DEFAULT 1,
             name TEXT NOT NULL,
             icon TEXT DEFAULT '⚙️',
             color TEXT DEFAULT '#1a3a5c',
@@ -40,10 +60,14 @@ def init_db():
             pos_y REAL DEFAULT 50,
             width REAL DEFAULT 140,
             height REAL DEFAULT 110,
-            created_at TEXT DEFAULT (datetime('now','localtime'))
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (equipment_id) REFERENCES equipments(id) ON DELETE CASCADE
         )
     """)
     existing_cols = {r["name"] for r in c.execute("PRAGMA table_info(units)").fetchall()}
+    if "equipment_id" not in existing_cols:
+        c.execute("ALTER TABLE units ADD COLUMN equipment_id INTEGER")
+        c.execute("UPDATE units SET equipment_id = 1 WHERE equipment_id IS NULL")
     if "pos_x" not in existing_cols:
         c.execute("ALTER TABLE units ADD COLUMN pos_x REAL")
         c.execute("ALTER TABLE units ADD COLUMN pos_y REAL")
@@ -58,6 +82,7 @@ def init_db():
         c.execute("UPDATE units SET pos_x = ?, pos_y = ? WHERE id = ?", (x, 50, row["id"]))
     c.execute("UPDATE units SET width = 140 WHERE width IS NULL")
     c.execute("UPDATE units SET height = 110 WHERE height IS NULL")
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS parts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,6 +120,7 @@ def init_db():
     c.execute("UPDATE parts SET width = 130 WHERE width IS NULL")
     c.execute("UPDATE parts SET height = 110 WHERE height IS NULL")
     c.execute("UPDATE parts SET icon = '🔩' WHERE icon IS NULL")
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS replacement_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,21 +131,50 @@ def init_db():
             FOREIGN KEY (part_id) REFERENCES parts(id) ON DELETE CASCADE
         )
     """)
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS equipment_notes (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
+            equipment_id INTEGER PRIMARY KEY,
             content TEXT DEFAULT '',
-            updated_at TEXT DEFAULT (datetime('now','localtime'))
+            updated_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (equipment_id) REFERENCES equipments(id) ON DELETE CASCADE
         )
     """)
-    c.execute("INSERT OR IGNORE INTO equipment_notes (id, content) VALUES (1, '')")
-    row = c.execute("SELECT COUNT(*) AS n FROM units").fetchone()
-    if row["n"] == 0:
-        for name, icon, color, pos_x, pos_y in DEFAULT_UNITS:
-            c.execute(
-                "INSERT INTO units (name, icon, color, pos_x, pos_y) VALUES (?, ?, ?, ?, ?)",
-                (name, icon, color, pos_x, pos_y),
+    old_notes_cols = {r["name"] for r in c.execute("PRAGMA table_info(equipment_notes)").fetchall()}
+    if "equipment_id" not in old_notes_cols:
+        c.execute("ALTER TABLE equipment_notes RENAME TO equipment_notes_old")
+        c.execute("""
+            CREATE TABLE equipment_notes (
+                equipment_id INTEGER PRIMARY KEY,
+                content TEXT DEFAULT '',
+                updated_at TEXT DEFAULT (datetime('now','localtime')),
+                FOREIGN KEY (equipment_id) REFERENCES equipments(id) ON DELETE CASCADE
             )
+        """)
+        old_row = c.execute("SELECT content, updated_at FROM equipment_notes_old WHERE id = 1").fetchone()
+        if old_row:
+            c.execute(
+                "INSERT INTO equipment_notes (equipment_id, content, updated_at) VALUES (1, ?, ?)",
+                (old_row["content"], old_row["updated_at"]),
+            )
+        c.execute("DROP TABLE equipment_notes_old")
+    c.execute(
+        "INSERT OR IGNORE INTO equipment_notes (equipment_id, content) "
+        "SELECT id, '' FROM equipments"
+    )
+
+    # 각 설비에 유닛이 하나도 없으면 기본 유닛 구성을 자동으로 반영
+    for eq in c.execute("SELECT id FROM equipments").fetchall():
+        unit_count = c.execute(
+            "SELECT COUNT(*) AS n FROM units WHERE equipment_id = ?", (eq["id"],)
+        ).fetchone()["n"]
+        if unit_count == 0:
+            for name, icon, color, pos_x, pos_y in DEFAULT_UNITS:
+                c.execute(
+                    "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y) VALUES (?, ?, ?, ?, ?, ?)",
+                    (eq["id"], name, icon, color, pos_x, pos_y),
+                )
+
     conn.commit()
     conn.close()
 
@@ -152,21 +207,6 @@ def serialize_part(row):
     return d
 
 
-@app.route("/")
-def index():
-    return render_template("index.html")
-
-
-@app.route("/unit/<int:unit_id>")
-def unit_detail(unit_id):
-    conn = get_db()
-    unit = conn.execute("SELECT id FROM units WHERE id = ?", (unit_id,)).fetchone()
-    conn.close()
-    if not unit:
-        return "유닛을 찾을 수 없습니다", 404
-    return render_template("unit.html", unit_id=unit_id)
-
-
 def unit_with_status(conn, u):
     parts = conn.execute("SELECT * FROM parts WHERE unit_id = ?", (u["id"],)).fetchall()
     statuses = [part_status(p["cycle_days"], p["last_replaced_date"])["status"] for p in parts]
@@ -186,29 +226,99 @@ def unit_with_status(conn, u):
     return d
 
 
-@app.route("/api/units")
-def list_units():
+STATUS_PRIORITY = ["overdue", "soon", "unknown", "ok", "empty"]
+
+
+def equipment_with_status(conn, e):
+    units = conn.execute("SELECT * FROM units WHERE equipment_id = ?", (e["id"],)).fetchall()
+    statuses = [unit_with_status(conn, u)["overall_status"] for u in units]
+    overall = next((s for s in STATUS_PRIORITY if s in statuses), "empty")
+    d = dict(e)
+    d["unit_count"] = len(units)
+    d["overall_status"] = overall
+    return d
+
+
+@app.route("/")
+def dashboard():
+    return render_template("dashboard.html")
+
+
+@app.route("/equipment/<int:equipment_id>")
+def equipment_page(equipment_id):
     conn = get_db()
-    units = conn.execute("SELECT * FROM units ORDER BY id").fetchall()
+    equipment = conn.execute("SELECT id FROM equipments WHERE id = ?", (equipment_id,)).fetchone()
+    conn.close()
+    if not equipment:
+        return "설비를 찾을 수 없습니다", 404
+    return render_template("equipment.html", equipment_id=equipment_id)
+
+
+@app.route("/unit/<int:unit_id>")
+def unit_detail(unit_id):
+    conn = get_db()
+    unit = conn.execute("SELECT id FROM units WHERE id = ?", (unit_id,)).fetchone()
+    conn.close()
+    if not unit:
+        return "유닛을 찾을 수 없습니다", 404
+    return render_template("unit.html", unit_id=unit_id)
+
+
+@app.route("/api/equipments")
+def list_equipments():
+    conn = get_db()
+    equipments = conn.execute("SELECT * FROM equipments ORDER BY id").fetchall()
+    result = [equipment_with_status(conn, e) for e in equipments]
+    conn.close()
+    return jsonify(result)
+
+
+@app.route("/api/equipments/<int:equipment_id>")
+def get_equipment(equipment_id):
+    conn = get_db()
+    equipment = conn.execute("SELECT * FROM equipments WHERE id = ?", (equipment_id,)).fetchone()
+    if not equipment:
+        conn.close()
+        return jsonify({"error": "설비를 찾을 수 없습니다"}), 404
+    d = equipment_with_status(conn, equipment)
+    conn.close()
+    return jsonify(d)
+
+
+@app.route("/api/equipments/<int:equipment_id>", methods=["PUT"])
+def update_equipment(equipment_id):
+    data = request.get_json()
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "설비 이름을 입력하세요"}), 400
+    conn = get_db()
+    equipment = conn.execute("SELECT * FROM equipments WHERE id = ?", (equipment_id,)).fetchone()
+    if not equipment:
+        conn.close()
+        return jsonify({"error": "설비를 찾을 수 없습니다"}), 404
+    try:
+        conn.execute("UPDATE equipments SET name = ? WHERE id = ?", (name, equipment_id))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({"error": "이미 사용 중인 설비 이름입니다"}), 409
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/equipments/<int:equipment_id>/units")
+def list_units(equipment_id):
+    conn = get_db()
+    units = conn.execute(
+        "SELECT * FROM units WHERE equipment_id = ? ORDER BY id", (equipment_id,)
+    ).fetchall()
     result = [unit_with_status(conn, u) for u in units]
     conn.close()
     return jsonify(result)
 
 
-@app.route("/api/units/<int:unit_id>")
-def get_unit(unit_id):
-    conn = get_db()
-    unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
-    if not unit:
-        conn.close()
-        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
-    d = unit_with_status(conn, unit)
-    conn.close()
-    return jsonify(d)
-
-
-@app.route("/api/units", methods=["POST"])
-def add_unit():
+@app.route("/api/equipments/<int:equipment_id>/units", methods=["POST"])
+def add_unit(equipment_id):
     data = request.get_json()
     name = (data.get("name") or "").strip()
     if not name:
@@ -223,8 +333,8 @@ def add_unit():
     height = data.get("height") or 110
     conn = get_db()
     cur = conn.execute(
-        "INSERT INTO units (name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (name, icon, color, pos_x, pos_y, width, height),
+        "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (equipment_id, name, icon, color, pos_x, pos_y, width, height),
     )
     conn.commit()
     new_id = cur.lastrowid
@@ -234,6 +344,18 @@ def add_unit():
     d["part_count"] = 0
     d["overall_status"] = "empty"
     return jsonify(d), 201
+
+
+@app.route("/api/units/<int:unit_id>")
+def get_unit(unit_id):
+    conn = get_db()
+    unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
+    if not unit:
+        conn.close()
+        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
+    d = unit_with_status(conn, unit)
+    conn.close()
+    return jsonify(d)
 
 
 @app.route("/api/units/<int:unit_id>", methods=["PUT"])
@@ -396,25 +518,30 @@ def delete_history(history_id):
     return jsonify({"ok": True})
 
 
-@app.route("/api/notes")
-def get_notes():
+@app.route("/api/equipments/<int:equipment_id>/notes")
+def get_notes(equipment_id):
     conn = get_db()
-    row = conn.execute("SELECT content, updated_at FROM equipment_notes WHERE id = 1").fetchone()
+    row = conn.execute(
+        "SELECT content, updated_at FROM equipment_notes WHERE equipment_id = ?", (equipment_id,)
+    ).fetchone()
     conn.close()
-    return jsonify(dict(row))
+    return jsonify(dict(row) if row else {"content": "", "updated_at": None})
 
 
-@app.route("/api/notes", methods=["PUT"])
-def update_notes():
+@app.route("/api/equipments/<int:equipment_id>/notes", methods=["PUT"])
+def update_notes(equipment_id):
     data = request.get_json()
     content = data.get("content") or ""
     conn = get_db()
     conn.execute(
-        "UPDATE equipment_notes SET content = ?, updated_at = datetime('now','localtime') WHERE id = 1",
-        (content,),
+        "INSERT INTO equipment_notes (equipment_id, content, updated_at) VALUES (?, ?, datetime('now','localtime')) "
+        "ON CONFLICT(equipment_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+        (equipment_id, content),
     )
     conn.commit()
-    row = conn.execute("SELECT content, updated_at FROM equipment_notes WHERE id = 1").fetchone()
+    row = conn.execute(
+        "SELECT content, updated_at FROM equipment_notes WHERE equipment_id = ?", (equipment_id,)
+    ).fetchone()
     conn.close()
     return jsonify(dict(row))
 

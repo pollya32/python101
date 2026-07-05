@@ -15,8 +15,19 @@ async function fetchJson(url, options) {
   return res.status === 204 ? null : res.json();
 }
 
+async function loadEquipmentHeader() {
+  try {
+    const equipment = await fetchJson(`/api/equipments/${EQUIPMENT_ID}`);
+    document.getElementById("equipmentPageTitle").textContent = equipment.name;
+    document.title = `${equipment.name} - 설비 부품 교체 관리 시스템`;
+  } catch (err) {
+    alert("설비 정보를 불러올 수 없습니다.");
+    window.location.href = "/";
+  }
+}
+
 async function loadUnits() {
-  const units = await fetchJson("/api/units");
+  const units = await fetchJson(`/api/equipments/${EQUIPMENT_ID}/units`);
   renderCanvas(units);
 }
 
@@ -180,7 +191,7 @@ function linkifyText(text) {
 let lastNotesContent = "";
 
 async function loadNotes() {
-  const data = await fetchJson("/api/notes");
+  const data = await fetchJson(`/api/equipments/${EQUIPMENT_ID}/notes`);
   lastNotesContent = data.content || "";
   renderNotesView(lastNotesContent);
   document.getElementById("notesEdit").value = lastNotesContent;
@@ -223,6 +234,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   tick();
   setInterval(tick, 1000);
+  loadEquipmentHeader();
   loadUnits();
   loadNotes();
 
@@ -234,7 +246,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("saveNotesBtn").addEventListener("click", async () => {
     const content = document.getElementById("notesEdit").value;
     try {
-      const data = await fetchJson("/api/notes", {
+      const data = await fetchJson(`/api/equipments/${EQUIPMENT_ID}/notes`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content }),
@@ -276,7 +288,7 @@ document.addEventListener("DOMContentLoaded", () => {
           body: JSON.stringify(payload),
         });
       } else {
-        await fetchJson(`/api/units`, {
+        await fetchJson(`/api/equipments/${EQUIPMENT_ID}/units`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),

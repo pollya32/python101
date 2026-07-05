@@ -23,6 +23,9 @@ except NameError:
     _base = os.getcwd()
 DB_PATH = os.path.join(_base, "equipment_data.db")
 
+EQUIPMENT_COUNT = 20
+EQUIPMENT_PREFIX = "TEAG"
+
 # 사진 속 설비(로드포트 4개 + HMI 제어패널 + 공정모듈 + 배기/시그널타워) 구조를 본뜬 기본 유닛
 # pos_x, pos_y는 설비 캔버스 안에서 유닛 중심의 위치(% 좌표)
 DEFAULT_UNITS = [
@@ -46,9 +49,26 @@ def get_db():
 def init_db():
     conn = get_db()
     c = conn.cursor()
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS equipments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    eq_count = c.execute("SELECT COUNT(*) AS n FROM equipments").fetchone()["n"]
+    if eq_count == 0:
+        for i in range(1, EQUIPMENT_COUNT + 1):
+            c.execute(
+                "INSERT INTO equipments (id, name) VALUES (?, ?)",
+                (i, f"{EQUIPMENT_PREFIX}{i:02d}호기"),
+            )
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS units (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            equipment_id INTEGER NOT NULL DEFAULT 1,
             name TEXT NOT NULL,
             icon TEXT DEFAULT '⚙️',
             color TEXT DEFAULT '#1a3a5c',
@@ -56,10 +76,14 @@ def init_db():
             pos_y REAL DEFAULT 50,
             width REAL DEFAULT 140,
             height REAL DEFAULT 110,
-            created_at TEXT DEFAULT (datetime('now','localtime'))
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (equipment_id) REFERENCES equipments(id) ON DELETE CASCADE
         )
     """)
     existing_cols = {r["name"] for r in c.execute("PRAGMA table_info(units)").fetchall()}
+    if "equipment_id" not in existing_cols:
+        c.execute("ALTER TABLE units ADD COLUMN equipment_id INTEGER")
+        c.execute("UPDATE units SET equipment_id = 1 WHERE equipment_id IS NULL")
     if "pos_x" not in existing_cols:
         c.execute("ALTER TABLE units ADD COLUMN pos_x REAL")
         c.execute("ALTER TABLE units ADD COLUMN pos_y REAL")
@@ -74,6 +98,7 @@ def init_db():
         c.execute("UPDATE units SET pos_x = ?, pos_y = ? WHERE id = ?", (x, 50, row["id"]))
     c.execute("UPDATE units SET width = 140 WHERE width IS NULL")
     c.execute("UPDATE units SET height = 110 WHERE height IS NULL")
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS parts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -111,6 +136,7 @@ def init_db():
     c.execute("UPDATE parts SET width = 130 WHERE width IS NULL")
     c.execute("UPDATE parts SET height = 110 WHERE height IS NULL")
     c.execute("UPDATE parts SET icon = '🔩' WHERE icon IS NULL")
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS replacement_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -121,21 +147,50 @@ def init_db():
             FOREIGN KEY (part_id) REFERENCES parts(id) ON DELETE CASCADE
         )
     """)
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS equipment_notes (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
+            equipment_id INTEGER PRIMARY KEY,
             content TEXT DEFAULT '',
-            updated_at TEXT DEFAULT (datetime('now','localtime'))
+            updated_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (equipment_id) REFERENCES equipments(id) ON DELETE CASCADE
         )
     """)
-    c.execute("INSERT OR IGNORE INTO equipment_notes (id, content) VALUES (1, '')")
-    row = c.execute("SELECT COUNT(*) AS n FROM units").fetchone()
-    if row["n"] == 0:
-        for name, icon, color, pos_x, pos_y in DEFAULT_UNITS:
-            c.execute(
-                "INSERT INTO units (name, icon, color, pos_x, pos_y) VALUES (?, ?, ?, ?, ?)",
-                (name, icon, color, pos_x, pos_y),
+    old_notes_cols = {r["name"] for r in c.execute("PRAGMA table_info(equipment_notes)").fetchall()}
+    if "equipment_id" not in old_notes_cols:
+        c.execute("ALTER TABLE equipment_notes RENAME TO equipment_notes_old")
+        c.execute("""
+            CREATE TABLE equipment_notes (
+                equipment_id INTEGER PRIMARY KEY,
+                content TEXT DEFAULT '',
+                updated_at TEXT DEFAULT (datetime('now','localtime')),
+                FOREIGN KEY (equipment_id) REFERENCES equipments(id) ON DELETE CASCADE
             )
+        """)
+        old_row = c.execute("SELECT content, updated_at FROM equipment_notes_old WHERE id = 1").fetchone()
+        if old_row:
+            c.execute(
+                "INSERT INTO equipment_notes (equipment_id, content, updated_at) VALUES (1, ?, ?)",
+                (old_row["content"], old_row["updated_at"]),
+            )
+        c.execute("DROP TABLE equipment_notes_old")
+    c.execute(
+        "INSERT OR IGNORE INTO equipment_notes (equipment_id, content) "
+        "SELECT id, '' FROM equipments"
+    )
+
+    # 각 설비에 유닛이 하나도 없으면 기본 유닛 구성을 자동으로 반영
+    for eq in c.execute("SELECT id FROM equipments").fetchall():
+        unit_count = c.execute(
+            "SELECT COUNT(*) AS n FROM units WHERE equipment_id = ?", (eq["id"],)
+        ).fetchone()["n"]
+        if unit_count == 0:
+            for name, icon, color, pos_x, pos_y in DEFAULT_UNITS:
+                c.execute(
+                    "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y) VALUES (?, ?, ?, ?, ?, ?)",
+                    (eq["id"], name, icon, color, pos_x, pos_y),
+                )
+
     conn.commit()
     conn.close()
 
@@ -168,21 +223,6 @@ def serialize_part(row):
     return d
 
 
-@app.route("/")
-def index():
-    return INDEX_HTML
-
-
-@app.route("/unit/<int:unit_id>")
-def unit_detail(unit_id):
-    conn = get_db()
-    unit = conn.execute("SELECT id FROM units WHERE id = ?", (unit_id,)).fetchone()
-    conn.close()
-    if not unit:
-        return "유닛을 찾을 수 없습니다", 404
-    return UNIT_HTML.replace("__UNIT_ID__", str(unit_id))
-
-
 def unit_with_status(conn, u):
     parts = conn.execute("SELECT * FROM parts WHERE unit_id = ?", (u["id"],)).fetchall()
     statuses = [part_status(p["cycle_days"], p["last_replaced_date"])["status"] for p in parts]
@@ -202,29 +242,99 @@ def unit_with_status(conn, u):
     return d
 
 
-@app.route("/api/units")
-def list_units():
+STATUS_PRIORITY = ["overdue", "soon", "unknown", "ok", "empty"]
+
+
+def equipment_with_status(conn, e):
+    units = conn.execute("SELECT * FROM units WHERE equipment_id = ?", (e["id"],)).fetchall()
+    statuses = [unit_with_status(conn, u)["overall_status"] for u in units]
+    overall = next((s for s in STATUS_PRIORITY if s in statuses), "empty")
+    d = dict(e)
+    d["unit_count"] = len(units)
+    d["overall_status"] = overall
+    return d
+
+
+@app.route("/")
+def dashboard():
+    return DASHBOARD_HTML
+
+
+@app.route("/equipment/<int:equipment_id>")
+def equipment_page(equipment_id):
     conn = get_db()
-    units = conn.execute("SELECT * FROM units ORDER BY id").fetchall()
+    equipment = conn.execute("SELECT id FROM equipments WHERE id = ?", (equipment_id,)).fetchone()
+    conn.close()
+    if not equipment:
+        return "설비를 찾을 수 없습니다", 404
+    return EQUIPMENT_HTML.replace("__EQUIPMENT_ID__", str(equipment_id))
+
+
+@app.route("/unit/<int:unit_id>")
+def unit_detail(unit_id):
+    conn = get_db()
+    unit = conn.execute("SELECT id FROM units WHERE id = ?", (unit_id,)).fetchone()
+    conn.close()
+    if not unit:
+        return "유닛을 찾을 수 없습니다", 404
+    return UNIT_HTML.replace("__UNIT_ID__", str(unit_id))
+
+
+@app.route("/api/equipments")
+def list_equipments():
+    conn = get_db()
+    equipments = conn.execute("SELECT * FROM equipments ORDER BY id").fetchall()
+    result = [equipment_with_status(conn, e) for e in equipments]
+    conn.close()
+    return jsonify(result)
+
+
+@app.route("/api/equipments/<int:equipment_id>")
+def get_equipment(equipment_id):
+    conn = get_db()
+    equipment = conn.execute("SELECT * FROM equipments WHERE id = ?", (equipment_id,)).fetchone()
+    if not equipment:
+        conn.close()
+        return jsonify({"error": "설비를 찾을 수 없습니다"}), 404
+    d = equipment_with_status(conn, equipment)
+    conn.close()
+    return jsonify(d)
+
+
+@app.route("/api/equipments/<int:equipment_id>", methods=["PUT"])
+def update_equipment(equipment_id):
+    data = request.get_json()
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "설비 이름을 입력하세요"}), 400
+    conn = get_db()
+    equipment = conn.execute("SELECT * FROM equipments WHERE id = ?", (equipment_id,)).fetchone()
+    if not equipment:
+        conn.close()
+        return jsonify({"error": "설비를 찾을 수 없습니다"}), 404
+    try:
+        conn.execute("UPDATE equipments SET name = ? WHERE id = ?", (name, equipment_id))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({"error": "이미 사용 중인 설비 이름입니다"}), 409
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/equipments/<int:equipment_id>/units")
+def list_units(equipment_id):
+    conn = get_db()
+    units = conn.execute(
+        "SELECT * FROM units WHERE equipment_id = ? ORDER BY id", (equipment_id,)
+    ).fetchall()
     result = [unit_with_status(conn, u) for u in units]
     conn.close()
     return jsonify(result)
 
 
-@app.route("/api/units/<int:unit_id>")
-def get_unit(unit_id):
-    conn = get_db()
-    unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
-    if not unit:
-        conn.close()
-        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
-    d = unit_with_status(conn, unit)
-    conn.close()
-    return jsonify(d)
-
-
-@app.route("/api/units", methods=["POST"])
-def add_unit():
+@app.route("/api/equipments/<int:equipment_id>/units", methods=["POST"])
+def add_unit(equipment_id):
     data = request.get_json()
     name = (data.get("name") or "").strip()
     if not name:
@@ -239,8 +349,8 @@ def add_unit():
     height = data.get("height") or 110
     conn = get_db()
     cur = conn.execute(
-        "INSERT INTO units (name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (name, icon, color, pos_x, pos_y, width, height),
+        "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (equipment_id, name, icon, color, pos_x, pos_y, width, height),
     )
     conn.commit()
     new_id = cur.lastrowid
@@ -250,6 +360,18 @@ def add_unit():
     d["part_count"] = 0
     d["overall_status"] = "empty"
     return jsonify(d), 201
+
+
+@app.route("/api/units/<int:unit_id>")
+def get_unit(unit_id):
+    conn = get_db()
+    unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
+    if not unit:
+        conn.close()
+        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
+    d = unit_with_status(conn, unit)
+    conn.close()
+    return jsonify(d)
 
 
 @app.route("/api/units/<int:unit_id>", methods=["PUT"])
@@ -412,35 +534,40 @@ def delete_history(history_id):
     return jsonify({"ok": True})
 
 
-@app.route("/api/notes")
-def get_notes():
+@app.route("/api/equipments/<int:equipment_id>/notes")
+def get_notes(equipment_id):
     conn = get_db()
-    row = conn.execute("SELECT content, updated_at FROM equipment_notes WHERE id = 1").fetchone()
+    row = conn.execute(
+        "SELECT content, updated_at FROM equipment_notes WHERE equipment_id = ?", (equipment_id,)
+    ).fetchone()
     conn.close()
-    return jsonify(dict(row))
+    return jsonify(dict(row) if row else {"content": "", "updated_at": None})
 
 
-@app.route("/api/notes", methods=["PUT"])
-def update_notes():
+@app.route("/api/equipments/<int:equipment_id>/notes", methods=["PUT"])
+def update_notes(equipment_id):
     data = request.get_json()
     content = data.get("content") or ""
     conn = get_db()
     conn.execute(
-        "UPDATE equipment_notes SET content = ?, updated_at = datetime('now','localtime') WHERE id = 1",
-        (content,),
+        "INSERT INTO equipment_notes (equipment_id, content, updated_at) VALUES (?, ?, datetime('now','localtime')) "
+        "ON CONFLICT(equipment_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+        (equipment_id, content),
     )
     conn.commit()
-    row = conn.execute("SELECT content, updated_at FROM equipment_notes WHERE id = 1").fetchone()
+    row = conn.execute(
+        "SELECT content, updated_at FROM equipment_notes WHERE equipment_id = ?", (equipment_id,)
+    ).fetchone()
     conn.close()
     return jsonify(dict(row))
 
 
-INDEX_HTML = r"""<!DOCTYPE html>
+DASHBOARD_HTML = r"""<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>설비 부품 교체 관리 시스템</title>
+<title>설비 대시보드 - 설비 부품 교체 관리 시스템</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>
@@ -521,6 +648,29 @@ body {
   font-weight: 700;
   color: var(--shape-color);
 }
+
+.equipment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.equipment-card {
+  position: relative;
+  background: #fff;
+  border: 2px solid var(--pri);
+  border-radius: 12px;
+  padding: 18px 10px 14px;
+  cursor: pointer;
+  text-align: center;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+.equipment-card:hover {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+}
+.equipment-card .unit-icon { font-size: 32px; }
 
 .equipment-canvas {
   position: relative;
@@ -669,8 +819,417 @@ body {
 
 <header class="topbar">
   <div class="d-flex align-items-center gap-2">
+    <i class="bi bi-grid-3x3-gap-fill"></i>
+    <h1>설비 대시보드</h1>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span id="clock" class="clock"></span>
+    <button id="editModeBtn" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-pencil-square"></i> 설비명 편집
+    </button>
+  </div>
+</header>
+
+<main class="container-fluid py-4">
+
+  <div class="legend mb-3">
+    <span class="legend-item"><span class="dot dot-ok"></span> 정상</span>
+    <span class="legend-item"><span class="dot dot-soon"></span> 교체 임박</span>
+    <span class="legend-item"><span class="dot dot-overdue"></span> 교체 필요</span>
+    <span class="legend-item"><span class="dot dot-unknown"></span> 미기록 / 부품 없음</span>
+  </div>
+
+  <div id="equipmentGrid" class="equipment-grid"></div>
+
+</main>
+
+<!-- 설비명 편집 모달 -->
+<div class="modal fade" id="equipmentEditModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">설비명 편집</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="equipmentEditForm">
+          <input type="hidden" id="equipmentEditId">
+          <div class="mb-2">
+            <label class="form-label">설비 이름</label>
+            <input type="text" class="form-control" id="equipmentEditName" required>
+          </div>
+          <button type="submit" class="btn btn-primary w-100 mt-2">저장</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+let editMode = false;
+let equipmentEditModal;
+
+function tick() {
+  const el = document.getElementById("clock");
+  if (el) el.textContent = new Date().toLocaleString("ko-KR");
+}
+
+async function fetchJson(url, options) {
+  const res = await fetch(url, options);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || "요청 처리 중 오류가 발생했습니다");
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+async function loadEquipments() {
+  const equipments = await fetchJson("/api/equipments");
+  renderGrid(equipments);
+}
+
+function renderGrid(equipments) {
+  const grid = document.getElementById("equipmentGrid");
+  grid.innerHTML = equipments.map(equipmentCardHtml).join("");
+  equipments.forEach((eq) => {
+    const card = grid.querySelector(`[data-equipment-id="${eq.id}"]`);
+    card.querySelector(".edit-unit-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openEquipmentEditModal(eq);
+    });
+    card.addEventListener("click", (e) => {
+      if (editMode) return;
+      if (e.target.closest(".unit-edit-actions")) return;
+      window.location.href = `/equipment/${eq.id}`;
+    });
+  });
+}
+
+function equipmentCardHtml(eq) {
+  return `
+    <div class="equipment-card ${editMode ? "edit-mode" : ""}" data-equipment-id="${eq.id}">
+      <span class="unit-status-dot dot-${eq.overall_status}"></span>
+      <span class="unit-icon">🏭</span>
+      <div class="unit-name">${escapeHtml(eq.name)}</div>
+      <div class="unit-part-count">${eq.unit_count}개 유닛</div>
+      <div class="unit-edit-actions">
+        <button class="edit-unit-btn" title="설비명 편집"><i class="bi bi-pencil"></i></button>
+      </div>
+    </div>`;
+}
+
+function openEquipmentEditModal(eq) {
+  document.getElementById("equipmentEditId").value = eq.id;
+  document.getElementById("equipmentEditName").value = eq.name;
+  equipmentEditModal.show();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  equipmentEditModal = new bootstrap.Modal(document.getElementById("equipmentEditModal"));
+
+  tick();
+  setInterval(tick, 1000);
+  loadEquipments();
+
+  document.getElementById("editModeBtn").addEventListener("click", (e) => {
+    editMode = !editMode;
+    e.currentTarget.classList.toggle("btn-outline-light", !editMode);
+    e.currentTarget.classList.toggle("btn-warning", editMode);
+    loadEquipments();
+  });
+
+  document.getElementById("equipmentEditForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = document.getElementById("equipmentEditId").value;
+    const payload = {
+      name: document.getElementById("equipmentEditName").value.trim(),
+    };
+    try {
+      await fetchJson(`/api/equipments/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      equipmentEditModal.hide();
+      loadEquipments();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+});
+</script>
+</body>
+</html>
+"""
+
+
+EQUIPMENT_HTML = r"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>설비 부품 교체 관리 시스템</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<style>
+:root {
+  --pri: #1a3a5c;
+  --bg: #eef1f5;
+}
+
+body {
+  background: var(--bg);
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+}
+
+.topbar {
+  background: var(--pri);
+  color: #fff;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 90;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; }
+.clock { font-size: 12px; opacity: 0.8; }
+
+.legend {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: #444;
+}
+.legend-item { display: flex; align-items: center; gap: 6px; }
+.dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+.dot-ok { background: #22c55e; }
+.dot-soon { background: #f59e0b; }
+.dot-overdue { background: #ef4444; }
+.dot-unknown { background: #9ca3af; }
+
+.equipment-frame {
+  background: linear-gradient(180deg, #f8fafc, #e2e8f0);
+  border: 1px solid #cbd5e1;
+  border-radius: 16px;
+  padding: 28px 20px 20px;
+  box-shadow: inset 0 0 0 6px #fff, 0 4px 16px rgba(0, 0, 0, 0.08);
+  position: relative;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.equipment-label {
+  position: absolute;
+  top: -14px;
+  left: 20px;
+  background: var(--pri);
+  color: #fff;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+
+.unit-shape {
+  --shape-color: var(--pri);
+  border: 4px solid var(--shape-color);
+}
+.unit-shape-header {
+  text-align: center;
+  margin-bottom: 6px;
+}
+.unit-shape-icon {
+  font-size: 40px;
+  display: block;
+  line-height: 1.2;
+}
+.unit-shape-name {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--shape-color);
+}
+
+.equipment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.equipment-card {
+  position: relative;
+  background: #fff;
+  border: 2px solid var(--pri);
+  border-radius: 12px;
+  padding: 18px 10px 14px;
+  cursor: pointer;
+  text-align: center;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+.equipment-card:hover {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+}
+.equipment-card .unit-icon { font-size: 32px; }
+
+.equipment-canvas {
+  position: relative;
+  width: 100%;
+  min-height: 460px;
+  margin-top: 10px;
+}
+@media (max-width: 768px) {
+  .equipment-canvas { min-height: 620px; }
+}
+
+.unit-card {
+  --uc: #1a3a5c;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 140px;
+  min-height: 110px;
+  background: #fff;
+  border: 2px solid var(--uc);
+  border-radius: 12px;
+  padding: 12px 10px 10px;
+  cursor: pointer;
+  transition: box-shadow 0.15s;
+  text-align: center;
+  user-select: none;
+  touch-action: none;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.unit-card:hover {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  z-index: 5;
+}
+.edit-mode.unit-card { cursor: grab; }
+.unit-card.dragging {
+  cursor: grabbing;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  z-index: 20;
+  transition: none;
+}
+.unit-icon { font-size: 28px; display: block; margin-bottom: 6px; }
+.unit-name { font-size: 13px; font-weight: 600; color: #1f2937; line-height: 1.3; }
+.unit-status-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.1);
+}
+.unit-part-count {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 4px;
+}
+.unit-edit-actions {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  display: none;
+  gap: 4px;
+}
+.edit-mode .unit-edit-actions { display: flex; }
+.unit-edit-actions button {
+  border: none;
+  background: rgba(0,0,0,.06);
+  border-radius: 6px;
+  font-size: 11px;
+  padding: 2px 5px;
+}
+.unit-edit-actions button:hover { background: rgba(0,0,0,.14); }
+
+.resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  display: none;
+  cursor: nwse-resize;
+}
+.edit-mode .resize-handle { display: block; }
+.resize-handle::before {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid rgba(0, 0, 0, 0.4);
+  border-bottom: 2px solid rgba(0, 0, 0, 0.4);
+}
+
+.add-unit-btn { margin-top: 16px; display: block; margin-left: auto; margin-right: auto; }
+
+.part-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  background: #fafafa;
+}
+.part-card .part-title { font-weight: 700; font-size: 14px; }
+.part-card .part-spec { font-size: 12px; color: #6b7280; }
+.badge-ok { background: #d1fae5; color: #065f46; }
+.badge-soon { background: #fef3c7; color: #92400e; }
+.badge-overdue { background: #fee2e2; color: #991b1b; }
+.badge-unknown { background: #e5e7eb; color: #374151; }
+
+.history-row { font-size: 13px; border-bottom: 1px solid #f1f1f1; padding: 6px 0; }
+
+.notes-section {
+  max-width: 1100px;
+  margin: 20px auto 0;
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+.notes-view {
+  min-height: 60px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+  color: #333;
+  line-height: 1.6;
+}
+.notes-view:empty::before,
+.notes-view.is-empty::before {
+  content: "등록된 메모가 없습니다. \"편집\" 버튼을 눌러 설비 정보나 부품 구매처 링크를 기록해보세요.";
+  color: #9ca3af;
+}
+.notes-view a {
+  color: #2563eb;
+  word-break: break-all;
+}
+#notesEdit { font-size: 14px; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="d-flex align-items-center gap-2">
+    <a href="/" class="btn btn-sm btn-outline-light"><i class="bi bi-arrow-left"></i> 대시보드</a>
     <i class="bi bi-cpu"></i>
-    <h1>설비 부품 교체 관리 시스템</h1>
+    <h1 id="equipmentPageTitle">설비</h1>
   </div>
   <div class="d-flex align-items-center gap-2">
     <span id="clock" class="clock"></span>
@@ -690,7 +1249,7 @@ body {
   </div>
 
   <div id="equipment" class="equipment-frame">
-    <div class="equipment-label" id="equipmentLabel">CHALLENGER 설비 (유닛을 클릭하면 상세 페이지로 이동 · 편집 모드에서 드래그로 배치/크기 변경)</div>
+    <div class="equipment-label" id="equipmentLabel">유닛을 클릭하면 상세 페이지로 이동 · 편집 모드에서 드래그로 배치/크기 변경</div>
     <div id="canvas" class="equipment-canvas"></div>
     <button id="addUnitBtn" class="btn btn-sm btn-outline-primary add-unit-btn d-none">
       <i class="bi bi-plus-lg"></i> 유닛 추가
@@ -748,6 +1307,7 @@ body {
   </div>
 </div>
 
+<script>const EQUIPMENT_ID = __EQUIPMENT_ID__;</script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 let editMode = false;
@@ -767,8 +1327,19 @@ async function fetchJson(url, options) {
   return res.status === 204 ? null : res.json();
 }
 
+async function loadEquipmentHeader() {
+  try {
+    const equipment = await fetchJson(`/api/equipments/${EQUIPMENT_ID}`);
+    document.getElementById("equipmentPageTitle").textContent = equipment.name;
+    document.title = `${equipment.name} - 설비 부품 교체 관리 시스템`;
+  } catch (err) {
+    alert("설비 정보를 불러올 수 없습니다.");
+    window.location.href = "/";
+  }
+}
+
 async function loadUnits() {
-  const units = await fetchJson("/api/units");
+  const units = await fetchJson(`/api/equipments/${EQUIPMENT_ID}/units`);
   renderCanvas(units);
 }
 
@@ -932,7 +1503,7 @@ function linkifyText(text) {
 let lastNotesContent = "";
 
 async function loadNotes() {
-  const data = await fetchJson("/api/notes");
+  const data = await fetchJson(`/api/equipments/${EQUIPMENT_ID}/notes`);
   lastNotesContent = data.content || "";
   renderNotesView(lastNotesContent);
   document.getElementById("notesEdit").value = lastNotesContent;
@@ -975,6 +1546,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   tick();
   setInterval(tick, 1000);
+  loadEquipmentHeader();
   loadUnits();
   loadNotes();
 
@@ -986,7 +1558,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("saveNotesBtn").addEventListener("click", async () => {
     const content = document.getElementById("notesEdit").value;
     try {
-      const data = await fetchJson("/api/notes", {
+      const data = await fetchJson(`/api/equipments/${EQUIPMENT_ID}/notes`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content }),
@@ -1028,7 +1600,7 @@ document.addEventListener("DOMContentLoaded", () => {
           body: JSON.stringify(payload),
         });
       } else {
-        await fetchJson(`/api/units`, {
+        await fetchJson(`/api/equipments/${EQUIPMENT_ID}/units`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -1133,6 +1705,29 @@ body {
   font-weight: 700;
   color: var(--shape-color);
 }
+
+.equipment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.equipment-card {
+  position: relative;
+  background: #fff;
+  border: 2px solid var(--pri);
+  border-radius: 12px;
+  padding: 18px 10px 14px;
+  cursor: pointer;
+  text-align: center;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+.equipment-card:hover {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+}
+.equipment-card .unit-icon { font-size: 32px; }
 
 .equipment-canvas {
   position: relative;
@@ -1281,7 +1876,7 @@ body {
 
 <header class="topbar">
   <div class="d-flex align-items-center gap-2">
-    <a href="/" class="btn btn-sm btn-outline-light"><i class="bi bi-arrow-left"></i> 설비로</a>
+    <a href="/" id="backToEquipmentBtn" class="btn btn-sm btn-outline-light"><i class="bi bi-arrow-left"></i> 설비로</a>
     <h1 id="unitPageTitle">유닛 상세</h1>
   </div>
   <div class="d-flex align-items-center gap-2">
@@ -1463,6 +2058,7 @@ async function loadUnitHeader() {
     document.getElementById("unitIcon").textContent = unit.icon;
     document.getElementById("unitName").textContent = unit.name;
     document.getElementById("unitShape").style.setProperty("--shape-color", unit.color);
+    document.getElementById("backToEquipmentBtn").href = `/equipment/${unit.equipment_id}`;
   } catch (err) {
     alert("유닛 정보를 불러올 수 없습니다.");
     window.location.href = "/";

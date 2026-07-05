@@ -34,6 +34,7 @@ async function loadUnitHeader() {
     document.getElementById("unitIcon").textContent = unit.icon;
     document.getElementById("unitName").textContent = unit.name;
     document.getElementById("unitShape").style.setProperty("--shape-color", unit.color);
+    document.getElementById("backToEquipmentBtn").href = `/equipment/${unit.equipment_id}`;
   } catch (err) {
     alert("유닛 정보를 불러올 수 없습니다.");
     window.location.href = "/";
