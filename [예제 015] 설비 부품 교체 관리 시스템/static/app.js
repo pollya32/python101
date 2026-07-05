@@ -32,6 +32,8 @@ function renderCanvas(units) {
     const card = canvas.querySelector(`[data-unit-id="${u.id}"]`);
     card.style.left = `${u.pos_x}%`;
     card.style.top = `${u.pos_y}%`;
+    card.style.width = `${u.width}px`;
+    card.style.height = `${u.height}px`;
 
     card.querySelector(".edit-unit-btn")?.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -45,6 +47,55 @@ function renderCanvas(units) {
     });
 
     makeDraggable(card, u);
+    makeResizable(card, u);
+  });
+}
+
+const MIN_UNIT_WIDTH = 90;
+const MIN_UNIT_HEIGHT = 80;
+const MAX_UNIT_WIDTH = 320;
+const MAX_UNIT_HEIGHT = 260;
+
+function makeResizable(card, unit) {
+  const handle = card.querySelector(".resize-handle");
+  if (!handle) return;
+
+  handle.addEventListener("mousedown", (e) => {
+    if (!editMode) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startWidth = card.offsetWidth;
+    const startHeight = card.offsetHeight;
+
+    card.classList.add("dragging");
+
+    function onMove(ev) {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      const w = Math.min(Math.max(startWidth + dx, MIN_UNIT_WIDTH), MAX_UNIT_WIDTH);
+      const h = Math.min(Math.max(startHeight + dy, MIN_UNIT_HEIGHT), MAX_UNIT_HEIGHT);
+      card.style.width = `${w}px`;
+      card.style.height = `${h}px`;
+    }
+
+    async function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      card.classList.remove("dragging");
+      const width = card.offsetWidth;
+      const height = card.offsetHeight;
+      await fetchJson(`/api/units/${unit.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ width, height }),
+      });
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
   });
 }
 
@@ -113,6 +164,7 @@ function unitCardHtml(u) {
         <button class="edit-unit-btn" title="편집"><i class="bi bi-pencil"></i></button>
         <button class="delete-unit-btn" title="삭제"><i class="bi bi-trash"></i></button>
       </div>
+      <div class="resize-handle" title="크기 조절"></div>
     </div>`;
 }
 

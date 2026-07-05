@@ -38,6 +38,8 @@ def init_db():
             color TEXT DEFAULT '#1a3a5c',
             pos_x REAL DEFAULT 50,
             pos_y REAL DEFAULT 50,
+            width REAL DEFAULT 140,
+            height REAL DEFAULT 110,
             created_at TEXT DEFAULT (datetime('now','localtime'))
         )
     """)
@@ -45,12 +47,17 @@ def init_db():
     if "pos_x" not in existing_cols:
         c.execute("ALTER TABLE units ADD COLUMN pos_x REAL")
         c.execute("ALTER TABLE units ADD COLUMN pos_y REAL")
+    if "width" not in existing_cols:
+        c.execute("ALTER TABLE units ADD COLUMN width REAL")
+        c.execute("ALTER TABLE units ADD COLUMN height REAL")
     unplaced = c.execute(
         "SELECT id FROM units WHERE pos_x IS NULL OR pos_y IS NULL ORDER BY id"
     ).fetchall()
     for i, row in enumerate(unplaced):
         x = 10 + (i * 84 / max(len(unplaced) - 1, 1)) if len(unplaced) > 1 else 50
         c.execute("UPDATE units SET pos_x = ?, pos_y = ? WHERE id = ?", (x, 50, row["id"]))
+    c.execute("UPDATE units SET width = 140 WHERE width IS NULL")
+    c.execute("UPDATE units SET height = 110 WHERE height IS NULL")
     c.execute("""
         CREATE TABLE IF NOT EXISTS parts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -158,10 +165,12 @@ def add_unit():
     pos_y = data.get("pos_y")
     if pos_x is None or pos_y is None:
         pos_x, pos_y = random.uniform(15, 85), random.uniform(20, 80)
+    width = data.get("width") or 140
+    height = data.get("height") or 110
     conn = get_db()
     cur = conn.execute(
-        "INSERT INTO units (name, icon, color, pos_x, pos_y) VALUES (?, ?, ?, ?, ?)",
-        (name, icon, color, pos_x, pos_y),
+        "INSERT INTO units (name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (name, icon, color, pos_x, pos_y, width, height),
     )
     conn.commit()
     new_id = cur.lastrowid
@@ -186,9 +195,11 @@ def update_unit(unit_id):
     color = (data.get("color") or unit["color"]).strip()
     pos_x = data.get("pos_x", unit["pos_x"])
     pos_y = data.get("pos_y", unit["pos_y"])
+    width = data.get("width", unit["width"])
+    height = data.get("height", unit["height"])
     conn.execute(
-        "UPDATE units SET name = ?, icon = ?, color = ?, pos_x = ?, pos_y = ? WHERE id = ?",
-        (name, icon, color, pos_x, pos_y, unit_id),
+        "UPDATE units SET name = ?, icon = ?, color = ?, pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?",
+        (name, icon, color, pos_x, pos_y, width, height, unit_id),
     )
     conn.commit()
     conn.close()
