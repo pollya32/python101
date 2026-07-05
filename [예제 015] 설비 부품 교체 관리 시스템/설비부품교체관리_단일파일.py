@@ -223,6 +223,15 @@ def init_db():
         "SELECT id, '' FROM equipments"
     )
 
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS unit_notes (
+            unit_id INTEGER PRIMARY KEY,
+            content TEXT DEFAULT '',
+            updated_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
+        )
+    """)
+
     # 모든 설비에 공통으로 반영되는 기본 유닛 구성 템플릿
     c.execute("""
         CREATE TABLE IF NOT EXISTS unit_templates (
@@ -798,6 +807,34 @@ def update_notes(equipment_id):
     conn.commit()
     row = conn.execute(
         "SELECT content, updated_at FROM equipment_notes WHERE equipment_id = ?", (equipment_id,)
+    ).fetchone()
+    conn.close()
+    return jsonify(dict(row))
+
+
+@app.route("/api/units/<int:unit_id>/notes")
+def get_unit_notes(unit_id):
+    conn = get_db()
+    row = conn.execute(
+        "SELECT content, updated_at FROM unit_notes WHERE unit_id = ?", (unit_id,)
+    ).fetchone()
+    conn.close()
+    return jsonify(dict(row) if row else {"content": "", "updated_at": None})
+
+
+@app.route("/api/units/<int:unit_id>/notes", methods=["PUT"])
+def update_unit_notes(unit_id):
+    data = request.get_json()
+    content = data.get("content") or ""
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO unit_notes (unit_id, content, updated_at) VALUES (?, ?, datetime('now','localtime')) "
+        "ON CONFLICT(unit_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+        (unit_id, content),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT content, updated_at FROM unit_notes WHERE unit_id = ?", (unit_id,)
     ).fetchone()
     conn.close()
     return jsonify(dict(row))
@@ -3510,7 +3547,27 @@ body {
       <button id="addPartBtn" class="btn btn-sm btn-outline-primary d-none">
         <i class="bi bi-plus-lg"></i> 부품 추가
       </button>
+      <button id="pastePartBtn" class="btn btn-sm btn-outline-secondary d-none">
+        <i class="bi bi-clipboard-check"></i> 붙여넣기
+      </button>
     </div>
+  </div>
+
+  <div class="notes-section">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h6 class="mb-0"><i class="bi bi-journal-text"></i> 유닛 메모 / 부품 정보 링크</h6>
+      <div class="d-flex align-items-center gap-2">
+        <span id="notesSavedAt" class="text-muted small"></span>
+        <button id="editNotesBtn" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-pencil"></i> 편집
+        </button>
+        <button id="saveNotesBtn" class="btn btn-sm btn-primary d-none">저장</button>
+        <button id="cancelNotesBtn" class="btn btn-sm btn-outline-secondary d-none">취소</button>
+      </div>
+    </div>
+    <div id="notesView" class="notes-view"></div>
+    <textarea id="notesEdit" class="form-control d-none" rows="8"
+      placeholder="부품 규격, 구매처 URL 등을 자유롭게 기록하세요. (http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></textarea>
   </div>
 
 </main>
@@ -3680,6 +3737,46 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
+function linkifyText(text) {
+  const escaped = escapeHtml(text);
+  return escaped.replace(
+    /(https?:\/\/[^\s<]+)/g,
+    '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+  );
+}
+
+let lastNotesContent = "";
+
+async function loadNotes() {
+  const data = await fetchJson(`/api/units/${UNIT_ID}/notes`);
+  lastNotesContent = data.content || "";
+  renderNotesView(lastNotesContent);
+  document.getElementById("notesEdit").value = lastNotesContent;
+  document.getElementById("notesSavedAt").textContent = data.updated_at
+    ? `최종 수정: ${data.updated_at}`
+    : "";
+}
+
+function renderNotesView(content) {
+  const view = document.getElementById("notesView");
+  if (!content || !content.trim()) {
+    view.innerHTML = "";
+    view.classList.add("is-empty");
+  } else {
+    view.classList.remove("is-empty");
+    view.innerHTML = linkifyText(content);
+  }
+}
+
+function setNotesEditing(editing) {
+  document.getElementById("notesView").classList.toggle("d-none", editing);
+  document.getElementById("notesEdit").classList.toggle("d-none", !editing);
+  document.getElementById("editNotesBtn").classList.toggle("d-none", editing);
+  document.getElementById("saveNotesBtn").classList.toggle("d-none", !editing);
+  document.getElementById("cancelNotesBtn").classList.toggle("d-none", !editing);
+  if (editing) document.getElementById("notesEdit").focus();
+}
+
 async function loadUnitHeader() {
   try {
     const unit = await fetchJson(`/api/units/${UNIT_ID}`);
@@ -3720,6 +3817,10 @@ function renderPartsCanvas(parts) {
       if (!confirm(`"${p.name}" 부품을 삭제할까요? 교체 이력도 함께 삭제됩니다.`)) return;
       await fetchJson(`/api/parts/${p.id}`, { method: "DELETE" });
       loadParts();
+    });
+    card.querySelector(".copy-part-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      copyPart(p);
     });
 
     makeDraggable(card, p);
@@ -3882,11 +3983,71 @@ function partShapeHtml(p) {
       <div class="unit-part-count">${statusLabel[p.status]}</div>
       <div class="unit-edit-actions">
         <button class="edit-unit-btn" title="편집"><i class="bi bi-pencil"></i></button>
+        <button class="copy-part-btn" title="복사"><i class="bi bi-copy"></i></button>
         <button class="delete-unit-btn" title="삭제"><i class="bi bi-trash"></i></button>
       </div>
       <div class="resize-handle" title="크기 조절 (가로+세로)"></div>
       <div class="resize-handle-h" title="가로 크기 조절"></div>
     </div>`;
+}
+
+const PART_CLIPBOARD_KEY = "partClipboard";
+
+function copyPart(part) {
+  const clipboard = {
+    name: part.name,
+    spec: part.spec,
+    cycle_days: part.cycle_days,
+    note: part.note,
+    icon: part.icon,
+    width: part.width,
+    height: part.height,
+  };
+  localStorage.setItem(PART_CLIPBOARD_KEY, JSON.stringify(clipboard));
+  updatePartPasteButton();
+  alert(`"${part.name}" 부품을 복사했습니다.\n"붙여넣기" 버튼으로 동일한 부품을 만들 수 있습니다.`);
+}
+
+function getPartClipboard() {
+  const raw = localStorage.getItem(PART_CLIPBOARD_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function updatePartPasteButton() {
+  const clipboard = getPartClipboard();
+  const btn = document.getElementById("pastePartBtn");
+  btn.classList.toggle("d-none", !editMode || !clipboard);
+  if (clipboard) btn.title = `"${clipboard.name}" 붙여넣기`;
+}
+
+async function pastePart() {
+  const clipboard = getPartClipboard();
+  if (!clipboard) {
+    alert("복사된 부품이 없습니다. 먼저 부품의 복사 아이콘을 눌러주세요.");
+    return;
+  }
+  const created = await fetchJson(`/api/units/${UNIT_ID}/parts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: `${clipboard.name} 복사본`,
+      spec: clipboard.spec,
+      cycle_days: clipboard.cycle_days,
+      note: clipboard.note,
+      icon: clipboard.icon,
+      width: clipboard.width,
+      height: clipboard.height,
+    }),
+  });
+  if (created.propagated_count > 0) {
+    alert(`이 부품이 나머지 ${created.propagated_count}개 설비의 동일한 유닛에도 자동으로 적용되었습니다.`);
+  }
+  loadParts();
 }
 
 function openPartDetailModal(partId) {
@@ -3969,16 +4130,43 @@ document.addEventListener("DOMContentLoaded", () => {
   setInterval(tick, 1000);
   loadUnitHeader();
   loadParts();
+  loadNotes();
 
   document.getElementById("editModeBtn").addEventListener("click", (e) => {
     editMode = !editMode;
     e.currentTarget.classList.toggle("btn-outline-light", !editMode);
     e.currentTarget.classList.toggle("btn-warning", editMode);
     document.getElementById("addPartBtn").classList.toggle("d-none", !editMode);
+    updatePartPasteButton();
     renderPartsCanvas(currentParts);
   });
 
   document.getElementById("addPartBtn").addEventListener("click", () => openPartEditModal(null));
+  document.getElementById("pastePartBtn").addEventListener("click", pastePart);
+
+  document.getElementById("editNotesBtn").addEventListener("click", () => setNotesEditing(true));
+  document.getElementById("cancelNotesBtn").addEventListener("click", () => {
+    document.getElementById("notesEdit").value = lastNotesContent;
+    setNotesEditing(false);
+  });
+  document.getElementById("saveNotesBtn").addEventListener("click", async () => {
+    const content = document.getElementById("notesEdit").value;
+    try {
+      const data = await fetchJson(`/api/units/${UNIT_ID}/notes`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      });
+      lastNotesContent = data.content || "";
+      renderNotesView(lastNotesContent);
+      document.getElementById("notesSavedAt").textContent = data.updated_at
+        ? `최종 수정: ${data.updated_at}`
+        : "";
+      setNotesEditing(false);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 
   document.getElementById("partDetailReplaceBtn").addEventListener("click", () => {
     partDetailModal.hide();

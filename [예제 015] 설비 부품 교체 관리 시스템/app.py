@@ -207,6 +207,15 @@ def init_db():
         "SELECT id, '' FROM equipments"
     )
 
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS unit_notes (
+            unit_id INTEGER PRIMARY KEY,
+            content TEXT DEFAULT '',
+            updated_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
+        )
+    """)
+
     # 모든 설비에 공통으로 반영되는 기본 유닛 구성 템플릿
     c.execute("""
         CREATE TABLE IF NOT EXISTS unit_templates (
@@ -782,6 +791,34 @@ def update_notes(equipment_id):
     conn.commit()
     row = conn.execute(
         "SELECT content, updated_at FROM equipment_notes WHERE equipment_id = ?", (equipment_id,)
+    ).fetchone()
+    conn.close()
+    return jsonify(dict(row))
+
+
+@app.route("/api/units/<int:unit_id>/notes")
+def get_unit_notes(unit_id):
+    conn = get_db()
+    row = conn.execute(
+        "SELECT content, updated_at FROM unit_notes WHERE unit_id = ?", (unit_id,)
+    ).fetchone()
+    conn.close()
+    return jsonify(dict(row) if row else {"content": "", "updated_at": None})
+
+
+@app.route("/api/units/<int:unit_id>/notes", methods=["PUT"])
+def update_unit_notes(unit_id):
+    data = request.get_json()
+    content = data.get("content") or ""
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO unit_notes (unit_id, content, updated_at) VALUES (?, ?, datetime('now','localtime')) "
+        "ON CONFLICT(unit_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+        (unit_id, content),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT content, updated_at FROM unit_notes WHERE unit_id = ?", (unit_id,)
     ).fetchone()
     conn.close()
     return jsonify(dict(row))
