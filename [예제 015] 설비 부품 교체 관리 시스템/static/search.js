@@ -74,4 +74,10 @@ document.addEventListener("DOMContentLoaded", () => {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(runSearch, 200);
   });
+
+  const q = new URLSearchParams(window.location.search).get("q");
+  if (q) {
+    document.getElementById("partSearchInput").value = q;
+    runSearch();
+  }
 });

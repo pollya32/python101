@@ -1,7 +1,7 @@
 """
 설비 부품 교체 관리 시스템 — 단일 파일 버전
 =====================================================
-설치: pip install flask
+설치: pip install flask python-pptx
 실행: python 설비부품교체관리_단일파일.py
 접속: http://localhost:5000
 
@@ -18,6 +18,8 @@ import socket
 from urllib.parse import quote
 from datetime import date, datetime, timedelta
 from flask import Flask, request, jsonify, send_file, Response
+from pptx import Presentation
+from pptx.util import Inches, Pt
 
 app = Flask(__name__)
 
@@ -451,6 +453,54 @@ def search_parts(query):
         d = dict(r)
         d.update(info)
         result.append(d)
+    return result
+
+
+def get_part_spec_stats(conn, unit_names=None):
+    """부품명+규격을 기준으로 시스템 전체(선택된 유닛 이름으로 범위 제한 가능)를 집계한다."""
+    query = """
+        SELECT p.*, u.name AS unit_name
+        FROM parts p
+        JOIN units u ON p.unit_id = u.id
+    """
+    params = []
+    if unit_names:
+        placeholders = ",".join("?" for _ in unit_names)
+        query += f" WHERE u.name IN ({placeholders})"
+        params = list(unit_names)
+    parts = conn.execute(query, params).fetchall()
+
+    groups = {}
+    for p in parts:
+        key = (p["name"], p["spec"] or "")
+        g = groups.get(key)
+        if g is None:
+            g = {
+                "name": p["name"],
+                "spec": p["spec"] or "",
+                "total_cost": 0,
+                "instance_count": 0,
+                "min_cycle_days": None,
+                "min_cycle_unit": "일",
+                "part_ids": [],
+            }
+            groups[key] = g
+        g["total_cost"] += p["cost"] or 0
+        g["instance_count"] += 1
+        g["part_ids"].append(p["id"])
+        if g["min_cycle_days"] is None or p["cycle_days"] < g["min_cycle_days"]:
+            g["min_cycle_days"] = p["cycle_days"]
+            g["min_cycle_unit"] = p["cycle_unit"]
+
+    result = []
+    for g in groups.values():
+        part_ids = g.pop("part_ids")
+        placeholders = ",".join("?" for _ in part_ids)
+        g["usage_count"] = conn.execute(
+            f"SELECT COUNT(*) AS n FROM replacement_history WHERE part_id IN ({placeholders})",
+            part_ids,
+        ).fetchone()["n"]
+        result.append(g)
     return result
 
 
@@ -1019,49 +1069,194 @@ def api_search():
     return jsonify(search_parts(q))
 
 
-@app.route("/api/stats")
-def api_stats():
-    unit_names = request.args.getlist("unit_name")
-    conn = get_db()
+def build_stats_payload(conn, unit_names):
+    """부품 규격 기준(금액순/사용량 많은순/교체주기 짧은순)과 유닛 기준(부품수 많은순) 통계를 함께 만든다."""
+    spec_rows = get_part_spec_stats(conn, unit_names)
+    by_cost = sorted(spec_rows, key=lambda r: r["total_cost"], reverse=True)
+    by_usage = sorted(spec_rows, key=lambda r: r["usage_count"], reverse=True)
+    by_short_cycle = sorted(
+        (r for r in spec_rows if r["min_cycle_days"] is not None), key=lambda r: r["min_cycle_days"]
+    )
 
-    query = """
+    unit_query = """
         SELECT u.id AS unit_id, u.name AS unit_name, u.icon AS unit_icon,
                e.id AS equipment_id, e.name AS equipment_name, e.icon AS equipment_icon,
-               (SELECT COUNT(*) FROM parts p WHERE p.unit_id = u.id) AS part_count,
-               (SELECT COALESCE(SUM(p.cost), 0) FROM parts p WHERE p.unit_id = u.id) AS total_cost,
-               (SELECT MIN(p.cycle_days) FROM parts p WHERE p.unit_id = u.id) AS min_cycle_days,
-               (SELECT COUNT(*) FROM replacement_history rh
-                JOIN parts p ON rh.part_id = p.id WHERE p.unit_id = u.id) AS usage_count
+               (SELECT COUNT(*) FROM parts p WHERE p.unit_id = u.id) AS part_count
         FROM units u
         JOIN equipments e ON u.equipment_id = e.id
     """
     params = []
     if unit_names:
         placeholders = ",".join("?" for _ in unit_names)
-        query += f" WHERE u.name IN ({placeholders})"
+        unit_query += f" WHERE u.name IN ({placeholders})"
         params = unit_names
-    query += " ORDER BY u.id"
-    rows = [dict(r) for r in conn.execute(query, params).fetchall()]
+    unit_query += " ORDER BY u.id"
+    unit_rows = [dict(r) for r in conn.execute(unit_query, params).fetchall()]
+    by_part_count = sorted(unit_rows, key=lambda r: r["part_count"], reverse=True)
 
     all_unit_names = [
         r["name"] for r in conn.execute("SELECT DISTINCT name FROM units ORDER BY name").fetchall()
     ]
-    conn.close()
 
-    by_cost = sorted(rows, key=lambda r: r["total_cost"], reverse=True)
-    by_usage = sorted(rows, key=lambda r: r["usage_count"], reverse=True)
-    by_short_cycle = sorted(
-        (r for r in rows if r["min_cycle_days"] is not None), key=lambda r: r["min_cycle_days"]
-    )
-    by_part_count = sorted(rows, key=lambda r: r["part_count"], reverse=True)
-
-    return jsonify({
+    return {
         "by_cost": by_cost,
         "by_usage": by_usage,
         "by_short_cycle": by_short_cycle,
         "by_part_count": by_part_count,
         "unit_names": all_unit_names,
-    })
+    }
+
+
+@app.route("/api/stats")
+def api_stats():
+    unit_names = request.args.getlist("unit_name")
+    conn = get_db()
+    payload = build_stats_payload(conn, unit_names)
+    conn.close()
+    return jsonify(payload)
+
+
+def format_cycle_for_export(days, unit):
+    if unit == "년":
+        return f"{round(days / 365, 2)}년"
+    return f"{days}일"
+
+
+@app.route("/api/stats/export.csv")
+def export_stats_csv():
+    unit_names = request.args.getlist("unit_name")
+    conn = get_db()
+    payload = build_stats_payload(conn, unit_names)
+    conn.close()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+
+    writer.writerow(["[금액순 (부품 규격 기준)]"])
+    writer.writerow(["순위", "부품명", "규격", "총 금액", "등록 수", "교체 횟수"])
+    for i, r in enumerate(payload["by_cost"], 1):
+        writer.writerow([i, r["name"], r["spec"], r["total_cost"], r["instance_count"], r["usage_count"]])
+    writer.writerow([])
+
+    writer.writerow(["[사용량 많은순 (부품 규격 기준)]"])
+    writer.writerow(["순위", "부품명", "규격", "교체 횟수", "등록 수", "총 금액"])
+    for i, r in enumerate(payload["by_usage"], 1):
+        writer.writerow([i, r["name"], r["spec"], r["usage_count"], r["instance_count"], r["total_cost"]])
+    writer.writerow([])
+
+    writer.writerow(["[교체 주기 짧은순 (부품 규격 기준)]"])
+    writer.writerow(["순위", "부품명", "규격", "교체 주기", "등록 수"])
+    for i, r in enumerate(payload["by_short_cycle"], 1):
+        writer.writerow([
+            i, r["name"], r["spec"], format_cycle_for_export(r["min_cycle_days"], r["min_cycle_unit"]),
+            r["instance_count"],
+        ])
+    writer.writerow([])
+
+    writer.writerow(["[부품수 많은순 (유닛 기준)]"])
+    writer.writerow(["순위", "설비", "유닛", "부품수"])
+    for i, r in enumerate(payload["by_part_count"], 1):
+        writer.writerow([i, r["equipment_name"], r["unit_name"], r["part_count"]])
+
+    data = "﻿" + buf.getvalue()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"통계_{timestamp}.csv"
+    encoded_name = quote(filename)
+    return Response(
+        data,
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename=stats.csv; filename*=UTF-8''{encoded_name}"
+        },
+    )
+
+
+def build_stats_pptx(payload, unit_names):
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+
+    title_slide = prs.slides.add_slide(prs.slide_layouts[0])
+    title_slide.shapes.title.text = "부품/유닛 통계 리포트"
+    filter_text = ", ".join(unit_names) if unit_names else "전체 유닛"
+    title_slide.placeholders[1].text = (
+        f"생성일: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n필터: {filter_text}"
+    )
+
+    blank_layout = prs.slide_layouts[6]
+
+    def add_table_slide(title, headers, rows, max_rows=15):
+        slide = prs.slides.add_slide(blank_layout)
+        title_box = slide.shapes.add_textbox(Inches(0.4), Inches(0.3), Inches(12.5), Inches(0.7))
+        title_box.text_frame.text = title
+        title_box.text_frame.paragraphs[0].font.size = Pt(28)
+        title_box.text_frame.paragraphs[0].font.bold = True
+
+        display_rows = rows[:max_rows]
+        n_rows = len(display_rows) + 1
+        n_cols = len(headers)
+        table = slide.shapes.add_table(
+            n_rows, n_cols, Inches(0.4), Inches(1.1), Inches(12.5), Inches(0.4 * n_rows)
+        ).table
+        for c, h in enumerate(headers):
+            table.cell(0, c).text = str(h)
+        for r_i, row in enumerate(display_rows, 1):
+            for c_i, val in enumerate(row):
+                table.cell(r_i, c_i).text = str(val)
+
+    add_table_slide(
+        "금액순 (부품 규격 기준)",
+        ["순위", "부품명", "규격", "총 금액(원)", "등록 수", "교체 횟수"],
+        [
+            [i, r["name"], r["spec"], f'{r["total_cost"]:,.0f}', r["instance_count"], r["usage_count"]]
+            for i, r in enumerate(payload["by_cost"], 1)
+        ],
+    )
+    add_table_slide(
+        "사용량 많은순 (부품 규격 기준)",
+        ["순위", "부품명", "규격", "교체 횟수", "등록 수", "총 금액(원)"],
+        [
+            [i, r["name"], r["spec"], r["usage_count"], r["instance_count"], f'{r["total_cost"]:,.0f}']
+            for i, r in enumerate(payload["by_usage"], 1)
+        ],
+    )
+    add_table_slide(
+        "교체 주기 짧은순 (부품 규격 기준)",
+        ["순위", "부품명", "규격", "교체 주기", "등록 수"],
+        [
+            [i, r["name"], r["spec"], format_cycle_for_export(r["min_cycle_days"], r["min_cycle_unit"]), r["instance_count"]]
+            for i, r in enumerate(payload["by_short_cycle"], 1)
+        ],
+    )
+    add_table_slide(
+        "부품수 많은순 (유닛 기준)",
+        ["순위", "설비", "유닛", "부품수"],
+        [
+            [i, r["equipment_name"], r["unit_name"], r["part_count"]]
+            for i, r in enumerate(payload["by_part_count"], 1)
+        ],
+    )
+
+    buf = io.BytesIO()
+    prs.save(buf)
+    buf.seek(0)
+    return buf
+
+
+@app.route("/api/stats/export.pptx")
+def export_stats_pptx():
+    unit_names = request.args.getlist("unit_name")
+    conn = get_db()
+    payload = build_stats_payload(conn, unit_names)
+    conn.close()
+    buf = build_stats_pptx(payload, unit_names)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=f"통계_{timestamp}.pptx",
+        mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    )
 
 
 @app.route("/api/backup")
@@ -1652,6 +1847,11 @@ body {
   padding: 0 18px 10px;
   margin-bottom: 6px;
   border-bottom: 1px solid #f1f2f6;
+}
+.stats-subtitle {
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 .stats-list {
   max-height: 380px;
@@ -2603,6 +2803,11 @@ body {
   padding: 0 18px 10px;
   margin-bottom: 6px;
   border-bottom: 1px solid #f1f2f6;
+}
+.stats-subtitle {
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 .stats-list {
   max-height: 380px;
@@ -3758,6 +3963,11 @@ body {
   padding: 0 18px 10px;
   margin-bottom: 6px;
   border-bottom: 1px solid #f1f2f6;
+}
+.stats-subtitle {
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 .stats-list {
   max-height: 380px;
@@ -5154,6 +5364,11 @@ body {
   margin-bottom: 6px;
   border-bottom: 1px solid #f1f2f6;
 }
+.stats-subtitle {
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-muted);
+}
 .stats-list {
   max-height: 380px;
   overflow-y: auto;
@@ -6191,6 +6406,11 @@ body {
   margin-bottom: 6px;
   border-bottom: 1px solid #f1f2f6;
 }
+.stats-subtitle {
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-muted);
+}
 .stats-list {
   max-height: 380px;
   overflow-y: auto;
@@ -6893,6 +7113,11 @@ body {
   margin-bottom: 6px;
   border-bottom: 1px solid #f1f2f6;
 }
+.stats-subtitle {
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-muted);
+}
 .stats-list {
   max-height: 380px;
   overflow-y: auto;
@@ -7035,6 +7260,12 @@ document.addEventListener("DOMContentLoaded", () => {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(runSearch, 200);
   });
+
+  const q = new URLSearchParams(window.location.search).get("q");
+  if (q) {
+    document.getElementById("partSearchInput").value = q;
+    runSearch();
+  }
 });
 </script>
 </body>
@@ -7621,6 +7852,11 @@ body {
   margin-bottom: 6px;
   border-bottom: 1px solid #f1f2f6;
 }
+.stats-subtitle {
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-muted);
+}
 .stats-list {
   max-height: 380px;
   overflow-y: auto;
@@ -7676,23 +7912,29 @@ body {
     <button id="clearFilterBtn" class="btn btn-sm btn-outline-secondary d-none">
       <i class="bi bi-x-lg"></i> 필터 해제
     </button>
+    <a id="exportCsvBtn" href="/api/stats/export.csv" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-file-earmark-spreadsheet"></i> CSV 다운로드
+    </a>
+    <a id="exportPptxBtn" href="/api/stats/export.pptx" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-file-earmark-slides"></i> PPT 다운로드
+    </a>
   </div>
 
   <div class="stats-grid">
     <div class="stats-panel">
-      <h6><i class="bi bi-cash-coin"></i> 금액순</h6>
+      <h6><i class="bi bi-cash-coin"></i> 금액순 <span class="stats-subtitle">(부품 규격 기준)</span></h6>
       <div id="statsCost" class="stats-list"></div>
     </div>
     <div class="stats-panel">
-      <h6><i class="bi bi-arrow-repeat"></i> 사용량 많은순</h6>
+      <h6><i class="bi bi-arrow-repeat"></i> 사용량 많은순 <span class="stats-subtitle">(부품 규격 기준)</span></h6>
       <div id="statsUsage" class="stats-list"></div>
     </div>
     <div class="stats-panel">
-      <h6><i class="bi bi-hourglass-split"></i> 교체 주기 짧은순</h6>
+      <h6><i class="bi bi-hourglass-split"></i> 교체 주기 짧은순 <span class="stats-subtitle">(부품 규격 기준)</span></h6>
       <div id="statsCycle" class="stats-list"></div>
     </div>
     <div class="stats-panel">
-      <h6><i class="bi bi-box-seam"></i> 부품수 많은순</h6>
+      <h6><i class="bi bi-box-seam"></i> 부품수 많은순 <span class="stats-subtitle">(유닛 기준)</span></h6>
       <div id="statsPartCount" class="stats-list"></div>
     </div>
   </div>
@@ -7718,19 +7960,57 @@ function formatMoney(v) {
   return `${Number(v || 0).toLocaleString("ko-KR")}원`;
 }
 
+function formatCycle(days, unit) {
+  if (unit === "년") {
+    return `${Math.round((days / 365) * 100) / 100}년`;
+  }
+  return `${days}일`;
+}
+
 async function loadStats() {
   const params = new URLSearchParams();
   selectedUnitNames.forEach((name) => params.append("unit_name", name));
   const res = await fetch(`/api/stats?${params.toString()}`);
   const data = await res.json();
   renderUnitFilter(data.unit_names);
-  renderPanel("statsCost", data.by_cost, (r) => formatMoney(r.total_cost));
-  renderPanel("statsUsage", data.by_usage, (r) => `${r.usage_count}회 교체`);
-  renderPanel("statsCycle", data.by_short_cycle, (r) => `${r.min_cycle_days}일 주기`);
-  renderPanel("statsPartCount", data.by_part_count, (r) => `${r.part_count}개`);
+  renderPartSpecPanel("statsCost", data.by_cost, (r) => formatMoney(r.total_cost));
+  renderPartSpecPanel("statsUsage", data.by_usage, (r) => `${r.usage_count}회 교체`);
+  renderPartSpecPanel("statsCycle", data.by_short_cycle, (r) => formatCycle(r.min_cycle_days, r.min_cycle_unit) + " 주기");
+  renderUnitPanel("statsPartCount", data.by_part_count, (r) => `${r.part_count}개`);
+  updateExportLinks();
 }
 
-function renderPanel(elId, rows, metricText) {
+function renderPartSpecPanel(elId, rows, metricText) {
+  const el = document.getElementById(elId);
+  if (rows.length === 0) {
+    el.innerHTML = `<p class="text-muted text-center py-4 mb-0">데이터가 없습니다.</p>`;
+    return;
+  }
+  el.innerHTML = rows
+    .map(
+      (r, i) => `
+    <div class="stats-row" data-row-idx="${i}">
+      <span class="stats-rank">${i + 1}</span>
+      <div class="alert-main">
+        <div class="alert-title">
+          <strong>${escapeHtml(r.name)}</strong>
+          ${r.spec ? `<span class="alert-sep">›</span> ${escapeHtml(r.spec)}` : ""}
+        </div>
+        <div class="alert-meta">${metricText(r)} &middot; ${r.instance_count}곳에 등록됨</div>
+      </div>
+      <i class="bi bi-chevron-right alert-chevron"></i>
+    </div>`
+    )
+    .join("");
+  rows.forEach((r, i) => {
+    const row = el.querySelector(`[data-row-idx="${i}"]`);
+    row.addEventListener("click", () => {
+      window.location.href = `/search?q=${encodeURIComponent(r.name)}`;
+    });
+  });
+}
+
+function renderUnitPanel(elId, rows, metricText) {
   const el = document.getElementById(elId);
   if (rows.length === 0) {
     el.innerHTML = `<p class="text-muted text-center py-4 mb-0">데이터가 없습니다.</p>`;
@@ -7794,6 +8074,14 @@ function updateFilterUi() {
     countEl.innerHTML = "";
     clearBtn.classList.add("d-none");
   }
+}
+
+function updateExportLinks() {
+  const params = new URLSearchParams();
+  selectedUnitNames.forEach((name) => params.append("unit_name", name));
+  const qs = params.toString();
+  document.getElementById("exportCsvBtn").href = `/api/stats/export.csv${qs ? "?" + qs : ""}`;
+  document.getElementById("exportPptxBtn").href = `/api/stats/export.pptx${qs ? "?" + qs : ""}`;
 }
 
 document.addEventListener("DOMContentLoaded", () => {

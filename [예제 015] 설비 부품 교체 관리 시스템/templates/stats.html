@@ -33,23 +33,29 @@
     <button id="clearFilterBtn" class="btn btn-sm btn-outline-secondary d-none">
       <i class="bi bi-x-lg"></i> 필터 해제
     </button>
+    <a id="exportCsvBtn" href="/api/stats/export.csv" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-file-earmark-spreadsheet"></i> CSV 다운로드
+    </a>
+    <a id="exportPptxBtn" href="/api/stats/export.pptx" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-file-earmark-slides"></i> PPT 다운로드
+    </a>
   </div>
 
   <div class="stats-grid">
     <div class="stats-panel">
-      <h6><i class="bi bi-cash-coin"></i> 금액순</h6>
+      <h6><i class="bi bi-cash-coin"></i> 금액순 <span class="stats-subtitle">(부품 규격 기준)</span></h6>
       <div id="statsCost" class="stats-list"></div>
     </div>
     <div class="stats-panel">
-      <h6><i class="bi bi-arrow-repeat"></i> 사용량 많은순</h6>
+      <h6><i class="bi bi-arrow-repeat"></i> 사용량 많은순 <span class="stats-subtitle">(부품 규격 기준)</span></h6>
       <div id="statsUsage" class="stats-list"></div>
     </div>
     <div class="stats-panel">
-      <h6><i class="bi bi-hourglass-split"></i> 교체 주기 짧은순</h6>
+      <h6><i class="bi bi-hourglass-split"></i> 교체 주기 짧은순 <span class="stats-subtitle">(부품 규격 기준)</span></h6>
       <div id="statsCycle" class="stats-list"></div>
     </div>
     <div class="stats-panel">
-      <h6><i class="bi bi-box-seam"></i> 부품수 많은순</h6>
+      <h6><i class="bi bi-box-seam"></i> 부품수 많은순 <span class="stats-subtitle">(유닛 기준)</span></h6>
       <div id="statsPartCount" class="stats-list"></div>
     </div>
   </div>

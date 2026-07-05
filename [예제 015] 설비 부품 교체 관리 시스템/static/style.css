@@ -568,6 +568,11 @@ body {
   margin-bottom: 6px;
   border-bottom: 1px solid #f1f2f6;
 }
+.stats-subtitle {
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-muted);
+}
 .stats-list {
   max-height: 380px;
   overflow-y: auto;

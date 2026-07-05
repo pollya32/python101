@@ -15,19 +15,57 @@ function formatMoney(v) {
   return `${Number(v || 0).toLocaleString("ko-KR")}원`;
 }
 
+function formatCycle(days, unit) {
+  if (unit === "년") {
+    return `${Math.round((days / 365) * 100) / 100}년`;
+  }
+  return `${days}일`;
+}
+
 async function loadStats() {
   const params = new URLSearchParams();
   selectedUnitNames.forEach((name) => params.append("unit_name", name));
   const res = await fetch(`/api/stats?${params.toString()}`);
   const data = await res.json();
   renderUnitFilter(data.unit_names);
-  renderPanel("statsCost", data.by_cost, (r) => formatMoney(r.total_cost));
-  renderPanel("statsUsage", data.by_usage, (r) => `${r.usage_count}회 교체`);
-  renderPanel("statsCycle", data.by_short_cycle, (r) => `${r.min_cycle_days}일 주기`);
-  renderPanel("statsPartCount", data.by_part_count, (r) => `${r.part_count}개`);
+  renderPartSpecPanel("statsCost", data.by_cost, (r) => formatMoney(r.total_cost));
+  renderPartSpecPanel("statsUsage", data.by_usage, (r) => `${r.usage_count}회 교체`);
+  renderPartSpecPanel("statsCycle", data.by_short_cycle, (r) => formatCycle(r.min_cycle_days, r.min_cycle_unit) + " 주기");
+  renderUnitPanel("statsPartCount", data.by_part_count, (r) => `${r.part_count}개`);
+  updateExportLinks();
 }
 
-function renderPanel(elId, rows, metricText) {
+function renderPartSpecPanel(elId, rows, metricText) {
+  const el = document.getElementById(elId);
+  if (rows.length === 0) {
+    el.innerHTML = `<p class="text-muted text-center py-4 mb-0">데이터가 없습니다.</p>`;
+    return;
+  }
+  el.innerHTML = rows
+    .map(
+      (r, i) => `
+    <div class="stats-row" data-row-idx="${i}">
+      <span class="stats-rank">${i + 1}</span>
+      <div class="alert-main">
+        <div class="alert-title">
+          <strong>${escapeHtml(r.name)}</strong>
+          ${r.spec ? `<span class="alert-sep">›</span> ${escapeHtml(r.spec)}` : ""}
+        </div>
+        <div class="alert-meta">${metricText(r)} &middot; ${r.instance_count}곳에 등록됨</div>
+      </div>
+      <i class="bi bi-chevron-right alert-chevron"></i>
+    </div>`
+    )
+    .join("");
+  rows.forEach((r, i) => {
+    const row = el.querySelector(`[data-row-idx="${i}"]`);
+    row.addEventListener("click", () => {
+      window.location.href = `/search?q=${encodeURIComponent(r.name)}`;
+    });
+  });
+}
+
+function renderUnitPanel(elId, rows, metricText) {
   const el = document.getElementById(elId);
   if (rows.length === 0) {
     el.innerHTML = `<p class="text-muted text-center py-4 mb-0">데이터가 없습니다.</p>`;
@@ -91,6 +129,14 @@ function updateFilterUi() {
     countEl.innerHTML = "";
     clearBtn.classList.add("d-none");
   }
+}
+
+function updateExportLinks() {
+  const params = new URLSearchParams();
+  selectedUnitNames.forEach((name) => params.append("unit_name", name));
+  const qs = params.toString();
+  document.getElementById("exportCsvBtn").href = `/api/stats/export.csv${qs ? "?" + qs : ""}`;
+  document.getElementById("exportPptxBtn").href = `/api/stats/export.pptx${qs ? "?" + qs : ""}`;
 }
 
 document.addEventListener("DOMContentLoaded", () => {
