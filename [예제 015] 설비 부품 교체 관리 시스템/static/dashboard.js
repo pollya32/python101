@@ -56,6 +56,12 @@ function renderGrid(equipments) {
       e.stopPropagation();
       openEquipmentEditModal(eq);
     });
+    card.querySelector(".delete-unit-btn")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm(`"${eq.name}" 설비를 삭제할까요? 등록된 유닛/부품/이력이 모두 함께 삭제됩니다.`)) return;
+      await fetchJson(`/api/equipments/${eq.id}`, { method: "DELETE" });
+      loadEquipments();
+    });
     card.addEventListener("click", (e) => {
       if (editMode) return;
       if (e.target.closest(".unit-edit-actions")) return;
@@ -68,19 +74,24 @@ function equipmentCardHtml(eq) {
   return `
     <div class="equipment-card ${editMode ? "edit-mode" : ""}" data-equipment-id="${eq.id}">
       <span class="unit-status-dot dot-${eq.overall_status}"></span>
-      <div class="unit-icon-wrap"><span class="unit-icon">${eq.icon}</span></div>
+      <div class="unit-icon-wrap">
+        <span class="unit-icon">${eq.icon}</span>
+        ${eq.overdue_count > 0 ? `<span class="overdue-badge" title="교체 필요 부품 ${eq.overdue_count}건">${eq.overdue_count}</span>` : ""}
+      </div>
       <div class="unit-name">${escapeHtml(eq.name)}</div>
       <div class="unit-part-count">${eq.unit_count}개 유닛</div>
       <div class="unit-edit-actions">
-        <button class="edit-unit-btn" title="설비 편집"><i class="bi bi-pencil"></i></button>
+        <button class="edit-unit-btn" title="편집"><i class="bi bi-pencil"></i></button>
+        <button class="delete-unit-btn" title="삭제"><i class="bi bi-trash"></i></button>
       </div>
     </div>`;
 }
 
 function openEquipmentEditModal(eq) {
-  document.getElementById("equipmentEditId").value = eq.id;
-  document.getElementById("equipmentEditName").value = eq.name;
-  const icon = eq.icon || "🏭";
+  document.getElementById("equipmentEditTitle").textContent = eq ? "설비 편집" : "설비 추가";
+  document.getElementById("equipmentEditId").value = eq ? eq.id : "";
+  document.getElementById("equipmentEditName").value = eq ? eq.name : "";
+  const icon = eq ? eq.icon : "🏭";
   document.getElementById("equipmentEditIcon").value = icon;
   renderIconPicker("equipmentIconPicker", "equipmentEditIcon", icon);
   equipmentEditModal.show();
@@ -100,6 +111,8 @@ document.addEventListener("DOMContentLoaded", () => {
     loadEquipments();
   });
 
+  document.getElementById("addEquipmentBtn").addEventListener("click", () => openEquipmentEditModal(null));
+
   document.getElementById("equipmentEditForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = document.getElementById("equipmentEditId").value;
@@ -108,11 +121,19 @@ document.addEventListener("DOMContentLoaded", () => {
       icon: document.getElementById("equipmentEditIcon").value.trim(),
     };
     try {
-      await fetchJson(`/api/equipments/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      if (id) {
+        await fetchJson(`/api/equipments/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await fetchJson("/api/equipments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
       equipmentEditModal.hide();
       loadEquipments();
     } catch (err) {

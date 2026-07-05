@@ -287,6 +287,19 @@ def unit_with_status(conn, u):
 STATUS_PRIORITY = ["overdue", "soon", "unknown", "ok", "empty"]
 
 
+def count_overdue_parts(conn, equipment_id):
+    rows = conn.execute(
+        """SELECT p.cycle_days, p.last_replaced_date
+           FROM parts p JOIN units u ON p.unit_id = u.id
+           WHERE u.equipment_id = ?""",
+        (equipment_id,),
+    ).fetchall()
+    return sum(
+        1 for p in rows
+        if part_status(p["cycle_days"], p["last_replaced_date"])["status"] == "overdue"
+    )
+
+
 def equipment_with_status(conn, e):
     units = conn.execute("SELECT * FROM units WHERE equipment_id = ?", (e["id"],)).fetchall()
     statuses = [unit_with_status(conn, u)["overall_status"] for u in units]
@@ -294,7 +307,17 @@ def equipment_with_status(conn, e):
     d = dict(e)
     d["unit_count"] = len(units)
     d["overall_status"] = overall
+    d["overdue_count"] = count_overdue_parts(conn, e["id"])
     return d
+
+
+def seed_default_units_for_equipment(conn, equipment_id):
+    templates = conn.execute("SELECT * FROM unit_templates ORDER BY id").fetchall()
+    for t in templates:
+        conn.execute(
+            "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (equipment_id, t["name"], t["icon"], t["color"], t["pos_x"], t["pos_y"], t["width"], t["height"]),
+        )
 
 
 @app.route("/")
@@ -336,6 +359,31 @@ def list_equipments():
     return jsonify(result)
 
 
+@app.route("/api/equipments", methods=["POST"])
+def add_equipment():
+    data = request.get_json()
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "설비 이름을 입력하세요"}), 400
+    icon = (data.get("icon") or "🏭").strip()
+    conn = get_db()
+    try:
+        cur = conn.execute("INSERT INTO equipments (name, icon) VALUES (?, ?)", (name, icon))
+        new_id = cur.lastrowid
+        conn.execute(
+            "INSERT INTO equipment_notes (equipment_id, content) VALUES (?, '')", (new_id,)
+        )
+        seed_default_units_for_equipment(conn, new_id)
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({"error": "이미 사용 중인 설비 이름입니다"}), 409
+    equipment = conn.execute("SELECT * FROM equipments WHERE id = ?", (new_id,)).fetchone()
+    d = equipment_with_status(conn, equipment)
+    conn.close()
+    return jsonify(d), 201
+
+
 @app.route("/api/equipments/<int:equipment_id>")
 def get_equipment(equipment_id):
     conn = get_db()
@@ -366,6 +414,15 @@ def update_equipment(equipment_id):
     except sqlite3.IntegrityError:
         conn.close()
         return jsonify({"error": "이미 사용 중인 설비 이름입니다"}), 409
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/equipments/<int:equipment_id>", methods=["DELETE"])
+def delete_equipment(equipment_id):
+    conn = get_db()
+    conn.execute("DELETE FROM equipments WHERE id = ?", (equipment_id,))
+    conn.commit()
     conn.close()
     return jsonify({"ok": True})
 
@@ -951,6 +1008,7 @@ body {
   transition: none;
 }
 .unit-icon-wrap {
+  position: relative;
   width: 40px;
   height: 40px;
   border-radius: 50%;
@@ -960,6 +1018,22 @@ body {
   margin: 0 auto 6px;
   background: #eef0fb;
   background: color-mix(in srgb, var(--uc) 14%, white);
+}
+.overdue-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(239, 68, 68, 0.4);
 }
 .unit-icon { font-size: 22px; display: block; line-height: 1; }
 .unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
@@ -1122,8 +1196,11 @@ body {
     <a href="/config" class="btn btn-sm btn-outline-light">
       <i class="bi bi-diagram-3"></i> 기본 유닛 구성
     </a>
+    <button id="addEquipmentBtn" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-plus-lg"></i> 설비 추가
+    </button>
     <button id="editModeBtn" class="btn btn-sm btn-outline-light">
-      <i class="bi bi-pencil-square"></i> 설비명 편집
+      <i class="bi bi-pencil-square"></i> 설비 편집
     </button>
   </div>
 </header>
@@ -1146,7 +1223,7 @@ body {
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">설비 편집</h5>
+        <h5 class="modal-title" id="equipmentEditTitle">설비 편집</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -1228,6 +1305,12 @@ function renderGrid(equipments) {
       e.stopPropagation();
       openEquipmentEditModal(eq);
     });
+    card.querySelector(".delete-unit-btn")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm(`"${eq.name}" 설비를 삭제할까요? 등록된 유닛/부품/이력이 모두 함께 삭제됩니다.`)) return;
+      await fetchJson(`/api/equipments/${eq.id}`, { method: "DELETE" });
+      loadEquipments();
+    });
     card.addEventListener("click", (e) => {
       if (editMode) return;
       if (e.target.closest(".unit-edit-actions")) return;
@@ -1240,19 +1323,24 @@ function equipmentCardHtml(eq) {
   return `
     <div class="equipment-card ${editMode ? "edit-mode" : ""}" data-equipment-id="${eq.id}">
       <span class="unit-status-dot dot-${eq.overall_status}"></span>
-      <div class="unit-icon-wrap"><span class="unit-icon">${eq.icon}</span></div>
+      <div class="unit-icon-wrap">
+        <span class="unit-icon">${eq.icon}</span>
+        ${eq.overdue_count > 0 ? `<span class="overdue-badge" title="교체 필요 부품 ${eq.overdue_count}건">${eq.overdue_count}</span>` : ""}
+      </div>
       <div class="unit-name">${escapeHtml(eq.name)}</div>
       <div class="unit-part-count">${eq.unit_count}개 유닛</div>
       <div class="unit-edit-actions">
-        <button class="edit-unit-btn" title="설비 편집"><i class="bi bi-pencil"></i></button>
+        <button class="edit-unit-btn" title="편집"><i class="bi bi-pencil"></i></button>
+        <button class="delete-unit-btn" title="삭제"><i class="bi bi-trash"></i></button>
       </div>
     </div>`;
 }
 
 function openEquipmentEditModal(eq) {
-  document.getElementById("equipmentEditId").value = eq.id;
-  document.getElementById("equipmentEditName").value = eq.name;
-  const icon = eq.icon || "🏭";
+  document.getElementById("equipmentEditTitle").textContent = eq ? "설비 편집" : "설비 추가";
+  document.getElementById("equipmentEditId").value = eq ? eq.id : "";
+  document.getElementById("equipmentEditName").value = eq ? eq.name : "";
+  const icon = eq ? eq.icon : "🏭";
   document.getElementById("equipmentEditIcon").value = icon;
   renderIconPicker("equipmentIconPicker", "equipmentEditIcon", icon);
   equipmentEditModal.show();
@@ -1272,6 +1360,8 @@ document.addEventListener("DOMContentLoaded", () => {
     loadEquipments();
   });
 
+  document.getElementById("addEquipmentBtn").addEventListener("click", () => openEquipmentEditModal(null));
+
   document.getElementById("equipmentEditForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = document.getElementById("equipmentEditId").value;
@@ -1280,11 +1370,19 @@ document.addEventListener("DOMContentLoaded", () => {
       icon: document.getElementById("equipmentEditIcon").value.trim(),
     };
     try {
-      await fetchJson(`/api/equipments/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      if (id) {
+        await fetchJson(`/api/equipments/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await fetchJson("/api/equipments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
       equipmentEditModal.hide();
       loadEquipments();
     } catch (err) {
@@ -1538,6 +1636,7 @@ body {
   transition: none;
 }
 .unit-icon-wrap {
+  position: relative;
   width: 40px;
   height: 40px;
   border-radius: 50%;
@@ -1547,6 +1646,22 @@ body {
   margin: 0 auto 6px;
   background: #eef0fb;
   background: color-mix(in srgb, var(--uc) 14%, white);
+}
+.overdue-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(239, 68, 68, 0.4);
 }
 .unit-icon { font-size: 22px; display: block; line-height: 1; }
 .unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
@@ -2357,6 +2472,7 @@ body {
   transition: none;
 }
 .unit-icon-wrap {
+  position: relative;
   width: 40px;
   height: 40px;
   border-radius: 50%;
@@ -2366,6 +2482,22 @@ body {
   margin: 0 auto 6px;
   background: #eef0fb;
   background: color-mix(in srgb, var(--uc) 14%, white);
+}
+.overdue-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(239, 68, 68, 0.4);
 }
 .unit-icon { font-size: 22px; display: block; line-height: 1; }
 .unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
@@ -3277,6 +3409,7 @@ body {
   transition: none;
 }
 .unit-icon-wrap {
+  position: relative;
   width: 40px;
   height: 40px;
   border-radius: 50%;
@@ -3286,6 +3419,22 @@ body {
   margin: 0 auto 6px;
   background: #eef0fb;
   background: color-mix(in srgb, var(--uc) 14%, white);
+}
+.overdue-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(239, 68, 68, 0.4);
 }
 .unit-icon { font-size: 22px; display: block; line-height: 1; }
 .unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }

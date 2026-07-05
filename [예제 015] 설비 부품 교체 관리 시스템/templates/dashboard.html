@@ -20,8 +20,11 @@
     <a href="/config" class="btn btn-sm btn-outline-light">
       <i class="bi bi-diagram-3"></i> 기본 유닛 구성
     </a>
+    <button id="addEquipmentBtn" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-plus-lg"></i> 설비 추가
+    </button>
     <button id="editModeBtn" class="btn btn-sm btn-outline-light">
-      <i class="bi bi-pencil-square"></i> 설비명 편집
+      <i class="bi bi-pencil-square"></i> 설비 편집
     </button>
   </div>
 </header>
@@ -44,7 +47,7 @@
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">설비 편집</h5>
+        <h5 class="modal-title" id="equipmentEditTitle">설비 편집</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">

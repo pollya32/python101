@@ -271,6 +271,19 @@ def unit_with_status(conn, u):
 STATUS_PRIORITY = ["overdue", "soon", "unknown", "ok", "empty"]
 
 
+def count_overdue_parts(conn, equipment_id):
+    rows = conn.execute(
+        """SELECT p.cycle_days, p.last_replaced_date
+           FROM parts p JOIN units u ON p.unit_id = u.id
+           WHERE u.equipment_id = ?""",
+        (equipment_id,),
+    ).fetchall()
+    return sum(
+        1 for p in rows
+        if part_status(p["cycle_days"], p["last_replaced_date"])["status"] == "overdue"
+    )
+
+
 def equipment_with_status(conn, e):
     units = conn.execute("SELECT * FROM units WHERE equipment_id = ?", (e["id"],)).fetchall()
     statuses = [unit_with_status(conn, u)["overall_status"] for u in units]
@@ -278,7 +291,17 @@ def equipment_with_status(conn, e):
     d = dict(e)
     d["unit_count"] = len(units)
     d["overall_status"] = overall
+    d["overdue_count"] = count_overdue_parts(conn, e["id"])
     return d
+
+
+def seed_default_units_for_equipment(conn, equipment_id):
+    templates = conn.execute("SELECT * FROM unit_templates ORDER BY id").fetchall()
+    for t in templates:
+        conn.execute(
+            "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (equipment_id, t["name"], t["icon"], t["color"], t["pos_x"], t["pos_y"], t["width"], t["height"]),
+        )
 
 
 @app.route("/")
@@ -320,6 +343,31 @@ def list_equipments():
     return jsonify(result)
 
 
+@app.route("/api/equipments", methods=["POST"])
+def add_equipment():
+    data = request.get_json()
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "설비 이름을 입력하세요"}), 400
+    icon = (data.get("icon") or "🏭").strip()
+    conn = get_db()
+    try:
+        cur = conn.execute("INSERT INTO equipments (name, icon) VALUES (?, ?)", (name, icon))
+        new_id = cur.lastrowid
+        conn.execute(
+            "INSERT INTO equipment_notes (equipment_id, content) VALUES (?, '')", (new_id,)
+        )
+        seed_default_units_for_equipment(conn, new_id)
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({"error": "이미 사용 중인 설비 이름입니다"}), 409
+    equipment = conn.execute("SELECT * FROM equipments WHERE id = ?", (new_id,)).fetchone()
+    d = equipment_with_status(conn, equipment)
+    conn.close()
+    return jsonify(d), 201
+
+
 @app.route("/api/equipments/<int:equipment_id>")
 def get_equipment(equipment_id):
     conn = get_db()
@@ -350,6 +398,15 @@ def update_equipment(equipment_id):
     except sqlite3.IntegrityError:
         conn.close()
         return jsonify({"error": "이미 사용 중인 설비 이름입니다"}), 409
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/equipments/<int:equipment_id>", methods=["DELETE"])
+def delete_equipment(equipment_id):
+    conn = get_db()
+    conn.execute("DELETE FROM equipments WHERE id = ?", (equipment_id,))
+    conn.commit()
     conn.close()
     return jsonify({"ok": True})
 
