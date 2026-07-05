@@ -1079,13 +1079,13 @@ body {
 }
 
 /* ── 대시보드 그리드 ──────────────────────────────────────────── */
-.dashboard-canvas {
+.equipment-canvas.dashboard-canvas {
   max-width: 1300px;
   margin: 10px auto 0;
-  min-height: 640px;
+  min-height: 860px;
 }
 @media (max-width: 768px) {
-  .dashboard-canvas { min-height: 900px; }
+  .equipment-canvas.dashboard-canvas { min-height: 1150px; }
 }
 .equipment-card {
   position: absolute;
@@ -1954,13 +1954,13 @@ body {
 }
 
 /* ── 대시보드 그리드 ──────────────────────────────────────────── */
-.dashboard-canvas {
+.equipment-canvas.dashboard-canvas {
   max-width: 1300px;
   margin: 10px auto 0;
-  min-height: 640px;
+  min-height: 860px;
 }
 @media (max-width: 768px) {
-  .dashboard-canvas { min-height: 900px; }
+  .equipment-canvas.dashboard-canvas { min-height: 1150px; }
 }
 .equipment-card {
   position: absolute;
@@ -3036,13 +3036,13 @@ body {
 }
 
 /* ── 대시보드 그리드 ──────────────────────────────────────────── */
-.dashboard-canvas {
+.equipment-canvas.dashboard-canvas {
   max-width: 1300px;
   margin: 10px auto 0;
-  min-height: 640px;
+  min-height: 860px;
 }
 @media (max-width: 768px) {
-  .dashboard-canvas { min-height: 900px; }
+  .equipment-canvas.dashboard-canvas { min-height: 1150px; }
 }
 .equipment-card {
   position: absolute;
@@ -4142,13 +4142,13 @@ body {
 }
 
 /* ── 대시보드 그리드 ──────────────────────────────────────────── */
-.dashboard-canvas {
+.equipment-canvas.dashboard-canvas {
   max-width: 1300px;
   margin: 10px auto 0;
-  min-height: 640px;
+  min-height: 860px;
 }
 @media (max-width: 768px) {
-  .dashboard-canvas { min-height: 900px; }
+  .equipment-canvas.dashboard-canvas { min-height: 1150px; }
 }
 .equipment-card {
   position: absolute;
@@ -5109,13 +5109,13 @@ body {
 }
 
 /* ── 대시보드 그리드 ──────────────────────────────────────────── */
-.dashboard-canvas {
+.equipment-canvas.dashboard-canvas {
   max-width: 1300px;
   margin: 10px auto 0;
-  min-height: 640px;
+  min-height: 860px;
 }
 @media (max-width: 768px) {
-  .dashboard-canvas { min-height: 900px; }
+  .equipment-canvas.dashboard-canvas { min-height: 1150px; }
 }
 .equipment-card {
   position: absolute;
@@ -5741,13 +5741,13 @@ body {
 }
 
 /* ── 대시보드 그리드 ──────────────────────────────────────────── */
-.dashboard-canvas {
+.equipment-canvas.dashboard-canvas {
   max-width: 1300px;
   margin: 10px auto 0;
-  min-height: 640px;
+  min-height: 860px;
 }
 @media (max-width: 768px) {
-  .dashboard-canvas { min-height: 900px; }
+  .equipment-canvas.dashboard-canvas { min-height: 1150px; }
 }
 .equipment-card {
   position: absolute;
