@@ -40,6 +40,23 @@
     </button>
   </div>
 
+  <div class="notes-section">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h6 class="mb-0"><i class="bi bi-journal-text"></i> 설비 메모 / 구매처 링크</h6>
+      <div class="d-flex align-items-center gap-2">
+        <span id="notesSavedAt" class="text-muted small"></span>
+        <button id="editNotesBtn" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-pencil"></i> 편집
+        </button>
+        <button id="saveNotesBtn" class="btn btn-sm btn-primary d-none">저장</button>
+        <button id="cancelNotesBtn" class="btn btn-sm btn-outline-secondary d-none">취소</button>
+      </div>
+    </div>
+    <div id="notesView" class="notes-view"></div>
+    <textarea id="notesEdit" class="form-control d-none" rows="8"
+      placeholder="설비 정보, 부품 구매 사이트 URL 등을 자유롭게 기록하세요. (http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></textarea>
+  </div>
+
 </main>
 
 <!-- 유닛 상세 (부품 교체일 관리) 모달 -->

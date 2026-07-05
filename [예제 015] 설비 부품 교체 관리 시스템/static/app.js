@@ -174,6 +174,46 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
+function linkifyText(text) {
+  const escaped = escapeHtml(text);
+  return escaped.replace(
+    /(https?:\/\/[^\s<]+)/g,
+    '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+  );
+}
+
+let lastNotesContent = "";
+
+async function loadNotes() {
+  const data = await fetchJson("/api/notes");
+  lastNotesContent = data.content || "";
+  renderNotesView(lastNotesContent);
+  document.getElementById("notesEdit").value = lastNotesContent;
+  document.getElementById("notesSavedAt").textContent = data.updated_at
+    ? `최종 수정: ${data.updated_at}`
+    : "";
+}
+
+function renderNotesView(content) {
+  const view = document.getElementById("notesView");
+  if (!content || !content.trim()) {
+    view.innerHTML = "";
+    view.classList.add("is-empty");
+  } else {
+    view.classList.remove("is-empty");
+    view.innerHTML = linkifyText(content);
+  }
+}
+
+function setNotesEditing(editing) {
+  document.getElementById("notesView").classList.toggle("d-none", editing);
+  document.getElementById("notesEdit").classList.toggle("d-none", !editing);
+  document.getElementById("editNotesBtn").classList.toggle("d-none", editing);
+  document.getElementById("saveNotesBtn").classList.toggle("d-none", !editing);
+  document.getElementById("cancelNotesBtn").classList.toggle("d-none", !editing);
+  if (editing) document.getElementById("notesEdit").focus();
+}
+
 async function openUnitModal(unitId, unitName) {
   currentUnitId = unitId;
   document.getElementById("unitModalTitle").textContent = unitName;
@@ -284,6 +324,31 @@ document.addEventListener("DOMContentLoaded", () => {
   tick();
   setInterval(tick, 1000);
   loadUnits();
+  loadNotes();
+
+  document.getElementById("editNotesBtn").addEventListener("click", () => setNotesEditing(true));
+  document.getElementById("cancelNotesBtn").addEventListener("click", () => {
+    document.getElementById("notesEdit").value = lastNotesContent;
+    setNotesEditing(false);
+  });
+  document.getElementById("saveNotesBtn").addEventListener("click", async () => {
+    const content = document.getElementById("notesEdit").value;
+    try {
+      const data = await fetchJson("/api/notes", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      });
+      lastNotesContent = data.content || "";
+      renderNotesView(lastNotesContent);
+      document.getElementById("notesSavedAt").textContent = data.updated_at
+        ? `최종 수정: ${data.updated_at}`
+        : "";
+      setNotesEditing(false);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 
   document.getElementById("editModeBtn").addEventListener("click", (e) => {
     editMode = !editMode;

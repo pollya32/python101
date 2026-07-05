@@ -170,3 +170,31 @@ body {
 .badge-unknown { background: #e5e7eb; color: #374151; }
 
 .history-row { font-size: 13px; border-bottom: 1px solid #f1f1f1; padding: 6px 0; }
+
+.notes-section {
+  max-width: 1100px;
+  margin: 20px auto 0;
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+.notes-view {
+  min-height: 60px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+  color: #333;
+  line-height: 1.6;
+}
+.notes-view:empty::before,
+.notes-view.is-empty::before {
+  content: "등록된 메모가 없습니다. \"편집\" 버튼을 눌러 설비 정보나 부품 구매처 링크를 기록해보세요.";
+  color: #9ca3af;
+}
+.notes-view a {
+  color: #2563eb;
+  word-break: break-all;
+}
+#notesEdit { font-size: 14px; }

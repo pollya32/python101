@@ -81,6 +81,14 @@ def init_db():
             FOREIGN KEY (part_id) REFERENCES parts(id) ON DELETE CASCADE
         )
     """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS equipment_notes (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            content TEXT DEFAULT '',
+            updated_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    c.execute("INSERT OR IGNORE INTO equipment_notes (id, content) VALUES (1, '')")
     row = c.execute("SELECT COUNT(*) AS n FROM units").fetchone()
     if row["n"] == 0:
         for name, icon, color, pos_x, pos_y in DEFAULT_UNITS:
@@ -328,6 +336,29 @@ def delete_history(history_id):
     conn.commit()
     conn.close()
     return jsonify({"ok": True})
+
+
+@app.route("/api/notes")
+def get_notes():
+    conn = get_db()
+    row = conn.execute("SELECT content, updated_at FROM equipment_notes WHERE id = 1").fetchone()
+    conn.close()
+    return jsonify(dict(row))
+
+
+@app.route("/api/notes", methods=["PUT"])
+def update_notes():
+    data = request.get_json()
+    content = data.get("content") or ""
+    conn = get_db()
+    conn.execute(
+        "UPDATE equipment_notes SET content = ?, updated_at = datetime('now','localtime') WHERE id = 1",
+        (content,),
+    )
+    conn.commit()
+    row = conn.execute("SELECT content, updated_at FROM equipment_notes WHERE id = 1").fetchone()
+    conn.close()
+    return jsonify(dict(row))
 
 
 if __name__ == "__main__":
