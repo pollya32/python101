@@ -68,9 +68,14 @@ def init_db():
         CREATE TABLE IF NOT EXISTS equipments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
+            icon TEXT DEFAULT '🏭',
             created_at TEXT DEFAULT (datetime('now','localtime'))
         )
     """)
+    existing_eq_cols = {r["name"] for r in c.execute("PRAGMA table_info(equipments)").fetchall()}
+    if "icon" not in existing_eq_cols:
+        c.execute("ALTER TABLE equipments ADD COLUMN icon TEXT DEFAULT '🏭'")
+        c.execute("UPDATE equipments SET icon = '🏭' WHERE icon IS NULL")
     eq_count = c.execute("SELECT COUNT(*) AS n FROM equipments").fetchone()["n"]
     if eq_count == 0:
         for i in range(1, EQUIPMENT_COUNT + 1):
@@ -354,8 +359,9 @@ def update_equipment(equipment_id):
     if not equipment:
         conn.close()
         return jsonify({"error": "설비를 찾을 수 없습니다"}), 404
+    icon = (data.get("icon") or equipment["icon"]).strip()
     try:
-        conn.execute("UPDATE equipments SET name = ? WHERE id = ?", (name, equipment_id))
+        conn.execute("UPDATE equipments SET name = ?, icon = ? WHERE id = ?", (name, icon, equipment_id))
         conn.commit()
     except sqlite3.IntegrityError:
         conn.close()
@@ -715,49 +721,125 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>
 :root {
-  --pri: #1a3a5c;
-  --bg: #eef1f5;
+  --pri: #4338ca;
+  --pri-dark: #362f8c;
+  --accent: #6366f1;
+  --bg-a: #eef0fb;
+  --bg-b: #f6f7fb;
+  --surface: #ffffff;
+  --border: #e5e7eb;
+  --text: #1e2432;
+  --text-muted: #6b7280;
+  --radius-lg: 18px;
+  --radius-md: 14px;
+  --radius-sm: 10px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
+  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
 }
+
+* { box-sizing: border-box; }
 
 body {
-  background: var(--bg);
-  font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+    "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  color: var(--text);
 }
 
-.topbar {
+/* ── 버튼 공통 리스킨 ─────────────────────────────────────────── */
+.btn {
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: all 0.15s ease;
+}
+.btn-primary {
   background: var(--pri);
+  border-color: var(--pri);
+  box-shadow: 0 2px 8px rgba(67, 56, 202, 0.35);
+}
+.btn-primary:hover {
+  background: var(--pri-dark);
+  border-color: var(--pri-dark);
+  box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
+}
+.btn-outline-light {
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.08);
   color: #fff;
-  padding: 12px 20px;
+}
+.btn-outline-light:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #fff;
+}
+.btn-warning {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+}
+.btn-warning:hover { background: #d97706; border-color: #d97706; color: #fff; }
+.btn-outline-secondary { border-color: var(--border); color: var(--text-muted); }
+.btn-outline-secondary:hover { background: #f3f4f6; color: var(--text); }
+.btn-outline-primary { color: var(--pri); border-color: var(--pri); }
+.btn-outline-primary:hover { background: var(--pri); border-color: var(--pri); }
+.btn-outline-danger:hover { box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25); }
+
+.form-control:focus, .form-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 0.2rem rgba(99, 102, 241, 0.2);
+}
+
+/* ── 상단바 ───────────────────────────────────────────────────── */
+.topbar {
+  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
+  color: #fff;
+  padding: 14px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   position: sticky;
   top: 0;
   z-index: 90;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
 }
-.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; }
-.clock { font-size: 12px; opacity: 0.8; }
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.topbar i.bi { font-size: 18px; opacity: 0.9; }
+.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
 
+/* ── 범례 ─────────────────────────────────────────────────────── */
 .legend {
-  display: flex;
-  gap: 16px;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 18px;
   font-size: 13px;
-  color: #444;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 9px 20px;
+  box-shadow: var(--shadow-sm);
 }
-.legend-item { display: flex; align-items: center; gap: 6px; }
-.dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
-.dot-ok { background: #22c55e; }
-.dot-soon { background: #f59e0b; }
-.dot-overdue { background: #ef4444; }
-.dot-unknown { background: #9ca3af; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-shadow: 0 0 0 3px currentColor; opacity: 0.9; }
+.dot-ok { background: #22c55e; color: rgba(34, 197, 94, 0.18); }
+.dot-soon { background: #f59e0b; color: rgba(245, 158, 11, 0.18); }
+.dot-overdue { background: #ef4444; color: rgba(239, 68, 68, 0.18); }
+.dot-unknown { background: #9ca3af; color: rgba(156, 163, 175, 0.18); }
 
+/* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
-  background: linear-gradient(180deg, #f8fafc, #e2e8f0);
-  border: 1px solid #cbd5e1;
-  border-radius: 16px;
-  padding: 28px 20px 20px;
-  box-shadow: inset 0 0 0 6px #fff, 0 4px 16px rgba(0, 0, 0, 0.08);
+  background:
+    radial-gradient(circle, rgba(67, 56, 202, 0.07) 1px, transparent 1px),
+    linear-gradient(180deg, #fbfcff, #eef0f7);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid #dfe3ee;
+  border-radius: var(--radius-lg);
+  padding: 30px 22px 22px;
+  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
@@ -765,56 +847,66 @@ body {
 .equipment-label {
   position: absolute;
   top: -14px;
-  left: 20px;
-  background: var(--pri);
+  left: 22px;
+  background: linear-gradient(120deg, var(--pri), var(--accent));
   color: #fff;
   font-size: 12px;
-  padding: 4px 12px;
+  font-weight: 600;
+  padding: 5px 14px;
   border-radius: 999px;
+  box-shadow: 0 3px 10px rgba(67, 56, 202, 0.3);
 }
 
 .unit-shape {
   --shape-color: var(--pri);
-  border: 4px solid var(--shape-color);
+  border: 3px solid var(--shape-color);
+  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
 }
 .unit-shape-header {
   text-align: center;
   margin-bottom: 6px;
 }
 .unit-shape-icon {
-  font-size: 40px;
+  font-size: 42px;
   display: block;
   line-height: 1.2;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.12));
 }
 .unit-shape-name {
-  font-size: 20px;
-  font-weight: 700;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
   color: var(--shape-color);
 }
 
+/* ── 대시보드 그리드 ──────────────────────────────────────────── */
 .equipment-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
   gap: 16px;
   max-width: 1100px;
   margin: 0 auto;
 }
 .equipment-card {
   position: relative;
-  background: #fff;
-  border: 2px solid var(--pri);
-  border-radius: 12px;
-  padding: 18px 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--pri);
+  border-radius: var(--radius-md);
+  padding: 20px 10px 14px;
   cursor: pointer;
   text-align: center;
-  transition: box-shadow 0.15s, transform 0.15s;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
 }
 .equipment-card:hover {
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
-  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-3px);
+  border-top-color: var(--accent);
 }
-.equipment-card .unit-icon { font-size: 32px; }
+.equipment-card .unit-icon { font-size: 30px; }
 
+/* ── 캔버스 ───────────────────────────────────────────────────── */
 .equipment-canvas {
   position: relative;
   width: 100%;
@@ -825,53 +917,67 @@ body {
   .equipment-canvas { min-height: 620px; }
 }
 
+/* ── 유닛/부품 카드 ───────────────────────────────────────────── */
 .unit-card {
-  --uc: #1a3a5c;
+  --uc: #4338ca;
   position: absolute;
   top: 0;
   left: 0;
   transform: translate(-50%, -50%);
   width: 140px;
   min-height: 110px;
-  background: #fff;
-  border: 2px solid var(--uc);
-  border-radius: 12px;
-  padding: 12px 10px 10px;
+  background: var(--surface);
+  border: 1.5px solid var(--uc);
+  border-radius: var(--radius-md);
+  padding: 14px 10px 10px;
   cursor: pointer;
-  transition: box-shadow 0.15s;
+  transition: box-shadow 0.18s ease, transform 0.12s ease;
   text-align: center;
   user-select: none;
   touch-action: none;
   box-sizing: border-box;
   overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 .unit-card:hover {
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-lg);
   z-index: 5;
 }
 .edit-mode.unit-card { cursor: grab; }
 .unit-card.dragging {
   cursor: grabbing;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  box-shadow: var(--shadow-lg);
   z-index: 20;
   transition: none;
 }
-.unit-icon { font-size: 28px; display: block; margin-bottom: 6px; }
-.unit-name { font-size: 13px; font-weight: 600; color: #1f2937; line-height: 1.3; }
+.unit-icon-wrap {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 6px;
+  background: #eef0fb;
+  background: color-mix(in srgb, var(--uc) 14%, white);
+}
+.unit-icon { font-size: 22px; display: block; line-height: 1; }
+.unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
 .unit-status-dot {
   position: absolute;
   top: 8px;
   right: 8px;
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
   border: 2px solid #fff;
-  box-shadow: 0 0 0 1px rgba(0,0,0,.1);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 .unit-part-count {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--text-muted);
   margin-top: 4px;
+  font-weight: 500;
 }
 .unit-edit-actions {
   position: absolute;
@@ -883,12 +989,13 @@ body {
 .edit-mode .unit-edit-actions { display: flex; }
 .unit-edit-actions button {
   border: none;
-  background: rgba(0,0,0,.06);
-  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 7px;
   font-size: 11px;
-  padding: 2px 5px;
+  padding: 3px 6px;
+  transition: background 0.15s;
 }
-.unit-edit-actions button:hover { background: rgba(0,0,0,.14); }
+.unit-edit-actions button:hover { background: rgba(15, 23, 42, 0.14); }
 
 .resize-handle {
   position: absolute;
@@ -907,36 +1014,40 @@ body {
   bottom: 3px;
   width: 9px;
   height: 9px;
-  border-right: 2px solid rgba(0, 0, 0, 0.4);
-  border-bottom: 2px solid rgba(0, 0, 0, 0.4);
+  border-right: 2px solid rgba(67, 56, 202, 0.45);
+  border-bottom: 2px solid rgba(67, 56, 202, 0.45);
 }
 
 .add-unit-btn { margin-top: 16px; display: block; margin-left: auto; margin-right: auto; }
 
+/* ── 부품 목록/배지 ───────────────────────────────────────────── */
 .part-card {
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 15px;
   margin-bottom: 10px;
-  background: #fafafa;
+  background: #fafbfe;
+  transition: box-shadow 0.15s;
 }
+.part-card:hover { box-shadow: var(--shadow-sm); }
 .part-card .part-title { font-weight: 700; font-size: 14px; }
-.part-card .part-spec { font-size: 12px; color: #6b7280; }
+.part-card .part-spec { font-size: 12px; color: var(--text-muted); }
 .badge-ok { background: #d1fae5; color: #065f46; }
 .badge-soon { background: #fef3c7; color: #92400e; }
 .badge-overdue { background: #fee2e2; color: #991b1b; }
 .badge-unknown { background: #e5e7eb; color: #374151; }
 
-.history-row { font-size: 13px; border-bottom: 1px solid #f1f1f1; padding: 6px 0; }
+.history-row { font-size: 13px; border-bottom: 1px solid #f1f1f1; padding: 7px 0; }
 
+/* ── 메모장 ───────────────────────────────────────────────────── */
 .notes-section {
   max-width: 1100px;
   margin: 20px auto 0;
-  background: #fff;
-  border: 1px solid #dee2e6;
-  border-radius: 12px;
-  padding: 16px 18px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
 }
 .notes-view {
   min-height: 60px;
@@ -952,10 +1063,51 @@ body {
   color: #9ca3af;
 }
 .notes-view a {
-  color: #2563eb;
+  color: var(--pri);
   word-break: break-all;
+  font-weight: 500;
 }
 #notesEdit { font-size: 14px; }
+
+/* ── 모달 리스킨 ──────────────────────────────────────────────── */
+.modal-content { border: none; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
+.modal-header { border-bottom: 1px solid var(--border); padding: 18px 22px; }
+.modal-title { font-weight: 700; letter-spacing: -0.01em; }
+.modal-body { padding: 20px 22px; }
+.form-label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+
+/* ── 아이콘 선택기 ────────────────────────────────────────────── */
+.icon-picker {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+  padding: 10px;
+  background: #f8f9fc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  max-height: 168px;
+  overflow-y: auto;
+}
+.icon-choice {
+  width: 34px;
+  height: 34px;
+  border: 1.5px solid transparent;
+  border-radius: 9px;
+  background: #fff;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.icon-choice:hover { background: #eef0fb; transform: translateY(-1px); }
+.icon-choice.selected {
+  border-color: var(--pri);
+  background: color-mix(in srgb, var(--pri) 12%, white);
+  box-shadow: 0 0 0 2px rgba(67, 56, 202, 0.18);
+}
 </style>
 </head>
 <body>
@@ -989,12 +1141,12 @@ body {
 
 </main>
 
-<!-- 설비명 편집 모달 -->
+<!-- 설비 편집 모달 -->
 <div class="modal fade" id="equipmentEditModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">설비명 편집</h5>
+        <h5 class="modal-title">설비 편집</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -1004,7 +1156,12 @@ body {
             <label class="form-label">설비 이름</label>
             <input type="text" class="form-control" id="equipmentEditName" required>
           </div>
-          <button type="submit" class="btn btn-primary w-100 mt-2">저장</button>
+          <div class="mb-2">
+            <label class="form-label">아이콘 (이모지)</label>
+            <input type="text" class="form-control" id="equipmentEditIcon" placeholder="🏭">
+          </div>
+          <div id="equipmentIconPicker" class="icon-picker"></div>
+          <button type="submit" class="btn btn-primary w-100 mt-3">저장</button>
         </form>
       </div>
     </div>
@@ -1015,6 +1172,27 @@ body {
 <script>
 let editMode = false;
 let equipmentEditModal;
+
+const ICON_CHOICES = [
+  "🏭", "⚙️", "🔧", "🔩", "🛠️", "🪛", "🔨", "📦",
+  "🖥️", "🖨️", "💻", "📡", "🎛️", "🚨", "💡", "🔌",
+  "⚡", "🔋", "🌡️", "💧", "🧪", "🧯", "🧰", "⚗️",
+  "🌀", "🗜️", "🧲", "📊", "🛞", "🚿", "🔥", "❄️",
+];
+
+function renderIconPicker(containerId, inputId, current) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = ICON_CHOICES.map(
+    (ic) => `<button type="button" class="icon-choice ${ic === current ? "selected" : ""}" data-icon="${ic}">${ic}</button>`
+  ).join("");
+  container.querySelectorAll(".icon-choice").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.getElementById(inputId).value = btn.dataset.icon;
+      container.querySelectorAll(".icon-choice").forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+    });
+  });
+}
 
 function tick() {
   const el = document.getElementById("clock");
@@ -1062,11 +1240,11 @@ function equipmentCardHtml(eq) {
   return `
     <div class="equipment-card ${editMode ? "edit-mode" : ""}" data-equipment-id="${eq.id}">
       <span class="unit-status-dot dot-${eq.overall_status}"></span>
-      <span class="unit-icon">🏭</span>
+      <div class="unit-icon-wrap"><span class="unit-icon">${eq.icon}</span></div>
       <div class="unit-name">${escapeHtml(eq.name)}</div>
       <div class="unit-part-count">${eq.unit_count}개 유닛</div>
       <div class="unit-edit-actions">
-        <button class="edit-unit-btn" title="설비명 편집"><i class="bi bi-pencil"></i></button>
+        <button class="edit-unit-btn" title="설비 편집"><i class="bi bi-pencil"></i></button>
       </div>
     </div>`;
 }
@@ -1074,6 +1252,9 @@ function equipmentCardHtml(eq) {
 function openEquipmentEditModal(eq) {
   document.getElementById("equipmentEditId").value = eq.id;
   document.getElementById("equipmentEditName").value = eq.name;
+  const icon = eq.icon || "🏭";
+  document.getElementById("equipmentEditIcon").value = icon;
+  renderIconPicker("equipmentIconPicker", "equipmentEditIcon", icon);
   equipmentEditModal.show();
 }
 
@@ -1096,6 +1277,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const id = document.getElementById("equipmentEditId").value;
     const payload = {
       name: document.getElementById("equipmentEditName").value.trim(),
+      icon: document.getElementById("equipmentEditIcon").value.trim(),
     };
     try {
       await fetchJson(`/api/equipments/${id}`, {
@@ -1126,49 +1308,125 @@ EQUIPMENT_HTML = r"""<!DOCTYPE html>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>
 :root {
-  --pri: #1a3a5c;
-  --bg: #eef1f5;
+  --pri: #4338ca;
+  --pri-dark: #362f8c;
+  --accent: #6366f1;
+  --bg-a: #eef0fb;
+  --bg-b: #f6f7fb;
+  --surface: #ffffff;
+  --border: #e5e7eb;
+  --text: #1e2432;
+  --text-muted: #6b7280;
+  --radius-lg: 18px;
+  --radius-md: 14px;
+  --radius-sm: 10px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
+  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
 }
+
+* { box-sizing: border-box; }
 
 body {
-  background: var(--bg);
-  font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+    "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  color: var(--text);
 }
 
-.topbar {
+/* ── 버튼 공통 리스킨 ─────────────────────────────────────────── */
+.btn {
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: all 0.15s ease;
+}
+.btn-primary {
   background: var(--pri);
+  border-color: var(--pri);
+  box-shadow: 0 2px 8px rgba(67, 56, 202, 0.35);
+}
+.btn-primary:hover {
+  background: var(--pri-dark);
+  border-color: var(--pri-dark);
+  box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
+}
+.btn-outline-light {
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.08);
   color: #fff;
-  padding: 12px 20px;
+}
+.btn-outline-light:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #fff;
+}
+.btn-warning {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+}
+.btn-warning:hover { background: #d97706; border-color: #d97706; color: #fff; }
+.btn-outline-secondary { border-color: var(--border); color: var(--text-muted); }
+.btn-outline-secondary:hover { background: #f3f4f6; color: var(--text); }
+.btn-outline-primary { color: var(--pri); border-color: var(--pri); }
+.btn-outline-primary:hover { background: var(--pri); border-color: var(--pri); }
+.btn-outline-danger:hover { box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25); }
+
+.form-control:focus, .form-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 0.2rem rgba(99, 102, 241, 0.2);
+}
+
+/* ── 상단바 ───────────────────────────────────────────────────── */
+.topbar {
+  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
+  color: #fff;
+  padding: 14px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   position: sticky;
   top: 0;
   z-index: 90;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
 }
-.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; }
-.clock { font-size: 12px; opacity: 0.8; }
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.topbar i.bi { font-size: 18px; opacity: 0.9; }
+.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
 
+/* ── 범례 ─────────────────────────────────────────────────────── */
 .legend {
-  display: flex;
-  gap: 16px;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 18px;
   font-size: 13px;
-  color: #444;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 9px 20px;
+  box-shadow: var(--shadow-sm);
 }
-.legend-item { display: flex; align-items: center; gap: 6px; }
-.dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
-.dot-ok { background: #22c55e; }
-.dot-soon { background: #f59e0b; }
-.dot-overdue { background: #ef4444; }
-.dot-unknown { background: #9ca3af; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-shadow: 0 0 0 3px currentColor; opacity: 0.9; }
+.dot-ok { background: #22c55e; color: rgba(34, 197, 94, 0.18); }
+.dot-soon { background: #f59e0b; color: rgba(245, 158, 11, 0.18); }
+.dot-overdue { background: #ef4444; color: rgba(239, 68, 68, 0.18); }
+.dot-unknown { background: #9ca3af; color: rgba(156, 163, 175, 0.18); }
 
+/* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
-  background: linear-gradient(180deg, #f8fafc, #e2e8f0);
-  border: 1px solid #cbd5e1;
-  border-radius: 16px;
-  padding: 28px 20px 20px;
-  box-shadow: inset 0 0 0 6px #fff, 0 4px 16px rgba(0, 0, 0, 0.08);
+  background:
+    radial-gradient(circle, rgba(67, 56, 202, 0.07) 1px, transparent 1px),
+    linear-gradient(180deg, #fbfcff, #eef0f7);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid #dfe3ee;
+  border-radius: var(--radius-lg);
+  padding: 30px 22px 22px;
+  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
@@ -1176,56 +1434,66 @@ body {
 .equipment-label {
   position: absolute;
   top: -14px;
-  left: 20px;
-  background: var(--pri);
+  left: 22px;
+  background: linear-gradient(120deg, var(--pri), var(--accent));
   color: #fff;
   font-size: 12px;
-  padding: 4px 12px;
+  font-weight: 600;
+  padding: 5px 14px;
   border-radius: 999px;
+  box-shadow: 0 3px 10px rgba(67, 56, 202, 0.3);
 }
 
 .unit-shape {
   --shape-color: var(--pri);
-  border: 4px solid var(--shape-color);
+  border: 3px solid var(--shape-color);
+  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
 }
 .unit-shape-header {
   text-align: center;
   margin-bottom: 6px;
 }
 .unit-shape-icon {
-  font-size: 40px;
+  font-size: 42px;
   display: block;
   line-height: 1.2;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.12));
 }
 .unit-shape-name {
-  font-size: 20px;
-  font-weight: 700;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
   color: var(--shape-color);
 }
 
+/* ── 대시보드 그리드 ──────────────────────────────────────────── */
 .equipment-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
   gap: 16px;
   max-width: 1100px;
   margin: 0 auto;
 }
 .equipment-card {
   position: relative;
-  background: #fff;
-  border: 2px solid var(--pri);
-  border-radius: 12px;
-  padding: 18px 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--pri);
+  border-radius: var(--radius-md);
+  padding: 20px 10px 14px;
   cursor: pointer;
   text-align: center;
-  transition: box-shadow 0.15s, transform 0.15s;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
 }
 .equipment-card:hover {
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
-  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-3px);
+  border-top-color: var(--accent);
 }
-.equipment-card .unit-icon { font-size: 32px; }
+.equipment-card .unit-icon { font-size: 30px; }
 
+/* ── 캔버스 ───────────────────────────────────────────────────── */
 .equipment-canvas {
   position: relative;
   width: 100%;
@@ -1236,53 +1504,67 @@ body {
   .equipment-canvas { min-height: 620px; }
 }
 
+/* ── 유닛/부품 카드 ───────────────────────────────────────────── */
 .unit-card {
-  --uc: #1a3a5c;
+  --uc: #4338ca;
   position: absolute;
   top: 0;
   left: 0;
   transform: translate(-50%, -50%);
   width: 140px;
   min-height: 110px;
-  background: #fff;
-  border: 2px solid var(--uc);
-  border-radius: 12px;
-  padding: 12px 10px 10px;
+  background: var(--surface);
+  border: 1.5px solid var(--uc);
+  border-radius: var(--radius-md);
+  padding: 14px 10px 10px;
   cursor: pointer;
-  transition: box-shadow 0.15s;
+  transition: box-shadow 0.18s ease, transform 0.12s ease;
   text-align: center;
   user-select: none;
   touch-action: none;
   box-sizing: border-box;
   overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 .unit-card:hover {
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-lg);
   z-index: 5;
 }
 .edit-mode.unit-card { cursor: grab; }
 .unit-card.dragging {
   cursor: grabbing;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  box-shadow: var(--shadow-lg);
   z-index: 20;
   transition: none;
 }
-.unit-icon { font-size: 28px; display: block; margin-bottom: 6px; }
-.unit-name { font-size: 13px; font-weight: 600; color: #1f2937; line-height: 1.3; }
+.unit-icon-wrap {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 6px;
+  background: #eef0fb;
+  background: color-mix(in srgb, var(--uc) 14%, white);
+}
+.unit-icon { font-size: 22px; display: block; line-height: 1; }
+.unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
 .unit-status-dot {
   position: absolute;
   top: 8px;
   right: 8px;
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
   border: 2px solid #fff;
-  box-shadow: 0 0 0 1px rgba(0,0,0,.1);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 .unit-part-count {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--text-muted);
   margin-top: 4px;
+  font-weight: 500;
 }
 .unit-edit-actions {
   position: absolute;
@@ -1294,12 +1576,13 @@ body {
 .edit-mode .unit-edit-actions { display: flex; }
 .unit-edit-actions button {
   border: none;
-  background: rgba(0,0,0,.06);
-  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 7px;
   font-size: 11px;
-  padding: 2px 5px;
+  padding: 3px 6px;
+  transition: background 0.15s;
 }
-.unit-edit-actions button:hover { background: rgba(0,0,0,.14); }
+.unit-edit-actions button:hover { background: rgba(15, 23, 42, 0.14); }
 
 .resize-handle {
   position: absolute;
@@ -1318,36 +1601,40 @@ body {
   bottom: 3px;
   width: 9px;
   height: 9px;
-  border-right: 2px solid rgba(0, 0, 0, 0.4);
-  border-bottom: 2px solid rgba(0, 0, 0, 0.4);
+  border-right: 2px solid rgba(67, 56, 202, 0.45);
+  border-bottom: 2px solid rgba(67, 56, 202, 0.45);
 }
 
 .add-unit-btn { margin-top: 16px; display: block; margin-left: auto; margin-right: auto; }
 
+/* ── 부품 목록/배지 ───────────────────────────────────────────── */
 .part-card {
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 15px;
   margin-bottom: 10px;
-  background: #fafafa;
+  background: #fafbfe;
+  transition: box-shadow 0.15s;
 }
+.part-card:hover { box-shadow: var(--shadow-sm); }
 .part-card .part-title { font-weight: 700; font-size: 14px; }
-.part-card .part-spec { font-size: 12px; color: #6b7280; }
+.part-card .part-spec { font-size: 12px; color: var(--text-muted); }
 .badge-ok { background: #d1fae5; color: #065f46; }
 .badge-soon { background: #fef3c7; color: #92400e; }
 .badge-overdue { background: #fee2e2; color: #991b1b; }
 .badge-unknown { background: #e5e7eb; color: #374151; }
 
-.history-row { font-size: 13px; border-bottom: 1px solid #f1f1f1; padding: 6px 0; }
+.history-row { font-size: 13px; border-bottom: 1px solid #f1f1f1; padding: 7px 0; }
 
+/* ── 메모장 ───────────────────────────────────────────────────── */
 .notes-section {
   max-width: 1100px;
   margin: 20px auto 0;
-  background: #fff;
-  border: 1px solid #dee2e6;
-  border-radius: 12px;
-  padding: 16px 18px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
 }
 .notes-view {
   min-height: 60px;
@@ -1363,10 +1650,51 @@ body {
   color: #9ca3af;
 }
 .notes-view a {
-  color: #2563eb;
+  color: var(--pri);
   word-break: break-all;
+  font-weight: 500;
 }
 #notesEdit { font-size: 14px; }
+
+/* ── 모달 리스킨 ──────────────────────────────────────────────── */
+.modal-content { border: none; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
+.modal-header { border-bottom: 1px solid var(--border); padding: 18px 22px; }
+.modal-title { font-weight: 700; letter-spacing: -0.01em; }
+.modal-body { padding: 20px 22px; }
+.form-label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+
+/* ── 아이콘 선택기 ────────────────────────────────────────────── */
+.icon-picker {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+  padding: 10px;
+  background: #f8f9fc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  max-height: 168px;
+  overflow-y: auto;
+}
+.icon-choice {
+  width: 34px;
+  height: 34px;
+  border: 1.5px solid transparent;
+  border-radius: 9px;
+  background: #fff;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.icon-choice:hover { background: #eef0fb; transform: translateY(-1px); }
+.icon-choice.selected {
+  border-color: var(--pri);
+  background: color-mix(in srgb, var(--pri) 12%, white);
+  box-shadow: 0 0 0 2px rgba(67, 56, 202, 0.18);
+}
 </style>
 </head>
 <body>
@@ -1446,6 +1774,7 @@ body {
               <input type="color" class="form-control form-control-color w-100" id="unitEditColor" value="#1a3a5c">
             </div>
           </div>
+          <div id="unitIconPicker" class="icon-picker"></div>
           <button type="submit" class="btn btn-primary w-100 mt-3">저장</button>
         </form>
       </div>
@@ -1458,6 +1787,27 @@ body {
 <script>
 let editMode = false;
 let unitEditModal;
+
+const ICON_CHOICES = [
+  "⚙️", "🔧", "🔩", "🛠️", "🪛", "🔨", "📦", "🖥️",
+  "🖨️", "💻", "📡", "🎛️", "🚨", "💡", "🔌", "⚡",
+  "🔋", "🌡️", "💧", "🧪", "🧯", "🧰", "🏭", "⚗️",
+  "🌀", "🗜️", "🧲", "📊", "🛞", "🚿", "🔥", "❄️",
+];
+
+function renderIconPicker(containerId, inputId, current) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = ICON_CHOICES.map(
+    (ic) => `<button type="button" class="icon-choice ${ic === current ? "selected" : ""}" data-icon="${ic}">${ic}</button>`
+  ).join("");
+  container.querySelectorAll(".icon-choice").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.getElementById(inputId).value = btn.dataset.icon;
+      container.querySelectorAll(".icon-choice").forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+    });
+  });
+}
 
 function tick() {
   const el = document.getElementById("clock");
@@ -1621,7 +1971,7 @@ function unitCardHtml(u) {
   return `
     <div class="unit-card ${editMode ? "edit-mode" : ""}" data-unit-id="${u.id}" style="--uc:${u.color}">
       <span class="unit-status-dot dot-${u.overall_status}"></span>
-      <span class="unit-icon">${u.icon}</span>
+      <div class="unit-icon-wrap"><span class="unit-icon">${u.icon}</span></div>
       <div class="unit-name">${escapeHtml(u.name)}</div>
       <div class="unit-part-count">${u.part_count}개 부품 등록</div>
       <div class="unit-edit-actions">
@@ -1682,8 +2032,10 @@ function openUnitEditModal(unit) {
   document.getElementById("unitEditTitle").textContent = unit ? "유닛 편집" : "유닛 추가";
   document.getElementById("unitEditId").value = unit ? unit.id : "";
   document.getElementById("unitEditName").value = unit ? unit.name : "";
-  document.getElementById("unitEditIcon").value = unit ? unit.icon : "⚙️";
+  const icon = unit ? unit.icon : "⚙️";
+  document.getElementById("unitEditIcon").value = icon;
   document.getElementById("unitEditColor").value = unit ? unit.color : "#1a3a5c";
+  renderIconPicker("unitIconPicker", "unitEditIcon", icon);
   unitEditModal.show();
 }
 
@@ -1775,49 +2127,125 @@ UNIT_HTML = r"""<!DOCTYPE html>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>
 :root {
-  --pri: #1a3a5c;
-  --bg: #eef1f5;
+  --pri: #4338ca;
+  --pri-dark: #362f8c;
+  --accent: #6366f1;
+  --bg-a: #eef0fb;
+  --bg-b: #f6f7fb;
+  --surface: #ffffff;
+  --border: #e5e7eb;
+  --text: #1e2432;
+  --text-muted: #6b7280;
+  --radius-lg: 18px;
+  --radius-md: 14px;
+  --radius-sm: 10px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
+  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
 }
+
+* { box-sizing: border-box; }
 
 body {
-  background: var(--bg);
-  font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+    "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  color: var(--text);
 }
 
-.topbar {
+/* ── 버튼 공통 리스킨 ─────────────────────────────────────────── */
+.btn {
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: all 0.15s ease;
+}
+.btn-primary {
   background: var(--pri);
+  border-color: var(--pri);
+  box-shadow: 0 2px 8px rgba(67, 56, 202, 0.35);
+}
+.btn-primary:hover {
+  background: var(--pri-dark);
+  border-color: var(--pri-dark);
+  box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
+}
+.btn-outline-light {
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.08);
   color: #fff;
-  padding: 12px 20px;
+}
+.btn-outline-light:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #fff;
+}
+.btn-warning {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+}
+.btn-warning:hover { background: #d97706; border-color: #d97706; color: #fff; }
+.btn-outline-secondary { border-color: var(--border); color: var(--text-muted); }
+.btn-outline-secondary:hover { background: #f3f4f6; color: var(--text); }
+.btn-outline-primary { color: var(--pri); border-color: var(--pri); }
+.btn-outline-primary:hover { background: var(--pri); border-color: var(--pri); }
+.btn-outline-danger:hover { box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25); }
+
+.form-control:focus, .form-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 0.2rem rgba(99, 102, 241, 0.2);
+}
+
+/* ── 상단바 ───────────────────────────────────────────────────── */
+.topbar {
+  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
+  color: #fff;
+  padding: 14px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   position: sticky;
   top: 0;
   z-index: 90;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
 }
-.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; }
-.clock { font-size: 12px; opacity: 0.8; }
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.topbar i.bi { font-size: 18px; opacity: 0.9; }
+.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
 
+/* ── 범례 ─────────────────────────────────────────────────────── */
 .legend {
-  display: flex;
-  gap: 16px;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 18px;
   font-size: 13px;
-  color: #444;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 9px 20px;
+  box-shadow: var(--shadow-sm);
 }
-.legend-item { display: flex; align-items: center; gap: 6px; }
-.dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
-.dot-ok { background: #22c55e; }
-.dot-soon { background: #f59e0b; }
-.dot-overdue { background: #ef4444; }
-.dot-unknown { background: #9ca3af; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-shadow: 0 0 0 3px currentColor; opacity: 0.9; }
+.dot-ok { background: #22c55e; color: rgba(34, 197, 94, 0.18); }
+.dot-soon { background: #f59e0b; color: rgba(245, 158, 11, 0.18); }
+.dot-overdue { background: #ef4444; color: rgba(239, 68, 68, 0.18); }
+.dot-unknown { background: #9ca3af; color: rgba(156, 163, 175, 0.18); }
 
+/* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
-  background: linear-gradient(180deg, #f8fafc, #e2e8f0);
-  border: 1px solid #cbd5e1;
-  border-radius: 16px;
-  padding: 28px 20px 20px;
-  box-shadow: inset 0 0 0 6px #fff, 0 4px 16px rgba(0, 0, 0, 0.08);
+  background:
+    radial-gradient(circle, rgba(67, 56, 202, 0.07) 1px, transparent 1px),
+    linear-gradient(180deg, #fbfcff, #eef0f7);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid #dfe3ee;
+  border-radius: var(--radius-lg);
+  padding: 30px 22px 22px;
+  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
@@ -1825,56 +2253,66 @@ body {
 .equipment-label {
   position: absolute;
   top: -14px;
-  left: 20px;
-  background: var(--pri);
+  left: 22px;
+  background: linear-gradient(120deg, var(--pri), var(--accent));
   color: #fff;
   font-size: 12px;
-  padding: 4px 12px;
+  font-weight: 600;
+  padding: 5px 14px;
   border-radius: 999px;
+  box-shadow: 0 3px 10px rgba(67, 56, 202, 0.3);
 }
 
 .unit-shape {
   --shape-color: var(--pri);
-  border: 4px solid var(--shape-color);
+  border: 3px solid var(--shape-color);
+  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
 }
 .unit-shape-header {
   text-align: center;
   margin-bottom: 6px;
 }
 .unit-shape-icon {
-  font-size: 40px;
+  font-size: 42px;
   display: block;
   line-height: 1.2;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.12));
 }
 .unit-shape-name {
-  font-size: 20px;
-  font-weight: 700;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
   color: var(--shape-color);
 }
 
+/* ── 대시보드 그리드 ──────────────────────────────────────────── */
 .equipment-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
   gap: 16px;
   max-width: 1100px;
   margin: 0 auto;
 }
 .equipment-card {
   position: relative;
-  background: #fff;
-  border: 2px solid var(--pri);
-  border-radius: 12px;
-  padding: 18px 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--pri);
+  border-radius: var(--radius-md);
+  padding: 20px 10px 14px;
   cursor: pointer;
   text-align: center;
-  transition: box-shadow 0.15s, transform 0.15s;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
 }
 .equipment-card:hover {
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
-  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-3px);
+  border-top-color: var(--accent);
 }
-.equipment-card .unit-icon { font-size: 32px; }
+.equipment-card .unit-icon { font-size: 30px; }
 
+/* ── 캔버스 ───────────────────────────────────────────────────── */
 .equipment-canvas {
   position: relative;
   width: 100%;
@@ -1885,53 +2323,67 @@ body {
   .equipment-canvas { min-height: 620px; }
 }
 
+/* ── 유닛/부품 카드 ───────────────────────────────────────────── */
 .unit-card {
-  --uc: #1a3a5c;
+  --uc: #4338ca;
   position: absolute;
   top: 0;
   left: 0;
   transform: translate(-50%, -50%);
   width: 140px;
   min-height: 110px;
-  background: #fff;
-  border: 2px solid var(--uc);
-  border-radius: 12px;
-  padding: 12px 10px 10px;
+  background: var(--surface);
+  border: 1.5px solid var(--uc);
+  border-radius: var(--radius-md);
+  padding: 14px 10px 10px;
   cursor: pointer;
-  transition: box-shadow 0.15s;
+  transition: box-shadow 0.18s ease, transform 0.12s ease;
   text-align: center;
   user-select: none;
   touch-action: none;
   box-sizing: border-box;
   overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 .unit-card:hover {
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-lg);
   z-index: 5;
 }
 .edit-mode.unit-card { cursor: grab; }
 .unit-card.dragging {
   cursor: grabbing;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  box-shadow: var(--shadow-lg);
   z-index: 20;
   transition: none;
 }
-.unit-icon { font-size: 28px; display: block; margin-bottom: 6px; }
-.unit-name { font-size: 13px; font-weight: 600; color: #1f2937; line-height: 1.3; }
+.unit-icon-wrap {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 6px;
+  background: #eef0fb;
+  background: color-mix(in srgb, var(--uc) 14%, white);
+}
+.unit-icon { font-size: 22px; display: block; line-height: 1; }
+.unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
 .unit-status-dot {
   position: absolute;
   top: 8px;
   right: 8px;
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
   border: 2px solid #fff;
-  box-shadow: 0 0 0 1px rgba(0,0,0,.1);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 .unit-part-count {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--text-muted);
   margin-top: 4px;
+  font-weight: 500;
 }
 .unit-edit-actions {
   position: absolute;
@@ -1943,12 +2395,13 @@ body {
 .edit-mode .unit-edit-actions { display: flex; }
 .unit-edit-actions button {
   border: none;
-  background: rgba(0,0,0,.06);
-  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 7px;
   font-size: 11px;
-  padding: 2px 5px;
+  padding: 3px 6px;
+  transition: background 0.15s;
 }
-.unit-edit-actions button:hover { background: rgba(0,0,0,.14); }
+.unit-edit-actions button:hover { background: rgba(15, 23, 42, 0.14); }
 
 .resize-handle {
   position: absolute;
@@ -1967,36 +2420,40 @@ body {
   bottom: 3px;
   width: 9px;
   height: 9px;
-  border-right: 2px solid rgba(0, 0, 0, 0.4);
-  border-bottom: 2px solid rgba(0, 0, 0, 0.4);
+  border-right: 2px solid rgba(67, 56, 202, 0.45);
+  border-bottom: 2px solid rgba(67, 56, 202, 0.45);
 }
 
 .add-unit-btn { margin-top: 16px; display: block; margin-left: auto; margin-right: auto; }
 
+/* ── 부품 목록/배지 ───────────────────────────────────────────── */
 .part-card {
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 15px;
   margin-bottom: 10px;
-  background: #fafafa;
+  background: #fafbfe;
+  transition: box-shadow 0.15s;
 }
+.part-card:hover { box-shadow: var(--shadow-sm); }
 .part-card .part-title { font-weight: 700; font-size: 14px; }
-.part-card .part-spec { font-size: 12px; color: #6b7280; }
+.part-card .part-spec { font-size: 12px; color: var(--text-muted); }
 .badge-ok { background: #d1fae5; color: #065f46; }
 .badge-soon { background: #fef3c7; color: #92400e; }
 .badge-overdue { background: #fee2e2; color: #991b1b; }
 .badge-unknown { background: #e5e7eb; color: #374151; }
 
-.history-row { font-size: 13px; border-bottom: 1px solid #f1f1f1; padding: 6px 0; }
+.history-row { font-size: 13px; border-bottom: 1px solid #f1f1f1; padding: 7px 0; }
 
+/* ── 메모장 ───────────────────────────────────────────────────── */
 .notes-section {
   max-width: 1100px;
   margin: 20px auto 0;
-  background: #fff;
-  border: 1px solid #dee2e6;
-  border-radius: 12px;
-  padding: 16px 18px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
 }
 .notes-view {
   min-height: 60px;
@@ -2012,10 +2469,51 @@ body {
   color: #9ca3af;
 }
 .notes-view a {
-  color: #2563eb;
+  color: var(--pri);
   word-break: break-all;
+  font-weight: 500;
 }
 #notesEdit { font-size: 14px; }
+
+/* ── 모달 리스킨 ──────────────────────────────────────────────── */
+.modal-content { border: none; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
+.modal-header { border-bottom: 1px solid var(--border); padding: 18px 22px; }
+.modal-title { font-weight: 700; letter-spacing: -0.01em; }
+.modal-body { padding: 20px 22px; }
+.form-label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+
+/* ── 아이콘 선택기 ────────────────────────────────────────────── */
+.icon-picker {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+  padding: 10px;
+  background: #f8f9fc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  max-height: 168px;
+  overflow-y: auto;
+}
+.icon-choice {
+  width: 34px;
+  height: 34px;
+  border: 1.5px solid transparent;
+  border-radius: 9px;
+  background: #fff;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.icon-choice:hover { background: #eef0fb; transform: translateY(-1px); }
+.icon-choice.selected {
+  border-color: var(--pri);
+  background: color-mix(in srgb, var(--pri) 12%, white);
+  box-shadow: 0 0 0 2px rgba(67, 56, 202, 0.18);
+}
 </style>
 </head>
 <body>
@@ -2144,6 +2642,7 @@ body {
               <input type="text" class="form-control" id="partEditIcon" placeholder="🔩">
             </div>
           </div>
+          <div id="partIconPicker" class="icon-picker"></div>
           <div class="row g-2 mt-1">
             <div class="col-6">
               <label class="form-label">교체 주기(일)</label>
@@ -2176,6 +2675,27 @@ let currentParts = [];
 const statusColor = { ok: "#22c55e", soon: "#f59e0b", overdue: "#ef4444", unknown: "#9ca3af" };
 const statusBadge = { ok: "badge-ok", soon: "badge-soon", overdue: "badge-overdue", unknown: "badge-unknown" };
 const statusLabel = { ok: "정상", soon: "교체 임박", overdue: "교체 필요", unknown: "미기록" };
+
+const ICON_CHOICES = [
+  "🔩", "⚙️", "🔧", "🛠️", "🪛", "🔨", "📦", "🖥️",
+  "🖨️", "💻", "📡", "🎛️", "🚨", "💡", "🔌", "⚡",
+  "🔋", "🌡️", "💧", "🧪", "🧯", "🧰", "🏭", "⚗️",
+  "🌀", "🗜️", "🧲", "📊", "🛞", "🚿", "🔥", "❄️",
+];
+
+function renderIconPicker(containerId, inputId, current) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = ICON_CHOICES.map(
+    (ic) => `<button type="button" class="icon-choice ${ic === current ? "selected" : ""}" data-icon="${ic}">${ic}</button>`
+  ).join("");
+  container.querySelectorAll(".icon-choice").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.getElementById(inputId).value = btn.dataset.icon;
+      container.querySelectorAll(".icon-choice").forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+    });
+  });
+}
 
 function tick() {
   const el = document.getElementById("clock");
@@ -2349,7 +2869,7 @@ function partShapeHtml(p) {
   return `
     <div class="unit-card ${editMode ? "edit-mode" : ""}" data-part-id="${p.id}" style="--uc:${color}">
       <span class="unit-status-dot dot-${p.status}"></span>
-      <span class="unit-icon">${p.icon}</span>
+      <div class="unit-icon-wrap"><span class="unit-icon">${p.icon}</span></div>
       <div class="unit-name">${escapeHtml(p.name)}</div>
       <div class="unit-part-count">${statusLabel[p.status]}</div>
       <div class="unit-edit-actions">
@@ -2420,11 +2940,13 @@ function openPartEditModal(part) {
   document.getElementById("partEditId").value = part ? part.id : "";
   document.getElementById("partEditName").value = part ? part.name : "";
   document.getElementById("partEditSpec").value = part ? part.spec || "" : "";
-  document.getElementById("partEditIcon").value = part ? part.icon : "🔩";
+  const icon = part ? part.icon : "🔩";
+  document.getElementById("partEditIcon").value = icon;
   document.getElementById("partEditCycle").value = part ? part.cycle_days : 90;
   document.getElementById("partEditNote").value = part ? part.note || "" : "";
   document.getElementById("partEditLastDate").value = "";
   document.getElementById("partEditLastDateWrap").classList.toggle("d-none", !!part);
+  renderIconPicker("partIconPicker", "partEditIcon", icon);
   partEditModal.show();
 }
 
@@ -2525,49 +3047,125 @@ CONFIG_HTML = r"""<!DOCTYPE html>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>
 :root {
-  --pri: #1a3a5c;
-  --bg: #eef1f5;
+  --pri: #4338ca;
+  --pri-dark: #362f8c;
+  --accent: #6366f1;
+  --bg-a: #eef0fb;
+  --bg-b: #f6f7fb;
+  --surface: #ffffff;
+  --border: #e5e7eb;
+  --text: #1e2432;
+  --text-muted: #6b7280;
+  --radius-lg: 18px;
+  --radius-md: 14px;
+  --radius-sm: 10px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
+  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
 }
+
+* { box-sizing: border-box; }
 
 body {
-  background: var(--bg);
-  font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+    "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  color: var(--text);
 }
 
-.topbar {
+/* ── 버튼 공통 리스킨 ─────────────────────────────────────────── */
+.btn {
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: all 0.15s ease;
+}
+.btn-primary {
   background: var(--pri);
+  border-color: var(--pri);
+  box-shadow: 0 2px 8px rgba(67, 56, 202, 0.35);
+}
+.btn-primary:hover {
+  background: var(--pri-dark);
+  border-color: var(--pri-dark);
+  box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
+}
+.btn-outline-light {
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.08);
   color: #fff;
-  padding: 12px 20px;
+}
+.btn-outline-light:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #fff;
+}
+.btn-warning {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+}
+.btn-warning:hover { background: #d97706; border-color: #d97706; color: #fff; }
+.btn-outline-secondary { border-color: var(--border); color: var(--text-muted); }
+.btn-outline-secondary:hover { background: #f3f4f6; color: var(--text); }
+.btn-outline-primary { color: var(--pri); border-color: var(--pri); }
+.btn-outline-primary:hover { background: var(--pri); border-color: var(--pri); }
+.btn-outline-danger:hover { box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25); }
+
+.form-control:focus, .form-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 0.2rem rgba(99, 102, 241, 0.2);
+}
+
+/* ── 상단바 ───────────────────────────────────────────────────── */
+.topbar {
+  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
+  color: #fff;
+  padding: 14px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   position: sticky;
   top: 0;
   z-index: 90;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
 }
-.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; }
-.clock { font-size: 12px; opacity: 0.8; }
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.topbar i.bi { font-size: 18px; opacity: 0.9; }
+.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
 
+/* ── 범례 ─────────────────────────────────────────────────────── */
 .legend {
-  display: flex;
-  gap: 16px;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 18px;
   font-size: 13px;
-  color: #444;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 9px 20px;
+  box-shadow: var(--shadow-sm);
 }
-.legend-item { display: flex; align-items: center; gap: 6px; }
-.dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
-.dot-ok { background: #22c55e; }
-.dot-soon { background: #f59e0b; }
-.dot-overdue { background: #ef4444; }
-.dot-unknown { background: #9ca3af; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-shadow: 0 0 0 3px currentColor; opacity: 0.9; }
+.dot-ok { background: #22c55e; color: rgba(34, 197, 94, 0.18); }
+.dot-soon { background: #f59e0b; color: rgba(245, 158, 11, 0.18); }
+.dot-overdue { background: #ef4444; color: rgba(239, 68, 68, 0.18); }
+.dot-unknown { background: #9ca3af; color: rgba(156, 163, 175, 0.18); }
 
+/* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
-  background: linear-gradient(180deg, #f8fafc, #e2e8f0);
-  border: 1px solid #cbd5e1;
-  border-radius: 16px;
-  padding: 28px 20px 20px;
-  box-shadow: inset 0 0 0 6px #fff, 0 4px 16px rgba(0, 0, 0, 0.08);
+  background:
+    radial-gradient(circle, rgba(67, 56, 202, 0.07) 1px, transparent 1px),
+    linear-gradient(180deg, #fbfcff, #eef0f7);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid #dfe3ee;
+  border-radius: var(--radius-lg);
+  padding: 30px 22px 22px;
+  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
@@ -2575,56 +3173,66 @@ body {
 .equipment-label {
   position: absolute;
   top: -14px;
-  left: 20px;
-  background: var(--pri);
+  left: 22px;
+  background: linear-gradient(120deg, var(--pri), var(--accent));
   color: #fff;
   font-size: 12px;
-  padding: 4px 12px;
+  font-weight: 600;
+  padding: 5px 14px;
   border-radius: 999px;
+  box-shadow: 0 3px 10px rgba(67, 56, 202, 0.3);
 }
 
 .unit-shape {
   --shape-color: var(--pri);
-  border: 4px solid var(--shape-color);
+  border: 3px solid var(--shape-color);
+  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
 }
 .unit-shape-header {
   text-align: center;
   margin-bottom: 6px;
 }
 .unit-shape-icon {
-  font-size: 40px;
+  font-size: 42px;
   display: block;
   line-height: 1.2;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.12));
 }
 .unit-shape-name {
-  font-size: 20px;
-  font-weight: 700;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
   color: var(--shape-color);
 }
 
+/* ── 대시보드 그리드 ──────────────────────────────────────────── */
 .equipment-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
   gap: 16px;
   max-width: 1100px;
   margin: 0 auto;
 }
 .equipment-card {
   position: relative;
-  background: #fff;
-  border: 2px solid var(--pri);
-  border-radius: 12px;
-  padding: 18px 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--pri);
+  border-radius: var(--radius-md);
+  padding: 20px 10px 14px;
   cursor: pointer;
   text-align: center;
-  transition: box-shadow 0.15s, transform 0.15s;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
 }
 .equipment-card:hover {
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
-  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-3px);
+  border-top-color: var(--accent);
 }
-.equipment-card .unit-icon { font-size: 32px; }
+.equipment-card .unit-icon { font-size: 30px; }
 
+/* ── 캔버스 ───────────────────────────────────────────────────── */
 .equipment-canvas {
   position: relative;
   width: 100%;
@@ -2635,53 +3243,67 @@ body {
   .equipment-canvas { min-height: 620px; }
 }
 
+/* ── 유닛/부품 카드 ───────────────────────────────────────────── */
 .unit-card {
-  --uc: #1a3a5c;
+  --uc: #4338ca;
   position: absolute;
   top: 0;
   left: 0;
   transform: translate(-50%, -50%);
   width: 140px;
   min-height: 110px;
-  background: #fff;
-  border: 2px solid var(--uc);
-  border-radius: 12px;
-  padding: 12px 10px 10px;
+  background: var(--surface);
+  border: 1.5px solid var(--uc);
+  border-radius: var(--radius-md);
+  padding: 14px 10px 10px;
   cursor: pointer;
-  transition: box-shadow 0.15s;
+  transition: box-shadow 0.18s ease, transform 0.12s ease;
   text-align: center;
   user-select: none;
   touch-action: none;
   box-sizing: border-box;
   overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 .unit-card:hover {
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-lg);
   z-index: 5;
 }
 .edit-mode.unit-card { cursor: grab; }
 .unit-card.dragging {
   cursor: grabbing;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  box-shadow: var(--shadow-lg);
   z-index: 20;
   transition: none;
 }
-.unit-icon { font-size: 28px; display: block; margin-bottom: 6px; }
-.unit-name { font-size: 13px; font-weight: 600; color: #1f2937; line-height: 1.3; }
+.unit-icon-wrap {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 6px;
+  background: #eef0fb;
+  background: color-mix(in srgb, var(--uc) 14%, white);
+}
+.unit-icon { font-size: 22px; display: block; line-height: 1; }
+.unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
 .unit-status-dot {
   position: absolute;
   top: 8px;
   right: 8px;
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
   border: 2px solid #fff;
-  box-shadow: 0 0 0 1px rgba(0,0,0,.1);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 .unit-part-count {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--text-muted);
   margin-top: 4px;
+  font-weight: 500;
 }
 .unit-edit-actions {
   position: absolute;
@@ -2693,12 +3315,13 @@ body {
 .edit-mode .unit-edit-actions { display: flex; }
 .unit-edit-actions button {
   border: none;
-  background: rgba(0,0,0,.06);
-  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 7px;
   font-size: 11px;
-  padding: 2px 5px;
+  padding: 3px 6px;
+  transition: background 0.15s;
 }
-.unit-edit-actions button:hover { background: rgba(0,0,0,.14); }
+.unit-edit-actions button:hover { background: rgba(15, 23, 42, 0.14); }
 
 .resize-handle {
   position: absolute;
@@ -2717,36 +3340,40 @@ body {
   bottom: 3px;
   width: 9px;
   height: 9px;
-  border-right: 2px solid rgba(0, 0, 0, 0.4);
-  border-bottom: 2px solid rgba(0, 0, 0, 0.4);
+  border-right: 2px solid rgba(67, 56, 202, 0.45);
+  border-bottom: 2px solid rgba(67, 56, 202, 0.45);
 }
 
 .add-unit-btn { margin-top: 16px; display: block; margin-left: auto; margin-right: auto; }
 
+/* ── 부품 목록/배지 ───────────────────────────────────────────── */
 .part-card {
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 15px;
   margin-bottom: 10px;
-  background: #fafafa;
+  background: #fafbfe;
+  transition: box-shadow 0.15s;
 }
+.part-card:hover { box-shadow: var(--shadow-sm); }
 .part-card .part-title { font-weight: 700; font-size: 14px; }
-.part-card .part-spec { font-size: 12px; color: #6b7280; }
+.part-card .part-spec { font-size: 12px; color: var(--text-muted); }
 .badge-ok { background: #d1fae5; color: #065f46; }
 .badge-soon { background: #fef3c7; color: #92400e; }
 .badge-overdue { background: #fee2e2; color: #991b1b; }
 .badge-unknown { background: #e5e7eb; color: #374151; }
 
-.history-row { font-size: 13px; border-bottom: 1px solid #f1f1f1; padding: 6px 0; }
+.history-row { font-size: 13px; border-bottom: 1px solid #f1f1f1; padding: 7px 0; }
 
+/* ── 메모장 ───────────────────────────────────────────────────── */
 .notes-section {
   max-width: 1100px;
   margin: 20px auto 0;
-  background: #fff;
-  border: 1px solid #dee2e6;
-  border-radius: 12px;
-  padding: 16px 18px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
 }
 .notes-view {
   min-height: 60px;
@@ -2762,10 +3389,51 @@ body {
   color: #9ca3af;
 }
 .notes-view a {
-  color: #2563eb;
+  color: var(--pri);
   word-break: break-all;
+  font-weight: 500;
 }
 #notesEdit { font-size: 14px; }
+
+/* ── 모달 리스킨 ──────────────────────────────────────────────── */
+.modal-content { border: none; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
+.modal-header { border-bottom: 1px solid var(--border); padding: 18px 22px; }
+.modal-title { font-weight: 700; letter-spacing: -0.01em; }
+.modal-body { padding: 20px 22px; }
+.form-label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+
+/* ── 아이콘 선택기 ────────────────────────────────────────────── */
+.icon-picker {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+  padding: 10px;
+  background: #f8f9fc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  max-height: 168px;
+  overflow-y: auto;
+}
+.icon-choice {
+  width: 34px;
+  height: 34px;
+  border: 1.5px solid transparent;
+  border-radius: 9px;
+  background: #fff;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.icon-choice:hover { background: #eef0fb; transform: translateY(-1px); }
+.icon-choice.selected {
+  border-color: var(--pri);
+  background: color-mix(in srgb, var(--pri) 12%, white);
+  box-shadow: 0 0 0 2px rgba(67, 56, 202, 0.18);
+}
 </style>
 </head>
 <body>
@@ -2826,6 +3494,7 @@ body {
               <input type="color" class="form-control form-control-color w-100" id="unitEditColor" value="#1a3a5c">
             </div>
           </div>
+          <div id="unitIconPicker" class="icon-picker"></div>
           <button type="submit" class="btn btn-primary w-100 mt-3">저장</button>
         </form>
       </div>
@@ -2836,6 +3505,27 @@ body {
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 let unitEditModal;
+
+const ICON_CHOICES = [
+  "⚙️", "🔧", "🔩", "🛠️", "🪛", "🔨", "📦", "🖥️",
+  "🖨️", "💻", "📡", "🎛️", "🚨", "💡", "🔌", "⚡",
+  "🔋", "🌡️", "💧", "🧪", "🧯", "🧰", "🏭", "⚗️",
+  "🌀", "🗜️", "🧲", "📊", "🛞", "🚿", "🔥", "❄️",
+];
+
+function renderIconPicker(containerId, inputId, current) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = ICON_CHOICES.map(
+    (ic) => `<button type="button" class="icon-choice ${ic === current ? "selected" : ""}" data-icon="${ic}">${ic}</button>`
+  ).join("");
+  container.querySelectorAll(".icon-choice").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.getElementById(inputId).value = btn.dataset.icon;
+      container.querySelectorAll(".icon-choice").forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+    });
+  });
+}
 
 function tick() {
   const el = document.getElementById("clock");
@@ -2985,7 +3675,7 @@ function makeDraggable(card, template) {
 function templateCardHtml(t) {
   return `
     <div class="unit-card edit-mode" data-template-id="${t.id}" style="--uc:${t.color}">
-      <span class="unit-icon">${t.icon}</span>
+      <div class="unit-icon-wrap"><span class="unit-icon">${t.icon}</span></div>
       <div class="unit-name">${escapeHtml(t.name)}</div>
       <div class="unit-edit-actions">
         <button class="edit-unit-btn" title="편집"><i class="bi bi-pencil"></i></button>
@@ -2999,8 +3689,10 @@ function openUnitEditModal(template) {
   document.getElementById("unitEditTitle").textContent = template ? "유닛 편집" : "유닛 추가";
   document.getElementById("unitEditId").value = template ? template.id : "";
   document.getElementById("unitEditName").value = template ? template.name : "";
-  document.getElementById("unitEditIcon").value = template ? template.icon : "⚙️";
+  const icon = template ? template.icon : "⚙️";
+  document.getElementById("unitEditIcon").value = icon;
   document.getElementById("unitEditColor").value = template ? template.color : "#1a3a5c";
+  renderIconPicker("unitIconPicker", "unitEditIcon", icon);
   unitEditModal.show();
 }
 

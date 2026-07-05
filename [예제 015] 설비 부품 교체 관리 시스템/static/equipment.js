@@ -1,6 +1,27 @@
 let editMode = false;
 let unitEditModal;
 
+const ICON_CHOICES = [
+  "⚙️", "🔧", "🔩", "🛠️", "🪛", "🔨", "📦", "🖥️",
+  "🖨️", "💻", "📡", "🎛️", "🚨", "💡", "🔌", "⚡",
+  "🔋", "🌡️", "💧", "🧪", "🧯", "🧰", "🏭", "⚗️",
+  "🌀", "🗜️", "🧲", "📊", "🛞", "🚿", "🔥", "❄️",
+];
+
+function renderIconPicker(containerId, inputId, current) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = ICON_CHOICES.map(
+    (ic) => `<button type="button" class="icon-choice ${ic === current ? "selected" : ""}" data-icon="${ic}">${ic}</button>`
+  ).join("");
+  container.querySelectorAll(".icon-choice").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.getElementById(inputId).value = btn.dataset.icon;
+      container.querySelectorAll(".icon-choice").forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+    });
+  });
+}
+
 function tick() {
   const el = document.getElementById("clock");
   if (el) el.textContent = new Date().toLocaleString("ko-KR");
@@ -163,7 +184,7 @@ function unitCardHtml(u) {
   return `
     <div class="unit-card ${editMode ? "edit-mode" : ""}" data-unit-id="${u.id}" style="--uc:${u.color}">
       <span class="unit-status-dot dot-${u.overall_status}"></span>
-      <span class="unit-icon">${u.icon}</span>
+      <div class="unit-icon-wrap"><span class="unit-icon">${u.icon}</span></div>
       <div class="unit-name">${escapeHtml(u.name)}</div>
       <div class="unit-part-count">${u.part_count}개 부품 등록</div>
       <div class="unit-edit-actions">
@@ -224,8 +245,10 @@ function openUnitEditModal(unit) {
   document.getElementById("unitEditTitle").textContent = unit ? "유닛 편집" : "유닛 추가";
   document.getElementById("unitEditId").value = unit ? unit.id : "";
   document.getElementById("unitEditName").value = unit ? unit.name : "";
-  document.getElementById("unitEditIcon").value = unit ? unit.icon : "⚙️";
+  const icon = unit ? unit.icon : "⚙️";
+  document.getElementById("unitEditIcon").value = icon;
   document.getElementById("unitEditColor").value = unit ? unit.color : "#1a3a5c";
+  renderIconPicker("unitIconPicker", "unitEditIcon", icon);
   unitEditModal.show();
 }
 

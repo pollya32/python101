@@ -52,9 +52,14 @@ def init_db():
         CREATE TABLE IF NOT EXISTS equipments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
+            icon TEXT DEFAULT '🏭',
             created_at TEXT DEFAULT (datetime('now','localtime'))
         )
     """)
+    existing_eq_cols = {r["name"] for r in c.execute("PRAGMA table_info(equipments)").fetchall()}
+    if "icon" not in existing_eq_cols:
+        c.execute("ALTER TABLE equipments ADD COLUMN icon TEXT DEFAULT '🏭'")
+        c.execute("UPDATE equipments SET icon = '🏭' WHERE icon IS NULL")
     eq_count = c.execute("SELECT COUNT(*) AS n FROM equipments").fetchone()["n"]
     if eq_count == 0:
         for i in range(1, EQUIPMENT_COUNT + 1):
@@ -338,8 +343,9 @@ def update_equipment(equipment_id):
     if not equipment:
         conn.close()
         return jsonify({"error": "설비를 찾을 수 없습니다"}), 404
+    icon = (data.get("icon") or equipment["icon"]).strip()
     try:
-        conn.execute("UPDATE equipments SET name = ? WHERE id = ?", (name, equipment_id))
+        conn.execute("UPDATE equipments SET name = ?, icon = ? WHERE id = ?", (name, icon, equipment_id))
         conn.commit()
     except sqlite3.IntegrityError:
         conn.close()

@@ -1,6 +1,27 @@
 let editMode = false;
 let equipmentEditModal;
 
+const ICON_CHOICES = [
+  "🏭", "⚙️", "🔧", "🔩", "🛠️", "🪛", "🔨", "📦",
+  "🖥️", "🖨️", "💻", "📡", "🎛️", "🚨", "💡", "🔌",
+  "⚡", "🔋", "🌡️", "💧", "🧪", "🧯", "🧰", "⚗️",
+  "🌀", "🗜️", "🧲", "📊", "🛞", "🚿", "🔥", "❄️",
+];
+
+function renderIconPicker(containerId, inputId, current) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = ICON_CHOICES.map(
+    (ic) => `<button type="button" class="icon-choice ${ic === current ? "selected" : ""}" data-icon="${ic}">${ic}</button>`
+  ).join("");
+  container.querySelectorAll(".icon-choice").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.getElementById(inputId).value = btn.dataset.icon;
+      container.querySelectorAll(".icon-choice").forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+    });
+  });
+}
+
 function tick() {
   const el = document.getElementById("clock");
   if (el) el.textContent = new Date().toLocaleString("ko-KR");
@@ -47,11 +68,11 @@ function equipmentCardHtml(eq) {
   return `
     <div class="equipment-card ${editMode ? "edit-mode" : ""}" data-equipment-id="${eq.id}">
       <span class="unit-status-dot dot-${eq.overall_status}"></span>
-      <span class="unit-icon">🏭</span>
+      <div class="unit-icon-wrap"><span class="unit-icon">${eq.icon}</span></div>
       <div class="unit-name">${escapeHtml(eq.name)}</div>
       <div class="unit-part-count">${eq.unit_count}개 유닛</div>
       <div class="unit-edit-actions">
-        <button class="edit-unit-btn" title="설비명 편집"><i class="bi bi-pencil"></i></button>
+        <button class="edit-unit-btn" title="설비 편집"><i class="bi bi-pencil"></i></button>
       </div>
     </div>`;
 }
@@ -59,6 +80,9 @@ function equipmentCardHtml(eq) {
 function openEquipmentEditModal(eq) {
   document.getElementById("equipmentEditId").value = eq.id;
   document.getElementById("equipmentEditName").value = eq.name;
+  const icon = eq.icon || "🏭";
+  document.getElementById("equipmentEditIcon").value = icon;
+  renderIconPicker("equipmentIconPicker", "equipmentEditIcon", icon);
   equipmentEditModal.show();
 }
 
@@ -81,6 +105,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const id = document.getElementById("equipmentEditId").value;
     const payload = {
       name: document.getElementById("equipmentEditName").value.trim(),
+      icon: document.getElementById("equipmentEditIcon").value.trim(),
     };
     try {
       await fetchJson(`/api/equipments/${id}`, {

@@ -39,12 +39,12 @@
 
 </main>
 
-<!-- 설비명 편집 모달 -->
+<!-- 설비 편집 모달 -->
 <div class="modal fade" id="equipmentEditModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">설비명 편집</h5>
+        <h5 class="modal-title">설비 편집</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -54,7 +54,12 @@
             <label class="form-label">설비 이름</label>
             <input type="text" class="form-control" id="equipmentEditName" required>
           </div>
-          <button type="submit" class="btn btn-primary w-100 mt-2">저장</button>
+          <div class="mb-2">
+            <label class="form-label">아이콘 (이모지)</label>
+            <input type="text" class="form-control" id="equipmentEditIcon" placeholder="🏭">
+          </div>
+          <div id="equipmentIconPicker" class="icon-picker"></div>
+          <button type="submit" class="btn btn-primary w-100 mt-3">저장</button>
         </form>
       </div>
     </div>

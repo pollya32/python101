@@ -7,6 +7,27 @@ const statusColor = { ok: "#22c55e", soon: "#f59e0b", overdue: "#ef4444", unknow
 const statusBadge = { ok: "badge-ok", soon: "badge-soon", overdue: "badge-overdue", unknown: "badge-unknown" };
 const statusLabel = { ok: "정상", soon: "교체 임박", overdue: "교체 필요", unknown: "미기록" };
 
+const ICON_CHOICES = [
+  "🔩", "⚙️", "🔧", "🛠️", "🪛", "🔨", "📦", "🖥️",
+  "🖨️", "💻", "📡", "🎛️", "🚨", "💡", "🔌", "⚡",
+  "🔋", "🌡️", "💧", "🧪", "🧯", "🧰", "🏭", "⚗️",
+  "🌀", "🗜️", "🧲", "📊", "🛞", "🚿", "🔥", "❄️",
+];
+
+function renderIconPicker(containerId, inputId, current) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = ICON_CHOICES.map(
+    (ic) => `<button type="button" class="icon-choice ${ic === current ? "selected" : ""}" data-icon="${ic}">${ic}</button>`
+  ).join("");
+  container.querySelectorAll(".icon-choice").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.getElementById(inputId).value = btn.dataset.icon;
+      container.querySelectorAll(".icon-choice").forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+    });
+  });
+}
+
 function tick() {
   const el = document.getElementById("clock");
   if (el) el.textContent = new Date().toLocaleString("ko-KR");
@@ -179,7 +200,7 @@ function partShapeHtml(p) {
   return `
     <div class="unit-card ${editMode ? "edit-mode" : ""}" data-part-id="${p.id}" style="--uc:${color}">
       <span class="unit-status-dot dot-${p.status}"></span>
-      <span class="unit-icon">${p.icon}</span>
+      <div class="unit-icon-wrap"><span class="unit-icon">${p.icon}</span></div>
       <div class="unit-name">${escapeHtml(p.name)}</div>
       <div class="unit-part-count">${statusLabel[p.status]}</div>
       <div class="unit-edit-actions">
@@ -250,11 +271,13 @@ function openPartEditModal(part) {
   document.getElementById("partEditId").value = part ? part.id : "";
   document.getElementById("partEditName").value = part ? part.name : "";
   document.getElementById("partEditSpec").value = part ? part.spec || "" : "";
-  document.getElementById("partEditIcon").value = part ? part.icon : "🔩";
+  const icon = part ? part.icon : "🔩";
+  document.getElementById("partEditIcon").value = icon;
   document.getElementById("partEditCycle").value = part ? part.cycle_days : 90;
   document.getElementById("partEditNote").value = part ? part.note || "" : "";
   document.getElementById("partEditLastDate").value = "";
   document.getElementById("partEditLastDateWrap").classList.toggle("d-none", !!part);
+  renderIconPicker("partIconPicker", "partEditIcon", icon);
   partEditModal.show();
 }
 

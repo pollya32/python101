@@ -1,5 +1,26 @@
 let unitEditModal;
 
+const ICON_CHOICES = [
+  "⚙️", "🔧", "🔩", "🛠️", "🪛", "🔨", "📦", "🖥️",
+  "🖨️", "💻", "📡", "🎛️", "🚨", "💡", "🔌", "⚡",
+  "🔋", "🌡️", "💧", "🧪", "🧯", "🧰", "🏭", "⚗️",
+  "🌀", "🗜️", "🧲", "📊", "🛞", "🚿", "🔥", "❄️",
+];
+
+function renderIconPicker(containerId, inputId, current) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = ICON_CHOICES.map(
+    (ic) => `<button type="button" class="icon-choice ${ic === current ? "selected" : ""}" data-icon="${ic}">${ic}</button>`
+  ).join("");
+  container.querySelectorAll(".icon-choice").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.getElementById(inputId).value = btn.dataset.icon;
+      container.querySelectorAll(".icon-choice").forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+    });
+  });
+}
+
 function tick() {
   const el = document.getElementById("clock");
   if (el) el.textContent = new Date().toLocaleString("ko-KR");
@@ -148,7 +169,7 @@ function makeDraggable(card, template) {
 function templateCardHtml(t) {
   return `
     <div class="unit-card edit-mode" data-template-id="${t.id}" style="--uc:${t.color}">
-      <span class="unit-icon">${t.icon}</span>
+      <div class="unit-icon-wrap"><span class="unit-icon">${t.icon}</span></div>
       <div class="unit-name">${escapeHtml(t.name)}</div>
       <div class="unit-edit-actions">
         <button class="edit-unit-btn" title="편집"><i class="bi bi-pencil"></i></button>
@@ -162,8 +183,10 @@ function openUnitEditModal(template) {
   document.getElementById("unitEditTitle").textContent = template ? "유닛 편집" : "유닛 추가";
   document.getElementById("unitEditId").value = template ? template.id : "";
   document.getElementById("unitEditName").value = template ? template.name : "";
-  document.getElementById("unitEditIcon").value = template ? template.icon : "⚙️";
+  const icon = template ? template.icon : "⚙️";
+  document.getElementById("unitEditIcon").value = icon;
   document.getElementById("unitEditColor").value = template ? template.color : "#1a3a5c";
+  renderIconPicker("unitIconPicker", "unitEditIcon", icon);
   unitEditModal.show();
 }
 
