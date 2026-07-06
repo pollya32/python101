@@ -925,6 +925,18 @@ def serialize_bulk_entry(row):
     return d
 
 
+def get_template_mapped_units(conn):
+    """기본 유닛 구성(unit_templates)의 이름을 기준으로, 기준 설비(TEAG01호기)의 실제
+    유닛 id에 매핑한 목록을 반환한다. (부품은 실제 유닛에만 등록할 수 있으므로, 선택 항목의
+    이름 기준은 기본 유닛 구성을 따르되 등록 대상은 TEAG01호기의 해당 유닛으로 연결한다.)"""
+    return conn.execute("""
+        SELECT u.id AS id, t.name AS name
+        FROM unit_templates t
+        JOIN units u ON u.equipment_id = ? AND u.name = t.name
+        ORDER BY t.id
+    """, (MASTER_EQUIPMENT_ID,)).fetchall()
+
+
 @app.route("/api/bulk-parts")
 def list_bulk_parts():
     conn = get_db()
@@ -934,9 +946,7 @@ def list_bulk_parts():
         LEFT JOIN units u ON b.unit_id = u.id
         ORDER BY b.id DESC
     """).fetchall()
-    master_units = conn.execute(
-        "SELECT id, name FROM units WHERE equipment_id = ? ORDER BY id", (MASTER_EQUIPMENT_ID,)
-    ).fetchall()
+    master_units = get_template_mapped_units(conn)
     conn.close()
     return jsonify({
         "entries": [serialize_bulk_entry(r) for r in rows],
@@ -953,9 +963,7 @@ def paste_bulk_parts():
         return jsonify({"error": "붙여넣은 내용에서 부품 정보를 찾을 수 없습니다"}), 400
 
     conn = get_db()
-    master_units = conn.execute(
-        "SELECT id, name FROM units WHERE equipment_id = ?", (MASTER_EQUIPMENT_ID,)
-    ).fetchall()
+    master_units = get_template_mapped_units(conn)
 
     created_ids = []
     for unit_text, part_name, q_code, note in parsed:

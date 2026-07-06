@@ -941,6 +941,18 @@ def serialize_bulk_entry(row):
     return d
 
 
+def get_template_mapped_units(conn):
+    """기본 유닛 구성(unit_templates)의 이름을 기준으로, 기준 설비(TEAG01호기)의 실제
+    유닛 id에 매핑한 목록을 반환한다. (부품은 실제 유닛에만 등록할 수 있으므로, 선택 항목의
+    이름 기준은 기본 유닛 구성을 따르되 등록 대상은 TEAG01호기의 해당 유닛으로 연결한다.)"""
+    return conn.execute("""
+        SELECT u.id AS id, t.name AS name
+        FROM unit_templates t
+        JOIN units u ON u.equipment_id = ? AND u.name = t.name
+        ORDER BY t.id
+    """, (MASTER_EQUIPMENT_ID,)).fetchall()
+
+
 @app.route("/api/bulk-parts")
 def list_bulk_parts():
     conn = get_db()
@@ -950,9 +962,7 @@ def list_bulk_parts():
         LEFT JOIN units u ON b.unit_id = u.id
         ORDER BY b.id DESC
     """).fetchall()
-    master_units = conn.execute(
-        "SELECT id, name FROM units WHERE equipment_id = ? ORDER BY id", (MASTER_EQUIPMENT_ID,)
-    ).fetchall()
+    master_units = get_template_mapped_units(conn)
     conn.close()
     return jsonify({
         "entries": [serialize_bulk_entry(r) for r in rows],
@@ -969,9 +979,7 @@ def paste_bulk_parts():
         return jsonify({"error": "붙여넣은 내용에서 부품 정보를 찾을 수 없습니다"}), 400
 
     conn = get_db()
-    master_units = conn.execute(
-        "SELECT id, name FROM units WHERE equipment_id = ?", (MASTER_EQUIPMENT_ID,)
-    ).fetchall()
+    master_units = get_template_mapped_units(conn)
 
     created_ids = []
     for unit_text, part_name, q_code, note in parsed:
@@ -10358,6 +10366,7 @@ body {
     <label class="form-label mb-1">
       엑셀 등에서 <strong>유닛이름, 부품이름, Q-CODE, 부가설명</strong> 순서로 복사해 아래에 붙여넣으세요 (한 줄에 부품 하나).
     </label>
+    <p class="text-muted small mb-2">유닛 선택 드롭다운은 "기본 유닛 구성"에 등록된 유닛 이름을 기준으로 표시됩니다.</p>
     <textarea id="pasteArea" class="form-control" rows="4" placeholder="로드포트1&#9;오링&#9;Q-1234&#9;내열용&#10;HMI&#9;케이블&#9;Q-5678&#9;연결선"></textarea>
     <button id="applyPasteBtn" class="btn btn-primary btn-sm mt-2">
       <i class="bi bi-clipboard-plus"></i> 붙여넣기 반영
