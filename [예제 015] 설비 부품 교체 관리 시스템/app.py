@@ -1,21 +1,25 @@
-from flask import Flask, render_template, request, jsonify, send_file, Response
+from flask import Flask, render_template, request, jsonify, send_file, Response, session, redirect, url_for
 import sqlite3
 import os
 import csv
 import io
 import random
+import secrets
 import socket
 from urllib.parse import quote
 from datetime import date, datetime, timedelta
 from pptx import Presentation
 from pptx.util import Inches, Pt
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 DB_PATH = os.path.join(os.path.dirname(__file__), "equipment.db")
 
 EQUIPMENT_COUNT = 20
 EQUIPMENT_PREFIX = "TEAG"
 MASTER_EQUIPMENT_ID = 1  # TEAG01호기: 이 설비에 추가한 부품은 동일한 이름의 유닛을 가진 나머지 설비에도 자동 복제된다
+DEFAULT_PASSWORD = "0000"
 
 
 def dashboard_grid_pos(index, cols=5):
@@ -59,9 +63,35 @@ def get_lan_ip():
         s.close()
 
 
+def get_config(conn, key):
+    row = conn.execute("SELECT value FROM app_config WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_config(conn, key, value):
+    conn.execute(
+        "INSERT INTO app_config (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+
+
 def init_db():
     conn = get_db()
     c = conn.cursor()
+
+    c.execute("CREATE TABLE IF NOT EXISTS app_config (key TEXT PRIMARY KEY, value TEXT)")
+    if not c.execute("SELECT 1 FROM app_config WHERE key = 'password_hash'").fetchone():
+        c.execute(
+            "INSERT INTO app_config (key, value) VALUES ('password_hash', ?)",
+            (generate_password_hash(DEFAULT_PASSWORD),),
+        )
+    if not c.execute("SELECT 1 FROM app_config WHERE key = 'secret_key'").fetchone():
+        c.execute(
+            "INSERT INTO app_config (key, value) VALUES ('secret_key', ?)",
+            (secrets.token_hex(32),),
+        )
+    conn.commit()
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS equipments (
@@ -180,11 +210,16 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             part_id INTEGER NOT NULL,
             replaced_date TEXT NOT NULL,
+            cost REAL DEFAULT 0,
             note TEXT,
             created_at TEXT DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (part_id) REFERENCES parts(id) ON DELETE CASCADE
         )
     """)
+    existing_history_cols = {r["name"] for r in c.execute("PRAGMA table_info(replacement_history)").fetchall()}
+    if "cost" not in existing_history_cols:
+        c.execute("ALTER TABLE replacement_history ADD COLUMN cost REAL DEFAULT 0")
+        c.execute("UPDATE replacement_history SET cost = 0 WHERE cost IS NULL")
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS equipment_notes (
@@ -223,6 +258,20 @@ def init_db():
             content TEXT DEFAULT '',
             updated_at TEXT DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS bulk_part_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            raw_unit_text TEXT,
+            unit_id INTEGER,
+            part_name TEXT NOT NULL,
+            q_code TEXT,
+            note TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE SET NULL
         )
     """)
 
@@ -291,6 +340,25 @@ def serialize_part(row):
     d = dict(row)
     d.update(info)
     return d
+
+
+def insert_part(conn, unit_id, name, spec="", cycle_days=90, cycle_unit="일", cost=0,
+                 last_replaced_date=None, note="", icon="🔩", pos_x=None, pos_y=None,
+                 width=130, height=110):
+    if pos_x is None or pos_y is None:
+        pos_x, pos_y = random.uniform(15, 85), random.uniform(20, 80)
+    cur = conn.execute(
+        """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, icon, pos_x, pos_y, width, height)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, icon, pos_x, pos_y, width, height),
+    )
+    part_id = cur.lastrowid
+    if last_replaced_date:
+        conn.execute(
+            "INSERT INTO replacement_history (part_id, replaced_date, note) VALUES (?, ?, ?)",
+            (part_id, last_replaced_date, "최초 등록"),
+        )
+    return part_id
 
 
 def apply_unit_parts_to_other_equipment(conn, unit_id):
@@ -504,6 +572,60 @@ def csv_response(filename, header, rows):
     )
 
 
+LOGIN_EXEMPT_PREFIXES = ("/static/", "/login")
+
+
+@app.before_request
+def require_login():
+    if request.path.startswith(LOGIN_EXEMPT_PREFIXES):
+        return None
+    if session.get("authenticated"):
+        return None
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "로그인이 필요합니다"}), 401
+    return redirect(url_for("login_page", next=request.path))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login_page():
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        conn = get_db()
+        password_hash = get_config(conn, "password_hash")
+        conn.close()
+        if password_hash and check_password_hash(password_hash, password):
+            session["authenticated"] = True
+            session.permanent = True
+            next_url = request.args.get("next") or url_for("dashboard")
+            return redirect(next_url)
+        return redirect(url_for("login_page", error="1"))
+    return render_template("login.html")
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login_page"))
+
+
+@app.route("/api/auth/change-password", methods=["POST"])
+def change_password():
+    data = request.get_json()
+    current_password = data.get("current_password") or ""
+    new_password = data.get("new_password") or ""
+    if len(new_password) < 4:
+        return jsonify({"error": "비밀번호는 4자 이상으로 설정하세요"}), 400
+    conn = get_db()
+    password_hash = get_config(conn, "password_hash")
+    if not password_hash or not check_password_hash(password_hash, current_password):
+        conn.close()
+        return jsonify({"error": "현재 비밀번호가 올바르지 않습니다"}), 400
+    set_config(conn, "password_hash", generate_password_hash(new_password))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
 @app.route("/")
 def dashboard():
     return render_template("dashboard.html")
@@ -522,6 +644,11 @@ def search_page():
 @app.route("/stats")
 def stats_page():
     return render_template("stats.html")
+
+
+@app.route("/bulk-add-parts")
+def bulk_add_parts_page():
+    return render_template("bulk_add_parts.html")
 
 
 @app.route("/equipment/<int:equipment_id>")
@@ -742,25 +869,15 @@ def add_part(unit_id):
     last_replaced_date = data.get("last_replaced_date") or None
     note = (data.get("note") or "").strip()
     icon = (data.get("icon") or "🔩").strip()
-    pos_x = data.get("pos_x")
-    pos_y = data.get("pos_y")
-    if pos_x is None or pos_y is None:
-        pos_x, pos_y = random.uniform(15, 85), random.uniform(20, 80)
     width = data.get("width") or 130
     height = data.get("height") or 110
 
     conn = get_db()
-    cur = conn.execute(
-        """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, icon, pos_x, pos_y, width, height)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, icon, pos_x, pos_y, width, height),
+    part_id = insert_part(
+        conn, unit_id, name, spec=spec, cycle_days=cycle_days, cycle_unit=cycle_unit, cost=cost,
+        last_replaced_date=last_replaced_date, note=note, icon=icon,
+        pos_x=data.get("pos_x"), pos_y=data.get("pos_y"), width=width, height=height,
     )
-    part_id = cur.lastrowid
-    if last_replaced_date:
-        conn.execute(
-            "INSERT INTO replacement_history (part_id, replaced_date, note) VALUES (?, ?, ?)",
-            (part_id, last_replaced_date, "최초 등록"),
-        )
     conn.commit()
     row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
     conn.close()
@@ -781,6 +898,133 @@ def apply_unit_parts(unit_id):
     conn.commit()
     conn.close()
     return jsonify({"ok": True, "equipment_count": equipment_count, "part_count": part_count})
+
+
+def parse_bulk_paste_text(text):
+    """붙여넣은 텍스트(탭 또는 쉼표 구분)를 (유닛이름, 부품이름, Q-CODE, 부가설명) 튜플 목록으로 변환."""
+    rows = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        cols = line.split("\t")
+        if len(cols) < 2:
+            cols = line.split(",")
+        cols = [c.strip() for c in cols]
+        while len(cols) < 4:
+            cols.append("")
+        unit_text, part_name, q_code, note = cols[0], cols[1], cols[2], cols[3]
+        if not part_name:
+            continue
+        rows.append((unit_text, part_name, q_code, note))
+    return rows
+
+
+def serialize_bulk_entry(row):
+    d = dict(row)
+    return d
+
+
+@app.route("/api/bulk-parts")
+def list_bulk_parts():
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT b.*, u.name AS unit_name, u.icon AS unit_icon
+        FROM bulk_part_entries b
+        LEFT JOIN units u ON b.unit_id = u.id
+        ORDER BY b.id DESC
+    """).fetchall()
+    master_units = conn.execute(
+        "SELECT id, name FROM units WHERE equipment_id = ? ORDER BY id", (MASTER_EQUIPMENT_ID,)
+    ).fetchall()
+    conn.close()
+    return jsonify({
+        "entries": [serialize_bulk_entry(r) for r in rows],
+        "master_units": [dict(u) for u in master_units],
+    })
+
+
+@app.route("/api/bulk-parts/paste", methods=["POST"])
+def paste_bulk_parts():
+    data = request.get_json()
+    text = data.get("text") or ""
+    parsed = parse_bulk_paste_text(text)
+    if not parsed:
+        return jsonify({"error": "붙여넣은 내용에서 부품 정보를 찾을 수 없습니다"}), 400
+
+    conn = get_db()
+    master_units = conn.execute(
+        "SELECT id, name FROM units WHERE equipment_id = ?", (MASTER_EQUIPMENT_ID,)
+    ).fetchall()
+
+    created_ids = []
+    for unit_text, part_name, q_code, note in parsed:
+        prefix = unit_text[:2]
+        auto_unit_id = None
+        matches = [u for u in master_units if u["name"][:2] == prefix] if prefix else []
+        if len(matches) == 1:
+            auto_unit_id = matches[0]["id"]
+        cur = conn.execute(
+            "INSERT INTO bulk_part_entries (raw_unit_text, unit_id, part_name, q_code, note) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (unit_text, auto_unit_id, part_name, q_code, note),
+        )
+        created_ids.append(cur.lastrowid)
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "created_count": len(created_ids)}), 201
+
+
+@app.route("/api/bulk-parts/<int:entry_id>", methods=["PUT"])
+def update_bulk_part(entry_id):
+    data = request.get_json()
+    conn = get_db()
+    entry = conn.execute("SELECT * FROM bulk_part_entries WHERE id = ?", (entry_id,)).fetchone()
+    if not entry:
+        conn.close()
+        return jsonify({"error": "항목을 찾을 수 없습니다"}), 404
+    unit_id = data.get("unit_id", entry["unit_id"])
+    part_name = (data.get("part_name") or entry["part_name"]).strip()
+    q_code = data.get("q_code", entry["q_code"])
+    note = data.get("note", entry["note"])
+    conn.execute(
+        "UPDATE bulk_part_entries SET unit_id = ?, part_name = ?, q_code = ?, note = ? WHERE id = ?",
+        (unit_id, part_name, q_code, note, entry_id),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/bulk-parts/<int:entry_id>/register", methods=["POST"])
+def register_bulk_part(entry_id):
+    conn = get_db()
+    entry = conn.execute("SELECT * FROM bulk_part_entries WHERE id = ?", (entry_id,)).fetchone()
+    if not entry:
+        conn.close()
+        return jsonify({"error": "항목을 찾을 수 없습니다"}), 404
+    if not entry["unit_id"]:
+        conn.close()
+        return jsonify({"error": "유닛을 먼저 선택하세요"}), 400
+    unit = conn.execute("SELECT * FROM units WHERE id = ?", (entry["unit_id"],)).fetchone()
+    if not unit:
+        conn.close()
+        return jsonify({"error": "선택된 유닛을 찾을 수 없습니다"}), 404
+
+    part_id = insert_part(conn, entry["unit_id"], entry["part_name"], spec=entry["q_code"] or "", note=entry["note"] or "")
+    conn.execute("UPDATE bulk_part_entries SET status = 'registered' WHERE id = ?", (entry_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "part_id": part_id})
+
+
+@app.route("/api/bulk-parts/<int:entry_id>", methods=["DELETE"])
+def delete_bulk_part(entry_id):
+    conn = get_db()
+    conn.execute("DELETE FROM bulk_part_entries WHERE id = ?", (entry_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
 
 
 @app.route("/api/parts/<int:part_id>", methods=["PUT"])
@@ -826,6 +1070,7 @@ def delete_part(part_id):
 def replace_part(part_id):
     data = request.get_json()
     replaced_date = data.get("replaced_date") or str(date.today())
+    cost = float(data.get("cost") or 0)
     note = (data.get("note") or "").strip()
 
     conn = get_db()
@@ -834,8 +1079,8 @@ def replace_part(part_id):
         conn.close()
         return jsonify({"error": "부품을 찾을 수 없습니다"}), 404
     conn.execute(
-        "INSERT INTO replacement_history (part_id, replaced_date, note) VALUES (?, ?, ?)",
-        (part_id, replaced_date, note),
+        "INSERT INTO replacement_history (part_id, replaced_date, cost, note) VALUES (?, ?, ?, ?)",
+        (part_id, replaced_date, cost, note),
     )
     conn.execute(
         "UPDATE parts SET last_replaced_date = ? WHERE id = ? AND (last_replaced_date IS NULL OR ? >= last_replaced_date)",
@@ -1255,9 +1500,13 @@ def download_backup():
 
 if __name__ == "__main__":
     init_db()
+    _conn = get_db()
+    app.secret_key = get_config(_conn, "secret_key")
+    _conn.close()
     lan_ip = get_lan_ip()
     print("설비 부품 교체 관리 시스템 시작!")
     print(f"  이 컴퓨터에서 접속: http://localhost:5000")
     print(f"  같은 네트워크의 다른 사람 접속: http://{lan_ip}:5000")
     print("  (다른 사람이 접속 안 되면 Windows 방화벽에서 Python 허용 여부를 확인하세요)")
+    print(f"  최초 접속 비밀번호: {DEFAULT_PASSWORD} (로그인 후 반드시 변경해주세요)")
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)

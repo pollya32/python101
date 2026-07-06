@@ -107,11 +107,17 @@
       </div>
       <div class="modal-body">
         <form id="replaceForm">
-          <div class="mb-2">
-            <label class="form-label">교체일</label>
-            <input type="date" class="form-control" id="replaceDate" required>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label">교체일</label>
+              <input type="date" class="form-control" id="replaceDate" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">금액 (원)</label>
+              <input type="number" class="form-control" id="replaceCost" value="0" min="0" step="100">
+            </div>
           </div>
-          <div class="mb-2">
+          <div class="mb-2 mt-2">
             <label class="form-label">비고</label>
             <input type="text" class="form-control" id="replaceNote" placeholder="교체 사유 / 작업자 등">
           </div>

@@ -29,6 +29,9 @@
     <a href="/config" class="btn btn-sm btn-outline-light">
       <i class="bi bi-diagram-3"></i> 기본 유닛 구성
     </a>
+    <a href="/bulk-add-parts" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-stack"></i> 부품 추가
+    </a>
     <a href="/api/backup" class="btn btn-sm btn-outline-light">
       <i class="bi bi-download"></i> DB 백업
     </a>
@@ -38,6 +41,15 @@
     <button id="editModeBtn" class="btn btn-sm btn-outline-light">
       <i class="bi bi-pencil-square"></i> 설비 편집
     </button>
+    <div class="dropdown">
+      <button class="btn btn-sm btn-outline-light dropdown-toggle" type="button" id="accountMenuBtn" data-bs-toggle="dropdown">
+        <i class="bi bi-person-circle"></i>
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        <li><button type="button" class="dropdown-item" id="changePasswordBtn"><i class="bi bi-key"></i> 비밀번호 변경</button></li>
+        <li><a class="dropdown-item" href="/logout"><i class="bi bi-box-arrow-right"></i> 로그아웃</a></li>
+      </ul>
+    </div>
   </div>
 </header>
 
@@ -91,6 +103,31 @@
           </div>
           <div id="equipmentIconPicker" class="icon-picker"></div>
           <button type="submit" class="btn btn-primary w-100 mt-3">저장</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 비밀번호 변경 모달 -->
+<div class="modal fade" id="changePasswordModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">비밀번호 변경</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="changePasswordForm">
+          <div class="mb-2">
+            <label class="form-label">현재 비밀번호</label>
+            <input type="password" class="form-control" id="currentPasswordInput" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">새 비밀번호 (4자 이상)</label>
+            <input type="password" class="form-control" id="newPasswordInput" minlength="4" required>
+          </div>
+          <button type="submit" class="btn btn-primary w-100 mt-2">변경</button>
         </form>
       </div>
     </div>

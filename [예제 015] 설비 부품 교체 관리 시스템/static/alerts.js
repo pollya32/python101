@@ -11,6 +11,10 @@ function escapeHtml(s) {
 
 async function loadAlerts() {
   const res = await fetch("/api/alerts");
+  if (res.status === 401) {
+    window.location.href = "/login";
+    return;
+  }
   const parts = await res.json();
   renderAlerts(parts);
 }

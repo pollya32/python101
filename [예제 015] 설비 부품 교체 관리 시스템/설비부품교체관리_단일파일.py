@@ -14,14 +14,17 @@ import os
 import csv
 import io
 import random
+import secrets
 import socket
 from urllib.parse import quote
 from datetime import date, datetime, timedelta
-from flask import Flask, request, jsonify, send_file, Response
+from flask import Flask, request, jsonify, send_file, Response, session, redirect, url_for
 from pptx import Presentation
 from pptx.util import Inches, Pt
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
 try:
     _base = os.path.dirname(os.path.abspath(__file__))
@@ -32,6 +35,7 @@ DB_PATH = os.path.join(_base, "equipment_data.db")
 EQUIPMENT_COUNT = 20
 EQUIPMENT_PREFIX = "TEAG"
 MASTER_EQUIPMENT_ID = 1  # TEAG01호기: 이 설비에 추가한 부품은 동일한 이름의 유닛을 가진 나머지 설비에도 자동 복제된다
+DEFAULT_PASSWORD = "0000"
 
 
 def dashboard_grid_pos(index, cols=5):
@@ -75,9 +79,35 @@ def get_lan_ip():
         s.close()
 
 
+def get_config(conn, key):
+    row = conn.execute("SELECT value FROM app_config WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_config(conn, key, value):
+    conn.execute(
+        "INSERT INTO app_config (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+
+
 def init_db():
     conn = get_db()
     c = conn.cursor()
+
+    c.execute("CREATE TABLE IF NOT EXISTS app_config (key TEXT PRIMARY KEY, value TEXT)")
+    if not c.execute("SELECT 1 FROM app_config WHERE key = 'password_hash'").fetchone():
+        c.execute(
+            "INSERT INTO app_config (key, value) VALUES ('password_hash', ?)",
+            (generate_password_hash(DEFAULT_PASSWORD),),
+        )
+    if not c.execute("SELECT 1 FROM app_config WHERE key = 'secret_key'").fetchone():
+        c.execute(
+            "INSERT INTO app_config (key, value) VALUES ('secret_key', ?)",
+            (secrets.token_hex(32),),
+        )
+    conn.commit()
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS equipments (
@@ -196,11 +226,16 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             part_id INTEGER NOT NULL,
             replaced_date TEXT NOT NULL,
+            cost REAL DEFAULT 0,
             note TEXT,
             created_at TEXT DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (part_id) REFERENCES parts(id) ON DELETE CASCADE
         )
     """)
+    existing_history_cols = {r["name"] for r in c.execute("PRAGMA table_info(replacement_history)").fetchall()}
+    if "cost" not in existing_history_cols:
+        c.execute("ALTER TABLE replacement_history ADD COLUMN cost REAL DEFAULT 0")
+        c.execute("UPDATE replacement_history SET cost = 0 WHERE cost IS NULL")
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS equipment_notes (
@@ -239,6 +274,20 @@ def init_db():
             content TEXT DEFAULT '',
             updated_at TEXT DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS bulk_part_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            raw_unit_text TEXT,
+            unit_id INTEGER,
+            part_name TEXT NOT NULL,
+            q_code TEXT,
+            note TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE SET NULL
         )
     """)
 
@@ -307,6 +356,25 @@ def serialize_part(row):
     d = dict(row)
     d.update(info)
     return d
+
+
+def insert_part(conn, unit_id, name, spec="", cycle_days=90, cycle_unit="일", cost=0,
+                 last_replaced_date=None, note="", icon="🔩", pos_x=None, pos_y=None,
+                 width=130, height=110):
+    if pos_x is None or pos_y is None:
+        pos_x, pos_y = random.uniform(15, 85), random.uniform(20, 80)
+    cur = conn.execute(
+        """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, icon, pos_x, pos_y, width, height)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, icon, pos_x, pos_y, width, height),
+    )
+    part_id = cur.lastrowid
+    if last_replaced_date:
+        conn.execute(
+            "INSERT INTO replacement_history (part_id, replaced_date, note) VALUES (?, ?, ?)",
+            (part_id, last_replaced_date, "최초 등록"),
+        )
+    return part_id
 
 
 def apply_unit_parts_to_other_equipment(conn, unit_id):
@@ -520,6 +588,60 @@ def csv_response(filename, header, rows):
     )
 
 
+LOGIN_EXEMPT_PREFIXES = ("/static/", "/login")
+
+
+@app.before_request
+def require_login():
+    if request.path.startswith(LOGIN_EXEMPT_PREFIXES):
+        return None
+    if session.get("authenticated"):
+        return None
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "로그인이 필요합니다"}), 401
+    return redirect(url_for("login_page", next=request.path))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login_page():
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        conn = get_db()
+        password_hash = get_config(conn, "password_hash")
+        conn.close()
+        if password_hash and check_password_hash(password_hash, password):
+            session["authenticated"] = True
+            session.permanent = True
+            next_url = request.args.get("next") or url_for("dashboard")
+            return redirect(next_url)
+        return redirect(url_for("login_page", error="1"))
+    return LOGIN_HTML
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login_page"))
+
+
+@app.route("/api/auth/change-password", methods=["POST"])
+def change_password():
+    data = request.get_json()
+    current_password = data.get("current_password") or ""
+    new_password = data.get("new_password") or ""
+    if len(new_password) < 4:
+        return jsonify({"error": "비밀번호는 4자 이상으로 설정하세요"}), 400
+    conn = get_db()
+    password_hash = get_config(conn, "password_hash")
+    if not password_hash or not check_password_hash(password_hash, current_password):
+        conn.close()
+        return jsonify({"error": "현재 비밀번호가 올바르지 않습니다"}), 400
+    set_config(conn, "password_hash", generate_password_hash(new_password))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
 @app.route("/")
 def dashboard():
     return DASHBOARD_HTML
@@ -538,6 +660,11 @@ def search_page():
 @app.route("/stats")
 def stats_page():
     return STATS_HTML
+
+
+@app.route("/bulk-add-parts")
+def bulk_add_parts_page():
+    return BULK_ADD_PARTS_HTML
 
 
 @app.route("/equipment/<int:equipment_id>")
@@ -758,25 +885,15 @@ def add_part(unit_id):
     last_replaced_date = data.get("last_replaced_date") or None
     note = (data.get("note") or "").strip()
     icon = (data.get("icon") or "🔩").strip()
-    pos_x = data.get("pos_x")
-    pos_y = data.get("pos_y")
-    if pos_x is None or pos_y is None:
-        pos_x, pos_y = random.uniform(15, 85), random.uniform(20, 80)
     width = data.get("width") or 130
     height = data.get("height") or 110
 
     conn = get_db()
-    cur = conn.execute(
-        """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, icon, pos_x, pos_y, width, height)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, icon, pos_x, pos_y, width, height),
+    part_id = insert_part(
+        conn, unit_id, name, spec=spec, cycle_days=cycle_days, cycle_unit=cycle_unit, cost=cost,
+        last_replaced_date=last_replaced_date, note=note, icon=icon,
+        pos_x=data.get("pos_x"), pos_y=data.get("pos_y"), width=width, height=height,
     )
-    part_id = cur.lastrowid
-    if last_replaced_date:
-        conn.execute(
-            "INSERT INTO replacement_history (part_id, replaced_date, note) VALUES (?, ?, ?)",
-            (part_id, last_replaced_date, "최초 등록"),
-        )
     conn.commit()
     row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
     conn.close()
@@ -797,6 +914,133 @@ def apply_unit_parts(unit_id):
     conn.commit()
     conn.close()
     return jsonify({"ok": True, "equipment_count": equipment_count, "part_count": part_count})
+
+
+def parse_bulk_paste_text(text):
+    """붙여넣은 텍스트(탭 또는 쉼표 구분)를 (유닛이름, 부품이름, Q-CODE, 부가설명) 튜플 목록으로 변환."""
+    rows = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        cols = line.split("\t")
+        if len(cols) < 2:
+            cols = line.split(",")
+        cols = [c.strip() for c in cols]
+        while len(cols) < 4:
+            cols.append("")
+        unit_text, part_name, q_code, note = cols[0], cols[1], cols[2], cols[3]
+        if not part_name:
+            continue
+        rows.append((unit_text, part_name, q_code, note))
+    return rows
+
+
+def serialize_bulk_entry(row):
+    d = dict(row)
+    return d
+
+
+@app.route("/api/bulk-parts")
+def list_bulk_parts():
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT b.*, u.name AS unit_name, u.icon AS unit_icon
+        FROM bulk_part_entries b
+        LEFT JOIN units u ON b.unit_id = u.id
+        ORDER BY b.id DESC
+    """).fetchall()
+    master_units = conn.execute(
+        "SELECT id, name FROM units WHERE equipment_id = ? ORDER BY id", (MASTER_EQUIPMENT_ID,)
+    ).fetchall()
+    conn.close()
+    return jsonify({
+        "entries": [serialize_bulk_entry(r) for r in rows],
+        "master_units": [dict(u) for u in master_units],
+    })
+
+
+@app.route("/api/bulk-parts/paste", methods=["POST"])
+def paste_bulk_parts():
+    data = request.get_json()
+    text = data.get("text") or ""
+    parsed = parse_bulk_paste_text(text)
+    if not parsed:
+        return jsonify({"error": "붙여넣은 내용에서 부품 정보를 찾을 수 없습니다"}), 400
+
+    conn = get_db()
+    master_units = conn.execute(
+        "SELECT id, name FROM units WHERE equipment_id = ?", (MASTER_EQUIPMENT_ID,)
+    ).fetchall()
+
+    created_ids = []
+    for unit_text, part_name, q_code, note in parsed:
+        prefix = unit_text[:2]
+        auto_unit_id = None
+        matches = [u for u in master_units if u["name"][:2] == prefix] if prefix else []
+        if len(matches) == 1:
+            auto_unit_id = matches[0]["id"]
+        cur = conn.execute(
+            "INSERT INTO bulk_part_entries (raw_unit_text, unit_id, part_name, q_code, note) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (unit_text, auto_unit_id, part_name, q_code, note),
+        )
+        created_ids.append(cur.lastrowid)
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "created_count": len(created_ids)}), 201
+
+
+@app.route("/api/bulk-parts/<int:entry_id>", methods=["PUT"])
+def update_bulk_part(entry_id):
+    data = request.get_json()
+    conn = get_db()
+    entry = conn.execute("SELECT * FROM bulk_part_entries WHERE id = ?", (entry_id,)).fetchone()
+    if not entry:
+        conn.close()
+        return jsonify({"error": "항목을 찾을 수 없습니다"}), 404
+    unit_id = data.get("unit_id", entry["unit_id"])
+    part_name = (data.get("part_name") or entry["part_name"]).strip()
+    q_code = data.get("q_code", entry["q_code"])
+    note = data.get("note", entry["note"])
+    conn.execute(
+        "UPDATE bulk_part_entries SET unit_id = ?, part_name = ?, q_code = ?, note = ? WHERE id = ?",
+        (unit_id, part_name, q_code, note, entry_id),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/bulk-parts/<int:entry_id>/register", methods=["POST"])
+def register_bulk_part(entry_id):
+    conn = get_db()
+    entry = conn.execute("SELECT * FROM bulk_part_entries WHERE id = ?", (entry_id,)).fetchone()
+    if not entry:
+        conn.close()
+        return jsonify({"error": "항목을 찾을 수 없습니다"}), 404
+    if not entry["unit_id"]:
+        conn.close()
+        return jsonify({"error": "유닛을 먼저 선택하세요"}), 400
+    unit = conn.execute("SELECT * FROM units WHERE id = ?", (entry["unit_id"],)).fetchone()
+    if not unit:
+        conn.close()
+        return jsonify({"error": "선택된 유닛을 찾을 수 없습니다"}), 404
+
+    part_id = insert_part(conn, entry["unit_id"], entry["part_name"], spec=entry["q_code"] or "", note=entry["note"] or "")
+    conn.execute("UPDATE bulk_part_entries SET status = 'registered' WHERE id = ?", (entry_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "part_id": part_id})
+
+
+@app.route("/api/bulk-parts/<int:entry_id>", methods=["DELETE"])
+def delete_bulk_part(entry_id):
+    conn = get_db()
+    conn.execute("DELETE FROM bulk_part_entries WHERE id = ?", (entry_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
 
 
 @app.route("/api/parts/<int:part_id>", methods=["PUT"])
@@ -842,6 +1086,7 @@ def delete_part(part_id):
 def replace_part(part_id):
     data = request.get_json()
     replaced_date = data.get("replaced_date") or str(date.today())
+    cost = float(data.get("cost") or 0)
     note = (data.get("note") or "").strip()
 
     conn = get_db()
@@ -850,8 +1095,8 @@ def replace_part(part_id):
         conn.close()
         return jsonify({"error": "부품을 찾을 수 없습니다"}), 404
     conn.execute(
-        "INSERT INTO replacement_history (part_id, replaced_date, note) VALUES (?, ?, ?)",
-        (part_id, replaced_date, note),
+        "INSERT INTO replacement_history (part_id, replaced_date, cost, note) VALUES (?, ?, ?, ?)",
+        (part_id, replaced_date, cost, note),
     )
     conn.execute(
         "UPDATE parts SET last_replaced_date = ? WHERE id = ? AND (last_replaced_date IS NULL OR ? >= last_replaced_date)",
@@ -1306,6 +1551,35 @@ body {
   color: var(--text);
 }
 
+/* ── 로그인 페이지 ────────────────────────────────────────────── */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 36px 32px;
+  max-width: 380px;
+  width: 100%;
+  text-align: center;
+}
+.login-icon {
+  font-size: 40px;
+  color: var(--pri);
+  margin-bottom: 10px;
+}
+.login-card h1 {
+  font-size: 18px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
 /* ── 버튼 공통 리스킨 ─────────────────────────────────────────── */
 .btn {
   border-radius: var(--radius-sm);
@@ -1881,6 +2155,48 @@ body {
   align-items: center;
   justify-content: center;
 }
+
+/* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
+.master-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  padding: 3px 10px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.bulk-paste-box {
+  max-width: 1300px;
+  margin: 0 auto 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 18px;
+}
+.bulk-paste-box textarea { font-family: ui-monospace, monospace; font-size: 13px; }
+.bulk-table-wrap {
+  max-width: 1300px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.bulk-table { margin-bottom: 0; font-size: 13.5px; }
+.bulk-table thead th {
+  background: #f8f9fd;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+}
+.bulk-table td { vertical-align: middle; }
+.bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-status-pending { color: var(--text-muted); }
+.bulk-status-registered { color: #16a34a; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -1904,6 +2220,9 @@ body {
     <a href="/config" class="btn btn-sm btn-outline-light">
       <i class="bi bi-diagram-3"></i> 기본 유닛 구성
     </a>
+    <a href="/bulk-add-parts" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-stack"></i> 부품 추가
+    </a>
     <a href="/api/backup" class="btn btn-sm btn-outline-light">
       <i class="bi bi-download"></i> DB 백업
     </a>
@@ -1913,6 +2232,15 @@ body {
     <button id="editModeBtn" class="btn btn-sm btn-outline-light">
       <i class="bi bi-pencil-square"></i> 설비 편집
     </button>
+    <div class="dropdown">
+      <button class="btn btn-sm btn-outline-light dropdown-toggle" type="button" id="accountMenuBtn" data-bs-toggle="dropdown">
+        <i class="bi bi-person-circle"></i>
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        <li><button type="button" class="dropdown-item" id="changePasswordBtn"><i class="bi bi-key"></i> 비밀번호 변경</button></li>
+        <li><a class="dropdown-item" href="/logout"><i class="bi bi-box-arrow-right"></i> 로그아웃</a></li>
+      </ul>
+    </div>
   </div>
 </header>
 
@@ -1972,6 +2300,31 @@ body {
   </div>
 </div>
 
+<!-- 비밀번호 변경 모달 -->
+<div class="modal fade" id="changePasswordModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">비밀번호 변경</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="changePasswordForm">
+          <div class="mb-2">
+            <label class="form-label">현재 비밀번호</label>
+            <input type="password" class="form-control" id="currentPasswordInput" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">새 비밀번호 (4자 이상)</label>
+            <input type="password" class="form-control" id="newPasswordInput" minlength="4" required>
+          </div>
+          <button type="submit" class="btn btn-primary w-100 mt-2">변경</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 let editMode = false;
@@ -2006,6 +2359,10 @@ function tick() {
 
 async function fetchJson(url, options) {
   const res = await fetch(url, options);
+  if (res.status === 401) {
+    window.location.href = "/login";
+    throw new Error("로그인이 필요합니다");
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || "요청 처리 중 오류가 발생했습니다");
@@ -2171,10 +2528,33 @@ function openEquipmentEditModal(eq) {
 
 document.addEventListener("DOMContentLoaded", () => {
   equipmentEditModal = new bootstrap.Modal(document.getElementById("equipmentEditModal"));
+  const changePasswordModal = new bootstrap.Modal(document.getElementById("changePasswordModal"));
 
   tick();
   setInterval(tick, 1000);
   loadEquipments();
+
+  document.getElementById("changePasswordBtn").addEventListener("click", () => {
+    document.getElementById("changePasswordForm").reset();
+    changePasswordModal.show();
+  });
+  document.getElementById("changePasswordForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      await fetchJson("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          current_password: document.getElementById("currentPasswordInput").value,
+          new_password: document.getElementById("newPasswordInput").value,
+        }),
+      });
+      changePasswordModal.hide();
+      alert("비밀번호가 변경되었습니다.");
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 
   document.getElementById("editModeBtn").addEventListener("click", (e) => {
     editMode = !editMode;
@@ -2260,6 +2640,35 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
   color: var(--text);
+}
+
+/* ── 로그인 페이지 ────────────────────────────────────────────── */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 36px 32px;
+  max-width: 380px;
+  width: 100%;
+  text-align: center;
+}
+.login-icon {
+  font-size: 40px;
+  color: var(--pri);
+  margin-bottom: 10px;
+}
+.login-card h1 {
+  font-size: 18px;
+  font-weight: 800;
+  margin-bottom: 4px;
 }
 
 /* ── 버튼 공통 리스킨 ─────────────────────────────────────────── */
@@ -2837,6 +3246,48 @@ body {
   align-items: center;
   justify-content: center;
 }
+
+/* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
+.master-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  padding: 3px 10px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.bulk-paste-box {
+  max-width: 1300px;
+  margin: 0 auto 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 18px;
+}
+.bulk-paste-box textarea { font-family: ui-monospace, monospace; font-size: 13px; }
+.bulk-table-wrap {
+  max-width: 1300px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.bulk-table { margin-bottom: 0; font-size: 13.5px; }
+.bulk-table thead th {
+  background: #f8f9fd;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+}
+.bulk-table td { vertical-align: middle; }
+.bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-status-pending { color: var(--text-muted); }
+.bulk-status-registered { color: #16a34a; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -2963,6 +3414,10 @@ function tick() {
 
 async function fetchJson(url, options) {
   const res = await fetch(url, options);
+  if (res.status === 401) {
+    window.location.href = "/login";
+    throw new Error("로그인이 필요합니다");
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || "요청 처리 중 오류가 발생했습니다");
@@ -3422,6 +3877,35 @@ body {
   color: var(--text);
 }
 
+/* ── 로그인 페이지 ────────────────────────────────────────────── */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 36px 32px;
+  max-width: 380px;
+  width: 100%;
+  text-align: center;
+}
+.login-icon {
+  font-size: 40px;
+  color: var(--pri);
+  margin-bottom: 10px;
+}
+.login-card h1 {
+  font-size: 18px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
 /* ── 버튼 공통 리스킨 ─────────────────────────────────────────── */
 .btn {
   border-radius: var(--radius-sm);
@@ -3997,6 +4481,48 @@ body {
   align-items: center;
   justify-content: center;
 }
+
+/* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
+.master-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  padding: 3px 10px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.bulk-paste-box {
+  max-width: 1300px;
+  margin: 0 auto 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 18px;
+}
+.bulk-paste-box textarea { font-family: ui-monospace, monospace; font-size: 13px; }
+.bulk-table-wrap {
+  max-width: 1300px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.bulk-table { margin-bottom: 0; font-size: 13.5px; }
+.bulk-table thead th {
+  background: #f8f9fd;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+}
+.bulk-table td { vertical-align: middle; }
+.bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-status-pending { color: var(--text-muted); }
+.bulk-status-registered { color: #16a34a; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -4098,11 +4624,17 @@ body {
       </div>
       <div class="modal-body">
         <form id="replaceForm">
-          <div class="mb-2">
-            <label class="form-label">교체일</label>
-            <input type="date" class="form-control" id="replaceDate" required>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label">교체일</label>
+              <input type="date" class="form-control" id="replaceDate" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">금액 (원)</label>
+              <input type="number" class="form-control" id="replaceCost" value="0" min="0" step="100">
+            </div>
           </div>
-          <div class="mb-2">
+          <div class="mb-2 mt-2">
             <label class="form-label">비고</label>
             <input type="text" class="form-control" id="replaceNote" placeholder="교체 사유 / 작업자 등">
           </div>
@@ -4229,6 +4761,10 @@ function tick() {
 
 async function fetchJson(url, options) {
   const res = await fetch(url, options);
+  if (res.status === 401) {
+    window.location.href = "/login";
+    throw new Error("로그인이 필요합니다");
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || "요청 처리 중 오류가 발생했습니다");
@@ -4601,6 +5137,7 @@ function openPartDetailModal(partId) {
 
 function openReplaceModal() {
   document.getElementById("replaceDate").value = new Date().toISOString().slice(0, 10);
+  document.getElementById("replaceCost").value = 0;
   document.getElementById("replaceNote").value = "";
   replaceModal.show();
 }
@@ -4617,7 +5154,7 @@ async function openHistoryModal() {
       .map(
         (h) => `
       <div class="history-row d-flex justify-content-between">
-        <div><strong>${h.replaced_date}</strong> ${h.note ? " - " + escapeHtml(h.note) : ""}</div>
+        <div><strong>${h.replaced_date}</strong> &middot; ${formatCost(h.cost)} ${h.note ? " - " + escapeHtml(h.note) : ""}</div>
         <button class="btn btn-sm btn-link text-danger p-0 del-history-btn" data-id="${h.id}">삭제</button>
       </div>`
       )
@@ -4711,6 +5248,7 @@ document.addEventListener("DOMContentLoaded", () => {
     e.preventDefault();
     const payload = {
       replaced_date: document.getElementById("replaceDate").value,
+      cost: parseFloat(document.getElementById("replaceCost").value) || 0,
       note: document.getElementById("replaceNote").value.trim(),
     };
     try {
@@ -4820,6 +5358,35 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
   color: var(--text);
+}
+
+/* ── 로그인 페이지 ────────────────────────────────────────────── */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 36px 32px;
+  max-width: 380px;
+  width: 100%;
+  text-align: center;
+}
+.login-icon {
+  font-size: 40px;
+  color: var(--pri);
+  margin-bottom: 10px;
+}
+.login-card h1 {
+  font-size: 18px;
+  font-weight: 800;
+  margin-bottom: 4px;
 }
 
 /* ── 버튼 공통 리스킨 ─────────────────────────────────────────── */
@@ -5397,6 +5964,48 @@ body {
   align-items: center;
   justify-content: center;
 }
+
+/* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
+.master-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  padding: 3px 10px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.bulk-paste-box {
+  max-width: 1300px;
+  margin: 0 auto 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 18px;
+}
+.bulk-paste-box textarea { font-family: ui-monospace, monospace; font-size: 13px; }
+.bulk-table-wrap {
+  max-width: 1300px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.bulk-table { margin-bottom: 0; font-size: 13.5px; }
+.bulk-table thead th {
+  background: #f8f9fd;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+}
+.bulk-table td { vertical-align: middle; }
+.bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-status-pending { color: var(--text-muted); }
+.bulk-status-registered { color: #16a34a; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -5502,6 +6111,10 @@ function tick() {
 
 async function fetchJson(url, options) {
   const res = await fetch(url, options);
+  if (res.status === 401) {
+    window.location.href = "/login";
+    throw new Error("로그인이 필요합니다");
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || "요청 처리 중 오류가 발생했습니다");
@@ -5864,6 +6477,35 @@ body {
   color: var(--text);
 }
 
+/* ── 로그인 페이지 ────────────────────────────────────────────── */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 36px 32px;
+  max-width: 380px;
+  width: 100%;
+  text-align: center;
+}
+.login-icon {
+  font-size: 40px;
+  color: var(--pri);
+  margin-bottom: 10px;
+}
+.login-card h1 {
+  font-size: 18px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
 /* ── 버튼 공통 리스킨 ─────────────────────────────────────────── */
 .btn {
   border-radius: var(--radius-sm);
@@ -6439,6 +7081,48 @@ body {
   align-items: center;
   justify-content: center;
 }
+
+/* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
+.master-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  padding: 3px 10px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.bulk-paste-box {
+  max-width: 1300px;
+  margin: 0 auto 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 18px;
+}
+.bulk-paste-box textarea { font-family: ui-monospace, monospace; font-size: 13px; }
+.bulk-table-wrap {
+  max-width: 1300px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.bulk-table { margin-bottom: 0; font-size: 13.5px; }
+.bulk-table thead th {
+  background: #f8f9fd;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+}
+.bulk-table td { vertical-align: middle; }
+.bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-status-pending { color: var(--text-muted); }
+.bulk-status-registered { color: #16a34a; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -6483,6 +7167,10 @@ function escapeHtml(s) {
 
 async function loadAlerts() {
   const res = await fetch("/api/alerts");
+  if (res.status === 401) {
+    window.location.href = "/login";
+    return;
+  }
   const parts = await res.json();
   renderAlerts(parts);
 }
@@ -6571,6 +7259,35 @@ body {
   color: var(--text);
 }
 
+/* ── 로그인 페이지 ────────────────────────────────────────────── */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 36px 32px;
+  max-width: 380px;
+  width: 100%;
+  text-align: center;
+}
+.login-icon {
+  font-size: 40px;
+  color: var(--pri);
+  margin-bottom: 10px;
+}
+.login-card h1 {
+  font-size: 18px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
 /* ── 버튼 공통 리스킨 ─────────────────────────────────────────── */
 .btn {
   border-radius: var(--radius-sm);
@@ -7146,6 +7863,48 @@ body {
   align-items: center;
   justify-content: center;
 }
+
+/* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
+.master-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  padding: 3px 10px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.bulk-paste-box {
+  max-width: 1300px;
+  margin: 0 auto 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 18px;
+}
+.bulk-paste-box textarea { font-family: ui-monospace, monospace; font-size: 13px; }
+.bulk-table-wrap {
+  max-width: 1300px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.bulk-table { margin-bottom: 0; font-size: 13.5px; }
+.bulk-table thead th {
+  background: #f8f9fd;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+}
+.bulk-table td { vertical-align: middle; }
+.bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-status-pending { color: var(--text-muted); }
+.bulk-status-registered { color: #16a34a; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -7212,6 +7971,10 @@ async function runSearch() {
   }
 
   const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+  if (res.status === 401) {
+    window.location.href = "/login";
+    return;
+  }
   const parts = await res.json();
 
   if (parts.length === 0) {
@@ -7310,6 +8073,35 @@ body {
   color: var(--text);
 }
 
+/* ── 로그인 페이지 ────────────────────────────────────────────── */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 36px 32px;
+  max-width: 380px;
+  width: 100%;
+  text-align: center;
+}
+.login-icon {
+  font-size: 40px;
+  color: var(--pri);
+  margin-bottom: 10px;
+}
+.login-card h1 {
+  font-size: 18px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
 /* ── 버튼 공통 리스킨 ─────────────────────────────────────────── */
 .btn {
   border-radius: var(--radius-sm);
@@ -7885,6 +8677,48 @@ body {
   align-items: center;
   justify-content: center;
 }
+
+/* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
+.master-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  padding: 3px 10px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.bulk-paste-box {
+  max-width: 1300px;
+  margin: 0 auto 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 18px;
+}
+.bulk-paste-box textarea { font-family: ui-monospace, monospace; font-size: 13px; }
+.bulk-table-wrap {
+  max-width: 1300px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.bulk-table { margin-bottom: 0; font-size: 13.5px; }
+.bulk-table thead th {
+  background: #f8f9fd;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+}
+.bulk-table td { vertical-align: middle; }
+.bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-status-pending { color: var(--text-muted); }
+.bulk-status-registered { color: #16a34a; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -7971,6 +8805,10 @@ async function loadStats() {
   const params = new URLSearchParams();
   selectedUnitNames.forEach((name) => params.append("unit_name", name));
   const res = await fetch(`/api/stats?${params.toString()}`);
+  if (res.status === 401) {
+    window.location.href = "/login";
+    return;
+  }
   const data = await res.json();
   renderUnitFilter(data.unit_names);
   renderPartSpecPanel("statsCost", data.by_cost, (r) => formatMoney(r.total_cost));
@@ -8104,11 +8942,1634 @@ document.addEventListener("DOMContentLoaded", () => {
 """
 
 
+LOGIN_HTML = r"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>로그인 - 설비 부품 교체 관리 시스템</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<style>
+:root {
+  --pri: #4338ca;
+  --pri-dark: #362f8c;
+  --accent: #6366f1;
+  --bg-a: #e5e7eb;
+  --bg-b: #f3f4f6;
+  --surface: #ffffff;
+  --border: #e5e7eb;
+  --text: #1e2432;
+  --text-muted: #6b7280;
+  --radius-lg: 18px;
+  --radius-md: 14px;
+  --radius-sm: 10px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
+  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+    "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  color: var(--text);
+}
+
+/* ── 로그인 페이지 ────────────────────────────────────────────── */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 36px 32px;
+  max-width: 380px;
+  width: 100%;
+  text-align: center;
+}
+.login-icon {
+  font-size: 40px;
+  color: var(--pri);
+  margin-bottom: 10px;
+}
+.login-card h1 {
+  font-size: 18px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+/* ── 버튼 공통 리스킨 ─────────────────────────────────────────── */
+.btn {
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: all 0.15s ease;
+}
+.btn-primary {
+  background: var(--pri);
+  border-color: var(--pri);
+  box-shadow: 0 2px 8px rgba(67, 56, 202, 0.35);
+}
+.btn-primary:hover {
+  background: var(--pri-dark);
+  border-color: var(--pri-dark);
+  box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
+}
+.btn-outline-light {
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.btn-outline-light:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #fff;
+}
+.btn-warning {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+}
+.btn-warning:hover { background: #d97706; border-color: #d97706; color: #fff; }
+.btn-outline-secondary { border-color: var(--border); color: var(--text-muted); }
+.btn-outline-secondary:hover { background: #f3f4f6; color: var(--text); }
+.btn-outline-primary { color: var(--pri); border-color: var(--pri); }
+.btn-outline-primary:hover { background: var(--pri); border-color: var(--pri); }
+.btn-outline-danger:hover { box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25); }
+
+.form-control:focus, .form-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 0.2rem rgba(99, 102, 241, 0.2);
+}
+
+/* ── 상단바 ───────────────────────────────────────────────────── */
+.topbar {
+  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
+  color: #fff;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 90;
+  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
+}
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.topbar i.bi { font-size: 18px; opacity: 0.9; }
+.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+
+/* ── 범례 ─────────────────────────────────────────────────────── */
+.legend {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  font-size: 13px;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 9px 20px;
+  box-shadow: var(--shadow-sm);
+}
+.legend-item { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-shadow: 0 0 0 3px currentColor; opacity: 0.9; }
+.dot-ok { background: #22c55e; color: rgba(34, 197, 94, 0.18); }
+.dot-soon { background: #f59e0b; color: rgba(245, 158, 11, 0.18); }
+.dot-overdue { background: #ef4444; color: rgba(239, 68, 68, 0.18); }
+.dot-unknown { background: #9ca3af; color: rgba(156, 163, 175, 0.18); }
+
+/* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
+.equipment-frame {
+  background:
+    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
+    linear-gradient(180deg, #fcfcfd, #e9eaed);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid #dcdee2;
+  border-radius: var(--radius-lg);
+  padding: 30px 22px 22px;
+  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
+  position: relative;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.12), rgba(245, 158, 11, 0.12));
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  color: #92400e;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  margin-bottom: 14px;
+  text-align: center;
+}
+.equipment-label {
+  position: absolute;
+  top: -14px;
+  left: 22px;
+  background: linear-gradient(120deg, var(--pri), var(--accent));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 14px;
+  border-radius: 999px;
+  box-shadow: 0 3px 10px rgba(67, 56, 202, 0.3);
+}
+
+.unit-shape {
+  --shape-color: var(--pri);
+  border: 3px solid var(--shape-color);
+  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+}
+.unit-shape-header {
+  text-align: center;
+  margin-bottom: 6px;
+}
+.unit-shape-icon {
+  font-size: 42px;
+  display: block;
+  line-height: 1.2;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.12));
+}
+.unit-shape-name {
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--shape-color);
+}
+
+/* ── 대시보드 그리드 ──────────────────────────────────────────── */
+.equipment-canvas.dashboard-canvas {
+  max-width: 1300px;
+  margin: 10px auto 0;
+  min-height: 860px;
+}
+@media (max-width: 768px) {
+  .equipment-canvas.dashboard-canvas { min-height: 1150px; }
+}
+.equipment-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 150px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--pri);
+  border-radius: var(--radius-md);
+  padding: 20px 10px 14px;
+  cursor: pointer;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  user-select: none;
+  touch-action: none;
+  box-sizing: border-box;
+}
+.equipment-card:hover {
+  box-shadow: var(--shadow-lg);
+  border-top-color: var(--accent);
+  z-index: 5;
+}
+.equipment-card.edit-mode { cursor: grab; }
+.equipment-card.dragging {
+  cursor: grabbing;
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+  transition: none;
+}
+.equipment-card .unit-icon { font-size: 30px; }
+
+/* ── 캔버스 ───────────────────────────────────────────────────── */
+.equipment-canvas {
+  position: relative;
+  width: 100%;
+  min-height: 460px;
+  margin-top: 10px;
+}
+@media (max-width: 768px) {
+  .equipment-canvas { min-height: 620px; }
+}
+
+/* ── 유닛/부품 카드 ───────────────────────────────────────────── */
+.unit-card {
+  --uc: #4338ca;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 140px;
+  min-height: 110px;
+  background: var(--surface);
+  border: 1.5px solid var(--uc);
+  border-radius: var(--radius-md);
+  padding: 14px 10px 10px;
+  cursor: pointer;
+  transition: box-shadow 0.18s ease, transform 0.12s ease;
+  text-align: center;
+  user-select: none;
+  touch-action: none;
+  box-sizing: border-box;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.unit-card:hover {
+  box-shadow: var(--shadow-lg);
+  z-index: 5;
+}
+.edit-mode.unit-card { cursor: grab; }
+.unit-card.dragging {
+  cursor: grabbing;
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+  transition: none;
+}
+.unit-icon-wrap {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 6px;
+  background: #eef0fb;
+  background: color-mix(in srgb, var(--uc) 14%, white);
+}
+.overdue-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(239, 68, 68, 0.4);
+}
+.unit-icon { font-size: 22px; display: block; line-height: 1; }
+.unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
+.unit-status-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+.unit-part-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-weight: 500;
+}
+.unit-edit-actions {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  display: none;
+  gap: 4px;
+}
+.edit-mode .unit-edit-actions { display: flex; }
+.unit-edit-actions button {
+  border: none;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 7px;
+  font-size: 11px;
+  padding: 3px 6px;
+  transition: background 0.15s;
+}
+.unit-edit-actions button:hover { background: rgba(15, 23, 42, 0.14); }
+
+.resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  display: none;
+  cursor: nwse-resize;
+}
+.edit-mode .resize-handle { display: block; }
+.resize-handle::before {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid rgba(67, 56, 202, 0.45);
+  border-bottom: 2px solid rgba(67, 56, 202, 0.45);
+}
+
+.resize-handle-h {
+  position: absolute;
+  right: -3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 30px;
+  display: none;
+  cursor: ew-resize;
+}
+.edit-mode .resize-handle-h { display: block; }
+.resize-handle-h::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+  background: rgba(67, 56, 202, 0.4);
+}
+
+.canvas-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* ── 부품 목록/배지 ───────────────────────────────────────────── */
+.part-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 15px;
+  margin-bottom: 10px;
+  background: #fafbfe;
+  transition: box-shadow 0.15s;
+}
+.part-card:hover { box-shadow: var(--shadow-sm); }
+.part-card .part-title { font-weight: 700; font-size: 14px; }
+.part-card .part-spec { font-size: 12px; color: var(--text-muted); }
+.badge-ok { background: #d1fae5; color: #065f46; }
+.badge-soon { background: #fef3c7; color: #92400e; }
+.badge-overdue { background: #fee2e2; color: #991b1b; }
+.badge-unknown { background: #e5e7eb; color: #374151; }
+
+.history-row { font-size: 13px; border-bottom: 1px solid #f1f1f1; padding: 7px 0; }
+
+/* ── 메모장 ───────────────────────────────────────────────────── */
+.notes-section {
+  max-width: 1100px;
+  margin: 20px auto 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+}
+.notes-view {
+  min-height: 60px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+  color: #333;
+  line-height: 1.6;
+}
+.notes-view:empty::before,
+.notes-view.is-empty::before {
+  content: "등록된 메모가 없습니다. \"편집\" 버튼을 눌러 설비 정보나 부품 구매처 링크를 기록해보세요.";
+  color: #9ca3af;
+}
+.notes-view a {
+  color: var(--pri);
+  word-break: break-all;
+  font-weight: 500;
+}
+#notesEdit { font-size: 14px; }
+
+/* ── 모달 리스킨 ──────────────────────────────────────────────── */
+.modal-content { border: none; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
+.modal-header { border-bottom: 1px solid var(--border); padding: 18px 22px; }
+.modal-title { font-weight: 700; letter-spacing: -0.01em; }
+.modal-body { padding: 20px 22px; }
+.form-label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+
+/* ── 아이콘 선택기 ────────────────────────────────────────────── */
+.icon-picker {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+  padding: 10px;
+  background: #f8f9fc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  max-height: 168px;
+  overflow-y: auto;
+}
+.icon-choice {
+  width: 34px;
+  height: 34px;
+  border: 1.5px solid transparent;
+  border-radius: 9px;
+  background: #fff;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.icon-choice:hover { background: #eef0fb; transform: translateY(-1px); }
+.icon-choice.selected {
+  border-color: var(--pri);
+  background: color-mix(in srgb, var(--pri) 12%, white);
+  box-shadow: 0 0 0 2px rgba(67, 56, 202, 0.18);
+}
+
+/* ── 대시보드 검색/정렬 툴바 ──────────────────────────────────── */
+.dashboard-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1100px;
+  margin: 0 auto 16px;
+}
+.dashboard-toolbar .search-box {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
+}
+.dashboard-toolbar .search-box i {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.dashboard-toolbar .search-box input {
+  padding-left: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.dashboard-toolbar select {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 13px;
+  padding: 6px 14px;
+}
+.nav-badge {
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  margin-left: 2px;
+}
+
+/* ── 전체 교체 현황 목록 ──────────────────────────────────────── */
+.alerts-list {
+  max-width: 900px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.alert-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.alert-row:last-child { border-bottom: none; }
+.alert-row:hover { background: #f8f9fd; }
+.alert-badge { flex-shrink: 0; min-width: 66px; text-align: center; }
+.alert-main { flex: 1; min-width: 0; }
+.alert-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.alert-sep { color: var(--text-muted); margin: 0 2px; }
+.alert-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.alert-chevron { color: var(--text-muted); flex-shrink: 0; }
+
+/* ── 통계 페이지 ───────────────────────────────────────────────── */
+.unit-filter-menu {
+  max-height: 320px;
+  overflow-y: auto;
+  min-width: 240px;
+}
+.unit-filter-menu .form-check { padding-left: 1.6em; }
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+@media (max-width: 900px) {
+  .stats-grid { grid-template-columns: 1fr; }
+}
+.stats-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 0 6px;
+}
+.stats-panel h6 {
+  font-weight: 700;
+  padding: 0 18px 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid #f1f2f6;
+}
+.stats-subtitle {
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.stats-list {
+  max-height: 380px;
+  overflow-y: auto;
+}
+.stats-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.stats-row:last-child { border-bottom: none; }
+.stats-row:hover { background: #f8f9fd; }
+.stats-rank {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--pri) 12%, white);
+  color: var(--pri);
+  font-size: 11px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
+.master-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  padding: 3px 10px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.bulk-paste-box {
+  max-width: 1300px;
+  margin: 0 auto 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 18px;
+}
+.bulk-paste-box textarea { font-family: ui-monospace, monospace; font-size: 13px; }
+.bulk-table-wrap {
+  max-width: 1300px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.bulk-table { margin-bottom: 0; font-size: 13.5px; }
+.bulk-table thead th {
+  background: #f8f9fd;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+}
+.bulk-table td { vertical-align: middle; }
+.bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-status-pending { color: var(--text-muted); }
+.bulk-status-registered { color: #16a34a; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<main class="login-wrap">
+  <div class="login-card">
+    <div class="login-icon"><i class="bi bi-shield-lock-fill"></i></div>
+    <h1>설비 부품 교체 관리 시스템</h1>
+    <p class="text-muted small mb-3">접속 비밀번호를 입력하세요</p>
+    <div id="errorBox" class="alert alert-danger py-2 small d-none">비밀번호가 올바르지 않습니다</div>
+    <form method="POST">
+      <input type="password" name="password" class="form-control mb-3" placeholder="비밀번호" autofocus required>
+      <button type="submit" class="btn btn-primary w-100">로그인</button>
+    </form>
+    <p class="text-muted small mt-3 mb-0">최초 비밀번호는 <strong>0000</strong> 입니다. 로그인 후 반드시 변경해주세요.</p>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  if (new URLSearchParams(window.location.search).get("error")) {
+    document.getElementById("errorBox").classList.remove("d-none");
+  }
+</script>
+</body>
+</html>
+"""
+
+
+BULK_ADD_PARTS_HTML = r"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>부품 일괄 등록 - 설비 부품 교체 관리 시스템</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<style>
+:root {
+  --pri: #4338ca;
+  --pri-dark: #362f8c;
+  --accent: #6366f1;
+  --bg-a: #e5e7eb;
+  --bg-b: #f3f4f6;
+  --surface: #ffffff;
+  --border: #e5e7eb;
+  --text: #1e2432;
+  --text-muted: #6b7280;
+  --radius-lg: 18px;
+  --radius-md: 14px;
+  --radius-sm: 10px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
+  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+    "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  color: var(--text);
+}
+
+/* ── 로그인 페이지 ────────────────────────────────────────────── */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 36px 32px;
+  max-width: 380px;
+  width: 100%;
+  text-align: center;
+}
+.login-icon {
+  font-size: 40px;
+  color: var(--pri);
+  margin-bottom: 10px;
+}
+.login-card h1 {
+  font-size: 18px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+/* ── 버튼 공통 리스킨 ─────────────────────────────────────────── */
+.btn {
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: all 0.15s ease;
+}
+.btn-primary {
+  background: var(--pri);
+  border-color: var(--pri);
+  box-shadow: 0 2px 8px rgba(67, 56, 202, 0.35);
+}
+.btn-primary:hover {
+  background: var(--pri-dark);
+  border-color: var(--pri-dark);
+  box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
+}
+.btn-outline-light {
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.btn-outline-light:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #fff;
+}
+.btn-warning {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+}
+.btn-warning:hover { background: #d97706; border-color: #d97706; color: #fff; }
+.btn-outline-secondary { border-color: var(--border); color: var(--text-muted); }
+.btn-outline-secondary:hover { background: #f3f4f6; color: var(--text); }
+.btn-outline-primary { color: var(--pri); border-color: var(--pri); }
+.btn-outline-primary:hover { background: var(--pri); border-color: var(--pri); }
+.btn-outline-danger:hover { box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25); }
+
+.form-control:focus, .form-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 0.2rem rgba(99, 102, 241, 0.2);
+}
+
+/* ── 상단바 ───────────────────────────────────────────────────── */
+.topbar {
+  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
+  color: #fff;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 90;
+  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
+}
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.topbar i.bi { font-size: 18px; opacity: 0.9; }
+.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+
+/* ── 범례 ─────────────────────────────────────────────────────── */
+.legend {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  font-size: 13px;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 9px 20px;
+  box-shadow: var(--shadow-sm);
+}
+.legend-item { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-shadow: 0 0 0 3px currentColor; opacity: 0.9; }
+.dot-ok { background: #22c55e; color: rgba(34, 197, 94, 0.18); }
+.dot-soon { background: #f59e0b; color: rgba(245, 158, 11, 0.18); }
+.dot-overdue { background: #ef4444; color: rgba(239, 68, 68, 0.18); }
+.dot-unknown { background: #9ca3af; color: rgba(156, 163, 175, 0.18); }
+
+/* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
+.equipment-frame {
+  background:
+    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
+    linear-gradient(180deg, #fcfcfd, #e9eaed);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid #dcdee2;
+  border-radius: var(--radius-lg);
+  padding: 30px 22px 22px;
+  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
+  position: relative;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.12), rgba(245, 158, 11, 0.12));
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  color: #92400e;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  margin-bottom: 14px;
+  text-align: center;
+}
+.equipment-label {
+  position: absolute;
+  top: -14px;
+  left: 22px;
+  background: linear-gradient(120deg, var(--pri), var(--accent));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 14px;
+  border-radius: 999px;
+  box-shadow: 0 3px 10px rgba(67, 56, 202, 0.3);
+}
+
+.unit-shape {
+  --shape-color: var(--pri);
+  border: 3px solid var(--shape-color);
+  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+}
+.unit-shape-header {
+  text-align: center;
+  margin-bottom: 6px;
+}
+.unit-shape-icon {
+  font-size: 42px;
+  display: block;
+  line-height: 1.2;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.12));
+}
+.unit-shape-name {
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--shape-color);
+}
+
+/* ── 대시보드 그리드 ──────────────────────────────────────────── */
+.equipment-canvas.dashboard-canvas {
+  max-width: 1300px;
+  margin: 10px auto 0;
+  min-height: 860px;
+}
+@media (max-width: 768px) {
+  .equipment-canvas.dashboard-canvas { min-height: 1150px; }
+}
+.equipment-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 150px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--pri);
+  border-radius: var(--radius-md);
+  padding: 20px 10px 14px;
+  cursor: pointer;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  user-select: none;
+  touch-action: none;
+  box-sizing: border-box;
+}
+.equipment-card:hover {
+  box-shadow: var(--shadow-lg);
+  border-top-color: var(--accent);
+  z-index: 5;
+}
+.equipment-card.edit-mode { cursor: grab; }
+.equipment-card.dragging {
+  cursor: grabbing;
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+  transition: none;
+}
+.equipment-card .unit-icon { font-size: 30px; }
+
+/* ── 캔버스 ───────────────────────────────────────────────────── */
+.equipment-canvas {
+  position: relative;
+  width: 100%;
+  min-height: 460px;
+  margin-top: 10px;
+}
+@media (max-width: 768px) {
+  .equipment-canvas { min-height: 620px; }
+}
+
+/* ── 유닛/부품 카드 ───────────────────────────────────────────── */
+.unit-card {
+  --uc: #4338ca;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 140px;
+  min-height: 110px;
+  background: var(--surface);
+  border: 1.5px solid var(--uc);
+  border-radius: var(--radius-md);
+  padding: 14px 10px 10px;
+  cursor: pointer;
+  transition: box-shadow 0.18s ease, transform 0.12s ease;
+  text-align: center;
+  user-select: none;
+  touch-action: none;
+  box-sizing: border-box;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.unit-card:hover {
+  box-shadow: var(--shadow-lg);
+  z-index: 5;
+}
+.edit-mode.unit-card { cursor: grab; }
+.unit-card.dragging {
+  cursor: grabbing;
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+  transition: none;
+}
+.unit-icon-wrap {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 6px;
+  background: #eef0fb;
+  background: color-mix(in srgb, var(--uc) 14%, white);
+}
+.overdue-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(239, 68, 68, 0.4);
+}
+.unit-icon { font-size: 22px; display: block; line-height: 1; }
+.unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
+.unit-status-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+.unit-part-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-weight: 500;
+}
+.unit-edit-actions {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  display: none;
+  gap: 4px;
+}
+.edit-mode .unit-edit-actions { display: flex; }
+.unit-edit-actions button {
+  border: none;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 7px;
+  font-size: 11px;
+  padding: 3px 6px;
+  transition: background 0.15s;
+}
+.unit-edit-actions button:hover { background: rgba(15, 23, 42, 0.14); }
+
+.resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  display: none;
+  cursor: nwse-resize;
+}
+.edit-mode .resize-handle { display: block; }
+.resize-handle::before {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid rgba(67, 56, 202, 0.45);
+  border-bottom: 2px solid rgba(67, 56, 202, 0.45);
+}
+
+.resize-handle-h {
+  position: absolute;
+  right: -3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 30px;
+  display: none;
+  cursor: ew-resize;
+}
+.edit-mode .resize-handle-h { display: block; }
+.resize-handle-h::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+  background: rgba(67, 56, 202, 0.4);
+}
+
+.canvas-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* ── 부품 목록/배지 ───────────────────────────────────────────── */
+.part-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 15px;
+  margin-bottom: 10px;
+  background: #fafbfe;
+  transition: box-shadow 0.15s;
+}
+.part-card:hover { box-shadow: var(--shadow-sm); }
+.part-card .part-title { font-weight: 700; font-size: 14px; }
+.part-card .part-spec { font-size: 12px; color: var(--text-muted); }
+.badge-ok { background: #d1fae5; color: #065f46; }
+.badge-soon { background: #fef3c7; color: #92400e; }
+.badge-overdue { background: #fee2e2; color: #991b1b; }
+.badge-unknown { background: #e5e7eb; color: #374151; }
+
+.history-row { font-size: 13px; border-bottom: 1px solid #f1f1f1; padding: 7px 0; }
+
+/* ── 메모장 ───────────────────────────────────────────────────── */
+.notes-section {
+  max-width: 1100px;
+  margin: 20px auto 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+}
+.notes-view {
+  min-height: 60px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+  color: #333;
+  line-height: 1.6;
+}
+.notes-view:empty::before,
+.notes-view.is-empty::before {
+  content: "등록된 메모가 없습니다. \"편집\" 버튼을 눌러 설비 정보나 부품 구매처 링크를 기록해보세요.";
+  color: #9ca3af;
+}
+.notes-view a {
+  color: var(--pri);
+  word-break: break-all;
+  font-weight: 500;
+}
+#notesEdit { font-size: 14px; }
+
+/* ── 모달 리스킨 ──────────────────────────────────────────────── */
+.modal-content { border: none; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
+.modal-header { border-bottom: 1px solid var(--border); padding: 18px 22px; }
+.modal-title { font-weight: 700; letter-spacing: -0.01em; }
+.modal-body { padding: 20px 22px; }
+.form-label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+
+/* ── 아이콘 선택기 ────────────────────────────────────────────── */
+.icon-picker {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+  padding: 10px;
+  background: #f8f9fc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  max-height: 168px;
+  overflow-y: auto;
+}
+.icon-choice {
+  width: 34px;
+  height: 34px;
+  border: 1.5px solid transparent;
+  border-radius: 9px;
+  background: #fff;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.icon-choice:hover { background: #eef0fb; transform: translateY(-1px); }
+.icon-choice.selected {
+  border-color: var(--pri);
+  background: color-mix(in srgb, var(--pri) 12%, white);
+  box-shadow: 0 0 0 2px rgba(67, 56, 202, 0.18);
+}
+
+/* ── 대시보드 검색/정렬 툴바 ──────────────────────────────────── */
+.dashboard-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1100px;
+  margin: 0 auto 16px;
+}
+.dashboard-toolbar .search-box {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
+}
+.dashboard-toolbar .search-box i {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.dashboard-toolbar .search-box input {
+  padding-left: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.dashboard-toolbar select {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 13px;
+  padding: 6px 14px;
+}
+.nav-badge {
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  margin-left: 2px;
+}
+
+/* ── 전체 교체 현황 목록 ──────────────────────────────────────── */
+.alerts-list {
+  max-width: 900px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.alert-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.alert-row:last-child { border-bottom: none; }
+.alert-row:hover { background: #f8f9fd; }
+.alert-badge { flex-shrink: 0; min-width: 66px; text-align: center; }
+.alert-main { flex: 1; min-width: 0; }
+.alert-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.alert-sep { color: var(--text-muted); margin: 0 2px; }
+.alert-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.alert-chevron { color: var(--text-muted); flex-shrink: 0; }
+
+/* ── 통계 페이지 ───────────────────────────────────────────────── */
+.unit-filter-menu {
+  max-height: 320px;
+  overflow-y: auto;
+  min-width: 240px;
+}
+.unit-filter-menu .form-check { padding-left: 1.6em; }
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+@media (max-width: 900px) {
+  .stats-grid { grid-template-columns: 1fr; }
+}
+.stats-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 0 6px;
+}
+.stats-panel h6 {
+  font-weight: 700;
+  padding: 0 18px 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid #f1f2f6;
+}
+.stats-subtitle {
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.stats-list {
+  max-height: 380px;
+  overflow-y: auto;
+}
+.stats-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.stats-row:last-child { border-bottom: none; }
+.stats-row:hover { background: #f8f9fd; }
+.stats-rank {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--pri) 12%, white);
+  color: var(--pri);
+  font-size: 11px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
+.master-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  padding: 3px 10px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.bulk-paste-box {
+  max-width: 1300px;
+  margin: 0 auto 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 18px;
+}
+.bulk-paste-box textarea { font-family: ui-monospace, monospace; font-size: 13px; }
+.bulk-table-wrap {
+  max-width: 1300px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.bulk-table { margin-bottom: 0; font-size: 13.5px; }
+.bulk-table thead th {
+  background: #f8f9fd;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+}
+.bulk-table td { vertical-align: middle; }
+.bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-status-pending { color: var(--text-muted); }
+.bulk-status-registered { color: #16a34a; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="d-flex align-items-center gap-2">
+    <a href="/" class="btn btn-sm btn-outline-light"><i class="bi bi-arrow-left"></i> 대시보드</a>
+    <i class="bi bi-stack"></i>
+    <h1>부품 일괄 등록 <span class="master-badge">기준 설비: TEAG01호기</span></h1>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span id="clock" class="clock"></span>
+  </div>
+</header>
+
+<main class="container-fluid py-4">
+
+  <div class="bulk-paste-box mb-3">
+    <label class="form-label mb-1">
+      엑셀 등에서 <strong>유닛이름, 부품이름, Q-CODE, 부가설명</strong> 순서로 복사해 아래에 붙여넣으세요 (한 줄에 부품 하나).
+    </label>
+    <textarea id="pasteArea" class="form-control" rows="4" placeholder="로드포트1&#9;오링&#9;Q-1234&#9;내열용&#10;HMI&#9;케이블&#9;Q-5678&#9;연결선"></textarea>
+    <button id="applyPasteBtn" class="btn btn-primary btn-sm mt-2">
+      <i class="bi bi-clipboard-plus"></i> 붙여넣기 반영
+    </button>
+  </div>
+
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <div class="form-check">
+      <input class="form-check-input" type="checkbox" id="selectAllCheck">
+      <label class="form-check-label small text-muted" for="selectAllCheck">전체 선택</label>
+    </div>
+    <button id="deleteSelectedBtn" class="btn btn-sm btn-outline-danger">
+      <i class="bi bi-trash"></i> 선택 삭제
+    </button>
+  </div>
+
+  <div class="bulk-table-wrap">
+    <table class="table bulk-table align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:36px"></th>
+          <th>원본 유닛명</th>
+          <th>유닛 선택</th>
+          <th>부품이름</th>
+          <th>Q-CODE</th>
+          <th>부가설명</th>
+          <th>상태</th>
+          <th style="width:90px"></th>
+        </tr>
+      </thead>
+      <tbody id="bulkTableBody"></tbody>
+    </table>
+    <p id="bulkEmptyMsg" class="text-muted text-center py-4 mb-0 d-none">등록 대기 중인 항목이 없습니다.</p>
+  </div>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+let masterUnits = [];
+let entries = [];
+
+function tick() {
+  const el = document.getElementById("clock");
+  if (el) el.textContent = new Date().toLocaleString("ko-KR");
+}
+
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s || "";
+  return div.innerHTML;
+}
+
+async function fetchJson(url, options) {
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    window.location.href = "/login";
+    throw new Error("로그인이 필요합니다");
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || "요청 처리 중 오류가 발생했습니다");
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+async function loadEntries() {
+  const data = await fetchJson("/api/bulk-parts");
+  masterUnits = data.master_units;
+  entries = data.entries;
+  renderTable();
+}
+
+function unitOptionsHtml(selectedUnitId) {
+  return (
+    `<option value="">유닛 선택...</option>` +
+    masterUnits
+      .map(
+        (u) =>
+          `<option value="${u.id}" ${u.id === selectedUnitId ? "selected" : ""}>${escapeHtml(u.name)}</option>`
+      )
+      .join("")
+  );
+}
+
+function renderTable() {
+  const tbody = document.getElementById("bulkTableBody");
+  const emptyMsg = document.getElementById("bulkEmptyMsg");
+  if (entries.length === 0) {
+    tbody.innerHTML = "";
+    emptyMsg.classList.remove("d-none");
+    return;
+  }
+  emptyMsg.classList.add("d-none");
+  tbody.innerHTML = entries
+    .map(
+      (e) => `
+    <tr data-entry-id="${e.id}">
+      <td><input type="checkbox" class="form-check-input row-check" data-id="${e.id}"></td>
+      <td class="text-muted">${escapeHtml(e.raw_unit_text)}</td>
+      <td>
+        <select class="form-select form-select-sm unit-select" data-id="${e.id}">
+          ${unitOptionsHtml(e.unit_id)}
+        </select>
+      </td>
+      <td><input type="text" class="form-control form-control-sm field-input" data-id="${e.id}" data-field="part_name" value="${escapeHtml(e.part_name)}"></td>
+      <td><input type="text" class="form-control form-control-sm field-input" data-id="${e.id}" data-field="q_code" value="${escapeHtml(e.q_code)}"></td>
+      <td><input type="text" class="form-control form-control-sm field-input" data-id="${e.id}" data-field="note" value="${escapeHtml(e.note)}"></td>
+      <td>
+        ${e.status === "registered"
+          ? '<span class="bulk-status-registered"><i class="bi bi-check-circle-fill"></i> 등록됨</span>'
+          : '<span class="bulk-status-pending">대기</span>'}
+      </td>
+      <td>
+        <button class="btn btn-sm btn-primary register-btn" data-id="${e.id}" ${e.status === "registered" || !e.unit_id ? "disabled" : ""}>
+          등록
+        </button>
+      </td>
+    </tr>`
+    )
+    .join("");
+
+  tbody.querySelectorAll(".unit-select").forEach((sel) => {
+    sel.addEventListener("change", async () => {
+      const id = parseInt(sel.dataset.id, 10);
+      await fetchJson(`/api/bulk-parts/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unit_id: sel.value ? parseInt(sel.value, 10) : null }),
+      });
+      await loadEntries();
+    });
+  });
+
+  tbody.querySelectorAll(".field-input").forEach((input) => {
+    input.addEventListener("change", async () => {
+      const id = parseInt(input.dataset.id, 10);
+      await fetchJson(`/api/bulk-parts/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [input.dataset.field]: input.value.trim() }),
+      });
+    });
+  });
+
+  tbody.querySelectorAll(".register-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = parseInt(btn.dataset.id, 10);
+      try {
+        await fetchJson(`/api/bulk-parts/${id}/register`, { method: "POST" });
+        await loadEntries();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  tick();
+  setInterval(tick, 1000);
+  loadEntries();
+
+  document.getElementById("applyPasteBtn").addEventListener("click", async () => {
+    const text = document.getElementById("pasteArea").value;
+    if (!text.trim()) return;
+    try {
+      await fetchJson("/api/bulk-parts/paste", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      document.getElementById("pasteArea").value = "";
+      await loadEntries();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById("selectAllCheck").addEventListener("change", (e) => {
+    document.querySelectorAll(".row-check").forEach((cb) => (cb.checked = e.target.checked));
+  });
+
+  document.getElementById("deleteSelectedBtn").addEventListener("click", async () => {
+    const ids = Array.from(document.querySelectorAll(".row-check:checked")).map((cb) => cb.dataset.id);
+    if (ids.length === 0) {
+      alert("삭제할 항목을 선택하세요.");
+      return;
+    }
+    if (!confirm(`선택한 ${ids.length}개 항목을 목록에서 삭제할까요? (이미 등록된 부품 자체는 삭제되지 않습니다)`)) return;
+    for (const id of ids) {
+      await fetchJson(`/api/bulk-parts/${id}`, { method: "DELETE" });
+    }
+    document.getElementById("selectAllCheck").checked = false;
+    await loadEntries();
+  });
+});
+</script>
+</body>
+</html>
+"""
+
+
 if __name__ == "__main__":
     init_db()
+    _conn = get_db()
+    app.secret_key = get_config(_conn, "secret_key")
+    _conn.close()
     lan_ip = get_lan_ip()
     print("설비 부품 교체 관리 시스템 시작!")
     print(f"  이 컴퓨터에서 접속: http://localhost:5000")
     print(f"  같은 네트워크의 다른 사람 접속: http://{lan_ip}:5000")
     print("  (다른 사람이 접속 안 되면 Windows 방화벽에서 Python 허용 여부를 확인하세요)")
+    print(f"  최초 접속 비밀번호: {DEFAULT_PASSWORD} (로그인 후 반드시 변경해주세요)")
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)

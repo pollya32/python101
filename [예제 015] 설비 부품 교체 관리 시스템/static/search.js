@@ -26,6 +26,10 @@ async function runSearch() {
   }
 
   const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+  if (res.status === 401) {
+    window.location.href = "/login";
+    return;
+  }
   const parts = await res.json();
 
   if (parts.length === 0) {

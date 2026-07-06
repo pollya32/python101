@@ -26,6 +26,10 @@ async function loadStats() {
   const params = new URLSearchParams();
   selectedUnitNames.forEach((name) => params.append("unit_name", name));
   const res = await fetch(`/api/stats?${params.toString()}`);
+  if (res.status === 401) {
+    window.location.href = "/login";
+    return;
+  }
   const data = await res.json();
   renderUnitFilter(data.unit_names);
   renderPartSpecPanel("statsCost", data.by_cost, (r) => formatMoney(r.total_cost));

@@ -37,6 +37,10 @@ function tick() {
 
 async function fetchJson(url, options) {
   const res = await fetch(url, options);
+  if (res.status === 401) {
+    window.location.href = "/login";
+    throw new Error("로그인이 필요합니다");
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || "요청 처리 중 오류가 발생했습니다");
@@ -409,6 +413,7 @@ function openPartDetailModal(partId) {
 
 function openReplaceModal() {
   document.getElementById("replaceDate").value = new Date().toISOString().slice(0, 10);
+  document.getElementById("replaceCost").value = 0;
   document.getElementById("replaceNote").value = "";
   replaceModal.show();
 }
@@ -425,7 +430,7 @@ async function openHistoryModal() {
       .map(
         (h) => `
       <div class="history-row d-flex justify-content-between">
-        <div><strong>${h.replaced_date}</strong> ${h.note ? " - " + escapeHtml(h.note) : ""}</div>
+        <div><strong>${h.replaced_date}</strong> &middot; ${formatCost(h.cost)} ${h.note ? " - " + escapeHtml(h.note) : ""}</div>
         <button class="btn btn-sm btn-link text-danger p-0 del-history-btn" data-id="${h.id}">삭제</button>
       </div>`
       )
@@ -519,6 +524,7 @@ document.addEventListener("DOMContentLoaded", () => {
     e.preventDefault();
     const payload = {
       replaced_date: document.getElementById("replaceDate").value,
+      cost: parseFloat(document.getElementById("replaceCost").value) || 0,
       note: document.getElementById("replaceNote").value.trim(),
     };
     try {

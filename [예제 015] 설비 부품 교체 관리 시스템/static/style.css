@@ -26,6 +26,35 @@ body {
   color: var(--text);
 }
 
+/* ── 로그인 페이지 ────────────────────────────────────────────── */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 36px 32px;
+  max-width: 380px;
+  width: 100%;
+  text-align: center;
+}
+.login-icon {
+  font-size: 40px;
+  color: var(--pri);
+  margin-bottom: 10px;
+}
+.login-card h1 {
+  font-size: 18px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
 /* ── 버튼 공통 리스킨 ─────────────────────────────────────────── */
 .btn {
   border-radius: var(--radius-sm);
@@ -601,3 +630,45 @@ body {
   align-items: center;
   justify-content: center;
 }
+
+/* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
+.master-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  padding: 3px 10px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.bulk-paste-box {
+  max-width: 1300px;
+  margin: 0 auto 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 18px;
+}
+.bulk-paste-box textarea { font-family: ui-monospace, monospace; font-size: 13px; }
+.bulk-table-wrap {
+  max-width: 1300px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.bulk-table { margin-bottom: 0; font-size: 13.5px; }
+.bulk-table thead th {
+  background: #f8f9fd;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+}
+.bulk-table td { vertical-align: middle; }
+.bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-status-pending { color: var(--text-muted); }
+.bulk-status-registered { color: #16a34a; font-weight: 700; }

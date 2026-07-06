@@ -30,6 +30,10 @@ function tick() {
 
 async function fetchJson(url, options) {
   const res = await fetch(url, options);
+  if (res.status === 401) {
+    window.location.href = "/login";
+    throw new Error("로그인이 필요합니다");
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || "요청 처리 중 오류가 발생했습니다");
@@ -195,10 +199,33 @@ function openEquipmentEditModal(eq) {
 
 document.addEventListener("DOMContentLoaded", () => {
   equipmentEditModal = new bootstrap.Modal(document.getElementById("equipmentEditModal"));
+  const changePasswordModal = new bootstrap.Modal(document.getElementById("changePasswordModal"));
 
   tick();
   setInterval(tick, 1000);
   loadEquipments();
+
+  document.getElementById("changePasswordBtn").addEventListener("click", () => {
+    document.getElementById("changePasswordForm").reset();
+    changePasswordModal.show();
+  });
+  document.getElementById("changePasswordForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      await fetchJson("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          current_password: document.getElementById("currentPasswordInput").value,
+          new_password: document.getElementById("newPasswordInput").value,
+        }),
+      });
+      changePasswordModal.hide();
+      alert("비밀번호가 변경되었습니다.");
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 
   document.getElementById("editModeBtn").addEventListener("click", (e) => {
     editMode = !editMode;
