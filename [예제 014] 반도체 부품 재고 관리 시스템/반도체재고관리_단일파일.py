@@ -6,8 +6,8 @@
 접속: http://localhost:5000  (기본 계정: admin / admin1234)
 """
 
-import sqlite3, os, sys
-from flask import Flask, render_template_string, request, redirect, flash, jsonify
+import sqlite3, os, sys, csv, io, urllib.parse
+from flask import Flask, render_template_string, request, redirect, flash, jsonify, Response
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash as _gen_hash, check_password_hash
 
@@ -300,7 +300,10 @@ PARTS_T = _page('부품 재고 관리', """
     </select></div>
     <div class="col-auto"><button type="submit" class="btn btn-primary">검색</button>
       <a href="/parts" class="btn btn-outline-secondary ms-1">초기화</a></div>
-    <div class="col-auto ms-auto"><a href="/parts/add" class="btn btn-success"><i class="bi bi-plus-circle me-1"></i>부품 등록</a></div>
+    <div class="col-auto ms-auto">
+      <a href="/parts/export?q={{q}}&category={{sel_cat}}" class="btn btn-outline-success me-1"><i class="bi bi-download me-1"></i>다운로드</a>
+      <a href="/parts/add" class="btn btn-success"><i class="bi bi-plus-circle me-1"></i>부품 등록</a>
+    </div>
   </form>
 </div></div>
 <div class="card"><div class="card-header bg-white fw-semibold">
@@ -401,7 +404,10 @@ EQ_T = _page('장비 관리', """
     </div></div>
     <div class="col-auto"><button type="submit" class="btn btn-primary">검색</button>
       <a href="/equipment" class="btn btn-outline-secondary ms-1">초기화</a></div>
-    <div class="col-auto ms-auto"><a href="/equipment/add" class="btn btn-success"><i class="bi bi-plus-circle me-1"></i>장비 등록</a></div>
+    <div class="col-auto ms-auto">
+      <a href="/equipment/export?q={{q}}" class="btn btn-outline-success me-1"><i class="bi bi-download me-1"></i>다운로드</a>
+      <a href="/equipment/add" class="btn btn-success"><i class="bi bi-plus-circle me-1"></i>장비 등록</a>
+    </div>
   </form>
 </div></div>
 <div class="row g-3">
@@ -457,7 +463,10 @@ HIST_T = _page('교체 이력', """
     </div></div>
     <div class="col-auto"><button type="submit" class="btn btn-primary">검색</button>
       <a href="/history" class="btn btn-outline-secondary ms-1">초기화</a></div>
-    <div class="col-auto ms-auto"><a href="/history/add" class="btn btn-success"><i class="bi bi-plus-circle me-1"></i>교체 등록</a></div>
+    <div class="col-auto ms-auto">
+      <a href="/history/export?q={{q}}" class="btn btn-outline-success me-1"><i class="bi bi-download me-1"></i>다운로드</a>
+      <a href="/history/add" class="btn btn-success"><i class="bi bi-plus-circle me-1"></i>교체 등록</a>
+    </div>
   </form>
 </div></div>
 <div class="card"><div class="card-header bg-white fw-semibold">
@@ -571,6 +580,18 @@ USER_FORM_T = _page('{{title}}', """
 </div></div></div>""")
 
 
+def _csv_response(filename, header, rows):
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(header)
+    writer.writerows(rows)
+    data = '﻿' + buf.getvalue()  # BOM 추가 (엑셀 한글 깨짐 방지)
+    encoded_name = urllib.parse.quote(filename)
+    disposition = f"attachment; filename=\"download.csv\"; filename*=UTF-8''{encoded_name}"
+    return Response(data, mimetype='text/csv',
+                     headers={'Content-Disposition': disposition})
+
+
 # ── 라우트 ───────────────────────────────────────────────────────────────────
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -627,6 +648,20 @@ def parts_list():
     cats = conn.execute("SELECT DISTINCT category FROM parts WHERE category!='' ORDER BY category").fetchall()
     conn.close()
     return render_template_string(PARTS_T, parts=parts, categories=cats, q=q, sel_cat=cat)
+
+
+@app.route('/parts/export')
+@login_required
+def parts_export():
+    q = request.args.get('q', ''); cat = request.args.get('category', '')
+    conn = get_db(); sql = "SELECT * FROM parts WHERE 1=1"; p = []
+    if q: sql += " AND (name LIKE ? OR code LIKE ? OR supplier LIKE ?)"; p += [f'%{q}%'] * 3
+    if cat: sql += " AND category=?"; p.append(cat)
+    parts = conn.execute(sql + " ORDER BY category,name", p).fetchall(); conn.close()
+    rows = [[p['code'], p['name'], p['category'], p['quantity'], p['min_quantity'], p['unit'],
+             p['unit_price'], p['location'], p['supplier'], p['note']] for p in parts]
+    header = ['부품코드', '부품명', '카테고리', '현재재고', '최소재고', '단위', '단가', '보관위치', '공급업체', '비고']
+    return _csv_response('부품재고목록.csv', header, rows)
 
 
 @app.route('/parts/add', methods=['GET', 'POST'])
@@ -696,6 +731,18 @@ def equipment_list():
     return render_template_string(EQ_T, equipment=eqs, q=q)
 
 
+@app.route('/equipment/export')
+@login_required
+def equipment_export():
+    q = request.args.get('q', ''); conn = get_db()
+    sql = "SELECT * FROM equipment WHERE 1=1"; p = []
+    if q: sql += " AND (name LIKE ? OR code LIKE ? OR location LIKE ?)"; p += [f'%{q}%'] * 3
+    eqs = conn.execute(sql + " ORDER BY code", p).fetchall(); conn.close()
+    rows = [[e['code'], e['name'], e['location'], e['status'], e['note']] for e in eqs]
+    header = ['장비코드', '장비명', '설치위치', '상태', '비고']
+    return _csv_response('장비목록.csv', header, rows)
+
+
 @app.route('/equipment/add', methods=['GET', 'POST'])
 @login_required
 def equipment_add():
@@ -749,6 +796,21 @@ def history_list():
                         params + [per, offset]).fetchall()
     conn.close()
     return render_template_string(HIST_T, rows=rows, page=page, total_pages=(total + per - 1) // per, q=q, total=total)
+
+
+@app.route('/history/export')
+@login_required
+def history_export():
+    q = request.args.get('q', ''); conn = get_db()
+    base = '''FROM replacement_history rh LEFT JOIN users u ON rh.user_id=u.id
+              LEFT JOIN equipment e ON rh.equipment_id=e.id LEFT JOIN parts p ON rh.part_id=p.id WHERE 1=1'''
+    params = []
+    if q: base += " AND (e.name LIKE ? OR p.name LIKE ? OR u.name LIKE ?)"; params += [f'%{q}%'] * 3
+    rows_db = conn.execute(f"SELECT rh.*,u.name as user_name,e.name as eq_name,p.name as part_name,p.unit {base} ORDER BY rh.replaced_at DESC", params).fetchall()
+    conn.close()
+    rows = [[r['replaced_at'], r['eq_name'], r['part_name'], r['quantity'], r['unit'], r['reason'], r['note'], r['user_name']] for r in rows_db]
+    header = ['교체일시', '장비명', '부품명', '수량', '단위', '교체사유', '비고', '작업자']
+    return _csv_response('교체이력.csv', header, rows)
 
 
 @app.route('/history/add', methods=['GET', 'POST'])
