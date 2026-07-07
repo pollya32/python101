@@ -819,16 +819,18 @@ def inventory_page():
 
 
 def get_inventory_rows(conn):
+    """재고는 TEAG01호기(기준 설비) 기준으로 전 설비가 동일하게 관리되므로,
+    나머지 설비는 동일한 내용이 중복되어 나타나는 것을 막기 위해 TEAG01호기 것만 보여준다."""
     return conn.execute("""
         SELECT p.id, p.name, p.spec, p.stock_qty, p.supplier, p.supplier_contact, p.lead_time_days,
-               u.id AS unit_id, u.name AS unit_name,
-               e.id AS equipment_id, e.name AS equipment_name, e.icon AS equipment_icon
+               u.id AS unit_id, u.name AS unit_name
         FROM parts p
         JOIN units u ON p.unit_id = u.id
         JOIN equipments e ON u.equipment_id = e.id
         WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
-        ORDER BY p.stock_qty ASC, e.id, u.id, p.id
-    """).fetchall()
+          AND e.id = ?
+        ORDER BY p.stock_qty ASC, u.id, p.id
+    """, (MASTER_EQUIPMENT_ID,)).fetchall()
 
 
 @app.route("/api/inventory")
@@ -845,13 +847,13 @@ def export_inventory_csv():
     conn = get_db()
     rows = get_inventory_rows(conn)
     conn.close()
-    header = ["부품이름", "규격", "소속 설비", "소속 유닛", "재고 수량", "구매처", "연락처", "리드타임(일)"]
+    header = ["부품이름", "규격", "소속 유닛", "재고 수량", "구매처", "연락처", "리드타임(일)"]
     data_rows = []
     for p in rows:
         if low_only and (p["stock_qty"] or 0) > 0:
             continue
         data_rows.append([
-            p["name"], p["spec"] or "", f"{p['equipment_icon']} {p['equipment_name']}", p["unit_name"],
+            p["name"], p["spec"] or "", p["unit_name"],
             p["stock_qty"] or 0, p["supplier"] or "", p["supplier_contact"] or "",
             p["lead_time_days"] if p["lead_time_days"] is not None else "",
         ])
@@ -1651,8 +1653,6 @@ def export_alerts_csv():
 @app.route("/api/search")
 def api_search():
     q = (request.args.get("q") or "").strip()
-    if not q:
-        return jsonify([])
     status = request.args.get("status") or None
     equipment_id = request.args.get("equipment_id")
     equipment_id = int(equipment_id) if equipment_id else None
@@ -9218,7 +9218,7 @@ body {
   </div>
 
   <div id="searchResults" class="alerts-list mt-3"></div>
-  <p id="searchHintMsg" class="text-muted text-center py-4">부품명 또는 규격을 입력하면 모든 설비에서 찾아드립니다.</p>
+  <p id="searchHintMsg" class="text-muted text-center py-4">불러오는 중...</p>
 
 </main>
 
@@ -9259,14 +9259,8 @@ async function runSearch() {
   const list = document.getElementById("searchResults");
   const hint = document.getElementById("searchHintMsg");
 
-  if (!q) {
-    list.innerHTML = "";
-    hint.textContent = "부품명 또는 규격을 입력하면 모든 설비에서 찾아드립니다.";
-    hint.classList.remove("d-none");
-    return;
-  }
-
-  const params = new URLSearchParams({ q });
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
   if (status) params.set("status", status);
   if (equipmentId) params.set("equipment_id", equipmentId);
   const res = await fetch(`/api/search?${params.toString()}`);
@@ -9278,7 +9272,7 @@ async function runSearch() {
 
   if (parts.length === 0) {
     list.innerHTML = "";
-    hint.textContent = "검색 결과가 없습니다.";
+    hint.textContent = q || status || equipmentId ? "검색 결과가 없습니다." : "등록된 부품이 없습니다.";
     hint.classList.remove("d-none");
     return;
   }
@@ -9329,8 +9323,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   const q = new URLSearchParams(window.location.search).get("q");
   if (q) {
     document.getElementById("partSearchInput").value = q;
-    runSearch();
   }
+  runSearch();
 });
 </script>
 </body>
@@ -14824,7 +14818,7 @@ body {
       <input class="form-check-input" type="checkbox" id="lowStockOnlyCheck">
       <label class="form-check-label small text-muted" for="lowStockOnlyCheck">재고 부족(0개)만 보기</label>
     </div>
-    <span class="text-muted small">재고 수량을 바로 수정할 수 있습니다.</span>
+    <span class="text-muted small">재고는 TEAG01호기 기준으로 전 설비에 동일하게 적용되며, 여기서 바로 수정할 수 있습니다.</span>
   </div>
 
   <div class="bulk-table-wrap">
@@ -14833,7 +14827,6 @@ body {
         <tr>
           <th>부품이름</th>
           <th>규격</th>
-          <th>소속 설비</th>
           <th>소속 유닛</th>
           <th style="width:110px">재고 수량</th>
           <th>구매처</th>
@@ -14905,7 +14898,6 @@ function renderInventory() {
     <tr data-part-id="${p.id}" class="${(p.stock_qty || 0) <= 0 ? "table-danger" : ""}">
       <td>${escapeHtml(p.name)}</td>
       <td class="text-muted">${escapeHtml(p.spec)}</td>
-      <td class="text-muted">${escapeHtml(p.equipment_icon)} ${escapeHtml(p.equipment_name)}</td>
       <td class="text-muted">${escapeHtml(p.unit_name)}</td>
       <td><input type="number" class="form-control form-control-sm stock-qty-input" data-id="${p.id}" value="${p.stock_qty || 0}" min="0" step="1"></td>
       <td class="text-muted">${escapeHtml(p.supplier)}</td>

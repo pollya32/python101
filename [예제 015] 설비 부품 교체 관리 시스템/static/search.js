@@ -33,14 +33,8 @@ async function runSearch() {
   const list = document.getElementById("searchResults");
   const hint = document.getElementById("searchHintMsg");
 
-  if (!q) {
-    list.innerHTML = "";
-    hint.textContent = "부품명 또는 규격을 입력하면 모든 설비에서 찾아드립니다.";
-    hint.classList.remove("d-none");
-    return;
-  }
-
-  const params = new URLSearchParams({ q });
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
   if (status) params.set("status", status);
   if (equipmentId) params.set("equipment_id", equipmentId);
   const res = await fetch(`/api/search?${params.toString()}`);
@@ -52,7 +46,7 @@ async function runSearch() {
 
   if (parts.length === 0) {
     list.innerHTML = "";
-    hint.textContent = "검색 결과가 없습니다.";
+    hint.textContent = q || status || equipmentId ? "검색 결과가 없습니다." : "등록된 부품이 없습니다.";
     hint.classList.remove("d-none");
     return;
   }
@@ -103,6 +97,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   const q = new URLSearchParams(window.location.search).get("q");
   if (q) {
     document.getElementById("partSearchInput").value = q;
-    runSearch();
   }
+  runSearch();
 });

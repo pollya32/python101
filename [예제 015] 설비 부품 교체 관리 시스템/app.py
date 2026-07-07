@@ -792,16 +792,18 @@ def inventory_page():
 
 
 def get_inventory_rows(conn):
+    """재고는 TEAG01호기(기준 설비) 기준으로 전 설비가 동일하게 관리되므로,
+    나머지 설비는 동일한 내용이 중복되어 나타나는 것을 막기 위해 TEAG01호기 것만 보여준다."""
     return conn.execute("""
         SELECT p.id, p.name, p.spec, p.stock_qty, p.supplier, p.supplier_contact, p.lead_time_days,
-               u.id AS unit_id, u.name AS unit_name,
-               e.id AS equipment_id, e.name AS equipment_name, e.icon AS equipment_icon
+               u.id AS unit_id, u.name AS unit_name
         FROM parts p
         JOIN units u ON p.unit_id = u.id
         JOIN equipments e ON u.equipment_id = e.id
         WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
-        ORDER BY p.stock_qty ASC, e.id, u.id, p.id
-    """).fetchall()
+          AND e.id = ?
+        ORDER BY p.stock_qty ASC, u.id, p.id
+    """, (MASTER_EQUIPMENT_ID,)).fetchall()
 
 
 @app.route("/api/inventory")
@@ -818,13 +820,13 @@ def export_inventory_csv():
     conn = get_db()
     rows = get_inventory_rows(conn)
     conn.close()
-    header = ["부품이름", "규격", "소속 설비", "소속 유닛", "재고 수량", "구매처", "연락처", "리드타임(일)"]
+    header = ["부품이름", "규격", "소속 유닛", "재고 수량", "구매처", "연락처", "리드타임(일)"]
     data_rows = []
     for p in rows:
         if low_only and (p["stock_qty"] or 0) > 0:
             continue
         data_rows.append([
-            p["name"], p["spec"] or "", f"{p['equipment_icon']} {p['equipment_name']}", p["unit_name"],
+            p["name"], p["spec"] or "", p["unit_name"],
             p["stock_qty"] or 0, p["supplier"] or "", p["supplier_contact"] or "",
             p["lead_time_days"] if p["lead_time_days"] is not None else "",
         ])
@@ -1624,8 +1626,6 @@ def export_alerts_csv():
 @app.route("/api/search")
 def api_search():
     q = (request.args.get("q") or "").strip()
-    if not q:
-        return jsonify([])
     status = request.args.get("status") or None
     equipment_id = request.args.get("equipment_id")
     equipment_id = int(equipment_id) if equipment_id else None
