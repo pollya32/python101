@@ -18,16 +18,30 @@ const ICON_CHOICES = [
 
 function renderIconPicker(containerId, inputId, current) {
   const container = document.getElementById(containerId);
+  const input = document.getElementById(inputId);
   container.innerHTML = ICON_CHOICES.map(
     (ic) => `<button type="button" class="icon-choice ${ic === current ? "selected" : ""}" data-icon="${ic}">${ic}</button>`
   ).join("");
+  container.classList.add("d-none");
   container.querySelectorAll(".icon-choice").forEach((btn) => {
     btn.addEventListener("click", () => {
-      document.getElementById(inputId).value = btn.dataset.icon;
+      input.value = btn.dataset.icon;
       container.querySelectorAll(".icon-choice").forEach((b) => b.classList.remove("selected"));
       btn.classList.add("selected");
+      container.classList.add("d-none");
     });
   });
+  if (!container.dataset.toggleBound) {
+    container.dataset.toggleBound = "1";
+    input.addEventListener("click", () => {
+      container.classList.toggle("d-none");
+    });
+    document.addEventListener("click", (e) => {
+      if (!container.contains(e.target) && e.target !== input) {
+        container.classList.add("d-none");
+      }
+    });
+  }
 }
 
 function tick() {
