@@ -101,6 +101,8 @@ def init_db():
             icon TEXT DEFAULT '🏭',
             pos_x REAL DEFAULT 50,
             pos_y REAL DEFAULT 50,
+            location TEXT,
+            setup_date TEXT,
             created_at TEXT DEFAULT (datetime('now','localtime'))
         )
     """)
@@ -111,6 +113,10 @@ def init_db():
     if "pos_x" not in existing_eq_cols:
         c.execute("ALTER TABLE equipments ADD COLUMN pos_x REAL")
         c.execute("ALTER TABLE equipments ADD COLUMN pos_y REAL")
+    if "location" not in existing_eq_cols:
+        c.execute("ALTER TABLE equipments ADD COLUMN location TEXT")
+    if "setup_date" not in existing_eq_cols:
+        c.execute("ALTER TABLE equipments ADD COLUMN setup_date TEXT")
     eq_count = c.execute("SELECT COUNT(*) AS n FROM equipments").fetchone()["n"]
     if eq_count == 0:
         for i in range(1, EQUIPMENT_COUNT + 1):
@@ -473,6 +479,24 @@ def count_overdue_parts(conn, equipment_id):
     )
 
 
+def calc_setup_runtime(setup_date):
+    """SETUP 일자로부터 오늘까지 경과한 기간을 "N년 M개월" 형식으로 계산"""
+    if not setup_date:
+        return None
+    setup = datetime.strptime(setup_date, "%Y-%m-%d").date()
+    today = date.today()
+    if setup > today:
+        return None
+    years = today.year - setup.year
+    months = today.month - setup.month
+    if today.day < setup.day:
+        months -= 1
+    if months < 0:
+        years -= 1
+        months += 12
+    return f"{years}년 {months}개월"
+
+
 def equipment_with_status(conn, e):
     units = conn.execute("SELECT * FROM units WHERE equipment_id = ?", (e["id"],)).fetchall()
     statuses = [unit_with_status(conn, u)["overall_status"] for u in units]
@@ -481,6 +505,7 @@ def equipment_with_status(conn, e):
     d["unit_count"] = len(units)
     d["overall_status"] = overall
     d["overdue_count"] = count_overdue_parts(conn, e["id"])
+    d["runtime_display"] = calc_setup_runtime(e["setup_date"])
     return d
 
 
@@ -769,10 +794,12 @@ def update_equipment(equipment_id):
     icon = (data.get("icon") or equipment["icon"]).strip()
     pos_x = data.get("pos_x", equipment["pos_x"])
     pos_y = data.get("pos_y", equipment["pos_y"])
+    location = data.get("location", equipment["location"])
+    setup_date = data.get("setup_date", equipment["setup_date"]) or None
     try:
         conn.execute(
-            "UPDATE equipments SET name = ?, icon = ?, pos_x = ?, pos_y = ? WHERE id = ?",
-            (name, icon, pos_x, pos_y, equipment_id),
+            "UPDATE equipments SET name = ?, icon = ?, pos_x = ?, pos_y = ?, location = ?, setup_date = ? WHERE id = ?",
+            (name, icon, pos_x, pos_y, location, setup_date, equipment_id),
         )
         conn.commit()
     except sqlite3.IntegrityError:

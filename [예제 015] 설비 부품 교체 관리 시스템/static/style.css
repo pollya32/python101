@@ -136,6 +136,8 @@ body {
 .dot-soon { background: #f59e0b; color: rgba(245, 158, 11, 0.18); }
 .dot-overdue { background: #ef4444; color: rgba(239, 68, 68, 0.18); }
 .dot-unknown { background: #9ca3af; color: rgba(156, 163, 175, 0.18); }
+.legend-edit-btn { font-size: 13px; color: var(--pri); line-height: 1; }
+.legend-edit-btn:hover { color: var(--pri); opacity: 0.8; }
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {

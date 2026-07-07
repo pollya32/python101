@@ -117,6 +117,8 @@ def init_db():
             icon TEXT DEFAULT '🏭',
             pos_x REAL DEFAULT 50,
             pos_y REAL DEFAULT 50,
+            location TEXT,
+            setup_date TEXT,
             created_at TEXT DEFAULT (datetime('now','localtime'))
         )
     """)
@@ -127,6 +129,10 @@ def init_db():
     if "pos_x" not in existing_eq_cols:
         c.execute("ALTER TABLE equipments ADD COLUMN pos_x REAL")
         c.execute("ALTER TABLE equipments ADD COLUMN pos_y REAL")
+    if "location" not in existing_eq_cols:
+        c.execute("ALTER TABLE equipments ADD COLUMN location TEXT")
+    if "setup_date" not in existing_eq_cols:
+        c.execute("ALTER TABLE equipments ADD COLUMN setup_date TEXT")
     eq_count = c.execute("SELECT COUNT(*) AS n FROM equipments").fetchone()["n"]
     if eq_count == 0:
         for i in range(1, EQUIPMENT_COUNT + 1):
@@ -489,6 +495,24 @@ def count_overdue_parts(conn, equipment_id):
     )
 
 
+def calc_setup_runtime(setup_date):
+    """SETUP 일자로부터 오늘까지 경과한 기간을 "N년 M개월" 형식으로 계산"""
+    if not setup_date:
+        return None
+    setup = datetime.strptime(setup_date, "%Y-%m-%d").date()
+    today = date.today()
+    if setup > today:
+        return None
+    years = today.year - setup.year
+    months = today.month - setup.month
+    if today.day < setup.day:
+        months -= 1
+    if months < 0:
+        years -= 1
+        months += 12
+    return f"{years}년 {months}개월"
+
+
 def equipment_with_status(conn, e):
     units = conn.execute("SELECT * FROM units WHERE equipment_id = ?", (e["id"],)).fetchall()
     statuses = [unit_with_status(conn, u)["overall_status"] for u in units]
@@ -497,6 +521,7 @@ def equipment_with_status(conn, e):
     d["unit_count"] = len(units)
     d["overall_status"] = overall
     d["overdue_count"] = count_overdue_parts(conn, e["id"])
+    d["runtime_display"] = calc_setup_runtime(e["setup_date"])
     return d
 
 
@@ -785,10 +810,12 @@ def update_equipment(equipment_id):
     icon = (data.get("icon") or equipment["icon"]).strip()
     pos_x = data.get("pos_x", equipment["pos_x"])
     pos_y = data.get("pos_y", equipment["pos_y"])
+    location = data.get("location", equipment["location"])
+    setup_date = data.get("setup_date", equipment["setup_date"]) or None
     try:
         conn.execute(
-            "UPDATE equipments SET name = ?, icon = ?, pos_x = ?, pos_y = ? WHERE id = ?",
-            (name, icon, pos_x, pos_y, equipment_id),
+            "UPDATE equipments SET name = ?, icon = ?, pos_x = ?, pos_y = ?, location = ?, setup_date = ? WHERE id = ?",
+            (name, icon, pos_x, pos_y, location, setup_date, equipment_id),
         )
         conn.commit()
     except sqlite3.IntegrityError:
@@ -1729,6 +1756,8 @@ body {
 .dot-soon { background: #f59e0b; color: rgba(245, 158, 11, 0.18); }
 .dot-overdue { background: #ef4444; color: rgba(239, 68, 68, 0.18); }
 .dot-unknown { background: #9ca3af; color: rgba(156, 163, 175, 0.18); }
+.legend-edit-btn { font-size: 13px; color: var(--pri); line-height: 1; }
+.legend-edit-btn:hover { color: var(--pri); opacity: 0.8; }
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
@@ -2862,6 +2891,8 @@ body {
 .dot-soon { background: #f59e0b; color: rgba(245, 158, 11, 0.18); }
 .dot-overdue { background: #ef4444; color: rgba(239, 68, 68, 0.18); }
 .dot-unknown { background: #9ca3af; color: rgba(156, 163, 175, 0.18); }
+.legend-edit-btn { font-size: 13px; color: var(--pri); line-height: 1; }
+.legend-edit-btn:hover { color: var(--pri); opacity: 0.8; }
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
@@ -3460,11 +3491,21 @@ body {
 
 <main class="container-fluid py-4">
 
-  <div class="legend mb-3">
-    <span class="legend-item"><span class="dot dot-ok"></span> 정상</span>
-    <span class="legend-item"><span class="dot dot-soon"></span> 교체 임박</span>
-    <span class="legend-item"><span class="dot dot-overdue"></span> 교체 필요</span>
-    <span class="legend-item"><span class="dot dot-unknown"></span> 미기록 / 부품 없음</span>
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <div class="legend">
+      <span class="legend-item"><span class="dot dot-ok"></span> 정상</span>
+      <span class="legend-item"><span class="dot dot-soon"></span> 교체 임박</span>
+      <span class="legend-item"><span class="dot dot-overdue"></span> 교체 필요</span>
+      <span class="legend-item"><span class="dot dot-unknown"></span> 미기록 / 부품 없음</span>
+    </div>
+    <div class="legend">
+      <span class="legend-item"><i class="bi bi-geo-alt"></i> 위치: <span id="equipmentLocationView">-</span></span>
+      <span class="legend-item"><i class="bi bi-calendar-event"></i> SETUP: <span id="equipmentSetupDateView">-</span></span>
+      <span class="legend-item"><i class="bi bi-hourglass-split"></i> 가동: <span id="equipmentRuntimeView">-</span></span>
+      <button type="button" id="editEquipmentInfoBtn" class="btn btn-sm btn-link p-0 text-decoration-none legend-edit-btn">
+        <i class="bi bi-pencil"></i>
+      </button>
+    </div>
   </div>
 
   <div id="equipment" class="equipment-frame">
@@ -3532,11 +3573,37 @@ body {
   </div>
 </div>
 
+<!-- 설비 위치/SETUP 일자 편집 모달 -->
+<div class="modal fade" id="equipmentInfoModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">설비 정보 편집</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="equipmentInfoForm">
+          <div class="mb-2">
+            <label class="form-label">설비 위치</label>
+            <input type="text" class="form-control" id="equipmentLocationInput" placeholder="예: 2공장 3층 A라인">
+          </div>
+          <div class="mb-2">
+            <label class="form-label">SETUP 일자</label>
+            <input type="date" class="form-control" id="equipmentSetupDateInput">
+          </div>
+          <button type="submit" class="btn btn-primary w-100 mt-2">저장</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>const EQUIPMENT_ID = __EQUIPMENT_ID__;</script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 let editMode = false;
-let unitEditModal;
+let unitEditModal, equipmentInfoModal;
+let currentEquipmentData = null;
 
 const ICON_CHOICES = [
   "⚙️", "🔧", "🔩", "🛠️", "🪛", "🔨", "📦", "🖥️",
@@ -3594,12 +3661,20 @@ async function fetchJson(url, options) {
 async function loadEquipmentHeader() {
   try {
     const equipment = await fetchJson(`/api/equipments/${EQUIPMENT_ID}`);
+    currentEquipmentData = equipment;
     document.getElementById("equipmentPageTitle").textContent = equipment.name;
     document.title = `${equipment.name} - 설비 부품 교체 관리 시스템`;
+    renderEquipmentInfo(equipment);
   } catch (err) {
     alert("설비 정보를 불러올 수 없습니다.");
     window.location.href = "/";
   }
+}
+
+function renderEquipmentInfo(equipment) {
+  document.getElementById("equipmentLocationView").textContent = equipment.location || "미입력";
+  document.getElementById("equipmentSetupDateView").textContent = equipment.setup_date || "미입력";
+  document.getElementById("equipmentRuntimeView").textContent = equipment.runtime_display || "-";
 }
 
 async function loadUnits() {
@@ -3928,12 +4003,38 @@ function openUnitEditModal(unit) {
 
 document.addEventListener("DOMContentLoaded", () => {
   unitEditModal = new bootstrap.Modal(document.getElementById("unitEditModal"));
+  equipmentInfoModal = new bootstrap.Modal(document.getElementById("equipmentInfoModal"));
 
   tick();
   setInterval(tick, 1000);
   loadEquipmentHeader();
   loadUnits();
   loadNotes();
+
+  document.getElementById("editEquipmentInfoBtn").addEventListener("click", () => {
+    document.getElementById("equipmentLocationInput").value = currentEquipmentData?.location || "";
+    document.getElementById("equipmentSetupDateInput").value = currentEquipmentData?.setup_date || "";
+    equipmentInfoModal.show();
+  });
+
+  document.getElementById("equipmentInfoForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = {
+      location: document.getElementById("equipmentLocationInput").value.trim(),
+      setup_date: document.getElementById("equipmentSetupDateInput").value || null,
+    };
+    try {
+      await fetchJson(`/api/equipments/${EQUIPMENT_ID}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      equipmentInfoModal.hide();
+      loadEquipmentHeader();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 
   document.getElementById("editNotesBtn").addEventListener("click", () => setNotesEditing(true));
   document.getElementById("cancelNotesBtn").addEventListener("click", () => {
@@ -4153,6 +4254,8 @@ body {
 .dot-soon { background: #f59e0b; color: rgba(245, 158, 11, 0.18); }
 .dot-overdue { background: #ef4444; color: rgba(239, 68, 68, 0.18); }
 .dot-unknown { background: #9ca3af; color: rgba(156, 163, 175, 0.18); }
+.legend-edit-btn { font-size: 13px; color: var(--pri); line-height: 1; }
+.legend-edit-btn:hover { color: var(--pri); opacity: 0.8; }
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
@@ -5821,6 +5924,8 @@ body {
 .dot-soon { background: #f59e0b; color: rgba(245, 158, 11, 0.18); }
 .dot-overdue { background: #ef4444; color: rgba(239, 68, 68, 0.18); }
 .dot-unknown { background: #9ca3af; color: rgba(156, 163, 175, 0.18); }
+.legend-edit-btn { font-size: 13px; color: var(--pri); line-height: 1; }
+.legend-edit-btn:hover { color: var(--pri); opacity: 0.8; }
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
@@ -6994,6 +7099,8 @@ body {
 .dot-soon { background: #f59e0b; color: rgba(245, 158, 11, 0.18); }
 .dot-overdue { background: #ef4444; color: rgba(239, 68, 68, 0.18); }
 .dot-unknown { background: #9ca3af; color: rgba(156, 163, 175, 0.18); }
+.legend-edit-btn { font-size: 13px; color: var(--pri); line-height: 1; }
+.legend-edit-btn:hover { color: var(--pri); opacity: 0.8; }
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
@@ -7818,6 +7925,8 @@ body {
 .dot-soon { background: #f59e0b; color: rgba(245, 158, 11, 0.18); }
 .dot-overdue { background: #ef4444; color: rgba(239, 68, 68, 0.18); }
 .dot-unknown { background: #9ca3af; color: rgba(156, 163, 175, 0.18); }
+.legend-edit-btn { font-size: 13px; color: var(--pri); line-height: 1; }
+.legend-edit-btn:hover { color: var(--pri); opacity: 0.8; }
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
@@ -8674,6 +8783,8 @@ body {
 .dot-soon { background: #f59e0b; color: rgba(245, 158, 11, 0.18); }
 .dot-overdue { background: #ef4444; color: rgba(239, 68, 68, 0.18); }
 .dot-unknown { background: #9ca3af; color: rgba(156, 163, 175, 0.18); }
+.legend-edit-btn { font-size: 13px; color: var(--pri); line-height: 1; }
+.legend-edit-btn:hover { color: var(--pri); opacity: 0.8; }
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
@@ -9622,6 +9733,8 @@ body {
 .dot-soon { background: #f59e0b; color: rgba(245, 158, 11, 0.18); }
 .dot-overdue { background: #ef4444; color: rgba(239, 68, 68, 0.18); }
 .dot-unknown { background: #9ca3af; color: rgba(156, 163, 175, 0.18); }
+.legend-edit-btn { font-size: 13px; color: var(--pri); line-height: 1; }
+.legend-edit-btn:hover { color: var(--pri); opacity: 0.8; }
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
@@ -10376,6 +10489,8 @@ body {
 .dot-soon { background: #f59e0b; color: rgba(245, 158, 11, 0.18); }
 .dot-overdue { background: #ef4444; color: rgba(239, 68, 68, 0.18); }
 .dot-unknown { background: #9ca3af; color: rgba(156, 163, 175, 0.18); }
+.legend-edit-btn { font-size: 13px; color: var(--pri); line-height: 1; }
+.legend-edit-btn:hover { color: var(--pri); opacity: 0.8; }
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {

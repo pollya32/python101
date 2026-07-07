@@ -26,11 +26,21 @@
 
 <main class="container-fluid py-4">
 
-  <div class="legend mb-3">
-    <span class="legend-item"><span class="dot dot-ok"></span> 정상</span>
-    <span class="legend-item"><span class="dot dot-soon"></span> 교체 임박</span>
-    <span class="legend-item"><span class="dot dot-overdue"></span> 교체 필요</span>
-    <span class="legend-item"><span class="dot dot-unknown"></span> 미기록 / 부품 없음</span>
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <div class="legend">
+      <span class="legend-item"><span class="dot dot-ok"></span> 정상</span>
+      <span class="legend-item"><span class="dot dot-soon"></span> 교체 임박</span>
+      <span class="legend-item"><span class="dot dot-overdue"></span> 교체 필요</span>
+      <span class="legend-item"><span class="dot dot-unknown"></span> 미기록 / 부품 없음</span>
+    </div>
+    <div class="legend">
+      <span class="legend-item"><i class="bi bi-geo-alt"></i> 위치: <span id="equipmentLocationView">-</span></span>
+      <span class="legend-item"><i class="bi bi-calendar-event"></i> SETUP: <span id="equipmentSetupDateView">-</span></span>
+      <span class="legend-item"><i class="bi bi-hourglass-split"></i> 가동: <span id="equipmentRuntimeView">-</span></span>
+      <button type="button" id="editEquipmentInfoBtn" class="btn btn-sm btn-link p-0 text-decoration-none legend-edit-btn">
+        <i class="bi bi-pencil"></i>
+      </button>
+    </div>
   </div>
 
   <div id="equipment" class="equipment-frame">
@@ -92,6 +102,31 @@
           </div>
           <div id="unitIconPicker" class="icon-picker"></div>
           <button type="submit" class="btn btn-primary w-100 mt-3">저장</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 설비 위치/SETUP 일자 편집 모달 -->
+<div class="modal fade" id="equipmentInfoModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">설비 정보 편집</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="equipmentInfoForm">
+          <div class="mb-2">
+            <label class="form-label">설비 위치</label>
+            <input type="text" class="form-control" id="equipmentLocationInput" placeholder="예: 2공장 3층 A라인">
+          </div>
+          <div class="mb-2">
+            <label class="form-label">SETUP 일자</label>
+            <input type="date" class="form-control" id="equipmentSetupDateInput">
+          </div>
+          <button type="submit" class="btn btn-primary w-100 mt-2">저장</button>
         </form>
       </div>
     </div>

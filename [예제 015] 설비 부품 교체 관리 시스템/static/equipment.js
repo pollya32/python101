@@ -1,5 +1,6 @@
 let editMode = false;
-let unitEditModal;
+let unitEditModal, equipmentInfoModal;
+let currentEquipmentData = null;
 
 const ICON_CHOICES = [
   "⚙️", "🔧", "🔩", "🛠️", "🪛", "🔨", "📦", "🖥️",
@@ -57,12 +58,20 @@ async function fetchJson(url, options) {
 async function loadEquipmentHeader() {
   try {
     const equipment = await fetchJson(`/api/equipments/${EQUIPMENT_ID}`);
+    currentEquipmentData = equipment;
     document.getElementById("equipmentPageTitle").textContent = equipment.name;
     document.title = `${equipment.name} - 설비 부품 교체 관리 시스템`;
+    renderEquipmentInfo(equipment);
   } catch (err) {
     alert("설비 정보를 불러올 수 없습니다.");
     window.location.href = "/";
   }
+}
+
+function renderEquipmentInfo(equipment) {
+  document.getElementById("equipmentLocationView").textContent = equipment.location || "미입력";
+  document.getElementById("equipmentSetupDateView").textContent = equipment.setup_date || "미입력";
+  document.getElementById("equipmentRuntimeView").textContent = equipment.runtime_display || "-";
 }
 
 async function loadUnits() {
@@ -391,12 +400,38 @@ function openUnitEditModal(unit) {
 
 document.addEventListener("DOMContentLoaded", () => {
   unitEditModal = new bootstrap.Modal(document.getElementById("unitEditModal"));
+  equipmentInfoModal = new bootstrap.Modal(document.getElementById("equipmentInfoModal"));
 
   tick();
   setInterval(tick, 1000);
   loadEquipmentHeader();
   loadUnits();
   loadNotes();
+
+  document.getElementById("editEquipmentInfoBtn").addEventListener("click", () => {
+    document.getElementById("equipmentLocationInput").value = currentEquipmentData?.location || "";
+    document.getElementById("equipmentSetupDateInput").value = currentEquipmentData?.setup_date || "";
+    equipmentInfoModal.show();
+  });
+
+  document.getElementById("equipmentInfoForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = {
+      location: document.getElementById("equipmentLocationInput").value.trim(),
+      setup_date: document.getElementById("equipmentSetupDateInput").value || null,
+    };
+    try {
+      await fetchJson(`/api/equipments/${EQUIPMENT_ID}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      equipmentInfoModal.hide();
+      loadEquipmentHeader();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 
   document.getElementById("editNotesBtn").addEventListener("click", () => setNotesEditing(true));
   document.getElementById("cancelNotesBtn").addEventListener("click", () => {
