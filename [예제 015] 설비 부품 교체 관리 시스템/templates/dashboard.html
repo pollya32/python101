@@ -32,9 +32,12 @@
     <a href="/bulk-add-parts" class="btn btn-sm btn-outline-light">
       <i class="bi bi-stack"></i> 부품 추가
     </a>
-    <a href="/api/backup" class="btn btn-sm btn-outline-light">
-      <i class="bi bi-download"></i> DB 백업
+    <a href="/inventory" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-boxes"></i> 재고 관리
     </a>
+    <button id="backupBtn" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-download"></i> DB 백업
+    </button>
     <button id="addEquipmentBtn" class="btn btn-sm btn-outline-light">
       <i class="bi bi-plus-lg"></i> 설비 추가
     </button>
@@ -43,9 +46,12 @@
     </button>
     <div class="dropdown">
       <button class="btn btn-sm btn-outline-light dropdown-toggle" type="button" id="accountMenuBtn" data-bs-toggle="dropdown">
-        <i class="bi bi-person-circle"></i>
+        <i class="bi bi-person-circle"></i> {{ user_name }}
       </button>
       <ul class="dropdown-menu dropdown-menu-end">
+        <li><a class="dropdown-item" href="/trash"><i class="bi bi-trash3"></i> 휴지통</a></li>
+        <li><a class="dropdown-item" href="/activity-log"><i class="bi bi-clock-history"></i> 변경 이력</a></li>
+        <li><hr class="dropdown-divider"></li>
         <li><button type="button" class="dropdown-item" id="changePasswordBtn"><i class="bi bi-key"></i> 비밀번호 변경</button></li>
         <li><a class="dropdown-item" href="/logout"><i class="bi bi-box-arrow-right"></i> 로그아웃</a></li>
       </ul>

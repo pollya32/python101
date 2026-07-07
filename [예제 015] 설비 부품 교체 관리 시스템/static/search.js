@@ -13,8 +13,23 @@ const STATUS_LABEL = { ok: "정상", soon: "교체 임박", overdue: "교체 필
 
 let searchTimer;
 
+async function loadEquipmentFilterOptions() {
+  const res = await fetch("/api/equipments");
+  if (res.status === 401) {
+    window.location.href = "/login";
+    return;
+  }
+  const equipments = await res.json();
+  const select = document.getElementById("equipmentFilter");
+  select.innerHTML =
+    '<option value="">전체 설비</option>' +
+    equipments.map((e) => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join("");
+}
+
 async function runSearch() {
   const q = document.getElementById("partSearchInput").value.trim();
+  const status = document.getElementById("statusFilter").value;
+  const equipmentId = document.getElementById("equipmentFilter").value;
   const list = document.getElementById("searchResults");
   const hint = document.getElementById("searchHintMsg");
 
@@ -25,7 +40,10 @@ async function runSearch() {
     return;
   }
 
-  const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+  const params = new URLSearchParams({ q });
+  if (status) params.set("status", status);
+  if (equipmentId) params.set("equipment_id", equipmentId);
+  const res = await fetch(`/api/search?${params.toString()}`);
   if (res.status === 401) {
     window.location.href = "/login";
     return;
@@ -71,13 +89,16 @@ function searchRowHtml(p) {
     </div>`;
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   tick();
   setInterval(tick, 1000);
+  await loadEquipmentFilterOptions();
   document.getElementById("partSearchInput").addEventListener("input", () => {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(runSearch, 200);
   });
+  document.getElementById("statusFilter").addEventListener("change", runSearch);
+  document.getElementById("equipmentFilter").addEventListener("change", runSearch);
 
   const q = new URLSearchParams(window.location.search).get("q");
   if (q) {

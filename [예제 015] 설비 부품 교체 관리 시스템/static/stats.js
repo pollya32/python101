@@ -22,9 +22,18 @@ function formatCycle(days, unit) {
   return `${days}일`;
 }
 
-async function loadStats() {
+function currentPeriodParams() {
   const params = new URLSearchParams();
   selectedUnitNames.forEach((name) => params.append("unit_name", name));
+  const startDate = document.getElementById("statsStartDate").value;
+  const endDate = document.getElementById("statsEndDate").value;
+  if (startDate) params.set("start_date", startDate);
+  if (endDate) params.set("end_date", endDate);
+  return params;
+}
+
+async function loadStats() {
+  const params = currentPeriodParams();
   const res = await fetch(`/api/stats?${params.toString()}`);
   if (res.status === 401) {
     window.location.href = "/login";
@@ -36,6 +45,9 @@ async function loadStats() {
   renderPartSpecPanel("statsUsage", data.by_usage, (r) => `${r.usage_count}회 교체`);
   renderPartSpecPanel("statsCycle", data.by_short_cycle, (r) => formatCycle(r.min_cycle_days, r.min_cycle_unit) + " 주기");
   renderUnitPanel("statsPartCount", data.by_part_count, (r) => `${r.part_count}개`);
+  document.getElementById("costSubtitle").textContent = data.period_active ? "(선택 기간 교체 이력 기준)" : "(부품 규격 기준)";
+  document.getElementById("usageSubtitle").textContent = data.period_active ? "(선택 기간 교체 이력 기준)" : "(부품 규격 기준)";
+  document.getElementById("clearPeriodBtn").classList.toggle("d-none", !data.period_active);
   updateExportLinks();
 }
 
@@ -136,9 +148,7 @@ function updateFilterUi() {
 }
 
 function updateExportLinks() {
-  const params = new URLSearchParams();
-  selectedUnitNames.forEach((name) => params.append("unit_name", name));
-  const qs = params.toString();
+  const qs = currentPeriodParams().toString();
   document.getElementById("exportCsvBtn").href = `/api/stats/export.csv${qs ? "?" + qs : ""}`;
   document.getElementById("exportPptxBtn").href = `/api/stats/export.pptx${qs ? "?" + qs : ""}`;
 }
@@ -154,6 +164,14 @@ document.addEventListener("DOMContentLoaded", () => {
       .querySelectorAll("#unitFilterMenu .form-check-input")
       .forEach((cb) => (cb.checked = false));
     updateFilterUi();
+    loadStats();
+  });
+
+  document.getElementById("statsStartDate").addEventListener("change", loadStats);
+  document.getElementById("statsEndDate").addEventListener("change", loadStats);
+  document.getElementById("clearPeriodBtn").addEventListener("click", () => {
+    document.getElementById("statsStartDate").value = "";
+    document.getElementById("statsEndDate").value = "";
     loadStats();
   });
 });

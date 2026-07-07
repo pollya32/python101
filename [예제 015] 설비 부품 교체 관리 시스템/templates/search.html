@@ -35,6 +35,16 @@
       <i class="bi bi-search"></i>
       <input type="text" id="partSearchInput" class="form-control form-control-sm" placeholder="부품명 또는 규격으로 검색 (예: O-Ring)" autofocus>
     </div>
+    <select id="statusFilter" class="form-select form-select-sm w-auto">
+      <option value="">전체 상태</option>
+      <option value="overdue">교체 필요</option>
+      <option value="soon">교체 임박</option>
+      <option value="ok">정상</option>
+      <option value="unknown">미기록</option>
+    </select>
+    <select id="equipmentFilter" class="form-select form-select-sm w-auto">
+      <option value="">전체 설비</option>
+    </select>
   </div>
 
   <div id="searchResults" class="alerts-list mt-3"></div>

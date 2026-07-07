@@ -95,7 +95,7 @@ function renderCanvas(units) {
     });
     card.querySelector(".delete-unit-btn")?.addEventListener("click", async (e) => {
       e.stopPropagation();
-      if (!confirm(`"${u.name}" 유닛을 삭제할까요? 등록된 부품/이력도 함께 삭제됩니다.`)) return;
+      if (!confirm(`"${u.name}" 유닛을 삭제할까요? 등록된 부품도 함께 휴지통으로 이동합니다. (휴지통에서 복원할 수 있습니다)`)) return;
       await fetchJson(`/api/units/${u.id}`, { method: "DELETE" });
       loadUnits();
     });

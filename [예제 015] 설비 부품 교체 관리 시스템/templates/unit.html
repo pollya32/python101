@@ -222,6 +222,26 @@
             <textarea class="form-control" id="partEditMemo" rows="4"
               placeholder="부품 관련 세부 정보를 자유롭게 기록하세요. (http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></textarea>
           </div>
+          <div class="row g-2 mt-1">
+            <div class="col-6">
+              <label class="form-label">재고 수량</label>
+              <input type="number" class="form-control" id="partEditStockQty" value="0" min="0" step="1">
+            </div>
+            <div class="col-6">
+              <label class="form-label">리드타임 (일)</label>
+              <input type="number" class="form-control" id="partEditLeadTime" min="0" step="1">
+            </div>
+          </div>
+          <div class="row g-2 mt-1">
+            <div class="col-6">
+              <label class="form-label">구매처</label>
+              <input type="text" class="form-control" id="partEditSupplier" placeholder="예: OO상사">
+            </div>
+            <div class="col-6">
+              <label class="form-label">구매처 연락처</label>
+              <input type="text" class="form-control" id="partEditSupplierContact" placeholder="예: 010-0000-0000">
+            </div>
+          </div>
           <div class="mb-2 mt-1">
             <div class="d-flex justify-content-between align-items-center">
               <label class="form-label mb-0">도면</label>

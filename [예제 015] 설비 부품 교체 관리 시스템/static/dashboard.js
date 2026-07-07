@@ -107,7 +107,7 @@ function renderGrid(equipments, sortBy) {
     });
     card.querySelector(".delete-unit-btn")?.addEventListener("click", async (e) => {
       e.stopPropagation();
-      if (!confirm(`"${eq.name}" 설비를 삭제할까요? 등록된 유닛/부품/이력이 모두 함께 삭제됩니다.`)) return;
+      if (!confirm(`"${eq.name}" 설비를 삭제할까요? 소속 유닛/부품도 함께 휴지통으로 이동합니다. (휴지통에서 복원할 수 있습니다)`)) return;
       await fetchJson(`/api/equipments/${eq.id}`, { method: "DELETE" });
       loadEquipments();
     });
@@ -247,6 +247,15 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("changePasswordBtn").addEventListener("click", () => {
     document.getElementById("changePasswordForm").reset();
     changePasswordModal.show();
+  });
+
+  document.getElementById("backupBtn").addEventListener("click", async () => {
+    try {
+      const result = await fetchJson("/api/backup", { method: "POST" });
+      alert(`백업이 저장되었습니다.\n${result.path}`);
+    } catch (err) {
+      alert(err.message);
+    }
   });
   document.getElementById("changePasswordForm").addEventListener("submit", async (e) => {
     e.preventDefault();

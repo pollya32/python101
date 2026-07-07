@@ -149,7 +149,7 @@ function renderPartsCanvas(parts) {
     });
     card.querySelector(".delete-unit-btn")?.addEventListener("click", async (e) => {
       e.stopPropagation();
-      if (!confirm(`"${p.name}" 부품을 삭제할까요? 교체 이력도 함께 삭제됩니다.`)) return;
+      if (!confirm(`"${p.name}" 부품을 삭제할까요? 휴지통으로 이동하며, 나중에 복원할 수 있습니다.`)) return;
       await fetchJson(`/api/parts/${p.id}`, { method: "DELETE" });
       loadParts();
     });
@@ -340,6 +340,9 @@ function copyPart(part) {
     icon: part.icon,
     width: part.width,
     height: part.height,
+    supplier: part.supplier,
+    supplier_contact: part.supplier_contact,
+    lead_time_days: part.lead_time_days,
   };
   localStorage.setItem(PART_CLIPBOARD_KEY, JSON.stringify(clipboard));
   updatePartPasteButton();
@@ -383,6 +386,9 @@ async function pastePart() {
       icon: clipboard.icon,
       width: clipboard.width,
       height: clipboard.height,
+      supplier: clipboard.supplier,
+      supplier_contact: clipboard.supplier_contact,
+      lead_time_days: clipboard.lead_time_days,
     }),
   });
   loadParts();
@@ -460,6 +466,11 @@ function openPartDetailModal(partId) {
   const dueText = p.next_due
     ? `다음 교체 예정: ${p.next_due} (${p.days_left >= 0 ? p.days_left + "일 남음" : Math.abs(p.days_left) + "일 초과"})`
     : "";
+  const stockText = `재고: <span class="${(p.stock_qty || 0) <= 0 ? "text-danger fw-bold" : ""}">${p.stock_qty || 0}개</span>`;
+  const supplierText = p.supplier
+    ? ` &middot; 구매처: ${escapeHtml(p.supplier)}${p.supplier_contact ? " (" + escapeHtml(p.supplier_contact) + ")" : ""}`
+    : "";
+  const leadTimeText = p.lead_time_days ? ` &middot; 리드타임: ${p.lead_time_days}일` : "";
   document.getElementById("partDetailBody").innerHTML = `
     <span class="badge ${badge} mb-2">${label}</span>
     ${p.spec ? `<div class="part-spec mb-1">규격: ${escapeHtml(p.spec)}</div>` : ""}
@@ -467,6 +478,7 @@ function openPartDetailModal(partId) {
       교체 주기: ${formatCycleDisplay(p.cycle_days, p.cycle_unit)} &middot; 금액: ${formatCost(p.cost)} &middot; ${lastText}
       ${dueText ? `<br>${dueText}` : ""}
       ${p.note ? `<br>비고: ${escapeHtml(p.note)}` : ""}
+      <br>${stockText}${supplierText}${leadTimeText}
     </div>`;
   const memoView = document.getElementById("partDetailMemo");
   if (!p.memo || !p.memo.trim()) {
@@ -535,6 +547,10 @@ function openPartEditModal(part) {
   document.getElementById("partEditCost").value = part ? part.cost || 0 : 0;
   document.getElementById("partEditNote").value = part ? part.note || "" : "";
   document.getElementById("partEditMemo").value = part ? part.memo || "" : "";
+  document.getElementById("partEditStockQty").value = part ? part.stock_qty || 0 : 0;
+  document.getElementById("partEditLeadTime").value = part && part.lead_time_days != null ? part.lead_time_days : "";
+  document.getElementById("partEditSupplier").value = part ? part.supplier || "" : "";
+  document.getElementById("partEditSupplierContact").value = part ? part.supplier_contact || "" : "";
   document.getElementById("partEditLastDate").value = "";
   document.getElementById("partEditLastDateWrap").classList.toggle("d-none", !!part);
   renderIconPicker("partIconPicker", "partEditIcon", icon);
@@ -650,6 +666,10 @@ document.addEventListener("DOMContentLoaded", () => {
       note: document.getElementById("partEditNote").value.trim(),
       memo: document.getElementById("partEditMemo").value,
       drawing_data: currentPartDrawingData,
+      stock_qty: parseInt(document.getElementById("partEditStockQty").value, 10) || 0,
+      lead_time_days: document.getElementById("partEditLeadTime").value || null,
+      supplier: document.getElementById("partEditSupplier").value.trim(),
+      supplier_contact: document.getElementById("partEditSupplierContact").value.trim(),
     };
     try {
       if (id) {
@@ -676,7 +696,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("applyPartsBtn").addEventListener("click", async () => {
     const ok = confirm(
       "현재 이 유닛의 부품 구성을 동일한 이름의 유닛을 가진 나머지 설비 전체에 적용합니다.\n" +
-      "- 이름이 같은 부품은 규격/교체주기/비고/메모/도면/아이콘/위치/크기가 이 구성대로 갱신됩니다.\n" +
+      "- 이름이 같은 부품은 규격/교체주기/비고/메모/도면/구매처/리드타임/아이콘/위치/크기가 이 구성대로 갱신됩니다. (재고 수량은 설비별로 독립적이라 제외)\n" +
       "- 여기 없는 이름의 부품은 각 설비에서 삭제되며, 등록된 교체 이력도 함께 삭제됩니다.\n\n" +
       "계속하시겠습니까?"
     );

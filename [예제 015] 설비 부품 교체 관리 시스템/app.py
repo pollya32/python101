@@ -6,6 +6,7 @@ import io
 import random
 import secrets
 import socket
+import shutil
 from urllib.parse import quote
 from datetime import date, datetime, timedelta
 from pptx import Presentation
@@ -15,6 +16,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 app = Flask(__name__)
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 DB_PATH = os.path.join(os.path.dirname(__file__), "equipment.db")
+BACKUP_DIR = os.path.join(os.path.dirname(__file__), "backups")
 
 EQUIPMENT_COUNT = 20
 EQUIPMENT_PREFIX = "TEAG"
@@ -77,6 +79,17 @@ def set_config(conn, key, value):
     )
 
 
+def log_activity(conn, action, target_type, target_id, target_name, detail=""):
+    """설비/유닛/부품 등에 대한 주요 변경 작업을 활동 이력에 기록한다.
+    현재 세션에 저장된 사용자 이름을 행위자로 남긴다."""
+    actor = session.get("user_name") or "익명"
+    conn.execute(
+        "INSERT INTO activity_log (actor_name, action, target_type, target_id, target_name, detail) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (actor, action, target_type, target_id, target_name, detail),
+    )
+
+
 def init_db():
     conn = get_db()
     c = conn.cursor()
@@ -95,6 +108,20 @@ def init_db():
     conn.commit()
 
     c.execute("""
+        CREATE TABLE IF NOT EXISTS activity_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor_name TEXT,
+            action TEXT NOT NULL,
+            target_type TEXT,
+            target_id INTEGER,
+            target_name TEXT,
+            detail TEXT,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    conn.commit()
+
+    c.execute("""
         CREATE TABLE IF NOT EXISTS equipments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
@@ -103,6 +130,7 @@ def init_db():
             pos_y REAL DEFAULT 50,
             location TEXT,
             setup_date TEXT,
+            deleted_at TEXT,
             created_at TEXT DEFAULT (datetime('now','localtime'))
         )
     """)
@@ -117,6 +145,8 @@ def init_db():
         c.execute("ALTER TABLE equipments ADD COLUMN location TEXT")
     if "setup_date" not in existing_eq_cols:
         c.execute("ALTER TABLE equipments ADD COLUMN setup_date TEXT")
+    if "deleted_at" not in existing_eq_cols:
+        c.execute("ALTER TABLE equipments ADD COLUMN deleted_at TEXT")
     eq_count = c.execute("SELECT COUNT(*) AS n FROM equipments").fetchone()["n"]
     if eq_count == 0:
         for i in range(1, EQUIPMENT_COUNT + 1):
@@ -143,6 +173,7 @@ def init_db():
             pos_y REAL DEFAULT 50,
             width REAL DEFAULT 140,
             height REAL DEFAULT 110,
+            deleted_at TEXT,
             created_at TEXT DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (equipment_id) REFERENCES equipments(id) ON DELETE CASCADE
         )
@@ -157,6 +188,8 @@ def init_db():
     if "width" not in existing_cols:
         c.execute("ALTER TABLE units ADD COLUMN width REAL")
         c.execute("ALTER TABLE units ADD COLUMN height REAL")
+    if "deleted_at" not in existing_cols:
+        c.execute("ALTER TABLE units ADD COLUMN deleted_at TEXT")
     unplaced = c.execute(
         "SELECT id FROM units WHERE pos_x IS NULL OR pos_y IS NULL ORDER BY id"
     ).fetchall()
@@ -184,6 +217,11 @@ def init_db():
             pos_y REAL DEFAULT 50,
             width REAL DEFAULT 130,
             height REAL DEFAULT 110,
+            stock_qty INTEGER DEFAULT 0,
+            supplier TEXT,
+            supplier_contact TEXT,
+            lead_time_days INTEGER,
+            deleted_at TEXT,
             created_at TEXT DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
         )
@@ -206,6 +244,14 @@ def init_db():
         c.execute("ALTER TABLE parts ADD COLUMN memo TEXT")
     if "drawing_data" not in existing_part_cols:
         c.execute("ALTER TABLE parts ADD COLUMN drawing_data TEXT")
+    if "stock_qty" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN stock_qty INTEGER DEFAULT 0")
+        c.execute("ALTER TABLE parts ADD COLUMN supplier TEXT")
+        c.execute("ALTER TABLE parts ADD COLUMN supplier_contact TEXT")
+        c.execute("ALTER TABLE parts ADD COLUMN lead_time_days INTEGER")
+        c.execute("UPDATE parts SET stock_qty = 0 WHERE stock_qty IS NULL")
+    if "deleted_at" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN deleted_at TEXT")
     for unit_row in c.execute("SELECT DISTINCT unit_id FROM parts").fetchall():
         unplaced_parts = c.execute(
             "SELECT id FROM parts WHERE unit_id = ? AND (pos_x IS NULL OR pos_y IS NULL) ORDER BY id",
@@ -386,13 +432,16 @@ def serialize_part(row):
 
 def insert_part(conn, unit_id, name, spec="", cycle_days=90, cycle_unit="일", cost=0,
                  last_replaced_date=None, note="", memo="", drawing_data=None, icon="🔩",
-                 pos_x=None, pos_y=None, width=130, height=110):
+                 pos_x=None, pos_y=None, width=130, height=110,
+                 stock_qty=0, supplier="", supplier_contact="", lead_time_days=None):
     if pos_x is None or pos_y is None:
         pos_x, pos_y = random.uniform(15, 85), random.uniform(20, 80)
     cur = conn.execute(
-        """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, memo, drawing_data, icon, pos_x, pos_y, width, height)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, memo, drawing_data, icon, pos_x, pos_y, width, height),
+        """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, memo,
+           drawing_data, icon, pos_x, pos_y, width, height, stock_qty, supplier, supplier_contact, lead_time_days)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, memo, drawing_data, icon,
+         pos_x, pos_y, width, height, stock_qty, supplier, supplier_contact, lead_time_days),
     )
     part_id = cur.lastrowid
     if last_replaced_date:
@@ -405,42 +454,47 @@ def insert_part(conn, unit_id, name, spec="", cycle_days=90, cycle_unit="일", c
 
 def apply_unit_parts_to_other_equipment(conn, unit_id):
     """기준 설비(TEAG01호기)의 특정 유닛에 등록된 부품 구성 전체를, 동일한 이름의 유닛을 가진
-    나머지 설비에 일괄 동기화한다. 이름이 같은 부품은 규격/교체주기/비고/메모/도면/아이콘/위치/크기가
-    갱신되고, 새 부품은 추가되며, 여기 없는 이름의 부품은 삭제된다(교체 이력도 함께 삭제)."""
+    나머지 설비에 일괄 동기화한다. 이름이 같은 부품은 규격/교체주기/비고/메모/도면/구매처/리드타임/
+    아이콘/위치/크기가 갱신되고, 새 부품은 추가되며, 여기 없는 이름의 부품은 삭제된다(교체 이력도
+    함께 삭제). 재고 수량은 설비별로 독립적이므로 동기화 대상에서 제외한다."""
     master_unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
     master_parts = conn.execute(
-        "SELECT * FROM parts WHERE unit_id = ? ORDER BY id", (unit_id,)
+        "SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL ORDER BY id", (unit_id,)
     ).fetchall()
     master_names = {p["name"] for p in master_parts}
 
     target_units = conn.execute(
-        "SELECT id FROM units WHERE name = ? AND equipment_id != ?",
+        "SELECT id FROM units WHERE name = ? AND equipment_id != ? AND deleted_at IS NULL",
         (master_unit["name"], MASTER_EQUIPMENT_ID),
     ).fetchall()
 
     for t in target_units:
         existing = {
             p["name"]: p
-            for p in conn.execute("SELECT * FROM parts WHERE unit_id = ?", (t["id"],)).fetchall()
+            for p in conn.execute("SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL", (t["id"],)).fetchall()
         }
         for mp in master_parts:
             if mp["name"] in existing:
                 ep = existing[mp["name"]]
                 conn.execute(
                     """UPDATE parts SET spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, memo = ?,
-                       drawing_data = ?, icon = ?, pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?""",
+                       drawing_data = ?, icon = ?, pos_x = ?, pos_y = ?, width = ?, height = ?,
+                       supplier = ?, supplier_contact = ?, lead_time_days = ? WHERE id = ?""",
                     (
                         mp["spec"], mp["cycle_days"], mp["cycle_unit"], mp["cost"], mp["note"], mp["memo"],
-                        mp["drawing_data"], mp["icon"], mp["pos_x"], mp["pos_y"], mp["width"], mp["height"], ep["id"],
+                        mp["drawing_data"], mp["icon"], mp["pos_x"], mp["pos_y"], mp["width"], mp["height"],
+                        mp["supplier"], mp["supplier_contact"], mp["lead_time_days"], ep["id"],
                     ),
                 )
             else:
                 conn.execute(
-                    """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, note, memo, drawing_data, icon, pos_x, pos_y, width, height)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, note, memo, drawing_data,
+                       icon, pos_x, pos_y, width, height, supplier, supplier_contact, lead_time_days)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         t["id"], mp["name"], mp["spec"], mp["cycle_days"], mp["cycle_unit"], mp["cost"],
                         mp["note"], mp["memo"], mp["drawing_data"], mp["icon"], mp["pos_x"], mp["pos_y"], mp["width"], mp["height"],
+                        mp["supplier"], mp["supplier_contact"], mp["lead_time_days"],
                     ),
                 )
         for name, ep in existing.items():
@@ -451,7 +505,7 @@ def apply_unit_parts_to_other_equipment(conn, unit_id):
 
 
 def unit_with_status(conn, u):
-    parts = conn.execute("SELECT * FROM parts WHERE unit_id = ?", (u["id"],)).fetchall()
+    parts = conn.execute("SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL", (u["id"],)).fetchall()
     statuses = [part_status(p["cycle_days"], p["last_replaced_date"])["status"] for p in parts]
     if "overdue" in statuses:
         overall = "overdue"
@@ -476,7 +530,7 @@ def count_overdue_parts(conn, equipment_id):
     rows = conn.execute(
         """SELECT p.cycle_days, p.last_replaced_date
            FROM parts p JOIN units u ON p.unit_id = u.id
-           WHERE u.equipment_id = ?""",
+           WHERE u.equipment_id = ? AND p.deleted_at IS NULL AND u.deleted_at IS NULL""",
         (equipment_id,),
     ).fetchall()
     return sum(
@@ -504,7 +558,7 @@ def calc_setup_runtime(setup_date):
 
 
 def equipment_with_status(conn, e):
-    units = conn.execute("SELECT * FROM units WHERE equipment_id = ?", (e["id"],)).fetchall()
+    units = conn.execute("SELECT * FROM units WHERE equipment_id = ? AND deleted_at IS NULL", (e["id"],)).fetchall()
     statuses = [unit_with_status(conn, u)["overall_status"] for u in units]
     overall = next((s for s in STATUS_PRIORITY if s in statuses), "empty")
     d = dict(e)
@@ -533,6 +587,7 @@ def get_alert_parts():
         FROM parts p
         JOIN units u ON p.unit_id = u.id
         JOIN equipments e ON u.equipment_id = e.id
+        WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
     """).fetchall()
     conn.close()
     result = []
@@ -546,42 +601,54 @@ def get_alert_parts():
     return result
 
 
-def search_parts(query):
-    """부품명/규격으로 모든 설비를 통틀어 검색"""
+def search_parts(query, status=None, equipment_id=None):
+    """부품명/규격으로 모든 설비를 통틀어 검색 (상태/설비로 추가 필터링 가능)"""
     conn = get_db()
     like = f"%{query}%"
-    rows = conn.execute("""
+    sql = """
         SELECT p.*, u.id AS unit_id, u.name AS unit_name,
                e.id AS equipment_id, e.name AS equipment_name, e.icon AS equipment_icon
         FROM parts p
         JOIN units u ON p.unit_id = u.id
         JOIN equipments e ON u.equipment_id = e.id
-        WHERE p.name LIKE ? OR p.spec LIKE ?
-        ORDER BY e.id, u.id, p.id
-    """, (like, like)).fetchall()
+        WHERE (p.name LIKE ? OR p.spec LIKE ?)
+          AND p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
+    """
+    params = [like, like]
+    if equipment_id:
+        sql += " AND e.id = ?"
+        params.append(equipment_id)
+    sql += " ORDER BY e.id, u.id, p.id"
+    rows = conn.execute(sql, params).fetchall()
     conn.close()
     result = []
     for r in rows:
         info = part_status(r["cycle_days"], r["last_replaced_date"])
+        if status and info["status"] != status:
+            continue
         d = dict(r)
         d.update(info)
         result.append(d)
     return result
 
 
-def get_part_spec_stats(conn, unit_names=None):
-    """부품명+규격을 기준으로 시스템 전체(선택된 유닛 이름으로 범위 제한 가능)를 집계한다."""
+def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
+    """부품명+규격을 기준으로 시스템 전체(선택된 유닛 이름으로 범위 제한 가능)를 집계한다.
+    start_date/end_date가 주어지면 금액/사용량은 해당 기간의 교체 이력(replacement_history)을
+    기준으로 계산하고, 교체주기는 항상 현재 부품 구성 기준으로 계산한다."""
     query = """
         SELECT p.*, u.name AS unit_name
         FROM parts p
         JOIN units u ON p.unit_id = u.id
+        WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL
     """
     params = []
     if unit_names:
         placeholders = ",".join("?" for _ in unit_names)
-        query += f" WHERE u.name IN ({placeholders})"
+        query += f" AND u.name IN ({placeholders})"
         params = list(unit_names)
     parts = conn.execute(query, params).fetchall()
+    period_filter = bool(start_date or end_date)
 
     groups = {}
     for p in parts:
@@ -598,21 +665,33 @@ def get_part_spec_stats(conn, unit_names=None):
                 "part_ids": [],
             }
             groups[key] = g
-        g["total_cost"] += p["cost"] or 0
         g["instance_count"] += 1
         g["part_ids"].append(p["id"])
         if g["min_cycle_days"] is None or p["cycle_days"] < g["min_cycle_days"]:
             g["min_cycle_days"] = p["cycle_days"]
             g["min_cycle_unit"] = p["cycle_unit"]
+        if not period_filter:
+            g["total_cost"] += p["cost"] or 0
 
     result = []
     for g in groups.values():
         part_ids = g.pop("part_ids")
         placeholders = ",".join("?" for _ in part_ids)
-        g["usage_count"] = conn.execute(
-            f"SELECT COUNT(*) AS n FROM replacement_history WHERE part_id IN ({placeholders})",
-            part_ids,
-        ).fetchone()["n"]
+        hist_query = (
+            f"SELECT COUNT(*) AS n, COALESCE(SUM(cost), 0) AS total "
+            f"FROM replacement_history WHERE part_id IN ({placeholders})"
+        )
+        hist_params = list(part_ids)
+        if start_date:
+            hist_query += " AND replaced_date >= ?"
+            hist_params.append(start_date)
+        if end_date:
+            hist_query += " AND replaced_date <= ?"
+            hist_params.append(end_date)
+        hist = conn.execute(hist_query, hist_params).fetchone()
+        g["usage_count"] = hist["n"]
+        if period_filter:
+            g["total_cost"] = hist["total"]
         result.append(g)
     return result
 
@@ -640,7 +719,7 @@ LOGIN_EXEMPT_PREFIXES = ("/static/", "/login")
 def require_login():
     if request.path.startswith(LOGIN_EXEMPT_PREFIXES):
         return None
-    if session.get("authenticated"):
+    if session.get("authenticated") and session.get("user_name"):
         return None
     if request.path.startswith("/api/"):
         return jsonify({"error": "로그인이 필요합니다"}), 401
@@ -650,12 +729,16 @@ def require_login():
 @app.route("/login", methods=["GET", "POST"])
 def login_page():
     if request.method == "POST":
+        name = (request.form.get("name") or "").strip()
         password = request.form.get("password", "")
+        if not name:
+            return redirect(url_for("login_page", error="2"))
         conn = get_db()
         password_hash = get_config(conn, "password_hash")
         conn.close()
         if password_hash and check_password_hash(password_hash, password):
             session["authenticated"] = True
+            session["user_name"] = name
             session.permanent = True
             next_url = request.args.get("next") or url_for("dashboard")
             return redirect(next_url)
@@ -689,7 +772,7 @@ def change_password():
 
 @app.route("/")
 def dashboard():
-    return render_template("dashboard.html")
+    return render_template("dashboard.html", user_name=session.get("user_name", ""))
 
 
 @app.route("/alerts")
@@ -712,10 +795,34 @@ def bulk_add_parts_page():
     return render_template("bulk_add_parts.html")
 
 
+@app.route("/inventory")
+def inventory_page():
+    return render_template("inventory.html")
+
+
+@app.route("/api/inventory")
+def api_inventory():
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT p.id, p.name, p.spec, p.stock_qty, p.supplier, p.supplier_contact, p.lead_time_days,
+               u.id AS unit_id, u.name AS unit_name,
+               e.id AS equipment_id, e.name AS equipment_name, e.icon AS equipment_icon
+        FROM parts p
+        JOIN units u ON p.unit_id = u.id
+        JOIN equipments e ON u.equipment_id = e.id
+        WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
+        ORDER BY p.stock_qty ASC, e.id, u.id, p.id
+    """).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
 @app.route("/equipment/<int:equipment_id>")
 def equipment_page(equipment_id):
     conn = get_db()
-    equipment = conn.execute("SELECT id FROM equipments WHERE id = ?", (equipment_id,)).fetchone()
+    equipment = conn.execute(
+        "SELECT id FROM equipments WHERE id = ? AND deleted_at IS NULL", (equipment_id,)
+    ).fetchone()
     conn.close()
     if not equipment:
         return "설비를 찾을 수 없습니다", 404
@@ -730,7 +837,9 @@ def unit_template_config():
 @app.route("/unit/<int:unit_id>")
 def unit_detail(unit_id):
     conn = get_db()
-    unit = conn.execute("SELECT id FROM units WHERE id = ?", (unit_id,)).fetchone()
+    unit = conn.execute(
+        "SELECT id FROM units WHERE id = ? AND deleted_at IS NULL", (unit_id,)
+    ).fetchone()
     conn.close()
     if not unit:
         return "유닛을 찾을 수 없습니다", 404
@@ -740,7 +849,7 @@ def unit_detail(unit_id):
 @app.route("/api/equipments")
 def list_equipments():
     conn = get_db()
-    equipments = conn.execute("SELECT * FROM equipments ORDER BY id").fetchall()
+    equipments = conn.execute("SELECT * FROM equipments WHERE deleted_at IS NULL ORDER BY id").fetchall()
     result = [equipment_with_status(conn, e) for e in equipments]
     conn.close()
     return jsonify(result)
@@ -766,6 +875,7 @@ def add_equipment():
             "INSERT INTO equipment_notes (equipment_id, content) VALUES (?, '')", (new_id,)
         )
         seed_default_units_for_equipment(conn, new_id)
+        log_activity(conn, "create", "equipment", new_id, name)
         conn.commit()
     except sqlite3.IntegrityError:
         conn.close()
@@ -779,7 +889,9 @@ def add_equipment():
 @app.route("/api/equipments/<int:equipment_id>")
 def get_equipment(equipment_id):
     conn = get_db()
-    equipment = conn.execute("SELECT * FROM equipments WHERE id = ?", (equipment_id,)).fetchone()
+    equipment = conn.execute(
+        "SELECT * FROM equipments WHERE id = ? AND deleted_at IS NULL", (equipment_id,)
+    ).fetchone()
     if not equipment:
         conn.close()
         return jsonify({"error": "설비를 찾을 수 없습니다"}), 404
@@ -802,11 +914,17 @@ def update_equipment(equipment_id):
     pos_y = data.get("pos_y", equipment["pos_y"])
     location = data.get("location", equipment["location"])
     setup_date = data.get("setup_date", equipment["setup_date"]) or None
+    meaningful_change = (
+        name != equipment["name"] or icon != equipment["icon"]
+        or location != equipment["location"] or setup_date != equipment["setup_date"]
+    )
     try:
         conn.execute(
             "UPDATE equipments SET name = ?, icon = ?, pos_x = ?, pos_y = ?, location = ?, setup_date = ? WHERE id = ?",
             (name, icon, pos_x, pos_y, location, setup_date, equipment_id),
         )
+        if meaningful_change:
+            log_activity(conn, "update", "equipment", equipment_id, name, "설비 정보 수정")
         conn.commit()
     except sqlite3.IntegrityError:
         conn.close()
@@ -818,7 +936,22 @@ def update_equipment(equipment_id):
 @app.route("/api/equipments/<int:equipment_id>", methods=["DELETE"])
 def delete_equipment(equipment_id):
     conn = get_db()
-    conn.execute("DELETE FROM equipments WHERE id = ?", (equipment_id,))
+    equipment = conn.execute("SELECT * FROM equipments WHERE id = ?", (equipment_id,)).fetchone()
+    if not equipment:
+        conn.close()
+        return jsonify({"error": "설비를 찾을 수 없습니다"}), 404
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute("UPDATE equipments SET deleted_at = ? WHERE id = ?", (now, equipment_id))
+    unit_ids = [
+        r["id"] for r in conn.execute(
+            "SELECT id FROM units WHERE equipment_id = ? AND deleted_at IS NULL", (equipment_id,)
+        ).fetchall()
+    ]
+    if unit_ids:
+        placeholders = ",".join("?" for _ in unit_ids)
+        conn.execute(f"UPDATE units SET deleted_at = ? WHERE id IN ({placeholders})", (now, *unit_ids))
+        conn.execute(f"UPDATE parts SET deleted_at = ? WHERE unit_id IN ({placeholders})", (now, *unit_ids))
+    log_activity(conn, "delete", "equipment", equipment_id, equipment["name"], "휴지통으로 이동")
     conn.commit()
     conn.close()
     return jsonify({"ok": True})
@@ -828,7 +961,7 @@ def delete_equipment(equipment_id):
 def list_units(equipment_id):
     conn = get_db()
     units = conn.execute(
-        "SELECT * FROM units WHERE equipment_id = ? ORDER BY id", (equipment_id,)
+        "SELECT * FROM units WHERE equipment_id = ? AND deleted_at IS NULL ORDER BY id", (equipment_id,)
     ).fetchall()
     result = [unit_with_status(conn, u) for u in units]
     conn.close()
@@ -857,6 +990,8 @@ def add_unit(equipment_id):
     conn.commit()
     new_id = cur.lastrowid
     unit = conn.execute("SELECT * FROM units WHERE id = ?", (new_id,)).fetchone()
+    log_activity(conn, "create", "unit", new_id, name)
+    conn.commit()
     conn.close()
     d = dict(unit)
     d["part_count"] = 0
@@ -867,7 +1002,9 @@ def add_unit(equipment_id):
 @app.route("/api/units/<int:unit_id>")
 def get_unit(unit_id):
     conn = get_db()
-    unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
+    unit = conn.execute(
+        "SELECT * FROM units WHERE id = ? AND deleted_at IS NULL", (unit_id,)
+    ).fetchone()
     if not unit:
         conn.close()
         return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
@@ -891,10 +1028,13 @@ def update_unit(unit_id):
     pos_y = data.get("pos_y", unit["pos_y"])
     width = data.get("width", unit["width"])
     height = data.get("height", unit["height"])
+    meaningful_change = name != unit["name"] or icon != unit["icon"] or color != unit["color"]
     conn.execute(
         "UPDATE units SET name = ?, icon = ?, color = ?, pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?",
         (name, icon, color, pos_x, pos_y, width, height, unit_id),
     )
+    if meaningful_change:
+        log_activity(conn, "update", "unit", unit_id, name, "유닛 정보 수정")
     conn.commit()
     conn.close()
     return jsonify({"ok": True})
@@ -903,7 +1043,14 @@ def update_unit(unit_id):
 @app.route("/api/units/<int:unit_id>", methods=["DELETE"])
 def delete_unit(unit_id):
     conn = get_db()
-    conn.execute("DELETE FROM units WHERE id = ?", (unit_id,))
+    unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
+    if not unit:
+        conn.close()
+        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute("UPDATE units SET deleted_at = ? WHERE id = ?", (now, unit_id))
+    conn.execute("UPDATE parts SET deleted_at = ? WHERE unit_id = ? AND deleted_at IS NULL", (now, unit_id))
+    log_activity(conn, "delete", "unit", unit_id, unit["name"], "휴지통으로 이동")
     conn.commit()
     conn.close()
     return jsonify({"ok": True})
@@ -913,7 +1060,7 @@ def delete_unit(unit_id):
 def list_parts(unit_id):
     conn = get_db()
     rows = conn.execute(
-        "SELECT * FROM parts WHERE unit_id = ? ORDER BY id", (unit_id,)
+        "SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL ORDER BY id", (unit_id,)
     ).fetchall()
     conn.close()
     return jsonify([serialize_part(r) for r in rows])
@@ -938,13 +1085,20 @@ def add_part(unit_id):
     icon = (data.get("icon") or "🔩").strip()
     width = data.get("width") or 130
     height = data.get("height") or 110
+    stock_qty = int(data.get("stock_qty") or 0)
+    supplier = (data.get("supplier") or "").strip()
+    supplier_contact = (data.get("supplier_contact") or "").strip()
+    lead_time_days = data.get("lead_time_days")
+    lead_time_days = int(lead_time_days) if lead_time_days not in (None, "") else None
 
     conn = get_db()
     part_id = insert_part(
         conn, unit_id, name, spec=spec, cycle_days=cycle_days, cycle_unit=cycle_unit, cost=cost,
         last_replaced_date=last_replaced_date, note=note, memo=memo, drawing_data=drawing_data, icon=icon,
         pos_x=data.get("pos_x"), pos_y=data.get("pos_y"), width=width, height=height,
+        stock_qty=stock_qty, supplier=supplier, supplier_contact=supplier_contact, lead_time_days=lead_time_days,
     )
+    log_activity(conn, "create", "part", part_id, name)
     conn.commit()
     row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
     conn.close()
@@ -1025,6 +1179,7 @@ def get_template_mapped_units(conn):
         SELECT u.id AS id, t.name AS name
         FROM unit_templates t
         JOIN units u ON u.equipment_id = ? AND u.name = t.name
+        WHERE u.deleted_at IS NULL
         ORDER BY t.id
     """, (MASTER_EQUIPMENT_ID,)).fetchall()
 
@@ -1123,7 +1278,7 @@ def register_bulk_part(entry_id):
 
     part_ids = []
     for uid in unit_ids:
-        unit = conn.execute("SELECT * FROM units WHERE id = ?", (uid,)).fetchone()
+        unit = conn.execute("SELECT * FROM units WHERE id = ? AND deleted_at IS NULL", (uid,)).fetchone()
         if not unit:
             continue
         part_id = insert_part(
@@ -1132,6 +1287,7 @@ def register_bulk_part(entry_id):
             cycle_days=entry["cycle_days"] or 90, cycle_unit=entry["cycle_unit"] or "일",
         )
         part_ids.append(part_id)
+        log_activity(conn, "create", "part", part_id, entry["part_name"], "부품 일괄 등록")
     conn.execute("UPDATE bulk_part_entries SET status = 'registered' WHERE id = ?", (entry_id,))
     conn.commit()
     conn.close()
@@ -1171,11 +1327,25 @@ def update_part(part_id):
     pos_y = data.get("pos_y", part["pos_y"])
     width = data.get("width", part["width"])
     height = data.get("height", part["height"])
+    stock_qty = int(data.get("stock_qty", part["stock_qty"]) or 0)
+    supplier = data.get("supplier", part["supplier"])
+    supplier_contact = data.get("supplier_contact", part["supplier_contact"])
+    lead_time_days = data.get("lead_time_days", part["lead_time_days"])
+    lead_time_days = int(lead_time_days) if lead_time_days not in (None, "") else None
+    meaningful_change = (
+        name != part["name"] or spec != part["spec"] or cycle_days != part["cycle_days"]
+        or cycle_unit != part["cycle_unit"] or cost != part["cost"] or note != part["note"]
+        or stock_qty != (part["stock_qty"] or 0) or supplier != part["supplier"]
+    )
     conn.execute(
         """UPDATE parts SET name = ?, spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, memo = ?,
-           drawing_data = ?, icon = ?, pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?""",
-        (name, spec, cycle_days, cycle_unit, cost, note, memo, drawing_data, icon, pos_x, pos_y, width, height, part_id),
+           drawing_data = ?, icon = ?, pos_x = ?, pos_y = ?, width = ?, height = ?,
+           stock_qty = ?, supplier = ?, supplier_contact = ?, lead_time_days = ? WHERE id = ?""",
+        (name, spec, cycle_days, cycle_unit, cost, note, memo, drawing_data, icon, pos_x, pos_y, width, height,
+         stock_qty, supplier, supplier_contact, lead_time_days, part_id),
     )
+    if meaningful_change:
+        log_activity(conn, "update", "part", part_id, name, "부품 정보 수정")
     conn.commit()
     row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
     conn.close()
@@ -1185,7 +1355,13 @@ def update_part(part_id):
 @app.route("/api/parts/<int:part_id>", methods=["DELETE"])
 def delete_part(part_id):
     conn = get_db()
-    conn.execute("DELETE FROM parts WHERE id = ?", (part_id,))
+    part = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
+    if not part:
+        conn.close()
+        return jsonify({"error": "부품을 찾을 수 없습니다"}), 404
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute("UPDATE parts SET deleted_at = ? WHERE id = ?", (now, part_id))
+    log_activity(conn, "delete", "part", part_id, part["name"], "휴지통으로 이동")
     conn.commit()
     conn.close()
     return jsonify({"ok": True})
@@ -1211,6 +1387,7 @@ def replace_part(part_id):
         "UPDATE parts SET last_replaced_date = ? WHERE id = ? AND (last_replaced_date IS NULL OR ? >= last_replaced_date)",
         (replaced_date, part_id, replaced_date),
     )
+    log_activity(conn, "replace", "part", part_id, part["name"], f"교체 기록 추가 ({replaced_date})")
     conn.commit()
     row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
     conn.close()
@@ -1363,14 +1540,14 @@ def delete_unit_template(template_id):
 def apply_unit_templates():
     conn = get_db()
     templates = conn.execute("SELECT * FROM unit_templates ORDER BY id").fetchall()
-    equipments = conn.execute("SELECT id FROM equipments").fetchall()
+    equipments = conn.execute("SELECT id FROM equipments WHERE deleted_at IS NULL").fetchall()
     template_names = {t["name"] for t in templates}
 
     for eq in equipments:
         existing = {
             u["name"]: u
             for u in conn.execute(
-                "SELECT * FROM units WHERE equipment_id = ?", (eq["id"],)
+                "SELECT * FROM units WHERE equipment_id = ? AND deleted_at IS NULL", (eq["id"],)
             ).fetchall()
         }
         for t in templates:
@@ -1420,12 +1597,15 @@ def api_search():
     q = (request.args.get("q") or "").strip()
     if not q:
         return jsonify([])
-    return jsonify(search_parts(q))
+    status = request.args.get("status") or None
+    equipment_id = request.args.get("equipment_id")
+    equipment_id = int(equipment_id) if equipment_id else None
+    return jsonify(search_parts(q, status=status, equipment_id=equipment_id))
 
 
-def build_stats_payload(conn, unit_names):
+def build_stats_payload(conn, unit_names, start_date=None, end_date=None):
     """부품 규격 기준(금액순/사용량 많은순/교체주기 짧은순)과 유닛 기준(부품수 많은순) 통계를 함께 만든다."""
-    spec_rows = get_part_spec_stats(conn, unit_names)
+    spec_rows = get_part_spec_stats(conn, unit_names, start_date=start_date, end_date=end_date)
     by_cost = sorted(spec_rows, key=lambda r: r["total_cost"], reverse=True)
     by_usage = sorted(spec_rows, key=lambda r: r["usage_count"], reverse=True)
     by_short_cycle = sorted(
@@ -1435,21 +1615,24 @@ def build_stats_payload(conn, unit_names):
     unit_query = """
         SELECT u.id AS unit_id, u.name AS unit_name, u.icon AS unit_icon,
                e.id AS equipment_id, e.name AS equipment_name, e.icon AS equipment_icon,
-               (SELECT COUNT(*) FROM parts p WHERE p.unit_id = u.id) AS part_count
+               (SELECT COUNT(*) FROM parts p WHERE p.unit_id = u.id AND p.deleted_at IS NULL) AS part_count
         FROM units u
         JOIN equipments e ON u.equipment_id = e.id
+        WHERE u.deleted_at IS NULL AND e.deleted_at IS NULL
     """
     params = []
     if unit_names:
         placeholders = ",".join("?" for _ in unit_names)
-        unit_query += f" WHERE u.name IN ({placeholders})"
+        unit_query += f" AND u.name IN ({placeholders})"
         params = unit_names
     unit_query += " ORDER BY u.id"
     unit_rows = [dict(r) for r in conn.execute(unit_query, params).fetchall()]
     by_part_count = sorted(unit_rows, key=lambda r: r["part_count"], reverse=True)
 
     all_unit_names = [
-        r["name"] for r in conn.execute("SELECT DISTINCT name FROM units ORDER BY name").fetchall()
+        r["name"] for r in conn.execute(
+            "SELECT DISTINCT name FROM units WHERE deleted_at IS NULL ORDER BY name"
+        ).fetchall()
     ]
 
     return {
@@ -1458,14 +1641,17 @@ def build_stats_payload(conn, unit_names):
         "by_short_cycle": by_short_cycle,
         "by_part_count": by_part_count,
         "unit_names": all_unit_names,
+        "period_active": bool(start_date or end_date),
     }
 
 
 @app.route("/api/stats")
 def api_stats():
     unit_names = request.args.getlist("unit_name")
+    start_date = request.args.get("start_date") or None
+    end_date = request.args.get("end_date") or None
     conn = get_db()
-    payload = build_stats_payload(conn, unit_names)
+    payload = build_stats_payload(conn, unit_names, start_date=start_date, end_date=end_date)
     conn.close()
     return jsonify(payload)
 
@@ -1479,8 +1665,10 @@ def format_cycle_for_export(days, unit):
 @app.route("/api/stats/export.csv")
 def export_stats_csv():
     unit_names = request.args.getlist("unit_name")
+    start_date = request.args.get("start_date") or None
+    end_date = request.args.get("end_date") or None
     conn = get_db()
-    payload = build_stats_payload(conn, unit_names)
+    payload = build_stats_payload(conn, unit_names, start_date=start_date, end_date=end_date)
     conn.close()
 
     buf = io.StringIO()
@@ -1600,8 +1788,10 @@ def build_stats_pptx(payload, unit_names):
 @app.route("/api/stats/export.pptx")
 def export_stats_pptx():
     unit_names = request.args.getlist("unit_name")
+    start_date = request.args.get("start_date") or None
+    end_date = request.args.get("end_date") or None
     conn = get_db()
-    payload = build_stats_payload(conn, unit_names)
+    payload = build_stats_payload(conn, unit_names, start_date=start_date, end_date=end_date)
     conn.close()
     buf = build_stats_pptx(payload, unit_names)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1613,14 +1803,158 @@ def export_stats_pptx():
     )
 
 
-@app.route("/api/backup")
+@app.route("/api/backup", methods=["POST"])
 def download_backup():
+    os.makedirs(BACKUP_DIR, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return send_file(
-        DB_PATH,
-        as_attachment=True,
-        download_name=f"equipment_backup_{timestamp}.db",
-    )
+    filename = f"equipment_backup_{timestamp}.db"
+    dest_path = os.path.join(BACKUP_DIR, filename)
+    shutil.copyfile(DB_PATH, dest_path)
+    conn = get_db()
+    log_activity(conn, "backup", "backup", None, filename, f"백업 파일 저장: {dest_path}")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "filename": filename, "path": dest_path})
+
+
+@app.route("/trash")
+def trash_page():
+    return render_template("trash.html")
+
+
+@app.route("/api/trash")
+def api_trash():
+    conn = get_db()
+    equipments = conn.execute("""
+        SELECT *, (SELECT COUNT(*) FROM units WHERE equipment_id = equipments.id) AS unit_count
+        FROM equipments WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC
+    """).fetchall()
+    # 소속 설비/유닛이 함께 삭제된(연쇄 삭제된) 항목은 부모를 복원하면 같이 복원되므로
+    # 여기서는 "단독으로" 삭제된 유닛/부품만 보여준다 (부모는 살아있는데 이것만 삭제된 경우).
+    units = conn.execute("""
+        SELECT u.*, e.name AS equipment_name
+        FROM units u
+        JOIN equipments e ON u.equipment_id = e.id
+        WHERE u.deleted_at IS NOT NULL AND e.deleted_at IS NULL
+        ORDER BY u.deleted_at DESC
+    """).fetchall()
+    parts = conn.execute("""
+        SELECT p.*, u.name AS unit_name, e.name AS equipment_name
+        FROM parts p
+        JOIN units u ON p.unit_id = u.id
+        JOIN equipments e ON u.equipment_id = e.id
+        WHERE p.deleted_at IS NOT NULL AND u.deleted_at IS NULL
+        ORDER BY p.deleted_at DESC
+    """).fetchall()
+    conn.close()
+    return jsonify({
+        "equipments": [dict(r) for r in equipments],
+        "units": [dict(r) for r in units],
+        "parts": [dict(r) for r in parts],
+    })
+
+
+@app.route("/api/trash/equipment/<int:equipment_id>/restore", methods=["POST"])
+def restore_equipment(equipment_id):
+    conn = get_db()
+    equipment = conn.execute("SELECT * FROM equipments WHERE id = ?", (equipment_id,)).fetchone()
+    if not equipment:
+        conn.close()
+        return jsonify({"error": "설비를 찾을 수 없습니다"}), 404
+    conn.execute("UPDATE equipments SET deleted_at = NULL WHERE id = ?", (equipment_id,))
+    unit_ids = [
+        r["id"] for r in conn.execute(
+            "SELECT id FROM units WHERE equipment_id = ?", (equipment_id,)
+        ).fetchall()
+    ]
+    if unit_ids:
+        placeholders = ",".join("?" for _ in unit_ids)
+        conn.execute(f"UPDATE units SET deleted_at = NULL WHERE id IN ({placeholders})", unit_ids)
+        conn.execute(f"UPDATE parts SET deleted_at = NULL WHERE unit_id IN ({placeholders})", unit_ids)
+    log_activity(conn, "restore", "equipment", equipment_id, equipment["name"], "휴지통에서 복원")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/trash/unit/<int:unit_id>/restore", methods=["POST"])
+def restore_unit(unit_id):
+    conn = get_db()
+    unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
+    if not unit:
+        conn.close()
+        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
+    conn.execute("UPDATE units SET deleted_at = NULL WHERE id = ?", (unit_id,))
+    conn.execute("UPDATE parts SET deleted_at = NULL WHERE unit_id = ?", (unit_id,))
+    log_activity(conn, "restore", "unit", unit_id, unit["name"], "휴지통에서 복원")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/trash/part/<int:part_id>/restore", methods=["POST"])
+def restore_part(part_id):
+    conn = get_db()
+    part = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
+    if not part:
+        conn.close()
+        return jsonify({"error": "부품을 찾을 수 없습니다"}), 404
+    conn.execute("UPDATE parts SET deleted_at = NULL WHERE id = ?", (part_id,))
+    log_activity(conn, "restore", "part", part_id, part["name"], "휴지통에서 복원")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/trash/equipment/<int:equipment_id>", methods=["DELETE"])
+def permanent_delete_equipment(equipment_id):
+    conn = get_db()
+    equipment = conn.execute("SELECT * FROM equipments WHERE id = ?", (equipment_id,)).fetchone()
+    if equipment:
+        conn.execute("DELETE FROM equipments WHERE id = ?", (equipment_id,))
+        log_activity(conn, "permanent_delete", "equipment", equipment_id, equipment["name"], "영구 삭제")
+        conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/trash/unit/<int:unit_id>", methods=["DELETE"])
+def permanent_delete_unit(unit_id):
+    conn = get_db()
+    unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
+    if unit:
+        conn.execute("DELETE FROM units WHERE id = ?", (unit_id,))
+        log_activity(conn, "permanent_delete", "unit", unit_id, unit["name"], "영구 삭제")
+        conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/trash/part/<int:part_id>", methods=["DELETE"])
+def permanent_delete_part(part_id):
+    conn = get_db()
+    part = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
+    if part:
+        conn.execute("DELETE FROM parts WHERE id = ?", (part_id,))
+        log_activity(conn, "permanent_delete", "part", part_id, part["name"], "영구 삭제")
+        conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/activity-log")
+def activity_log_page():
+    return render_template("activity_log.html")
+
+
+@app.route("/api/activity-log")
+def api_activity_log():
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM activity_log ORDER BY id DESC LIMIT 300"
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
 
 
 if __name__ == "__main__":

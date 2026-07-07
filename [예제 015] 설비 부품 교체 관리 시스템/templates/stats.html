@@ -33,6 +33,14 @@
     <button id="clearFilterBtn" class="btn btn-sm btn-outline-secondary d-none">
       <i class="bi bi-x-lg"></i> 필터 해제
     </button>
+    <div class="d-flex align-items-center gap-1">
+      <input type="date" id="statsStartDate" class="form-control form-control-sm" style="width:150px">
+      <span class="text-muted small">~</span>
+      <input type="date" id="statsEndDate" class="form-control form-control-sm" style="width:150px">
+      <button id="clearPeriodBtn" class="btn btn-sm btn-outline-secondary d-none">
+        <i class="bi bi-x-lg"></i> 기간 해제
+      </button>
+    </div>
     <a id="exportCsvBtn" href="/api/stats/export.csv" class="btn btn-sm btn-outline-secondary">
       <i class="bi bi-file-earmark-spreadsheet"></i> CSV 다운로드
     </a>
@@ -43,11 +51,11 @@
 
   <div class="stats-grid">
     <div class="stats-panel">
-      <h6><i class="bi bi-cash-coin"></i> 금액순 <span class="stats-subtitle">(부품 규격 기준)</span></h6>
+      <h6><i class="bi bi-cash-coin"></i> 금액순 <span id="costSubtitle" class="stats-subtitle">(부품 규격 기준)</span></h6>
       <div id="statsCost" class="stats-list"></div>
     </div>
     <div class="stats-panel">
-      <h6><i class="bi bi-arrow-repeat"></i> 사용량 많은순 <span class="stats-subtitle">(부품 규격 기준)</span></h6>
+      <h6><i class="bi bi-arrow-repeat"></i> 사용량 많은순 <span id="usageSubtitle" class="stats-subtitle">(부품 규격 기준)</span></h6>
       <div id="statsUsage" class="stats-list"></div>
     </div>
     <div class="stats-panel">
