@@ -454,9 +454,9 @@ def insert_part(conn, unit_id, name, spec="", cycle_days=90, cycle_unit="일", c
 
 def apply_unit_parts_to_other_equipment(conn, unit_id):
     """기준 설비(TEAG01호기)의 특정 유닛에 등록된 부품 구성 전체를, 동일한 이름의 유닛을 가진
-    나머지 설비에 일괄 동기화한다. 이름이 같은 부품은 규격/교체주기/비고/메모/도면/구매처/리드타임/
-    아이콘/위치/크기가 갱신되고, 새 부품은 추가되며, 여기 없는 이름의 부품은 삭제된다(교체 이력도
-    함께 삭제). 재고 수량은 설비별로 독립적이므로 동기화 대상에서 제외한다."""
+    나머지 설비에 일괄 동기화한다. 이름이 같은 부품은 규격/교체주기/비고/메모/도면/재고수량/구매처/
+    리드타임/아이콘/위치/크기가 TEAG01호기 기준으로 갱신되고(재고는 전 설비가 동일하게 관리됨),
+    새 부품은 추가되며, 여기 없는 이름의 부품은 삭제된다(교체 이력도 함께 삭제)."""
     master_unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
     master_parts = conn.execute(
         "SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL ORDER BY id", (unit_id,)
@@ -479,22 +479,22 @@ def apply_unit_parts_to_other_equipment(conn, unit_id):
                 conn.execute(
                     """UPDATE parts SET spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, memo = ?,
                        drawing_data = ?, icon = ?, pos_x = ?, pos_y = ?, width = ?, height = ?,
-                       supplier = ?, supplier_contact = ?, lead_time_days = ? WHERE id = ?""",
+                       stock_qty = ?, supplier = ?, supplier_contact = ?, lead_time_days = ? WHERE id = ?""",
                     (
                         mp["spec"], mp["cycle_days"], mp["cycle_unit"], mp["cost"], mp["note"], mp["memo"],
                         mp["drawing_data"], mp["icon"], mp["pos_x"], mp["pos_y"], mp["width"], mp["height"],
-                        mp["supplier"], mp["supplier_contact"], mp["lead_time_days"], ep["id"],
+                        mp["stock_qty"], mp["supplier"], mp["supplier_contact"], mp["lead_time_days"], ep["id"],
                     ),
                 )
             else:
                 conn.execute(
                     """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, note, memo, drawing_data,
-                       icon, pos_x, pos_y, width, height, supplier, supplier_contact, lead_time_days)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       icon, pos_x, pos_y, width, height, stock_qty, supplier, supplier_contact, lead_time_days)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         t["id"], mp["name"], mp["spec"], mp["cycle_days"], mp["cycle_unit"], mp["cost"],
                         mp["note"], mp["memo"], mp["drawing_data"], mp["icon"], mp["pos_x"], mp["pos_y"], mp["width"], mp["height"],
-                        mp["supplier"], mp["supplier_contact"], mp["lead_time_days"],
+                        mp["stock_qty"], mp["supplier"], mp["supplier_contact"], mp["lead_time_days"],
                     ),
                 )
         for name, ep in existing.items():
@@ -520,23 +520,12 @@ def unit_with_status(conn, u):
     d = dict(u)
     d["part_count"] = len(parts)
     d["overall_status"] = overall
+    d["overdue_count"] = statuses.count("overdue")
+    d["soon_count"] = statuses.count("soon")
     return d
 
 
 STATUS_PRIORITY = ["overdue", "soon", "unknown", "ok", "empty"]
-
-
-def count_overdue_parts(conn, equipment_id):
-    rows = conn.execute(
-        """SELECT p.cycle_days, p.last_replaced_date
-           FROM parts p JOIN units u ON p.unit_id = u.id
-           WHERE u.equipment_id = ? AND p.deleted_at IS NULL AND u.deleted_at IS NULL""",
-        (equipment_id,),
-    ).fetchall()
-    return sum(
-        1 for p in rows
-        if part_status(p["cycle_days"], p["last_replaced_date"])["status"] == "overdue"
-    )
 
 
 def calc_setup_runtime(setup_date):
@@ -559,12 +548,14 @@ def calc_setup_runtime(setup_date):
 
 def equipment_with_status(conn, e):
     units = conn.execute("SELECT * FROM units WHERE equipment_id = ? AND deleted_at IS NULL", (e["id"],)).fetchall()
-    statuses = [unit_with_status(conn, u)["overall_status"] for u in units]
+    unit_statuses = [unit_with_status(conn, u) for u in units]
+    statuses = [us["overall_status"] for us in unit_statuses]
     overall = next((s for s in STATUS_PRIORITY if s in statuses), "empty")
     d = dict(e)
     d["unit_count"] = len(units)
     d["overall_status"] = overall
-    d["overdue_count"] = count_overdue_parts(conn, e["id"])
+    d["overdue_count"] = sum(us["overdue_count"] for us in unit_statuses)
+    d["soon_count"] = sum(us["soon_count"] for us in unit_statuses)
     d["runtime_display"] = calc_setup_runtime(e["setup_date"])
     return d
 
@@ -1408,7 +1399,21 @@ def part_history(part_id):
 @app.route("/api/history/<int:history_id>", methods=["DELETE"])
 def delete_history(history_id):
     conn = get_db()
+    row = conn.execute("SELECT * FROM replacement_history WHERE id = ?", (history_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "이력을 찾을 수 없습니다"}), 404
+    part_id = row["part_id"]
     conn.execute("DELETE FROM replacement_history WHERE id = ?", (history_id,))
+    # 삭제 후 남아있는 이력 중 가장 최근 날짜를 기준으로 교체주기 계산용 last_replaced_date를 다시 계산한다
+    # (남은 이력이 없으면 "미기록" 상태로 되돌아간다).
+    remaining = conn.execute(
+        "SELECT MAX(replaced_date) AS last_date FROM replacement_history WHERE part_id = ?", (part_id,)
+    ).fetchone()
+    conn.execute(
+        "UPDATE parts SET last_replaced_date = ? WHERE id = ?",
+        (remaining["last_date"], part_id),
+    )
     conn.commit()
     conn.close()
     return jsonify({"ok": True})

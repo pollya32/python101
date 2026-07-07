@@ -215,6 +215,7 @@ function equipmentCardHtml(eq) {
       <span class="unit-status-dot dot-${eq.overall_status}"></span>
       <div class="unit-icon-wrap">
         <span class="unit-icon">${eq.icon}</span>
+        ${eq.soon_count > 0 ? `<span class="soon-badge" title="교체 임박 부품 ${eq.soon_count}건">${eq.soon_count}</span>` : ""}
         ${eq.overdue_count > 0 ? `<span class="overdue-badge" title="교체 필요 부품 ${eq.overdue_count}건">${eq.overdue_count}</span>` : ""}
       </div>
       <div class="unit-name">${escapeHtml(eq.name)}</div>

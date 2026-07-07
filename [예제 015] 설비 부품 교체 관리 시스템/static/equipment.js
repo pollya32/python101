@@ -259,7 +259,11 @@ function unitCardHtml(u) {
   return `
     <div class="unit-card ${editMode ? "edit-mode" : ""}" data-unit-id="${u.id}" style="--uc:${u.color}">
       <span class="unit-status-dot dot-${u.overall_status}"></span>
-      <div class="unit-icon-wrap"><span class="unit-icon">${u.icon}</span></div>
+      <div class="unit-icon-wrap">
+        <span class="unit-icon">${u.icon}</span>
+        ${u.soon_count > 0 ? `<span class="soon-badge" title="교체 임박 부품 ${u.soon_count}건">${u.soon_count}</span>` : ""}
+        ${u.overdue_count > 0 ? `<span class="overdue-badge" title="교체 필요 부품 ${u.overdue_count}건">${u.overdue_count}</span>` : ""}
+      </div>
       <div class="unit-name">${escapeHtml(u.name)}</div>
       <div class="unit-part-count">${u.part_count}개 부품 등록</div>
       <div class="unit-edit-actions">
