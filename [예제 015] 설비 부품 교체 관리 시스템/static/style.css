@@ -241,6 +241,16 @@ body {
 }
 .equipment-card .unit-icon { font-size: 30px; }
 
+.align-guide {
+  position: absolute;
+  background: var(--accent, #f59e0b);
+  opacity: 0.9;
+  pointer-events: none;
+  z-index: 30;
+}
+.align-guide-v { top: 0; bottom: 0; width: 2px; transform: translateX(-50%); }
+.align-guide-h { left: 0; right: 0; height: 2px; transform: translateY(-50%); }
+
 /* ── 캔버스 ───────────────────────────────────────────────────── */
 .equipment-canvas {
   position: relative;

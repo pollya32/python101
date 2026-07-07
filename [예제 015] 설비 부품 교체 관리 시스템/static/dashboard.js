@@ -84,7 +84,9 @@ function applyFilterSort() {
 
 function renderGrid(equipments, sortBy) {
   const grid = document.getElementById("equipmentGrid");
-  grid.innerHTML = equipments.map(equipmentCardHtml).join("");
+  grid.innerHTML = equipments.map(equipmentCardHtml).join("") +
+    '<div id="alignGuideV" class="align-guide align-guide-v d-none"></div>' +
+    '<div id="alignGuideH" class="align-guide align-guide-h d-none"></div>';
   equipments.forEach((eq, idx) => {
     const card = grid.querySelector(`[data-equipment-id="${eq.id}"]`);
     let x, y;
@@ -133,14 +135,49 @@ function makeDraggable(card, eq) {
     const startTop = (parseFloat(card.style.top) / 100) * rect.height;
     let moved = false;
 
+    const SNAP_PX = 8;
+    const otherPositions = Array.from(canvas.querySelectorAll(".equipment-card"))
+      .filter((c) => c !== card)
+      .map((c) => ({
+        x: (parseFloat(c.style.left) / 100) * rect.width,
+        y: (parseFloat(c.style.top) / 100) * rect.height,
+      }));
+    const guideV = document.getElementById("alignGuideV");
+    const guideH = document.getElementById("alignGuideH");
+
     card.classList.add("dragging");
 
     function onMove(ev) {
       const dx = ev.clientX - startX;
       const dy = ev.clientY - startY;
       if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved = true;
-      const px = Math.min(Math.max(startLeft + dx, rect.width * 0.04), rect.width * 0.96);
-      const py = Math.min(Math.max(startTop + dy, rect.height * 0.04), rect.height * 0.96);
+      let px = Math.min(Math.max(startLeft + dx, rect.width * 0.04), rect.width * 0.96);
+      let py = Math.min(Math.max(startTop + dy, rect.height * 0.04), rect.height * 0.96);
+
+      let snappedX = null;
+      let snappedY = null;
+      let bestDx = SNAP_PX;
+      let bestDy = SNAP_PX;
+      for (const pos of otherPositions) {
+        const dxAbs = Math.abs(pos.x - px);
+        if (dxAbs <= bestDx) {
+          bestDx = dxAbs;
+          snappedX = pos.x;
+        }
+        const dyAbs = Math.abs(pos.y - py);
+        if (dyAbs <= bestDy) {
+          bestDy = dyAbs;
+          snappedY = pos.y;
+        }
+      }
+      if (snappedX !== null) px = snappedX;
+      if (snappedY !== null) py = snappedY;
+
+      guideV.classList.toggle("d-none", snappedX === null);
+      if (snappedX !== null) guideV.style.left = `${(snappedX / rect.width) * 100}%`;
+      guideH.classList.toggle("d-none", snappedY === null);
+      if (snappedY !== null) guideH.style.top = `${(snappedY / rect.height) * 100}%`;
+
       card.style.left = `${(px / rect.width) * 100}%`;
       card.style.top = `${(py / rect.height) * 100}%`;
     }
@@ -149,6 +186,8 @@ function makeDraggable(card, eq) {
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
       card.classList.remove("dragging");
+      guideV.classList.add("d-none");
+      guideH.classList.add("d-none");
       if (moved) {
         const pos_x = parseFloat(card.style.left);
         const pos_y = parseFloat(card.style.top);
