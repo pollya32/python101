@@ -480,16 +480,31 @@ function openPartDetailModal(partId) {
       ${p.note ? `<br>비고: ${escapeHtml(p.note)}` : ""}
       <br>${stockText}${supplierText}${leadTimeText}
     </div>`;
+  renderPartMemoView(p.memo);
+  document.getElementById("partDetailMemoEdit").value = p.memo || "";
+  setPartMemoEditing(false);
+  document.getElementById("partDetailDrawingBtn").classList.toggle("d-none", !p.drawing_data);
+  partDetailModal.show();
+}
+
+function renderPartMemoView(memo) {
   const memoView = document.getElementById("partDetailMemo");
-  if (!p.memo || !p.memo.trim()) {
+  if (!memo || !memo.trim()) {
     memoView.innerHTML = "";
     memoView.classList.add("is-empty");
   } else {
     memoView.classList.remove("is-empty");
-    memoView.innerHTML = linkifyText(p.memo);
+    memoView.innerHTML = linkifyText(memo);
   }
-  document.getElementById("partDetailDrawingBtn").classList.toggle("d-none", !p.drawing_data);
-  partDetailModal.show();
+}
+
+function setPartMemoEditing(editing) {
+  document.getElementById("partDetailMemo").classList.toggle("d-none", editing);
+  document.getElementById("partDetailMemoEdit").classList.toggle("d-none", !editing);
+  document.getElementById("editPartMemoBtn").classList.toggle("d-none", editing);
+  document.getElementById("savePartMemoBtn").classList.toggle("d-none", !editing);
+  document.getElementById("cancelPartMemoBtn").classList.toggle("d-none", !editing);
+  if (editing) document.getElementById("partDetailMemoEdit").focus();
 }
 
 function openDrawingModal() {
@@ -602,6 +617,29 @@ document.addEventListener("DOMContentLoaded", () => {
         ? `최종 수정: ${data.updated_at}`
         : "";
       setNotesEditing(false);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById("editPartMemoBtn").addEventListener("click", () => setPartMemoEditing(true));
+  document.getElementById("cancelPartMemoBtn").addEventListener("click", () => {
+    const p = currentParts.find((x) => x.id === currentPartId);
+    document.getElementById("partDetailMemoEdit").value = (p && p.memo) || "";
+    setPartMemoEditing(false);
+  });
+  document.getElementById("savePartMemoBtn").addEventListener("click", async () => {
+    const memo = document.getElementById("partDetailMemoEdit").value;
+    try {
+      const updated = await fetchJson(`/api/parts/${currentPartId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memo }),
+      });
+      const p = currentParts.find((x) => x.id === currentPartId);
+      if (p) p.memo = updated.memo;
+      renderPartMemoView(updated.memo);
+      setPartMemoEditing(false);
     } catch (err) {
       alert(err.message);
     }
