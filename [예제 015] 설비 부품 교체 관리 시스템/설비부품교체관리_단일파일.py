@@ -299,6 +299,8 @@ def init_db():
             q_code TEXT,
             note TEXT,
             cost REAL DEFAULT 0,
+            cycle_days INTEGER DEFAULT 90,
+            cycle_unit TEXT DEFAULT '일',
             status TEXT DEFAULT 'pending',
             created_at TEXT DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE SET NULL
@@ -308,6 +310,10 @@ def init_db():
     if "cost" not in existing_bulk_cols:
         c.execute("ALTER TABLE bulk_part_entries ADD COLUMN cost REAL DEFAULT 0")
         c.execute("UPDATE bulk_part_entries SET cost = 0 WHERE cost IS NULL")
+    if "cycle_days" not in existing_bulk_cols:
+        c.execute("ALTER TABLE bulk_part_entries ADD COLUMN cycle_days INTEGER DEFAULT 90")
+        c.execute("ALTER TABLE bulk_part_entries ADD COLUMN cycle_unit TEXT DEFAULT '일'")
+        c.execute("UPDATE bulk_part_entries SET cycle_days = 90, cycle_unit = '일' WHERE cycle_days IS NULL")
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS bulk_part_entry_units (
@@ -977,8 +983,28 @@ def apply_unit_parts(unit_id):
     return jsonify({"ok": True, "equipment_count": equipment_count, "part_count": part_count})
 
 
+def parse_cycle_text(text):
+    """"90", "90일", "2년" 등의 텍스트를 (cycle_days, cycle_unit) 튜플로 변환.
+    비어있거나 해석할 수 없으면 기본값(90일)을 반환한다."""
+    text = (text or "").strip()
+    if not text:
+        return 90, "일"
+    if text.endswith("년"):
+        try:
+            years = float(text[:-1].strip())
+            return round(years * 365), "년"
+        except ValueError:
+            return 90, "일"
+    text = text[:-1].strip() if text.endswith("일") else text
+    try:
+        return round(float(text)), "일"
+    except ValueError:
+        return 90, "일"
+
+
 def parse_bulk_paste_text(text):
-    """붙여넣은 텍스트(탭 또는 쉼표 구분)를 (유닛이름, 부품이름, Q-CODE, 부가설명, 금액) 튜플 목록으로 변환."""
+    """붙여넣은 텍스트(탭 또는 쉼표 구분)를 (유닛이름, 부품이름, Q-CODE, 부가설명, 금액, 교체주기일수, 교체주기단위)
+    튜플 목록으로 변환. 교체주기는 "90", "90일", "2년"과 같이 입력할 수 있다."""
     rows = []
     for line in text.splitlines():
         line = line.strip()
@@ -988,16 +1014,17 @@ def parse_bulk_paste_text(text):
         if len(cols) < 2:
             cols = line.split(",")
         cols = [c.strip() for c in cols]
-        while len(cols) < 5:
+        while len(cols) < 6:
             cols.append("")
-        unit_text, part_name, q_code, note, cost_text = cols[0], cols[1], cols[2], cols[3], cols[4]
+        unit_text, part_name, q_code, note, cost_text, cycle_text = cols[0], cols[1], cols[2], cols[3], cols[4], cols[5]
         if not part_name:
             continue
         try:
             cost = float(cost_text) if cost_text else 0
         except ValueError:
             cost = 0
-        rows.append((unit_text, part_name, q_code, note, cost))
+        cycle_days, cycle_unit = parse_cycle_text(cycle_text)
+        rows.append((unit_text, part_name, q_code, note, cost, cycle_days, cycle_unit))
     return rows
 
 
@@ -1052,11 +1079,11 @@ def paste_bulk_parts():
 
     conn = get_db()
     created_ids = []
-    for unit_text, part_name, q_code, note, cost in parsed:
+    for unit_text, part_name, q_code, note, cost, cycle_days, cycle_unit in parsed:
         cur = conn.execute(
-            "INSERT INTO bulk_part_entries (raw_unit_text, part_name, q_code, note, cost) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (unit_text, part_name, q_code, note, cost),
+            "INSERT INTO bulk_part_entries (raw_unit_text, part_name, q_code, note, cost, cycle_days, cycle_unit) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (unit_text, part_name, q_code, note, cost, cycle_days, cycle_unit),
         )
         created_ids.append(cur.lastrowid)
     conn.commit()
@@ -1076,9 +1103,11 @@ def update_bulk_part(entry_id):
     q_code = data.get("q_code", entry["q_code"])
     note = data.get("note", entry["note"])
     cost = data.get("cost", entry["cost"])
+    cycle_days = int(data.get("cycle_days") or entry["cycle_days"])
+    cycle_unit = (data.get("cycle_unit") or entry["cycle_unit"]).strip()
     conn.execute(
-        "UPDATE bulk_part_entries SET part_name = ?, q_code = ?, note = ?, cost = ? WHERE id = ?",
-        (part_name, q_code, note, cost, entry_id),
+        "UPDATE bulk_part_entries SET part_name = ?, q_code = ?, note = ?, cost = ?, cycle_days = ?, cycle_unit = ? WHERE id = ?",
+        (part_name, q_code, note, cost, cycle_days, cycle_unit, entry_id),
     )
     if "unit_ids" in data:
         conn.execute("DELETE FROM bulk_part_entry_units WHERE entry_id = ?", (entry_id,))
@@ -1116,6 +1145,7 @@ def register_bulk_part(entry_id):
         part_id = insert_part(
             conn, uid, entry["part_name"], spec=entry["q_code"] or "",
             cost=entry["cost"] or 0, note=entry["note"] or "",
+            cycle_days=entry["cycle_days"] or 90, cycle_unit=entry["cycle_unit"] or "일",
         )
         part_ids.append(part_id)
     conn.execute("UPDATE bulk_part_entries SET status = 'registered' WHERE id = ?", (entry_id,))
@@ -2334,6 +2364,8 @@ body {
 }
 .bulk-table td { vertical-align: middle; }
 .bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-cycle-group { min-width: 105px; }
+.bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }
 </style>
@@ -3469,6 +3501,8 @@ body {
 }
 .bulk-table td { vertical-align: middle; }
 .bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-cycle-group { min-width: 105px; }
+.bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }
 </style>
@@ -4832,6 +4866,8 @@ body {
 }
 .bulk-table td { vertical-align: middle; }
 .bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-cycle-group { min-width: 105px; }
+.bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }
 </style>
@@ -6502,6 +6538,8 @@ body {
 }
 .bulk-table td { vertical-align: middle; }
 .bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-cycle-group { min-width: 105px; }
+.bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }
 </style>
@@ -7677,6 +7715,8 @@ body {
 }
 .bulk-table td { vertical-align: middle; }
 .bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-cycle-group { min-width: 105px; }
+.bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }
 </style>
@@ -8503,6 +8543,8 @@ body {
 }
 .bulk-table td { vertical-align: middle; }
 .bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-cycle-group { min-width: 105px; }
+.bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }
 </style>
@@ -9361,6 +9403,8 @@ body {
 }
 .bulk-table td { vertical-align: middle; }
 .bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-cycle-group { min-width: 105px; }
+.bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }
 </style>
@@ -10311,6 +10355,8 @@ body {
 }
 .bulk-table td { vertical-align: middle; }
 .bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-cycle-group { min-width: 105px; }
+.bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }
 </style>
@@ -11067,6 +11113,8 @@ body {
 }
 .bulk-table td { vertical-align: middle; }
 .bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-cycle-group { min-width: 105px; }
+.bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }
 </style>
@@ -11088,12 +11136,13 @@ body {
 
   <div class="bulk-paste-box mb-3">
     <label class="form-label mb-1">
-      엑셀 등에서 <strong>유닛이름, 부품이름, Q-CODE, 부가설명, 금액</strong> 순서로 복사해 아래에 붙여넣으세요 (한 줄에 부품 하나).
+      엑셀 등에서 <strong>유닛이름, 부품이름, Q-CODE, 부가설명, 금액, 교체주기</strong> 순서로 복사해 아래에 붙여넣으세요 (한 줄에 부품 하나).
     </label>
     <p class="text-muted small mb-2">
       유닛 선택은 "기본 유닛 구성"에 등록된 유닛 이름을 기준으로 표시되며, 유닛 하나에 여러 개를 다중 선택할 수 있습니다(선택한 모든 유닛에 동일한 부품이 등록됩니다).
+      교체주기는 "90", "90일", "2년"처럼 입력할 수 있으며 비워두면 기본값(90일)이 적용됩니다.
     </p>
-    <textarea id="pasteArea" class="form-control" rows="4" placeholder="로드포트1&#9;오링&#9;Q-1234&#9;내열용&#9;5000&#10;HMI&#9;케이블&#9;Q-5678&#9;연결선&#9;12000"></textarea>
+    <textarea id="pasteArea" class="form-control" rows="4" placeholder="로드포트1&#9;오링&#9;Q-1234&#9;내열용&#9;5000&#9;90일&#10;HMI&#9;케이블&#9;Q-5678&#9;연결선&#9;12000&#9;2년"></textarea>
     <button id="applyPasteBtn" class="btn btn-primary btn-sm mt-2">
       <i class="bi bi-clipboard-plus"></i> 붙여넣기 반영
     </button>
@@ -11120,6 +11169,7 @@ body {
           <th>Q-CODE</th>
           <th>부가설명</th>
           <th>금액</th>
+          <th>교체주기</th>
           <th>상태</th>
           <th style="width:90px"></th>
         </tr>
@@ -11145,6 +11195,13 @@ function escapeHtml(s) {
   const div = document.createElement("div");
   div.textContent = s || "";
   return div.innerHTML;
+}
+
+function cycleDaysToDisplayValue(cycleDays, cycleUnit) {
+  if (cycleUnit === "년") {
+    return Math.round((cycleDays / 365) * 100) / 100;
+  }
+  return cycleDays;
 }
 
 async function fetchJson(url, options) {
@@ -11234,6 +11291,15 @@ function renderTable() {
       <td><input type="text" class="form-control form-control-sm field-input" data-id="${e.id}" data-field="note" value="${escapeHtml(e.note)}"></td>
       <td><input type="number" class="form-control form-control-sm field-input" data-id="${e.id}" data-field="cost" value="${e.cost || 0}" min="0" step="100"></td>
       <td>
+        <div class="input-group input-group-sm bulk-cycle-group">
+          <input type="number" class="form-control form-control-sm cycle-field-input" data-id="${e.id}" data-cyclefield="value" value="${cycleDaysToDisplayValue(e.cycle_days || 90, e.cycle_unit || "일")}" min="1" step="1">
+          <select class="form-select form-select-sm flex-grow-0 w-auto cycle-field-input" data-id="${e.id}" data-cyclefield="unit">
+            <option value="일" ${(e.cycle_unit || "일") === "일" ? "selected" : ""}>일</option>
+            <option value="년" ${e.cycle_unit === "년" ? "selected" : ""}>년</option>
+          </select>
+        </div>
+      </td>
+      <td>
         ${e.status === "registered"
           ? '<span class="bulk-status-registered"><i class="bi bi-check-circle-fill"></i> 등록됨</span>'
           : '<span class="bulk-status-pending">대기</span>'}
@@ -11298,6 +11364,25 @@ function renderTable() {
         body: JSON.stringify({ [input.dataset.field]: value }),
       });
     });
+  });
+
+  tbody.querySelectorAll("tr").forEach((row) => {
+    const valueInput = row.querySelector('.cycle-field-input[data-cyclefield="value"]');
+    const unitSelect = row.querySelector('.cycle-field-input[data-cyclefield="unit"]');
+    if (!valueInput || !unitSelect) return;
+    const id = parseInt(valueInput.dataset.id, 10);
+    const commitCycle = async () => {
+      const cycleUnit = unitSelect.value;
+      const cycleValue = parseFloat(valueInput.value) || 1;
+      const cycleDays = cycleUnit === "년" ? Math.round(cycleValue * 365) : Math.round(cycleValue);
+      await fetchJson(`/api/bulk-parts/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cycle_days: cycleDays, cycle_unit: cycleUnit }),
+      });
+    };
+    valueInput.addEventListener("change", commitCycle);
+    unitSelect.addEventListener("change", commitCycle);
   });
 
   tbody.querySelectorAll(".register-btn").forEach((btn) => {

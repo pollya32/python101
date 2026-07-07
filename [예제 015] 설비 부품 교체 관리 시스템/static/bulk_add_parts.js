@@ -12,6 +12,13 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
+function cycleDaysToDisplayValue(cycleDays, cycleUnit) {
+  if (cycleUnit === "년") {
+    return Math.round((cycleDays / 365) * 100) / 100;
+  }
+  return cycleDays;
+}
+
 async function fetchJson(url, options) {
   const res = await fetch(url, options);
   if (res.status === 401) {
@@ -99,6 +106,15 @@ function renderTable() {
       <td><input type="text" class="form-control form-control-sm field-input" data-id="${e.id}" data-field="note" value="${escapeHtml(e.note)}"></td>
       <td><input type="number" class="form-control form-control-sm field-input" data-id="${e.id}" data-field="cost" value="${e.cost || 0}" min="0" step="100"></td>
       <td>
+        <div class="input-group input-group-sm bulk-cycle-group">
+          <input type="number" class="form-control form-control-sm cycle-field-input" data-id="${e.id}" data-cyclefield="value" value="${cycleDaysToDisplayValue(e.cycle_days || 90, e.cycle_unit || "일")}" min="1" step="1">
+          <select class="form-select form-select-sm flex-grow-0 w-auto cycle-field-input" data-id="${e.id}" data-cyclefield="unit">
+            <option value="일" ${(e.cycle_unit || "일") === "일" ? "selected" : ""}>일</option>
+            <option value="년" ${e.cycle_unit === "년" ? "selected" : ""}>년</option>
+          </select>
+        </div>
+      </td>
+      <td>
         ${e.status === "registered"
           ? '<span class="bulk-status-registered"><i class="bi bi-check-circle-fill"></i> 등록됨</span>'
           : '<span class="bulk-status-pending">대기</span>'}
@@ -163,6 +179,25 @@ function renderTable() {
         body: JSON.stringify({ [input.dataset.field]: value }),
       });
     });
+  });
+
+  tbody.querySelectorAll("tr").forEach((row) => {
+    const valueInput = row.querySelector('.cycle-field-input[data-cyclefield="value"]');
+    const unitSelect = row.querySelector('.cycle-field-input[data-cyclefield="unit"]');
+    if (!valueInput || !unitSelect) return;
+    const id = parseInt(valueInput.dataset.id, 10);
+    const commitCycle = async () => {
+      const cycleUnit = unitSelect.value;
+      const cycleValue = parseFloat(valueInput.value) || 1;
+      const cycleDays = cycleUnit === "년" ? Math.round(cycleValue * 365) : Math.round(cycleValue);
+      await fetchJson(`/api/bulk-parts/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cycle_days: cycleDays, cycle_unit: cycleUnit }),
+      });
+    };
+    valueInput.addEventListener("change", commitCycle);
+    unitSelect.addEventListener("change", commitCycle);
   });
 
   tbody.querySelectorAll(".register-btn").forEach((btn) => {

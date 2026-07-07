@@ -25,12 +25,13 @@
 
   <div class="bulk-paste-box mb-3">
     <label class="form-label mb-1">
-      엑셀 등에서 <strong>유닛이름, 부품이름, Q-CODE, 부가설명, 금액</strong> 순서로 복사해 아래에 붙여넣으세요 (한 줄에 부품 하나).
+      엑셀 등에서 <strong>유닛이름, 부품이름, Q-CODE, 부가설명, 금액, 교체주기</strong> 순서로 복사해 아래에 붙여넣으세요 (한 줄에 부품 하나).
     </label>
     <p class="text-muted small mb-2">
       유닛 선택은 "기본 유닛 구성"에 등록된 유닛 이름을 기준으로 표시되며, 유닛 하나에 여러 개를 다중 선택할 수 있습니다(선택한 모든 유닛에 동일한 부품이 등록됩니다).
+      교체주기는 "90", "90일", "2년"처럼 입력할 수 있으며 비워두면 기본값(90일)이 적용됩니다.
     </p>
-    <textarea id="pasteArea" class="form-control" rows="4" placeholder="로드포트1&#9;오링&#9;Q-1234&#9;내열용&#9;5000&#10;HMI&#9;케이블&#9;Q-5678&#9;연결선&#9;12000"></textarea>
+    <textarea id="pasteArea" class="form-control" rows="4" placeholder="로드포트1&#9;오링&#9;Q-1234&#9;내열용&#9;5000&#9;90일&#10;HMI&#9;케이블&#9;Q-5678&#9;연결선&#9;12000&#9;2년"></textarea>
     <button id="applyPasteBtn" class="btn btn-primary btn-sm mt-2">
       <i class="bi bi-clipboard-plus"></i> 붙여넣기 반영
     </button>
@@ -57,6 +58,7 @@
           <th>Q-CODE</th>
           <th>부가설명</th>
           <th>금액</th>
+          <th>교체주기</th>
           <th>상태</th>
           <th style="width:90px"></th>
         </tr>

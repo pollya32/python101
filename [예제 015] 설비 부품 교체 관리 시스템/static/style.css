@@ -714,5 +714,7 @@ body {
 }
 .bulk-table td { vertical-align: middle; }
 .bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-cycle-group { min-width: 105px; }
+.bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }

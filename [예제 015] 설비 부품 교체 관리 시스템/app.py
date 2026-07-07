@@ -283,6 +283,8 @@ def init_db():
             q_code TEXT,
             note TEXT,
             cost REAL DEFAULT 0,
+            cycle_days INTEGER DEFAULT 90,
+            cycle_unit TEXT DEFAULT '일',
             status TEXT DEFAULT 'pending',
             created_at TEXT DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE SET NULL
@@ -292,6 +294,10 @@ def init_db():
     if "cost" not in existing_bulk_cols:
         c.execute("ALTER TABLE bulk_part_entries ADD COLUMN cost REAL DEFAULT 0")
         c.execute("UPDATE bulk_part_entries SET cost = 0 WHERE cost IS NULL")
+    if "cycle_days" not in existing_bulk_cols:
+        c.execute("ALTER TABLE bulk_part_entries ADD COLUMN cycle_days INTEGER DEFAULT 90")
+        c.execute("ALTER TABLE bulk_part_entries ADD COLUMN cycle_unit TEXT DEFAULT '일'")
+        c.execute("UPDATE bulk_part_entries SET cycle_days = 90, cycle_unit = '일' WHERE cycle_days IS NULL")
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS bulk_part_entry_units (
@@ -961,8 +967,28 @@ def apply_unit_parts(unit_id):
     return jsonify({"ok": True, "equipment_count": equipment_count, "part_count": part_count})
 
 
+def parse_cycle_text(text):
+    """"90", "90일", "2년" 등의 텍스트를 (cycle_days, cycle_unit) 튜플로 변환.
+    비어있거나 해석할 수 없으면 기본값(90일)을 반환한다."""
+    text = (text or "").strip()
+    if not text:
+        return 90, "일"
+    if text.endswith("년"):
+        try:
+            years = float(text[:-1].strip())
+            return round(years * 365), "년"
+        except ValueError:
+            return 90, "일"
+    text = text[:-1].strip() if text.endswith("일") else text
+    try:
+        return round(float(text)), "일"
+    except ValueError:
+        return 90, "일"
+
+
 def parse_bulk_paste_text(text):
-    """붙여넣은 텍스트(탭 또는 쉼표 구분)를 (유닛이름, 부품이름, Q-CODE, 부가설명, 금액) 튜플 목록으로 변환."""
+    """붙여넣은 텍스트(탭 또는 쉼표 구분)를 (유닛이름, 부품이름, Q-CODE, 부가설명, 금액, 교체주기일수, 교체주기단위)
+    튜플 목록으로 변환. 교체주기는 "90", "90일", "2년"과 같이 입력할 수 있다."""
     rows = []
     for line in text.splitlines():
         line = line.strip()
@@ -972,16 +998,17 @@ def parse_bulk_paste_text(text):
         if len(cols) < 2:
             cols = line.split(",")
         cols = [c.strip() for c in cols]
-        while len(cols) < 5:
+        while len(cols) < 6:
             cols.append("")
-        unit_text, part_name, q_code, note, cost_text = cols[0], cols[1], cols[2], cols[3], cols[4]
+        unit_text, part_name, q_code, note, cost_text, cycle_text = cols[0], cols[1], cols[2], cols[3], cols[4], cols[5]
         if not part_name:
             continue
         try:
             cost = float(cost_text) if cost_text else 0
         except ValueError:
             cost = 0
-        rows.append((unit_text, part_name, q_code, note, cost))
+        cycle_days, cycle_unit = parse_cycle_text(cycle_text)
+        rows.append((unit_text, part_name, q_code, note, cost, cycle_days, cycle_unit))
     return rows
 
 
@@ -1036,11 +1063,11 @@ def paste_bulk_parts():
 
     conn = get_db()
     created_ids = []
-    for unit_text, part_name, q_code, note, cost in parsed:
+    for unit_text, part_name, q_code, note, cost, cycle_days, cycle_unit in parsed:
         cur = conn.execute(
-            "INSERT INTO bulk_part_entries (raw_unit_text, part_name, q_code, note, cost) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (unit_text, part_name, q_code, note, cost),
+            "INSERT INTO bulk_part_entries (raw_unit_text, part_name, q_code, note, cost, cycle_days, cycle_unit) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (unit_text, part_name, q_code, note, cost, cycle_days, cycle_unit),
         )
         created_ids.append(cur.lastrowid)
     conn.commit()
@@ -1060,9 +1087,11 @@ def update_bulk_part(entry_id):
     q_code = data.get("q_code", entry["q_code"])
     note = data.get("note", entry["note"])
     cost = data.get("cost", entry["cost"])
+    cycle_days = int(data.get("cycle_days") or entry["cycle_days"])
+    cycle_unit = (data.get("cycle_unit") or entry["cycle_unit"]).strip()
     conn.execute(
-        "UPDATE bulk_part_entries SET part_name = ?, q_code = ?, note = ?, cost = ? WHERE id = ?",
-        (part_name, q_code, note, cost, entry_id),
+        "UPDATE bulk_part_entries SET part_name = ?, q_code = ?, note = ?, cost = ?, cycle_days = ?, cycle_unit = ? WHERE id = ?",
+        (part_name, q_code, note, cost, cycle_days, cycle_unit, entry_id),
     )
     if "unit_ids" in data:
         conn.execute("DELETE FROM bulk_part_entry_units WHERE entry_id = ?", (entry_id,))
@@ -1100,6 +1129,7 @@ def register_bulk_part(entry_id):
         part_id = insert_part(
             conn, uid, entry["part_name"], spec=entry["q_code"] or "",
             cost=entry["cost"] or 0, note=entry["note"] or "",
+            cycle_days=entry["cycle_days"] or 90, cycle_unit=entry["cycle_unit"] or "일",
         )
         part_ids.append(part_id)
     conn.execute("UPDATE bulk_part_entries SET status = 'registered' WHERE id = ?", (entry_id,))
