@@ -29,8 +29,14 @@ async function loadInventory() {
   renderInventory();
 }
 
+function updateExportLink() {
+  const lowOnly = document.getElementById("lowStockOnlyCheck").checked;
+  document.getElementById("exportInventoryBtn").href = `/api/inventory/export${lowOnly ? "?low_only=1" : ""}`;
+}
+
 function renderInventory() {
   const lowOnly = document.getElementById("lowStockOnlyCheck").checked;
+  updateExportLink();
   const rows = lowOnly ? allInventory.filter((p) => (p.stock_qty || 0) <= 0) : allInventory;
   const tbody = document.getElementById("inventoryBody");
   const empty = document.getElementById("inventoryEmpty");

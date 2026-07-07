@@ -818,10 +818,8 @@ def inventory_page():
     return INVENTORY_HTML
 
 
-@app.route("/api/inventory")
-def api_inventory():
-    conn = get_db()
-    rows = conn.execute("""
+def get_inventory_rows(conn):
+    return conn.execute("""
         SELECT p.id, p.name, p.spec, p.stock_qty, p.supplier, p.supplier_contact, p.lead_time_days,
                u.id AS unit_id, u.name AS unit_name,
                e.id AS equipment_id, e.name AS equipment_name, e.icon AS equipment_icon
@@ -831,8 +829,34 @@ def api_inventory():
         WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
         ORDER BY p.stock_qty ASC, e.id, u.id, p.id
     """).fetchall()
+
+
+@app.route("/api/inventory")
+def api_inventory():
+    conn = get_db()
+    rows = get_inventory_rows(conn)
     conn.close()
     return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/inventory/export")
+def export_inventory_csv():
+    low_only = request.args.get("low_only") == "1"
+    conn = get_db()
+    rows = get_inventory_rows(conn)
+    conn.close()
+    header = ["부품이름", "규격", "소속 설비", "소속 유닛", "재고 수량", "구매처", "연락처", "리드타임(일)"]
+    data_rows = []
+    for p in rows:
+        if low_only and (p["stock_qty"] or 0) > 0:
+            continue
+        data_rows.append([
+            p["name"], p["spec"] or "", f"{p['equipment_icon']} {p['equipment_name']}", p["unit_name"],
+            p["stock_qty"] or 0, p["supplier"] or "", p["supplier_contact"] or "",
+            p["lead_time_days"] if p["lead_time_days"] is not None else "",
+        ])
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return csv_response(f"재고관리_{timestamp}.csv", header, data_rows)
 
 
 @app.route("/equipment/<int:equipment_id>")
@@ -14787,6 +14811,9 @@ body {
   </div>
   <div class="d-flex align-items-center gap-2">
     <span id="clock" class="clock"></span>
+    <a id="exportInventoryBtn" href="/api/inventory/export" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-file-earmark-spreadsheet"></i> 엑셀로 내보내기
+    </a>
   </div>
 </header>
 
@@ -14854,8 +14881,14 @@ async function loadInventory() {
   renderInventory();
 }
 
+function updateExportLink() {
+  const lowOnly = document.getElementById("lowStockOnlyCheck").checked;
+  document.getElementById("exportInventoryBtn").href = `/api/inventory/export${lowOnly ? "?low_only=1" : ""}`;
+}
+
 function renderInventory() {
   const lowOnly = document.getElementById("lowStockOnlyCheck").checked;
+  updateExportLink();
   const rows = lowOnly ? allInventory.filter((p) => (p.stock_qty || 0) <= 0) : allInventory;
   const tbody = document.getElementById("inventoryBody");
   const empty = document.getElementById("inventoryEmpty");
