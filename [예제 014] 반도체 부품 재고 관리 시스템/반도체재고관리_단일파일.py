@@ -66,11 +66,32 @@ def init_db():
         FOREIGN KEY (equipment_id) REFERENCES equipment(id),
         FOREIGN KEY (part_id) REFERENCES parts(id),
         FOREIGN KEY (user_id) REFERENCES users(id))''')
+    c.execute('''CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)''')
+
+    # 기존 DB 마이그레이션: 부품이 소속된 설비를 나타내는 컬럼 추가
+    try:
+        c.execute("ALTER TABLE parts ADD COLUMN equipment_id INTEGER")
+    except sqlite3.OperationalError:
+        pass
+
     try:
         c.execute("INSERT INTO users (username,password,name,role) VALUES (?,?,?,?)",
                   ('admin', generate_password_hash('admin1234'), '관리자', 'admin'))
     except sqlite3.IntegrityError:
         pass
+
+    # 설비는 TEAG01호기 단일 운영 — 중복 설비 1회성 정리 및 부품을 TEAG01호기로 일괄 연결
+    if not c.execute("SELECT value FROM meta WHERE key='eq_cleanup_done'").fetchone():
+        c.execute("DELETE FROM equipment WHERE name != 'TEAG01호기'")
+        row = c.execute("SELECT id FROM equipment WHERE name='TEAG01호기'").fetchone()
+        if row:
+            teag_id = row['id']
+        else:
+            c.execute("INSERT INTO equipment (code,name,location,status) VALUES ('TEAG01','TEAG01호기','','가동중')")
+            teag_id = c.lastrowid
+        c.execute("UPDATE parts SET equipment_id=? WHERE equipment_id IS NULL", (teag_id,))
+        c.execute("INSERT INTO meta (key,value) VALUES ('eq_cleanup_done','1')")
+
     conn.commit()
     conn.close()
 
@@ -298,10 +319,20 @@ PARTS_T = _page('부품 재고 관리', """
       <option value="">전체 카테고리</option>
       {% for cat in categories %}<option value="{{cat.category}}" {{'selected' if sel_cat==cat.category}}>{{cat.category}}</option>{% endfor %}
     </select></div>
+    <div class="col-auto"><select name="status" class="form-select">
+      <option value="">전체상태</option>
+      <option value="정상" {{'selected' if sel_status=='정상'}}>정상</option>
+      <option value="부족" {{'selected' if sel_status=='부족'}}>부족</option>
+      <option value="품절" {{'selected' if sel_status=='품절'}}>품절</option>
+    </select></div>
+    <div class="col-auto"><select name="equipment" class="form-select">
+      <option value="">전체설비</option>
+      {% for eq in equipment_list %}<option value="{{eq.id}}" {{'selected' if sel_eq==eq.id|string}}>{{eq.name}}</option>{% endfor %}
+    </select></div>
     <div class="col-auto"><button type="submit" class="btn btn-primary">검색</button>
       <a href="/parts" class="btn btn-outline-secondary ms-1">초기화</a></div>
     <div class="col-auto ms-auto">
-      <a href="/parts/export?q={{q}}&category={{sel_cat}}" class="btn btn-outline-success me-1"><i class="bi bi-download me-1"></i>다운로드</a>
+      <a href="/parts/export?q={{q}}&category={{sel_cat}}&status={{sel_status}}&equipment={{sel_eq}}" class="btn btn-outline-success me-1"><i class="bi bi-download me-1"></i>다운로드</a>
       <a href="/parts/add" class="btn btn-success"><i class="bi bi-plus-circle me-1"></i>부품 등록</a>
     </div>
   </form>
@@ -580,6 +611,19 @@ USER_FORM_T = _page('{{title}}', """
 </div></div></div>""")
 
 
+def _filtered_parts(conn, args):
+    q = args.get('q', ''); cat = args.get('category', '')
+    status = args.get('status', ''); eq_id = args.get('equipment', '')
+    sql = "SELECT * FROM parts WHERE 1=1"; p = []
+    if q: sql += " AND (name LIKE ? OR code LIKE ? OR supplier LIKE ?)"; p += [f'%{q}%'] * 3
+    if cat: sql += " AND category=?"; p.append(cat)
+    if status == '품절': sql += " AND quantity=0"
+    elif status == '부족': sql += " AND quantity>0 AND quantity<=min_quantity"
+    elif status == '정상': sql += " AND quantity>min_quantity"
+    if eq_id: sql += " AND equipment_id=?"; p.append(eq_id)
+    return conn.execute(sql + " ORDER BY category,name", p).fetchall(), q, cat, status, eq_id
+
+
 def _csv_response(filename, header, rows):
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -640,24 +684,21 @@ def dashboard():
 @app.route('/parts')
 @login_required
 def parts_list():
-    q = request.args.get('q', ''); cat = request.args.get('category', '')
-    conn = get_db(); sql = "SELECT * FROM parts WHERE 1=1"; p = []
-    if q: sql += " AND (name LIKE ? OR code LIKE ? OR supplier LIKE ?)"; p += [f'%{q}%'] * 3
-    if cat: sql += " AND category=?"; p.append(cat)
-    parts = conn.execute(sql + " ORDER BY category,name", p).fetchall()
+    conn = get_db()
+    parts, q, cat, status, eq_id = _filtered_parts(conn, request.args)
     cats = conn.execute("SELECT DISTINCT category FROM parts WHERE category!='' ORDER BY category").fetchall()
+    eqs = conn.execute("SELECT * FROM equipment ORDER BY name").fetchall()
     conn.close()
-    return render_template_string(PARTS_T, parts=parts, categories=cats, q=q, sel_cat=cat)
+    return render_template_string(PARTS_T, parts=parts, categories=cats, equipment_list=eqs,
+                                   q=q, sel_cat=cat, sel_status=status, sel_eq=eq_id)
 
 
 @app.route('/parts/export')
 @login_required
 def parts_export():
-    q = request.args.get('q', ''); cat = request.args.get('category', '')
-    conn = get_db(); sql = "SELECT * FROM parts WHERE 1=1"; p = []
-    if q: sql += " AND (name LIKE ? OR code LIKE ? OR supplier LIKE ?)"; p += [f'%{q}%'] * 3
-    if cat: sql += " AND category=?"; p.append(cat)
-    parts = conn.execute(sql + " ORDER BY category,name", p).fetchall(); conn.close()
+    conn = get_db()
+    parts, *_ = _filtered_parts(conn, request.args)
+    conn.close()
     rows = [[p['code'], p['name'], p['category'], p['quantity'], p['min_quantity'], p['unit'],
              p['unit_price'], p['location'], p['supplier'], p['note']] for p in parts]
     header = ['부품코드', '부품명', '카테고리', '현재재고', '최소재고', '단위', '단가', '보관위치', '공급업체', '비고']
@@ -670,11 +711,13 @@ def parts_add():
     if request.method == 'POST':
         f = request.form; conn = get_db()
         try:
-            conn.execute("INSERT INTO parts (code,name,category,quantity,min_quantity,unit,unit_price,location,supplier,note) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            teag = conn.execute("SELECT id FROM equipment WHERE name='TEAG01호기'").fetchone()
+            conn.execute("INSERT INTO parts (code,name,category,quantity,min_quantity,unit,unit_price,location,supplier,note,equipment_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (f['code'].strip(), f['name'].strip(), f.get('category', '').strip(),
                  int(f.get('quantity', 0)), int(f.get('min_quantity', 5)),
                  f.get('unit', 'EA'), int(f.get('unit_price', 0) or 0),
-                 f.get('location', '').strip(), f.get('supplier', '').strip(), f.get('note', '').strip()))
+                 f.get('location', '').strip(), f.get('supplier', '').strip(), f.get('note', '').strip(),
+                 teag['id'] if teag else None))
             conn.commit(); flash('부품이 등록되었습니다.', 'success'); conn.close(); return redirect('/parts')
         except sqlite3.IntegrityError:
             flash('이미 존재하는 부품 코드입니다.', 'danger')
