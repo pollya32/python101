@@ -32,16 +32,33 @@ async function loadEntries() {
   renderTable();
 }
 
-function unitOptionsHtml(selectedUnitId) {
-  return (
-    `<option value="">유닛 선택...</option>` +
-    masterUnits
-      .map(
-        (u) =>
-          `<option value="${u.id}" ${u.id === selectedUnitId ? "selected" : ""}>${escapeHtml(u.name)}</option>`
-      )
-      .join("")
-  );
+function unitMultiselectHtml(entry) {
+  const selectedIds = new Set(entry.units.map((u) => u.id));
+  const label =
+    entry.units.length === 0
+      ? "유닛 선택..."
+      : entry.units.length === 1
+      ? escapeHtml(entry.units[0].name)
+      : `${entry.units.length}개 선택`;
+  const checkboxes = masterUnits
+    .map(
+      (u) => `
+    <div class="form-check">
+      <input class="form-check-input unit-check" type="checkbox" value="${u.id}" id="unitChk-${entry.id}-${u.id}" ${selectedIds.has(u.id) ? "checked" : ""}>
+      <label class="form-check-label" for="unitChk-${entry.id}-${u.id}">${escapeHtml(u.name)}</label>
+    </div>`
+    )
+    .join("");
+  return `
+    <div class="dropdown">
+      <button class="btn btn-sm btn-outline-secondary dropdown-toggle w-100 text-truncate" type="button"
+        data-bs-toggle="dropdown" data-bs-auto-close="outside">
+        ${label}
+      </button>
+      <div class="dropdown-menu p-2 unit-filter-menu" data-entry-id="${entry.id}">
+        ${checkboxes}
+      </div>
+    </div>`;
 }
 
 function renderTable() {
@@ -59,21 +76,18 @@ function renderTable() {
     <tr data-entry-id="${e.id}">
       <td><input type="checkbox" class="form-check-input row-check" data-id="${e.id}"></td>
       <td class="text-muted">${escapeHtml(e.raw_unit_text)}</td>
-      <td>
-        <select class="form-select form-select-sm unit-select" data-id="${e.id}">
-          ${unitOptionsHtml(e.unit_id)}
-        </select>
-      </td>
+      <td>${unitMultiselectHtml(e)}</td>
       <td><input type="text" class="form-control form-control-sm field-input" data-id="${e.id}" data-field="part_name" value="${escapeHtml(e.part_name)}"></td>
       <td><input type="text" class="form-control form-control-sm field-input" data-id="${e.id}" data-field="q_code" value="${escapeHtml(e.q_code)}"></td>
       <td><input type="text" class="form-control form-control-sm field-input" data-id="${e.id}" data-field="note" value="${escapeHtml(e.note)}"></td>
+      <td><input type="number" class="form-control form-control-sm field-input" data-id="${e.id}" data-field="cost" value="${e.cost || 0}" min="0" step="100"></td>
       <td>
         ${e.status === "registered"
           ? '<span class="bulk-status-registered"><i class="bi bi-check-circle-fill"></i> 등록됨</span>'
           : '<span class="bulk-status-pending">대기</span>'}
       </td>
       <td>
-        <button class="btn btn-sm btn-primary register-btn" data-id="${e.id}" ${e.status === "registered" || !e.unit_id ? "disabled" : ""}>
+        <button class="btn btn-sm btn-primary register-btn" data-id="${e.id}" ${e.status === "registered" || e.units.length === 0 ? "disabled" : ""}>
           등록
         </button>
       </td>
@@ -81,25 +95,31 @@ function renderTable() {
     )
     .join("");
 
-  tbody.querySelectorAll(".unit-select").forEach((sel) => {
-    sel.addEventListener("change", async () => {
-      const id = parseInt(sel.dataset.id, 10);
-      await fetchJson(`/api/bulk-parts/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ unit_id: sel.value ? parseInt(sel.value, 10) : null }),
+  tbody.querySelectorAll(".unit-filter-menu").forEach((menu) => {
+    const entryId = parseInt(menu.dataset.entryId, 10);
+    menu.querySelectorAll(".unit-check").forEach((cb) => {
+      cb.addEventListener("change", async () => {
+        const selected = Array.from(menu.querySelectorAll(".unit-check:checked")).map((c) =>
+          parseInt(c.value, 10)
+        );
+        await fetchJson(`/api/bulk-parts/${entryId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ unit_ids: selected }),
+        });
+        await loadEntries();
       });
-      await loadEntries();
     });
   });
 
   tbody.querySelectorAll(".field-input").forEach((input) => {
     input.addEventListener("change", async () => {
       const id = parseInt(input.dataset.id, 10);
+      const value = input.dataset.field === "cost" ? parseFloat(input.value) || 0 : input.value.trim();
       await fetchJson(`/api/bulk-parts/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ [input.dataset.field]: input.value.trim() }),
+        body: JSON.stringify({ [input.dataset.field]: value }),
       });
     });
   });

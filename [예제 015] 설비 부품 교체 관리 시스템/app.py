@@ -269,11 +269,34 @@ def init_db():
             part_name TEXT NOT NULL,
             q_code TEXT,
             note TEXT,
+            cost REAL DEFAULT 0,
             status TEXT DEFAULT 'pending',
             created_at TEXT DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE SET NULL
         )
     """)
+    existing_bulk_cols = {r["name"] for r in c.execute("PRAGMA table_info(bulk_part_entries)").fetchall()}
+    if "cost" not in existing_bulk_cols:
+        c.execute("ALTER TABLE bulk_part_entries ADD COLUMN cost REAL DEFAULT 0")
+        c.execute("UPDATE bulk_part_entries SET cost = 0 WHERE cost IS NULL")
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS bulk_part_entry_units (
+            entry_id INTEGER NOT NULL,
+            unit_id INTEGER NOT NULL,
+            PRIMARY KEY (entry_id, unit_id),
+            FOREIGN KEY (entry_id) REFERENCES bulk_part_entries(id) ON DELETE CASCADE,
+            FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
+        )
+    """)
+    if "unit_id" in existing_bulk_cols:
+        for legacy in c.execute(
+            "SELECT id, unit_id FROM bulk_part_entries WHERE unit_id IS NOT NULL"
+        ).fetchall():
+            c.execute(
+                "INSERT OR IGNORE INTO bulk_part_entry_units (entry_id, unit_id) VALUES (?, ?)",
+                (legacy["id"], legacy["unit_id"]),
+            )
 
     # 모든 설비에 공통으로 반영되는 기본 유닛 구성 템플릿
     c.execute("""
@@ -901,7 +924,7 @@ def apply_unit_parts(unit_id):
 
 
 def parse_bulk_paste_text(text):
-    """붙여넣은 텍스트(탭 또는 쉼표 구분)를 (유닛이름, 부품이름, Q-CODE, 부가설명) 튜플 목록으로 변환."""
+    """붙여넣은 텍스트(탭 또는 쉼표 구분)를 (유닛이름, 부품이름, Q-CODE, 부가설명, 금액) 튜플 목록으로 변환."""
     rows = []
     for line in text.splitlines():
         line = line.strip()
@@ -911,12 +934,16 @@ def parse_bulk_paste_text(text):
         if len(cols) < 2:
             cols = line.split(",")
         cols = [c.strip() for c in cols]
-        while len(cols) < 4:
+        while len(cols) < 5:
             cols.append("")
-        unit_text, part_name, q_code, note = cols[0], cols[1], cols[2], cols[3]
+        unit_text, part_name, q_code, note, cost_text = cols[0], cols[1], cols[2], cols[3], cols[4]
         if not part_name:
             continue
-        rows.append((unit_text, part_name, q_code, note))
+        try:
+            cost = float(cost_text) if cost_text else 0
+        except ValueError:
+            cost = 0
+        rows.append((unit_text, part_name, q_code, note, cost))
     return rows
 
 
@@ -940,16 +967,23 @@ def get_template_mapped_units(conn):
 @app.route("/api/bulk-parts")
 def list_bulk_parts():
     conn = get_db()
-    rows = conn.execute("""
-        SELECT b.*, u.name AS unit_name, u.icon AS unit_icon
-        FROM bulk_part_entries b
-        LEFT JOIN units u ON b.unit_id = u.id
-        ORDER BY b.id DESC
-    """).fetchall()
+    rows = conn.execute("SELECT * FROM bulk_part_entries ORDER BY id DESC").fetchall()
+    entries = []
+    for r in rows:
+        units = conn.execute("""
+            SELECT u.id, u.name, u.icon
+            FROM bulk_part_entry_units beu
+            JOIN units u ON beu.unit_id = u.id
+            WHERE beu.entry_id = ?
+            ORDER BY u.id
+        """, (r["id"],)).fetchall()
+        d = serialize_bulk_entry(r)
+        d["units"] = [dict(u) for u in units]
+        entries.append(d)
     master_units = get_template_mapped_units(conn)
     conn.close()
     return jsonify({
-        "entries": [serialize_bulk_entry(r) for r in rows],
+        "entries": entries,
         "master_units": [dict(u) for u in master_units],
     })
 
@@ -966,18 +1000,21 @@ def paste_bulk_parts():
     master_units = get_template_mapped_units(conn)
 
     created_ids = []
-    for unit_text, part_name, q_code, note in parsed:
+    for unit_text, part_name, q_code, note, cost in parsed:
         prefix = unit_text[:2]
-        auto_unit_id = None
         matches = [u for u in master_units if u["name"][:2] == prefix] if prefix else []
-        if len(matches) == 1:
-            auto_unit_id = matches[0]["id"]
         cur = conn.execute(
-            "INSERT INTO bulk_part_entries (raw_unit_text, unit_id, part_name, q_code, note) "
+            "INSERT INTO bulk_part_entries (raw_unit_text, part_name, q_code, note, cost) "
             "VALUES (?, ?, ?, ?, ?)",
-            (unit_text, auto_unit_id, part_name, q_code, note),
+            (unit_text, part_name, q_code, note, cost),
         )
-        created_ids.append(cur.lastrowid)
+        entry_id = cur.lastrowid
+        if len(matches) == 1:
+            conn.execute(
+                "INSERT OR IGNORE INTO bulk_part_entry_units (entry_id, unit_id) VALUES (?, ?)",
+                (entry_id, matches[0]["id"]),
+            )
+        created_ids.append(entry_id)
     conn.commit()
     conn.close()
     return jsonify({"ok": True, "created_count": len(created_ids)}), 201
@@ -991,14 +1028,21 @@ def update_bulk_part(entry_id):
     if not entry:
         conn.close()
         return jsonify({"error": "항목을 찾을 수 없습니다"}), 404
-    unit_id = data.get("unit_id", entry["unit_id"])
     part_name = (data.get("part_name") or entry["part_name"]).strip()
     q_code = data.get("q_code", entry["q_code"])
     note = data.get("note", entry["note"])
+    cost = data.get("cost", entry["cost"])
     conn.execute(
-        "UPDATE bulk_part_entries SET unit_id = ?, part_name = ?, q_code = ?, note = ? WHERE id = ?",
-        (unit_id, part_name, q_code, note, entry_id),
+        "UPDATE bulk_part_entries SET part_name = ?, q_code = ?, note = ?, cost = ? WHERE id = ?",
+        (part_name, q_code, note, cost, entry_id),
     )
+    if "unit_ids" in data:
+        conn.execute("DELETE FROM bulk_part_entry_units WHERE entry_id = ?", (entry_id,))
+        for uid in data["unit_ids"]:
+            conn.execute(
+                "INSERT OR IGNORE INTO bulk_part_entry_units (entry_id, unit_id) VALUES (?, ?)",
+                (entry_id, uid),
+            )
     conn.commit()
     conn.close()
     return jsonify({"ok": True})
@@ -1011,19 +1055,29 @@ def register_bulk_part(entry_id):
     if not entry:
         conn.close()
         return jsonify({"error": "항목을 찾을 수 없습니다"}), 404
-    if not entry["unit_id"]:
+    unit_ids = [
+        r["unit_id"] for r in conn.execute(
+            "SELECT unit_id FROM bulk_part_entry_units WHERE entry_id = ?", (entry_id,)
+        ).fetchall()
+    ]
+    if not unit_ids:
         conn.close()
         return jsonify({"error": "유닛을 먼저 선택하세요"}), 400
-    unit = conn.execute("SELECT * FROM units WHERE id = ?", (entry["unit_id"],)).fetchone()
-    if not unit:
-        conn.close()
-        return jsonify({"error": "선택된 유닛을 찾을 수 없습니다"}), 404
 
-    part_id = insert_part(conn, entry["unit_id"], entry["part_name"], spec=entry["q_code"] or "", note=entry["note"] or "")
+    part_ids = []
+    for uid in unit_ids:
+        unit = conn.execute("SELECT * FROM units WHERE id = ?", (uid,)).fetchone()
+        if not unit:
+            continue
+        part_id = insert_part(
+            conn, uid, entry["part_name"], spec=entry["q_code"] or "",
+            cost=entry["cost"] or 0, note=entry["note"] or "",
+        )
+        part_ids.append(part_id)
     conn.execute("UPDATE bulk_part_entries SET status = 'registered' WHERE id = ?", (entry_id,))
     conn.commit()
     conn.close()
-    return jsonify({"ok": True, "part_id": part_id})
+    return jsonify({"ok": True, "part_ids": part_ids})
 
 
 @app.route("/api/bulk-parts/<int:entry_id>", methods=["DELETE"])
