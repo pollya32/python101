@@ -997,24 +997,14 @@ def paste_bulk_parts():
         return jsonify({"error": "붙여넣은 내용에서 부품 정보를 찾을 수 없습니다"}), 400
 
     conn = get_db()
-    master_units = get_template_mapped_units(conn)
-
     created_ids = []
     for unit_text, part_name, q_code, note, cost in parsed:
-        prefix = unit_text[:2]
-        matches = [u for u in master_units if u["name"][:2] == prefix] if prefix else []
         cur = conn.execute(
             "INSERT INTO bulk_part_entries (raw_unit_text, part_name, q_code, note, cost) "
             "VALUES (?, ?, ?, ?, ?)",
             (unit_text, part_name, q_code, note, cost),
         )
-        entry_id = cur.lastrowid
-        if len(matches) == 1:
-            conn.execute(
-                "INSERT OR IGNORE INTO bulk_part_entry_units (entry_id, unit_id) VALUES (?, ?)",
-                (entry_id, matches[0]["id"]),
-            )
-        created_ids.append(entry_id)
+        created_ids.append(cur.lastrowid)
     conn.commit()
     conn.close()
     return jsonify({"ok": True, "created_count": len(created_ids)}), 201

@@ -1013,24 +1013,14 @@ def paste_bulk_parts():
         return jsonify({"error": "붙여넣은 내용에서 부품 정보를 찾을 수 없습니다"}), 400
 
     conn = get_db()
-    master_units = get_template_mapped_units(conn)
-
     created_ids = []
     for unit_text, part_name, q_code, note, cost in parsed:
-        prefix = unit_text[:2]
-        matches = [u for u in master_units if u["name"][:2] == prefix] if prefix else []
         cur = conn.execute(
             "INSERT INTO bulk_part_entries (raw_unit_text, part_name, q_code, note, cost) "
             "VALUES (?, ?, ?, ?, ?)",
             (unit_text, part_name, q_code, note, cost),
         )
-        entry_id = cur.lastrowid
-        if len(matches) == 1:
-            conn.execute(
-                "INSERT OR IGNORE INTO bulk_part_entry_units (entry_id, unit_id) VALUES (?, ?)",
-                (entry_id, matches[0]["id"]),
-            )
-        created_ids.append(entry_id)
+        created_ids.append(cur.lastrowid)
     conn.commit()
     conn.close()
     return jsonify({"ok": True, "created_count": len(created_ids)}), 201
@@ -10517,13 +10507,30 @@ function unitMultiselectHtml(entry) {
   return `
     <div class="dropdown">
       <button class="btn btn-sm btn-outline-secondary dropdown-toggle w-100 text-truncate" type="button"
-        data-bs-toggle="dropdown" data-bs-auto-close="outside">
+        data-bs-toggle="dropdown" data-bs-auto-close="outside" data-bs-strategy="fixed">
         ${label}
       </button>
       <div class="dropdown-menu p-2 unit-filter-menu" data-entry-id="${entry.id}">
         ${checkboxes}
       </div>
     </div>`;
+}
+
+function updateRowUnitUi(entryId) {
+  const row = document.querySelector(`tr[data-entry-id="${entryId}"]`);
+  const entry = entries.find((e) => e.id === entryId);
+  if (!row || !entry) return;
+  const btn = row.querySelector(".dropdown-toggle");
+  btn.textContent =
+    entry.units.length === 0
+      ? "유닛 선택..."
+      : entry.units.length === 1
+      ? entry.units[0].name
+      : `${entry.units.length}개 선택`;
+  const registerBtn = row.querySelector(".register-btn");
+  if (entry.status !== "registered") {
+    registerBtn.disabled = entry.units.length === 0;
+  }
 }
 
 function renderTable() {
@@ -10562,8 +10569,12 @@ function renderTable() {
 
   tbody.querySelectorAll(".unit-filter-menu").forEach((menu) => {
     const entryId = parseInt(menu.dataset.entryId, 10);
+    const dropdownWrapper = menu.closest(".dropdown");
+
     menu.querySelectorAll(".unit-check").forEach((cb) => {
       cb.addEventListener("change", async () => {
+        // persist immediately, but do NOT reload/re-render here — that would destroy
+        // the open dropdown DOM and make it look like it "closed" after one click.
         const selected = Array.from(menu.querySelectorAll(".unit-check:checked")).map((c) =>
           parseInt(c.value, 10)
         );
@@ -10572,8 +10583,18 @@ function renderTable() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ unit_ids: selected }),
         });
-        await loadEntries();
+        const entry = entries.find((e) => e.id === entryId);
+        if (entry) {
+          entry.units = masterUnits.filter((u) => selected.includes(u.id));
+        }
+        updateRowUnitUi(entryId);
       });
+    });
+
+    // only re-render the full table (to refresh disabled states etc.) once the
+    // dropdown is actually closed, i.e. after the user has finished selecting.
+    dropdownWrapper.addEventListener("hidden.bs.dropdown", () => {
+      renderTable();
     });
   });
 
