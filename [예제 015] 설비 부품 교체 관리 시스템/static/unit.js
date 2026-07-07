@@ -320,6 +320,7 @@ function copyPart(part) {
     cycle_unit: part.cycle_unit,
     cost: part.cost,
     note: part.note,
+    memo: part.memo,
     icon: part.icon,
     width: part.width,
     height: part.height,
@@ -362,6 +363,7 @@ async function pastePart() {
       cycle_unit: clipboard.cycle_unit,
       cost: clipboard.cost,
       note: clipboard.note,
+      memo: clipboard.memo,
       icon: clipboard.icon,
       width: clipboard.width,
       height: clipboard.height,
@@ -408,6 +410,14 @@ function openPartDetailModal(partId) {
       ${dueText ? `<br>${dueText}` : ""}
       ${p.note ? `<br>비고: ${escapeHtml(p.note)}` : ""}
     </div>`;
+  const memoView = document.getElementById("partDetailMemo");
+  if (!p.memo || !p.memo.trim()) {
+    memoView.innerHTML = "";
+    memoView.classList.add("is-empty");
+  } else {
+    memoView.classList.remove("is-empty");
+    memoView.innerHTML = linkifyText(p.memo);
+  }
   partDetailModal.show();
 }
 
@@ -457,6 +467,7 @@ function openPartEditModal(part) {
   document.getElementById("partEditCycle").value = part ? cycleDaysToDisplayValue(part.cycle_days, cycleUnit) : 90;
   document.getElementById("partEditCost").value = part ? part.cost || 0 : 0;
   document.getElementById("partEditNote").value = part ? part.note || "" : "";
+  document.getElementById("partEditMemo").value = part ? part.memo || "" : "";
   document.getElementById("partEditLastDate").value = "";
   document.getElementById("partEditLastDateWrap").classList.toggle("d-none", !!part);
   renderIconPicker("partIconPicker", "partEditIcon", icon);
@@ -554,6 +565,7 @@ document.addEventListener("DOMContentLoaded", () => {
       cycle_unit: cycleUnit,
       cost: parseFloat(document.getElementById("partEditCost").value) || 0,
       note: document.getElementById("partEditNote").value.trim(),
+      memo: document.getElementById("partEditMemo").value,
     };
     try {
       if (id) {
@@ -580,7 +592,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("applyPartsBtn").addEventListener("click", async () => {
     const ok = confirm(
       "현재 이 유닛의 부품 구성을 동일한 이름의 유닛을 가진 나머지 설비 전체에 적용합니다.\n" +
-      "- 이름이 같은 부품은 규격/교체주기/비고/아이콘/위치/크기가 이 구성대로 갱신됩니다.\n" +
+      "- 이름이 같은 부품은 규격/교체주기/비고/메모/아이콘/위치/크기가 이 구성대로 갱신됩니다.\n" +
       "- 여기 없는 이름의 부품은 각 설비에서 삭제되며, 등록된 교체 이력도 함께 삭제됩니다.\n\n" +
       "계속하시겠습니까?"
     );

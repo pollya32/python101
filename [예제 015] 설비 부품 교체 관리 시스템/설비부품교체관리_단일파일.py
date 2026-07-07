@@ -186,6 +186,7 @@ def init_db():
             cost REAL DEFAULT 0,
             last_replaced_date TEXT,
             note TEXT,
+            memo TEXT,
             icon TEXT DEFAULT '🔩',
             pos_x REAL DEFAULT 50,
             pos_y REAL DEFAULT 50,
@@ -209,6 +210,8 @@ def init_db():
     if "cycle_unit" not in existing_part_cols:
         c.execute("ALTER TABLE parts ADD COLUMN cycle_unit TEXT DEFAULT '일'")
         c.execute("UPDATE parts SET cycle_unit = '일' WHERE cycle_unit IS NULL")
+    if "memo" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN memo TEXT")
     for unit_row in c.execute("SELECT DISTINCT unit_id FROM parts").fetchall():
         unplaced_parts = c.execute(
             "SELECT id FROM parts WHERE unit_id = ? AND (pos_x IS NULL OR pos_y IS NULL) ORDER BY id",
@@ -382,14 +385,14 @@ def serialize_part(row):
 
 
 def insert_part(conn, unit_id, name, spec="", cycle_days=90, cycle_unit="일", cost=0,
-                 last_replaced_date=None, note="", icon="🔩", pos_x=None, pos_y=None,
+                 last_replaced_date=None, note="", memo="", icon="🔩", pos_x=None, pos_y=None,
                  width=130, height=110):
     if pos_x is None or pos_y is None:
         pos_x, pos_y = random.uniform(15, 85), random.uniform(20, 80)
     cur = conn.execute(
-        """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, icon, pos_x, pos_y, width, height)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, icon, pos_x, pos_y, width, height),
+        """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, memo, icon, pos_x, pos_y, width, height)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, memo, icon, pos_x, pos_y, width, height),
     )
     part_id = cur.lastrowid
     if last_replaced_date:
@@ -402,7 +405,7 @@ def insert_part(conn, unit_id, name, spec="", cycle_days=90, cycle_unit="일", c
 
 def apply_unit_parts_to_other_equipment(conn, unit_id):
     """기준 설비(TEAG01호기)의 특정 유닛에 등록된 부품 구성 전체를, 동일한 이름의 유닛을 가진
-    나머지 설비에 일괄 동기화한다. 이름이 같은 부품은 규격/교체주기/비고/아이콘/위치/크기가
+    나머지 설비에 일괄 동기화한다. 이름이 같은 부품은 규격/교체주기/비고/메모/아이콘/위치/크기가
     갱신되고, 새 부품은 추가되며, 여기 없는 이름의 부품은 삭제된다(교체 이력도 함께 삭제)."""
     master_unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
     master_parts = conn.execute(
@@ -424,20 +427,20 @@ def apply_unit_parts_to_other_equipment(conn, unit_id):
             if mp["name"] in existing:
                 ep = existing[mp["name"]]
                 conn.execute(
-                    """UPDATE parts SET spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, icon = ?,
+                    """UPDATE parts SET spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, memo = ?, icon = ?,
                        pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?""",
                     (
-                        mp["spec"], mp["cycle_days"], mp["cycle_unit"], mp["cost"], mp["note"], mp["icon"],
+                        mp["spec"], mp["cycle_days"], mp["cycle_unit"], mp["cost"], mp["note"], mp["memo"], mp["icon"],
                         mp["pos_x"], mp["pos_y"], mp["width"], mp["height"], ep["id"],
                     ),
                 )
             else:
                 conn.execute(
-                    """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, note, icon, pos_x, pos_y, width, height)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, note, memo, icon, pos_x, pos_y, width, height)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         t["id"], mp["name"], mp["spec"], mp["cycle_days"], mp["cycle_unit"], mp["cost"],
-                        mp["note"], mp["icon"], mp["pos_x"], mp["pos_y"], mp["width"], mp["height"],
+                        mp["note"], mp["memo"], mp["icon"], mp["pos_x"], mp["pos_y"], mp["width"], mp["height"],
                     ),
                 )
         for name, ep in existing.items():
@@ -907,6 +910,7 @@ def add_part(unit_id):
     cost = float(data.get("cost") or 0)
     last_replaced_date = data.get("last_replaced_date") or None
     note = (data.get("note") or "").strip()
+    memo = (data.get("memo") or "").strip()
     icon = (data.get("icon") or "🔩").strip()
     width = data.get("width") or 130
     height = data.get("height") or 110
@@ -914,7 +918,7 @@ def add_part(unit_id):
     conn = get_db()
     part_id = insert_part(
         conn, unit_id, name, spec=spec, cycle_days=cycle_days, cycle_unit=cycle_unit, cost=cost,
-        last_replaced_date=last_replaced_date, note=note, icon=icon,
+        last_replaced_date=last_replaced_date, note=note, memo=memo, icon=icon,
         pos_x=data.get("pos_x"), pos_y=data.get("pos_y"), width=width, height=height,
     )
     conn.commit()
@@ -1109,15 +1113,16 @@ def update_part(part_id):
     cycle_unit = (data.get("cycle_unit") or part["cycle_unit"]).strip()
     cost = data.get("cost", part["cost"])
     note = data.get("note", part["note"])
+    memo = data.get("memo", part["memo"])
     icon = (data.get("icon") or part["icon"]).strip()
     pos_x = data.get("pos_x", part["pos_x"])
     pos_y = data.get("pos_y", part["pos_y"])
     width = data.get("width", part["width"])
     height = data.get("height", part["height"])
     conn.execute(
-        """UPDATE parts SET name = ?, spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, icon = ?,
+        """UPDATE parts SET name = ?, spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, memo = ?, icon = ?,
            pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?""",
-        (name, spec, cycle_days, cycle_unit, cost, note, icon, pos_x, pos_y, width, height, part_id),
+        (name, spec, cycle_days, cycle_unit, cost, note, memo, icon, pos_x, pos_y, width, height, part_id),
     )
     conn.commit()
     row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
@@ -2023,6 +2028,26 @@ body {
   font-weight: 500;
 }
 #notesEdit { font-size: 14px; }
+
+.part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
+.part-memo-view {
+  min-height: 32px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13.5px;
+  color: #333;
+  line-height: 1.6;
+}
+.part-memo-view:empty::before,
+.part-memo-view.is-empty::before {
+  content: "등록된 메모가 없습니다.";
+  color: #9ca3af;
+}
+.part-memo-view a {
+  color: var(--pri);
+  word-break: break-all;
+  font-weight: 500;
+}
 
 /* ── 모달 리스킨 ──────────────────────────────────────────────── */
 .modal-content { border: none; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
@@ -3114,6 +3139,26 @@ body {
   font-weight: 500;
 }
 #notesEdit { font-size: 14px; }
+
+.part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
+.part-memo-view {
+  min-height: 32px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13.5px;
+  color: #333;
+  line-height: 1.6;
+}
+.part-memo-view:empty::before,
+.part-memo-view.is-empty::before {
+  content: "등록된 메모가 없습니다.";
+  color: #9ca3af;
+}
+.part-memo-view a {
+  color: var(--pri);
+  word-break: break-all;
+  font-weight: 500;
+}
 
 /* ── 모달 리스킨 ──────────────────────────────────────────────── */
 .modal-content { border: none; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
@@ -4350,6 +4395,26 @@ body {
 }
 #notesEdit { font-size: 14px; }
 
+.part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
+.part-memo-view {
+  min-height: 32px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13.5px;
+  color: #333;
+  line-height: 1.6;
+}
+.part-memo-view:empty::before,
+.part-memo-view.is-empty::before {
+  content: "등록된 메모가 없습니다.";
+  color: #9ca3af;
+}
+.part-memo-view a {
+  color: var(--pri);
+  word-break: break-all;
+  font-weight: 500;
+}
+
 /* ── 모달 리스킨 ──────────────────────────────────────────────── */
 .modal-content { border: none; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
 .modal-header { border-bottom: 1px solid var(--border); padding: 18px 22px; }
@@ -4661,6 +4726,10 @@ body {
             <i class="bi bi-clock-history"></i> 이력 보기
           </button>
         </div>
+        <div class="part-memo-section mt-3">
+          <div class="small text-muted mb-1"><i class="bi bi-journal-text"></i> 메모</div>
+          <div id="partDetailMemo" class="part-memo-view"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -4763,6 +4832,11 @@ body {
               <label class="form-label">비고</label>
               <input type="text" class="form-control" id="partEditNote">
             </div>
+          </div>
+          <div class="mb-2 mt-1">
+            <label class="form-label">메모장</label>
+            <textarea class="form-control" id="partEditMemo" rows="4"
+              placeholder="부품 관련 세부 정보를 자유롭게 기록하세요. (http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></textarea>
           </div>
           <button type="submit" class="btn btn-primary w-100 mt-2">저장</button>
         </form>
@@ -5096,6 +5170,7 @@ function copyPart(part) {
     cycle_unit: part.cycle_unit,
     cost: part.cost,
     note: part.note,
+    memo: part.memo,
     icon: part.icon,
     width: part.width,
     height: part.height,
@@ -5138,6 +5213,7 @@ async function pastePart() {
       cycle_unit: clipboard.cycle_unit,
       cost: clipboard.cost,
       note: clipboard.note,
+      memo: clipboard.memo,
       icon: clipboard.icon,
       width: clipboard.width,
       height: clipboard.height,
@@ -5184,6 +5260,14 @@ function openPartDetailModal(partId) {
       ${dueText ? `<br>${dueText}` : ""}
       ${p.note ? `<br>비고: ${escapeHtml(p.note)}` : ""}
     </div>`;
+  const memoView = document.getElementById("partDetailMemo");
+  if (!p.memo || !p.memo.trim()) {
+    memoView.innerHTML = "";
+    memoView.classList.add("is-empty");
+  } else {
+    memoView.classList.remove("is-empty");
+    memoView.innerHTML = linkifyText(p.memo);
+  }
   partDetailModal.show();
 }
 
@@ -5233,6 +5317,7 @@ function openPartEditModal(part) {
   document.getElementById("partEditCycle").value = part ? cycleDaysToDisplayValue(part.cycle_days, cycleUnit) : 90;
   document.getElementById("partEditCost").value = part ? part.cost || 0 : 0;
   document.getElementById("partEditNote").value = part ? part.note || "" : "";
+  document.getElementById("partEditMemo").value = part ? part.memo || "" : "";
   document.getElementById("partEditLastDate").value = "";
   document.getElementById("partEditLastDateWrap").classList.toggle("d-none", !!part);
   renderIconPicker("partIconPicker", "partEditIcon", icon);
@@ -5330,6 +5415,7 @@ document.addEventListener("DOMContentLoaded", () => {
       cycle_unit: cycleUnit,
       cost: parseFloat(document.getElementById("partEditCost").value) || 0,
       note: document.getElementById("partEditNote").value.trim(),
+      memo: document.getElementById("partEditMemo").value,
     };
     try {
       if (id) {
@@ -5356,7 +5442,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("applyPartsBtn").addEventListener("click", async () => {
     const ok = confirm(
       "현재 이 유닛의 부품 구성을 동일한 이름의 유닛을 가진 나머지 설비 전체에 적용합니다.\n" +
-      "- 이름이 같은 부품은 규격/교체주기/비고/아이콘/위치/크기가 이 구성대로 갱신됩니다.\n" +
+      "- 이름이 같은 부품은 규격/교체주기/비고/메모/아이콘/위치/크기가 이 구성대로 갱신됩니다.\n" +
       "- 여기 없는 이름의 부품은 각 설비에서 삭제되며, 등록된 교체 이력도 함께 삭제됩니다.\n\n" +
       "계속하시겠습니까?"
     );
@@ -5832,6 +5918,26 @@ body {
   font-weight: 500;
 }
 #notesEdit { font-size: 14px; }
+
+.part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
+.part-memo-view {
+  min-height: 32px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13.5px;
+  color: #333;
+  line-height: 1.6;
+}
+.part-memo-view:empty::before,
+.part-memo-view.is-empty::before {
+  content: "등록된 메모가 없습니다.";
+  color: #9ca3af;
+}
+.part-memo-view a {
+  color: var(--pri);
+  word-break: break-all;
+  font-weight: 500;
+}
 
 /* ── 모달 리스킨 ──────────────────────────────────────────────── */
 .modal-content { border: none; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
@@ -6950,6 +7056,26 @@ body {
 }
 #notesEdit { font-size: 14px; }
 
+.part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
+.part-memo-view {
+  min-height: 32px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13.5px;
+  color: #333;
+  line-height: 1.6;
+}
+.part-memo-view:empty::before,
+.part-memo-view.is-empty::before {
+  content: "등록된 메모가 없습니다.";
+  color: #9ca3af;
+}
+.part-memo-view a {
+  color: var(--pri);
+  word-break: break-all;
+  font-weight: 500;
+}
+
 /* ── 모달 리스킨 ──────────────────────────────────────────────── */
 .modal-content { border: none; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
 .modal-header { border-bottom: 1px solid var(--border); padding: 18px 22px; }
@@ -7731,6 +7857,26 @@ body {
   font-weight: 500;
 }
 #notesEdit { font-size: 14px; }
+
+.part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
+.part-memo-view {
+  min-height: 32px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13.5px;
+  color: #333;
+  line-height: 1.6;
+}
+.part-memo-view:empty::before,
+.part-memo-view.is-empty::before {
+  content: "등록된 메모가 없습니다.";
+  color: #9ca3af;
+}
+.part-memo-view a {
+  color: var(--pri);
+  word-break: break-all;
+  font-weight: 500;
+}
 
 /* ── 모달 리스킨 ──────────────────────────────────────────────── */
 .modal-content { border: none; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
@@ -8545,6 +8691,26 @@ body {
   font-weight: 500;
 }
 #notesEdit { font-size: 14px; }
+
+.part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
+.part-memo-view {
+  min-height: 32px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13.5px;
+  color: #333;
+  line-height: 1.6;
+}
+.part-memo-view:empty::before,
+.part-memo-view.is-empty::before {
+  content: "등록된 메모가 없습니다.";
+  color: #9ca3af;
+}
+.part-memo-view a {
+  color: var(--pri);
+  word-break: break-all;
+  font-weight: 500;
+}
 
 /* ── 모달 리스킨 ──────────────────────────────────────────────── */
 .modal-content { border: none; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
@@ -9452,6 +9618,26 @@ body {
 }
 #notesEdit { font-size: 14px; }
 
+.part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
+.part-memo-view {
+  min-height: 32px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13.5px;
+  color: #333;
+  line-height: 1.6;
+}
+.part-memo-view:empty::before,
+.part-memo-view.is-empty::before {
+  content: "등록된 메모가 없습니다.";
+  color: #9ca3af;
+}
+.part-memo-view a {
+  color: var(--pri);
+  word-break: break-all;
+  font-weight: 500;
+}
+
 /* ── 모달 리스킨 ──────────────────────────────────────────────── */
 .modal-content { border: none; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
 .modal-header { border-bottom: 1px solid var(--border); padding: 18px 22px; }
@@ -10163,6 +10349,26 @@ body {
   font-weight: 500;
 }
 #notesEdit { font-size: 14px; }
+
+.part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
+.part-memo-view {
+  min-height: 32px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13.5px;
+  color: #333;
+  line-height: 1.6;
+}
+.part-memo-view:empty::before,
+.part-memo-view.is-empty::before {
+  content: "등록된 메모가 없습니다.";
+  color: #9ca3af;
+}
+.part-memo-view a {
+  color: var(--pri);
+  word-break: break-all;
+  font-weight: 500;
+}
 
 /* ── 모달 리스킨 ──────────────────────────────────────────────── */
 .modal-content { border: none; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }

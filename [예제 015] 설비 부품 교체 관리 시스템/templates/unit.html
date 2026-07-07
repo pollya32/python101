@@ -92,6 +92,10 @@
             <i class="bi bi-clock-history"></i> 이력 보기
           </button>
         </div>
+        <div class="part-memo-section mt-3">
+          <div class="small text-muted mb-1"><i class="bi bi-journal-text"></i> 메모</div>
+          <div id="partDetailMemo" class="part-memo-view"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -194,6 +198,11 @@
               <label class="form-label">비고</label>
               <input type="text" class="form-control" id="partEditNote">
             </div>
+          </div>
+          <div class="mb-2 mt-1">
+            <label class="form-label">메모장</label>
+            <textarea class="form-control" id="partEditMemo" rows="4"
+              placeholder="부품 관련 세부 정보를 자유롭게 기록하세요. (http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></textarea>
           </div>
           <button type="submit" class="btn btn-primary w-100 mt-2">저장</button>
         </form>

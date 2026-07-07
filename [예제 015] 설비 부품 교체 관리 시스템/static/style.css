@@ -447,6 +447,26 @@ body {
 }
 #notesEdit { font-size: 14px; }
 
+.part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
+.part-memo-view {
+  min-height: 32px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13.5px;
+  color: #333;
+  line-height: 1.6;
+}
+.part-memo-view:empty::before,
+.part-memo-view.is-empty::before {
+  content: "등록된 메모가 없습니다.";
+  color: #9ca3af;
+}
+.part-memo-view a {
+  color: var(--pri);
+  word-break: break-all;
+  font-weight: 500;
+}
+
 /* ── 모달 리스킨 ──────────────────────────────────────────────── */
 .modal-content { border: none; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
 .modal-header { border-bottom: 1px solid var(--border); padding: 18px 22px; }
