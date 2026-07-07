@@ -91,6 +91,9 @@
           <button id="partDetailHistoryBtn" class="btn btn-outline-secondary btn-sm flex-fill">
             <i class="bi bi-clock-history"></i> 이력 보기
           </button>
+          <button id="partDetailDrawingBtn" class="btn btn-outline-secondary btn-sm flex-fill d-none">
+            <i class="bi bi-image"></i> 도면
+          </button>
         </div>
         <div class="part-memo-section mt-3">
           <div class="small text-muted mb-1"><i class="bi bi-journal-text"></i> 메모</div>
@@ -142,6 +145,21 @@
       </div>
       <div class="modal-body">
         <div id="historyList"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 도면 보기 모달 -->
+<div class="modal fade" id="drawingModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="drawingModalTitle">도면</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center">
+        <img id="drawingModalImg" class="drawing-modal-img">
       </div>
     </div>
   </div>
@@ -203,6 +221,26 @@
             <label class="form-label">메모장</label>
             <textarea class="form-control" id="partEditMemo" rows="4"
               placeholder="부품 관련 세부 정보를 자유롭게 기록하세요. (http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></textarea>
+          </div>
+          <div class="mb-2 mt-1">
+            <div class="d-flex justify-content-between align-items-center">
+              <label class="form-label mb-0">도면</label>
+              <div class="d-flex align-items-center gap-2">
+                <span id="partDrawingStatus" class="small text-muted"></span>
+                <button type="button" id="partDrawingBtn" class="btn btn-sm btn-outline-secondary">
+                  <i class="bi bi-image"></i> 도면 추가/변경
+                </button>
+              </div>
+            </div>
+            <div id="partDrawingArea" class="part-drawing-paste d-none" tabindex="0">
+              <div id="partDrawingPlaceholder" class="part-drawing-placeholder">
+                <i class="bi bi-clipboard"></i> 이 영역을 클릭한 후 이미지를 붙여넣으세요 (Ctrl+V)
+              </div>
+              <img id="partDrawingPreview" class="part-drawing-preview d-none">
+            </div>
+            <button type="button" id="partDrawingRemoveBtn" class="btn btn-sm btn-outline-danger d-none mt-2">
+              <i class="bi bi-trash"></i> 도면 삭제
+            </button>
           </div>
           <button type="submit" class="btn btn-primary w-100 mt-2">저장</button>
         </form>

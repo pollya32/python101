@@ -1,9 +1,11 @@
 let editMode = false;
 let currentPartId = null;
-let partDetailModal, replaceModal, historyModal, partEditModal;
+let partDetailModal, replaceModal, historyModal, partEditModal, drawingModal;
 let currentParts = [];
 let currentEquipmentId = null;
+let currentPartDrawingData = null;
 const MASTER_EQUIPMENT_ID = 1;
+const MAX_DRAWING_BYTES = 5 * 1024 * 1024;
 
 const statusColor = { ok: "#22c55e", soon: "#f59e0b", overdue: "#ef4444", unknown: "#9ca3af" };
 const statusBadge = { ok: "badge-ok", soon: "badge-soon", overdue: "badge-overdue", unknown: "badge-unknown" };
@@ -405,6 +407,48 @@ function formatCost(cost) {
   return `${Number(cost || 0).toLocaleString("ko-KR")}원`;
 }
 
+function setDrawingPreview(dataUrl) {
+  currentPartDrawingData = dataUrl;
+  const preview = document.getElementById("partDrawingPreview");
+  const placeholder = document.getElementById("partDrawingPlaceholder");
+  const removeBtn = document.getElementById("partDrawingRemoveBtn");
+  const status = document.getElementById("partDrawingStatus");
+  if (dataUrl) {
+    preview.src = dataUrl;
+    preview.classList.remove("d-none");
+    placeholder.classList.add("d-none");
+    removeBtn.classList.remove("d-none");
+    status.textContent = "등록됨";
+    document.getElementById("partDrawingArea").classList.remove("d-none");
+  } else {
+    preview.classList.add("d-none");
+    preview.src = "";
+    placeholder.classList.remove("d-none");
+    removeBtn.classList.add("d-none");
+    status.textContent = "";
+    document.getElementById("partDrawingArea").classList.add("d-none");
+  }
+}
+
+function handleDrawingPaste(e) {
+  const items = e.clipboardData ? e.clipboardData.items : null;
+  if (!items) return;
+  for (const item of items) {
+    if (item.kind === "file" && item.type.startsWith("image/")) {
+      e.preventDefault();
+      const file = item.getAsFile();
+      if (file.size > MAX_DRAWING_BYTES) {
+        alert("이미지 용량이 너무 큽니다 (최대 5MB).");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => setDrawingPreview(reader.result);
+      reader.readAsDataURL(file);
+      return;
+    }
+  }
+}
+
 function openPartDetailModal(partId) {
   const p = currentParts.find((x) => x.id === partId);
   if (!p) return;
@@ -432,7 +476,16 @@ function openPartDetailModal(partId) {
     memoView.classList.remove("is-empty");
     memoView.innerHTML = linkifyText(p.memo);
   }
+  document.getElementById("partDetailDrawingBtn").classList.toggle("d-none", !p.drawing_data);
   partDetailModal.show();
+}
+
+function openDrawingModal() {
+  const p = currentParts.find((x) => x.id === currentPartId);
+  if (!p || !p.drawing_data) return;
+  document.getElementById("drawingModalTitle").textContent = `도면 - ${p.name}`;
+  document.getElementById("drawingModalImg").src = p.drawing_data;
+  drawingModal.show();
 }
 
 function openReplaceModal() {
@@ -485,6 +538,7 @@ function openPartEditModal(part) {
   document.getElementById("partEditLastDate").value = "";
   document.getElementById("partEditLastDateWrap").classList.toggle("d-none", !!part);
   renderIconPicker("partIconPicker", "partEditIcon", icon);
+  setDrawingPreview(part ? part.drawing_data || null : null);
   partEditModal.show();
 }
 
@@ -493,6 +547,7 @@ document.addEventListener("DOMContentLoaded", () => {
   replaceModal = new bootstrap.Modal(document.getElementById("replaceModal"));
   historyModal = new bootstrap.Modal(document.getElementById("historyModal"));
   partEditModal = new bootstrap.Modal(document.getElementById("partEditModal"));
+  drawingModal = new bootstrap.Modal(document.getElementById("drawingModal"));
 
   tick();
   setInterval(tick, 1000);
@@ -544,6 +599,20 @@ document.addEventListener("DOMContentLoaded", () => {
     partDetailModal.hide();
     openHistoryModal();
   });
+  document.getElementById("partDetailDrawingBtn").addEventListener("click", () => {
+    partDetailModal.hide();
+    openDrawingModal();
+  });
+
+  document.getElementById("partDrawingBtn").addEventListener("click", () => {
+    const area = document.getElementById("partDrawingArea");
+    area.classList.toggle("d-none");
+    if (!area.classList.contains("d-none")) area.focus();
+  });
+  document.getElementById("partDrawingArea").addEventListener("paste", handleDrawingPaste);
+  document.getElementById("partDrawingRemoveBtn").addEventListener("click", () => {
+    setDrawingPreview(null);
+  });
 
   document.getElementById("replaceForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -580,6 +649,7 @@ document.addEventListener("DOMContentLoaded", () => {
       cost: parseFloat(document.getElementById("partEditCost").value) || 0,
       note: document.getElementById("partEditNote").value.trim(),
       memo: document.getElementById("partEditMemo").value,
+      drawing_data: currentPartDrawingData,
     };
     try {
       if (id) {
@@ -606,7 +676,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("applyPartsBtn").addEventListener("click", async () => {
     const ok = confirm(
       "현재 이 유닛의 부품 구성을 동일한 이름의 유닛을 가진 나머지 설비 전체에 적용합니다.\n" +
-      "- 이름이 같은 부품은 규격/교체주기/비고/메모/아이콘/위치/크기가 이 구성대로 갱신됩니다.\n" +
+      "- 이름이 같은 부품은 규격/교체주기/비고/메모/도면/아이콘/위치/크기가 이 구성대로 갱신됩니다.\n" +
       "- 여기 없는 이름의 부품은 각 설비에서 삭제되며, 등록된 교체 이력도 함께 삭제됩니다.\n\n" +
       "계속하시겠습니까?"
     );

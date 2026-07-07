@@ -20,6 +20,7 @@ EQUIPMENT_COUNT = 20
 EQUIPMENT_PREFIX = "TEAG"
 MASTER_EQUIPMENT_ID = 1  # TEAG01호기: 이 설비에 추가한 부품은 동일한 이름의 유닛을 가진 나머지 설비에도 자동 복제된다
 DEFAULT_PASSWORD = "0000"
+MAX_DRAWING_DATA_LEN = 8 * 1024 * 1024  # 도면 이미지(base64 data URL) 최대 길이, 원본 파일 약 5MB에 해당
 
 
 def dashboard_grid_pos(index, cols=5):
@@ -171,6 +172,7 @@ def init_db():
             last_replaced_date TEXT,
             note TEXT,
             memo TEXT,
+            drawing_data TEXT,
             icon TEXT DEFAULT '🔩',
             pos_x REAL DEFAULT 50,
             pos_y REAL DEFAULT 50,
@@ -196,6 +198,8 @@ def init_db():
         c.execute("UPDATE parts SET cycle_unit = '일' WHERE cycle_unit IS NULL")
     if "memo" not in existing_part_cols:
         c.execute("ALTER TABLE parts ADD COLUMN memo TEXT")
+    if "drawing_data" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN drawing_data TEXT")
     for unit_row in c.execute("SELECT DISTINCT unit_id FROM parts").fetchall():
         unplaced_parts = c.execute(
             "SELECT id FROM parts WHERE unit_id = ? AND (pos_x IS NULL OR pos_y IS NULL) ORDER BY id",
@@ -369,14 +373,14 @@ def serialize_part(row):
 
 
 def insert_part(conn, unit_id, name, spec="", cycle_days=90, cycle_unit="일", cost=0,
-                 last_replaced_date=None, note="", memo="", icon="🔩", pos_x=None, pos_y=None,
-                 width=130, height=110):
+                 last_replaced_date=None, note="", memo="", drawing_data=None, icon="🔩",
+                 pos_x=None, pos_y=None, width=130, height=110):
     if pos_x is None or pos_y is None:
         pos_x, pos_y = random.uniform(15, 85), random.uniform(20, 80)
     cur = conn.execute(
-        """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, memo, icon, pos_x, pos_y, width, height)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, memo, icon, pos_x, pos_y, width, height),
+        """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, memo, drawing_data, icon, pos_x, pos_y, width, height)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, memo, drawing_data, icon, pos_x, pos_y, width, height),
     )
     part_id = cur.lastrowid
     if last_replaced_date:
@@ -389,7 +393,7 @@ def insert_part(conn, unit_id, name, spec="", cycle_days=90, cycle_unit="일", c
 
 def apply_unit_parts_to_other_equipment(conn, unit_id):
     """기준 설비(TEAG01호기)의 특정 유닛에 등록된 부품 구성 전체를, 동일한 이름의 유닛을 가진
-    나머지 설비에 일괄 동기화한다. 이름이 같은 부품은 규격/교체주기/비고/메모/아이콘/위치/크기가
+    나머지 설비에 일괄 동기화한다. 이름이 같은 부품은 규격/교체주기/비고/메모/도면/아이콘/위치/크기가
     갱신되고, 새 부품은 추가되며, 여기 없는 이름의 부품은 삭제된다(교체 이력도 함께 삭제)."""
     master_unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
     master_parts = conn.execute(
@@ -411,20 +415,20 @@ def apply_unit_parts_to_other_equipment(conn, unit_id):
             if mp["name"] in existing:
                 ep = existing[mp["name"]]
                 conn.execute(
-                    """UPDATE parts SET spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, memo = ?, icon = ?,
-                       pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?""",
+                    """UPDATE parts SET spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, memo = ?,
+                       drawing_data = ?, icon = ?, pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?""",
                     (
-                        mp["spec"], mp["cycle_days"], mp["cycle_unit"], mp["cost"], mp["note"], mp["memo"], mp["icon"],
-                        mp["pos_x"], mp["pos_y"], mp["width"], mp["height"], ep["id"],
+                        mp["spec"], mp["cycle_days"], mp["cycle_unit"], mp["cost"], mp["note"], mp["memo"],
+                        mp["drawing_data"], mp["icon"], mp["pos_x"], mp["pos_y"], mp["width"], mp["height"], ep["id"],
                     ),
                 )
             else:
                 conn.execute(
-                    """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, note, memo, icon, pos_x, pos_y, width, height)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, note, memo, drawing_data, icon, pos_x, pos_y, width, height)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         t["id"], mp["name"], mp["spec"], mp["cycle_days"], mp["cycle_unit"], mp["cost"],
-                        mp["note"], mp["memo"], mp["icon"], mp["pos_x"], mp["pos_y"], mp["width"], mp["height"],
+                        mp["note"], mp["memo"], mp["drawing_data"], mp["icon"], mp["pos_x"], mp["pos_y"], mp["width"], mp["height"],
                     ),
                 )
         for name, ep in existing.items():
@@ -895,6 +899,9 @@ def add_part(unit_id):
     last_replaced_date = data.get("last_replaced_date") or None
     note = (data.get("note") or "").strip()
     memo = (data.get("memo") or "").strip()
+    drawing_data = data.get("drawing_data") or None
+    if drawing_data and len(drawing_data) > MAX_DRAWING_DATA_LEN:
+        return jsonify({"error": "도면 이미지 용량이 너무 큽니다 (최대 5MB)"}), 400
     icon = (data.get("icon") or "🔩").strip()
     width = data.get("width") or 130
     height = data.get("height") or 110
@@ -902,7 +909,7 @@ def add_part(unit_id):
     conn = get_db()
     part_id = insert_part(
         conn, unit_id, name, spec=spec, cycle_days=cycle_days, cycle_unit=cycle_unit, cost=cost,
-        last_replaced_date=last_replaced_date, note=note, memo=memo, icon=icon,
+        last_replaced_date=last_replaced_date, note=note, memo=memo, drawing_data=drawing_data, icon=icon,
         pos_x=data.get("pos_x"), pos_y=data.get("pos_y"), width=width, height=height,
     )
     conn.commit()
@@ -1098,15 +1105,19 @@ def update_part(part_id):
     cost = data.get("cost", part["cost"])
     note = data.get("note", part["note"])
     memo = data.get("memo", part["memo"])
+    drawing_data = data.get("drawing_data", part["drawing_data"])
+    if drawing_data and len(drawing_data) > MAX_DRAWING_DATA_LEN:
+        conn.close()
+        return jsonify({"error": "도면 이미지 용량이 너무 큽니다 (최대 5MB)"}), 400
     icon = (data.get("icon") or part["icon"]).strip()
     pos_x = data.get("pos_x", part["pos_x"])
     pos_y = data.get("pos_y", part["pos_y"])
     width = data.get("width", part["width"])
     height = data.get("height", part["height"])
     conn.execute(
-        """UPDATE parts SET name = ?, spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, memo = ?, icon = ?,
-           pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?""",
-        (name, spec, cycle_days, cycle_unit, cost, note, memo, icon, pos_x, pos_y, width, height, part_id),
+        """UPDATE parts SET name = ?, spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, memo = ?,
+           drawing_data = ?, icon = ?, pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?""",
+        (name, spec, cycle_days, cycle_unit, cost, note, memo, drawing_data, icon, pos_x, pos_y, width, height, part_id),
     )
     conn.commit()
     row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()

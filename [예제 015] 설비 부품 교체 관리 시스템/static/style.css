@@ -467,6 +467,28 @@ body {
   font-weight: 500;
 }
 
+/* ── 부품 도면 ────────────────────────────────────────────────── */
+.part-drawing-paste {
+  margin-top: 8px;
+  min-height: 90px;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: #f8f9fc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  cursor: text;
+}
+.part-drawing-paste:focus { outline: none; border-color: var(--pri); }
+.part-drawing-placeholder { color: #9ca3af; font-size: 13px; text-align: center; }
+.part-drawing-preview {
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: var(--radius-sm);
+}
+.drawing-modal-img { max-width: 100%; max-height: 75vh; }
+
 /* ── 모달 리스킨 ──────────────────────────────────────────────── */
 .modal-content { border: none; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
 .modal-header { border-bottom: 1px solid var(--border); padding: 18px 22px; }
