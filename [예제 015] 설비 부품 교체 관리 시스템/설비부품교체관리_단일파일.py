@@ -10507,7 +10507,7 @@ function unitMultiselectHtml(entry) {
   return `
     <div class="dropdown">
       <button class="btn btn-sm btn-outline-secondary dropdown-toggle w-100 text-truncate" type="button"
-        data-bs-toggle="dropdown" data-bs-auto-close="outside" data-bs-strategy="fixed">
+        data-bs-toggle="dropdown" data-bs-auto-close="outside">
         ${label}
       </button>
       <div class="dropdown-menu p-2 unit-filter-menu" data-entry-id="${entry.id}">
@@ -10566,6 +10566,16 @@ function renderTable() {
     </tr>`
     )
     .join("");
+
+  // "strategy" is not a real data-bs-* option Bootstrap reads (only autoClose,
+  // boundary, display, offset, popperConfig, reference are). To actually escape
+  // the table wrapper's overflow:hidden clipping, the Popper positioning
+  // strategy must be set to "fixed" via the JS popperConfig option instead.
+  tbody.querySelectorAll(".dropdown-toggle").forEach((toggleEl) => {
+    bootstrap.Dropdown.getOrCreateInstance(toggleEl, {
+      popperConfig: (defaultConfig) => ({ ...defaultConfig, strategy: "fixed" }),
+    });
+  });
 
   tbody.querySelectorAll(".unit-filter-menu").forEach((menu) => {
     const entryId = parseInt(menu.dataset.entryId, 10);
