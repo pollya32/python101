@@ -8,6 +8,7 @@ import re
 import secrets
 import socket
 import shutil
+import traceback
 import html as html_lib
 from urllib.parse import quote
 from datetime import date, datetime, timedelta
@@ -1935,10 +1936,16 @@ def export_stats_pptx():
     unit_names = request.args.getlist("unit_name")
     start_date = request.args.get("start_date") or None
     end_date = request.args.get("end_date") or None
-    conn = get_db()
-    payload = build_stats_payload(conn, unit_names, start_date=start_date, end_date=end_date)
-    conn.close()
-    buf = build_stats_pptx(payload, unit_names)
+    try:
+        conn = get_db()
+        payload = build_stats_payload(conn, unit_names, start_date=start_date, end_date=end_date)
+        conn.close()
+        buf = build_stats_pptx(payload, unit_names)
+    except Exception:
+        # PPT 생성 중 예기치 못한 오류가 나도 서버가 조용히 죽거나 모호한 메시지 대신,
+        # 콘솔에 원인을 남기고 클라이언트에는 명확한 오류를 반환한다.
+        traceback.print_exc()
+        return jsonify({"error": "PPT 생성 중 오류가 발생했습니다. 서버 콘솔의 오류 메시지를 확인해주세요."}), 500
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return send_file(
         buf,
