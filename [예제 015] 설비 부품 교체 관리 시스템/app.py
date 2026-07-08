@@ -4,13 +4,17 @@ import os
 import csv
 import io
 import random
+import re
 import secrets
 import socket
 import shutil
+import html as html_lib
 from urllib.parse import quote
 from datetime import date, datetime, timedelta
 from pptx import Presentation
 from pptx.util import Inches, Pt
+from pptx.chart.data import CategoryChartData
+from pptx.enum.chart import XL_CHART_TYPE
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
@@ -52,6 +56,41 @@ def get_db():
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     return conn
+
+
+_RICH_DANGEROUS_BLOCK_RE = re.compile(
+    r"<(script|style|iframe|object|embed|link|meta|form)\b[^>]*>.*?</\1\s*>"
+    r"|<(script|style|iframe|object|embed|link|meta|form)\b[^>]*/?>",
+    re.IGNORECASE | re.DOTALL,
+)
+_RICH_EVENT_ATTR_RE = re.compile(r"""\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)""", re.IGNORECASE)
+_RICH_JS_URI_RE = re.compile(r"""(href|src)\s*=\s*("|')\s*(javascript|data):[^"']*\2""", re.IGNORECASE)
+
+
+def sanitize_rich_html(raw):
+    """메모/노트에 저장되는 HTML에 대한 서버측 2차 방어선(주 방어는 클라이언트의 화이트리스트
+    기반 sanitizeRichHtml). script/style/iframe 등 위험 태그와 on*= 이벤트 속성, javascript:/data:
+    URI를 제거한다."""
+    if not raw:
+        return raw
+    cleaned = _RICH_DANGEROUS_BLOCK_RE.sub("", raw)
+    cleaned = _RICH_EVENT_ATTR_RE.sub("", cleaned)
+    cleaned = _RICH_JS_URI_RE.sub(lambda m: f'{m.group(1)}="#"', cleaned)
+    return cleaned
+
+
+def legacy_text_to_rich_html(text):
+    """리치 메모 기능 도입 이전에 평문으로 저장되어 있던 메모/노트를, 기존과 동일하게 보이는
+    안전한 HTML로 1회 변환한다 (이스케이프 + 줄바꿈을 <br>로 + URL 자동 링크화)."""
+    if not text:
+        return text
+    escaped = html_lib.escape(text, quote=False)
+    escaped = re.sub(
+        r"(https?://[^\s<]+)",
+        r'<a href="\1" target="_blank" rel="noopener noreferrer">\1</a>',
+        escaped,
+    )
+    return escaped.replace("\n", "<br>")
 
 
 def get_lan_ip():
@@ -397,6 +436,30 @@ def init_db():
                     "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (eq["id"], t["name"], t["icon"], t["color"], t["pos_x"], t["pos_y"], t["width"], t["height"]),
                 )
+
+    # 메모/노트에 리치 텍스트(엑셀 표 붙여넣기 등) 편집 기능이 도입되기 전에 평문으로 저장된
+    # 기존 값을, 화면에 보이던 모습 그대로 안전한 HTML로 1회 변환한다 (재실행돼도 한 번만 수행).
+    if not c.execute("SELECT 1 FROM app_config WHERE key = 'memo_rich_migrated_v1'").fetchone():
+        for row in c.execute("SELECT id, memo FROM parts WHERE memo IS NOT NULL AND memo != ''").fetchall():
+            c.execute(
+                "UPDATE parts SET memo = ? WHERE id = ?",
+                (legacy_text_to_rich_html(row["memo"]), row["id"]),
+            )
+        for row in c.execute(
+            "SELECT equipment_id, content FROM equipment_notes WHERE content IS NOT NULL AND content != ''"
+        ).fetchall():
+            c.execute(
+                "UPDATE equipment_notes SET content = ? WHERE equipment_id = ?",
+                (legacy_text_to_rich_html(row["content"]), row["equipment_id"]),
+            )
+        for row in c.execute(
+            "SELECT unit_id, content FROM unit_notes WHERE content IS NOT NULL AND content != ''"
+        ).fetchall():
+            c.execute(
+                "UPDATE unit_notes SET content = ? WHERE unit_id = ?",
+                (legacy_text_to_rich_html(row["content"]), row["unit_id"]),
+            )
+        c.execute("INSERT INTO app_config (key, value) VALUES ('memo_rich_migrated_v1', '1')")
 
     conn.commit()
     conn.close()
@@ -1095,7 +1158,7 @@ def add_part(unit_id):
     cost = float(data.get("cost") or 0)
     last_replaced_date = data.get("last_replaced_date") or None
     note = (data.get("note") or "").strip()
-    memo = (data.get("memo") or "").strip()
+    memo = sanitize_rich_html((data.get("memo") or "").strip())
     drawing_data = data.get("drawing_data") or None
     if drawing_data and len(drawing_data) > MAX_DRAWING_DATA_LEN:
         return jsonify({"error": "도면 이미지 용량이 너무 큽니다 (최대 5MB)"}), 400
@@ -1334,7 +1397,7 @@ def update_part(part_id):
     cycle_unit = (data.get("cycle_unit") or part["cycle_unit"]).strip()
     cost = data.get("cost", part["cost"])
     note = data.get("note", part["note"])
-    memo = data.get("memo", part["memo"])
+    memo = sanitize_rich_html(data.get("memo", part["memo"]))
     drawing_data = data.get("drawing_data", part["drawing_data"])
     if drawing_data and len(drawing_data) > MAX_DRAWING_DATA_LEN:
         conn.close()
@@ -1458,7 +1521,7 @@ def get_notes(equipment_id):
 @app.route("/api/equipments/<int:equipment_id>/notes", methods=["PUT"])
 def update_notes(equipment_id):
     data = request.get_json()
-    content = data.get("content") or ""
+    content = sanitize_rich_html(data.get("content") or "")
     conn = get_db()
     conn.execute(
         "INSERT INTO equipment_notes (equipment_id, content, updated_at) VALUES (?, ?, datetime('now','localtime')) "
@@ -1486,7 +1549,7 @@ def get_unit_notes(unit_id):
 @app.route("/api/units/<int:unit_id>/notes", methods=["PUT"])
 def update_unit_notes(unit_id):
     data = request.get_json()
-    content = data.get("content") or ""
+    content = sanitize_rich_html(data.get("content") or "")
     conn = get_db()
     conn.execute(
         "INSERT INTO unit_notes (unit_id, content, updated_at) VALUES (?, ?, datetime('now','localtime')) "
@@ -1743,6 +1806,8 @@ def export_stats_csv():
 
 
 def build_stats_pptx(payload, unit_names):
+    """조건별(금액순/사용량순/교체주기순/부품수순) TOP 5를 표+막대 그래프로 함께 보여주는
+    보고서 형태의 PPT를 생성한다."""
     prs = Presentation()
     prs.slide_width = Inches(13.333)
     prs.slide_height = Inches(7.5)
@@ -1751,61 +1816,112 @@ def build_stats_pptx(payload, unit_names):
     title_slide.shapes.title.text = "부품/유닛 통계 리포트"
     filter_text = ", ".join(unit_names) if unit_names else "전체 유닛"
     title_slide.placeholders[1].text = (
-        f"생성일: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n필터: {filter_text}"
+        f"생성일: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n필터: {filter_text}\n"
+        f"조건별 TOP 5 표 및 막대 그래프"
     )
 
     blank_layout = prs.slide_layouts[6]
 
-    def add_table_slide(title, headers, rows, max_rows=15):
+    def add_report_slide(title, headers, rows, chart_labels, chart_values, chart_value_title, number_format="0"):
+        """표(왼쪽, 상위 5건)와 막대 그래프(오른쪽)를 함께 보여주는 보고서 슬라이드를 추가한다."""
         slide = prs.slides.add_slide(blank_layout)
         title_box = slide.shapes.add_textbox(Inches(0.4), Inches(0.3), Inches(12.5), Inches(0.7))
-        title_box.text_frame.text = title
-        title_box.text_frame.paragraphs[0].font.size = Pt(28)
-        title_box.text_frame.paragraphs[0].font.bold = True
+        tf = title_box.text_frame
+        tf.text = title
+        tf.paragraphs[0].font.size = Pt(28)
+        tf.paragraphs[0].font.bold = True
 
-        display_rows = rows[:max_rows]
-        n_rows = len(display_rows) + 1
+        n_rows = len(rows) + 1
         n_cols = len(headers)
-        table = slide.shapes.add_table(
-            n_rows, n_cols, Inches(0.4), Inches(1.1), Inches(12.5), Inches(0.4 * n_rows)
-        ).table
-        for c, h in enumerate(headers):
-            table.cell(0, c).text = str(h)
-        for r_i, row in enumerate(display_rows, 1):
-            for c_i, val in enumerate(row):
-                table.cell(r_i, c_i).text = str(val)
+        if rows:
+            table = slide.shapes.add_table(
+                n_rows, n_cols, Inches(0.4), Inches(1.3), Inches(6.1), Inches(0.5 * n_rows)
+            ).table
+            for c, h in enumerate(headers):
+                cell = table.cell(0, c)
+                cell.text = str(h)
+                cell.text_frame.paragraphs[0].font.bold = True
+                cell.text_frame.paragraphs[0].font.size = Pt(13)
+            for r_i, row in enumerate(rows, 1):
+                for c_i, val in enumerate(row):
+                    cell = table.cell(r_i, c_i)
+                    cell.text = str(val)
+                    cell.text_frame.paragraphs[0].font.size = Pt(12)
+        else:
+            empty_box = slide.shapes.add_textbox(Inches(0.4), Inches(1.5), Inches(6.1), Inches(1.0))
+            empty_box.text_frame.text = "표시할 데이터가 없습니다."
 
-    add_table_slide(
-        "금액순 (부품 규격 기준)",
+        if chart_labels:
+            chart_data = CategoryChartData()
+            chart_data.categories = chart_labels
+            chart_data.add_series(chart_value_title, chart_values)
+            chart_frame = slide.shapes.add_chart(
+                XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(6.9), Inches(1.3), Inches(6.0), Inches(4.8), chart_data
+            )
+            chart = chart_frame.chart
+            chart.has_legend = False
+            plot = chart.plots[0]
+            plot.has_data_labels = True
+            plot.data_labels.font.size = Pt(11)
+            plot.data_labels.number_format = number_format
+            plot.data_labels.number_format_is_linked = False
+            chart.category_axis.tick_labels.font.size = Pt(10)
+            chart.value_axis.tick_labels.font.size = Pt(10)
+
+    def chart_label(r):
+        return f'{r["name"]} ({r["spec"]})' if r.get("spec") else r["name"]
+
+    by_cost5 = payload["by_cost"][:5]
+    add_report_slide(
+        "금액순 TOP 5 (부품 규격 기준)",
         ["순위", "부품명", "규격", "총 금액(원)", "등록 수", "교체 횟수"],
         [
             [i, r["name"], r["spec"], f'{r["total_cost"]:,.0f}', r["instance_count"], r["usage_count"]]
-            for i, r in enumerate(payload["by_cost"], 1)
+            for i, r in enumerate(by_cost5, 1)
         ],
+        [chart_label(r) for r in by_cost5],
+        [r["total_cost"] for r in by_cost5],
+        "총 금액(원)",
+        number_format="#,##0",
     )
-    add_table_slide(
-        "사용량 많은순 (부품 규격 기준)",
+
+    by_usage5 = payload["by_usage"][:5]
+    add_report_slide(
+        "사용량 많은순 TOP 5 (부품 규격 기준)",
         ["순위", "부품명", "규격", "교체 횟수", "등록 수", "총 금액(원)"],
         [
             [i, r["name"], r["spec"], r["usage_count"], r["instance_count"], f'{r["total_cost"]:,.0f}']
-            for i, r in enumerate(payload["by_usage"], 1)
+            for i, r in enumerate(by_usage5, 1)
         ],
+        [chart_label(r) for r in by_usage5],
+        [r["usage_count"] for r in by_usage5],
+        "교체 횟수",
     )
-    add_table_slide(
-        "교체 주기 짧은순 (부품 규격 기준)",
+
+    by_short5 = payload["by_short_cycle"][:5]
+    add_report_slide(
+        "교체 주기 짧은순 TOP 5 (부품 규격 기준)",
         ["순위", "부품명", "규격", "교체 주기", "등록 수"],
         [
             [i, r["name"], r["spec"], format_cycle_for_export(r["min_cycle_days"], r["min_cycle_unit"]), r["instance_count"]]
-            for i, r in enumerate(payload["by_short_cycle"], 1)
+            for i, r in enumerate(by_short5, 1)
         ],
+        [chart_label(r) for r in by_short5],
+        [r["min_cycle_days"] for r in by_short5],
+        "교체 주기(일)",
     )
-    add_table_slide(
-        "부품수 많은순 (유닛 기준)",
+
+    by_part5 = payload["by_part_count"][:5]
+    add_report_slide(
+        "부품수 많은순 TOP 5 (유닛 기준)",
         ["순위", "설비", "유닛", "부품수"],
         [
             [i, r["equipment_name"], r["unit_name"], r["part_count"]]
-            for i, r in enumerate(payload["by_part_count"], 1)
+            for i, r in enumerate(by_part5, 1)
         ],
+        [f'{r["equipment_name"]} {r["unit_name"]}' for r in by_part5],
+        [r["part_count"] for r in by_part5],
+        "부품수",
     )
 
     buf = io.BytesIO()

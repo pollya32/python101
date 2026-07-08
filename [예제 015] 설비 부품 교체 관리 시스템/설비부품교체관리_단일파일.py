@@ -14,14 +14,18 @@ import os
 import csv
 import io
 import random
+import re
 import secrets
 import socket
 import shutil
+import html as html_lib
 from urllib.parse import quote
 from datetime import date, datetime, timedelta
 from flask import Flask, request, jsonify, send_file, Response, session, redirect, url_for
 from pptx import Presentation
 from pptx.util import Inches, Pt
+from pptx.chart.data import CategoryChartData
+from pptx.enum.chart import XL_CHART_TYPE
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
@@ -79,6 +83,41 @@ def get_db():
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     return conn
+
+
+_RICH_DANGEROUS_BLOCK_RE = re.compile(
+    r"<(script|style|iframe|object|embed|link|meta|form)\b[^>]*>.*?</\1\s*>"
+    r"|<(script|style|iframe|object|embed|link|meta|form)\b[^>]*/?>",
+    re.IGNORECASE | re.DOTALL,
+)
+_RICH_EVENT_ATTR_RE = re.compile(r"""\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)""", re.IGNORECASE)
+_RICH_JS_URI_RE = re.compile(r"""(href|src)\s*=\s*("|')\s*(javascript|data):[^"']*\2""", re.IGNORECASE)
+
+
+def sanitize_rich_html(raw):
+    """메모/노트에 저장되는 HTML에 대한 서버측 2차 방어선(주 방어는 클라이언트의 화이트리스트
+    기반 sanitizeRichHtml). script/style/iframe 등 위험 태그와 on*= 이벤트 속성, javascript:/data:
+    URI를 제거한다."""
+    if not raw:
+        return raw
+    cleaned = _RICH_DANGEROUS_BLOCK_RE.sub("", raw)
+    cleaned = _RICH_EVENT_ATTR_RE.sub("", cleaned)
+    cleaned = _RICH_JS_URI_RE.sub(lambda m: f'{m.group(1)}="#"', cleaned)
+    return cleaned
+
+
+def legacy_text_to_rich_html(text):
+    """리치 메모 기능 도입 이전에 평문으로 저장되어 있던 메모/노트를, 기존과 동일하게 보이는
+    안전한 HTML로 1회 변환한다 (이스케이프 + 줄바꿈을 <br>로 + URL 자동 링크화)."""
+    if not text:
+        return text
+    escaped = html_lib.escape(text, quote=False)
+    escaped = re.sub(
+        r"(https?://[^\s<]+)",
+        r'<a href="\1" target="_blank" rel="noopener noreferrer">\1</a>',
+        escaped,
+    )
+    return escaped.replace("\n", "<br>")
 
 
 def get_lan_ip():
@@ -424,6 +463,30 @@ def init_db():
                     "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (eq["id"], t["name"], t["icon"], t["color"], t["pos_x"], t["pos_y"], t["width"], t["height"]),
                 )
+
+    # 메모/노트에 리치 텍스트(엑셀 표 붙여넣기 등) 편집 기능이 도입되기 전에 평문으로 저장된
+    # 기존 값을, 화면에 보이던 모습 그대로 안전한 HTML로 1회 변환한다 (재실행돼도 한 번만 수행).
+    if not c.execute("SELECT 1 FROM app_config WHERE key = 'memo_rich_migrated_v1'").fetchone():
+        for row in c.execute("SELECT id, memo FROM parts WHERE memo IS NOT NULL AND memo != ''").fetchall():
+            c.execute(
+                "UPDATE parts SET memo = ? WHERE id = ?",
+                (legacy_text_to_rich_html(row["memo"]), row["id"]),
+            )
+        for row in c.execute(
+            "SELECT equipment_id, content FROM equipment_notes WHERE content IS NOT NULL AND content != ''"
+        ).fetchall():
+            c.execute(
+                "UPDATE equipment_notes SET content = ? WHERE equipment_id = ?",
+                (legacy_text_to_rich_html(row["content"]), row["equipment_id"]),
+            )
+        for row in c.execute(
+            "SELECT unit_id, content FROM unit_notes WHERE content IS NOT NULL AND content != ''"
+        ).fetchall():
+            c.execute(
+                "UPDATE unit_notes SET content = ? WHERE unit_id = ?",
+                (legacy_text_to_rich_html(row["content"]), row["unit_id"]),
+            )
+        c.execute("INSERT INTO app_config (key, value) VALUES ('memo_rich_migrated_v1', '1')")
 
     conn.commit()
     conn.close()
@@ -1122,7 +1185,7 @@ def add_part(unit_id):
     cost = float(data.get("cost") or 0)
     last_replaced_date = data.get("last_replaced_date") or None
     note = (data.get("note") or "").strip()
-    memo = (data.get("memo") or "").strip()
+    memo = sanitize_rich_html((data.get("memo") or "").strip())
     drawing_data = data.get("drawing_data") or None
     if drawing_data and len(drawing_data) > MAX_DRAWING_DATA_LEN:
         return jsonify({"error": "도면 이미지 용량이 너무 큽니다 (최대 5MB)"}), 400
@@ -1361,7 +1424,7 @@ def update_part(part_id):
     cycle_unit = (data.get("cycle_unit") or part["cycle_unit"]).strip()
     cost = data.get("cost", part["cost"])
     note = data.get("note", part["note"])
-    memo = data.get("memo", part["memo"])
+    memo = sanitize_rich_html(data.get("memo", part["memo"]))
     drawing_data = data.get("drawing_data", part["drawing_data"])
     if drawing_data and len(drawing_data) > MAX_DRAWING_DATA_LEN:
         conn.close()
@@ -1485,7 +1548,7 @@ def get_notes(equipment_id):
 @app.route("/api/equipments/<int:equipment_id>/notes", methods=["PUT"])
 def update_notes(equipment_id):
     data = request.get_json()
-    content = data.get("content") or ""
+    content = sanitize_rich_html(data.get("content") or "")
     conn = get_db()
     conn.execute(
         "INSERT INTO equipment_notes (equipment_id, content, updated_at) VALUES (?, ?, datetime('now','localtime')) "
@@ -1513,7 +1576,7 @@ def get_unit_notes(unit_id):
 @app.route("/api/units/<int:unit_id>/notes", methods=["PUT"])
 def update_unit_notes(unit_id):
     data = request.get_json()
-    content = data.get("content") or ""
+    content = sanitize_rich_html(data.get("content") or "")
     conn = get_db()
     conn.execute(
         "INSERT INTO unit_notes (unit_id, content, updated_at) VALUES (?, ?, datetime('now','localtime')) "
@@ -1770,6 +1833,8 @@ def export_stats_csv():
 
 
 def build_stats_pptx(payload, unit_names):
+    """조건별(금액순/사용량순/교체주기순/부품수순) TOP 5를 표+막대 그래프로 함께 보여주는
+    보고서 형태의 PPT를 생성한다."""
     prs = Presentation()
     prs.slide_width = Inches(13.333)
     prs.slide_height = Inches(7.5)
@@ -1778,61 +1843,112 @@ def build_stats_pptx(payload, unit_names):
     title_slide.shapes.title.text = "부품/유닛 통계 리포트"
     filter_text = ", ".join(unit_names) if unit_names else "전체 유닛"
     title_slide.placeholders[1].text = (
-        f"생성일: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n필터: {filter_text}"
+        f"생성일: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n필터: {filter_text}\n"
+        f"조건별 TOP 5 표 및 막대 그래프"
     )
 
     blank_layout = prs.slide_layouts[6]
 
-    def add_table_slide(title, headers, rows, max_rows=15):
+    def add_report_slide(title, headers, rows, chart_labels, chart_values, chart_value_title, number_format="0"):
+        """표(왼쪽, 상위 5건)와 막대 그래프(오른쪽)를 함께 보여주는 보고서 슬라이드를 추가한다."""
         slide = prs.slides.add_slide(blank_layout)
         title_box = slide.shapes.add_textbox(Inches(0.4), Inches(0.3), Inches(12.5), Inches(0.7))
-        title_box.text_frame.text = title
-        title_box.text_frame.paragraphs[0].font.size = Pt(28)
-        title_box.text_frame.paragraphs[0].font.bold = True
+        tf = title_box.text_frame
+        tf.text = title
+        tf.paragraphs[0].font.size = Pt(28)
+        tf.paragraphs[0].font.bold = True
 
-        display_rows = rows[:max_rows]
-        n_rows = len(display_rows) + 1
+        n_rows = len(rows) + 1
         n_cols = len(headers)
-        table = slide.shapes.add_table(
-            n_rows, n_cols, Inches(0.4), Inches(1.1), Inches(12.5), Inches(0.4 * n_rows)
-        ).table
-        for c, h in enumerate(headers):
-            table.cell(0, c).text = str(h)
-        for r_i, row in enumerate(display_rows, 1):
-            for c_i, val in enumerate(row):
-                table.cell(r_i, c_i).text = str(val)
+        if rows:
+            table = slide.shapes.add_table(
+                n_rows, n_cols, Inches(0.4), Inches(1.3), Inches(6.1), Inches(0.5 * n_rows)
+            ).table
+            for c, h in enumerate(headers):
+                cell = table.cell(0, c)
+                cell.text = str(h)
+                cell.text_frame.paragraphs[0].font.bold = True
+                cell.text_frame.paragraphs[0].font.size = Pt(13)
+            for r_i, row in enumerate(rows, 1):
+                for c_i, val in enumerate(row):
+                    cell = table.cell(r_i, c_i)
+                    cell.text = str(val)
+                    cell.text_frame.paragraphs[0].font.size = Pt(12)
+        else:
+            empty_box = slide.shapes.add_textbox(Inches(0.4), Inches(1.5), Inches(6.1), Inches(1.0))
+            empty_box.text_frame.text = "표시할 데이터가 없습니다."
 
-    add_table_slide(
-        "금액순 (부품 규격 기준)",
+        if chart_labels:
+            chart_data = CategoryChartData()
+            chart_data.categories = chart_labels
+            chart_data.add_series(chart_value_title, chart_values)
+            chart_frame = slide.shapes.add_chart(
+                XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(6.9), Inches(1.3), Inches(6.0), Inches(4.8), chart_data
+            )
+            chart = chart_frame.chart
+            chart.has_legend = False
+            plot = chart.plots[0]
+            plot.has_data_labels = True
+            plot.data_labels.font.size = Pt(11)
+            plot.data_labels.number_format = number_format
+            plot.data_labels.number_format_is_linked = False
+            chart.category_axis.tick_labels.font.size = Pt(10)
+            chart.value_axis.tick_labels.font.size = Pt(10)
+
+    def chart_label(r):
+        return f'{r["name"]} ({r["spec"]})' if r.get("spec") else r["name"]
+
+    by_cost5 = payload["by_cost"][:5]
+    add_report_slide(
+        "금액순 TOP 5 (부품 규격 기준)",
         ["순위", "부품명", "규격", "총 금액(원)", "등록 수", "교체 횟수"],
         [
             [i, r["name"], r["spec"], f'{r["total_cost"]:,.0f}', r["instance_count"], r["usage_count"]]
-            for i, r in enumerate(payload["by_cost"], 1)
+            for i, r in enumerate(by_cost5, 1)
         ],
+        [chart_label(r) for r in by_cost5],
+        [r["total_cost"] for r in by_cost5],
+        "총 금액(원)",
+        number_format="#,##0",
     )
-    add_table_slide(
-        "사용량 많은순 (부품 규격 기준)",
+
+    by_usage5 = payload["by_usage"][:5]
+    add_report_slide(
+        "사용량 많은순 TOP 5 (부품 규격 기준)",
         ["순위", "부품명", "규격", "교체 횟수", "등록 수", "총 금액(원)"],
         [
             [i, r["name"], r["spec"], r["usage_count"], r["instance_count"], f'{r["total_cost"]:,.0f}']
-            for i, r in enumerate(payload["by_usage"], 1)
+            for i, r in enumerate(by_usage5, 1)
         ],
+        [chart_label(r) for r in by_usage5],
+        [r["usage_count"] for r in by_usage5],
+        "교체 횟수",
     )
-    add_table_slide(
-        "교체 주기 짧은순 (부품 규격 기준)",
+
+    by_short5 = payload["by_short_cycle"][:5]
+    add_report_slide(
+        "교체 주기 짧은순 TOP 5 (부품 규격 기준)",
         ["순위", "부품명", "규격", "교체 주기", "등록 수"],
         [
             [i, r["name"], r["spec"], format_cycle_for_export(r["min_cycle_days"], r["min_cycle_unit"]), r["instance_count"]]
-            for i, r in enumerate(payload["by_short_cycle"], 1)
+            for i, r in enumerate(by_short5, 1)
         ],
+        [chart_label(r) for r in by_short5],
+        [r["min_cycle_days"] for r in by_short5],
+        "교체 주기(일)",
     )
-    add_table_slide(
-        "부품수 많은순 (유닛 기준)",
+
+    by_part5 = payload["by_part_count"][:5]
+    add_report_slide(
+        "부품수 많은순 TOP 5 (유닛 기준)",
         ["순위", "설비", "유닛", "부품수"],
         [
             [i, r["equipment_name"], r["unit_name"], r["part_count"]]
-            for i, r in enumerate(payload["by_part_count"], 1)
+            for i, r in enumerate(by_part5, 1)
         ],
+        [f'{r["equipment_name"]} {r["unit_name"]}' for r in by_part5],
+        [r["part_count"] for r in by_part5],
+        "부품수",
     )
 
     buf = io.BytesIO()
@@ -2498,6 +2614,32 @@ body {
   font-weight: 500;
 }
 #notesEdit { font-size: 14px; }
+
+/* ── 리치 메모/노트 (엑셀 표 붙여넣기 서식 유지) ─────────────────────── */
+.rich-edit {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.rich-edit:empty::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+}
+.notes-view table,
+.part-memo-view table,
+.rich-edit table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  max-width: 100%;
+}
+.notes-view td, .notes-view th,
+.part-memo-view td, .part-memo-view th,
+.rich-edit td, .rich-edit th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.notes-view th, .part-memo-view th, .rich-edit th { background: #f3f4f6; font-weight: 700; }
 
 .part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
 .part-memo-view {
@@ -3717,6 +3859,32 @@ body {
 }
 #notesEdit { font-size: 14px; }
 
+/* ── 리치 메모/노트 (엑셀 표 붙여넣기 서식 유지) ─────────────────────── */
+.rich-edit {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.rich-edit:empty::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+}
+.notes-view table,
+.part-memo-view table,
+.rich-edit table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  max-width: 100%;
+}
+.notes-view td, .notes-view th,
+.part-memo-view td, .part-memo-view th,
+.rich-edit td, .rich-edit th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.notes-view th, .part-memo-view th, .rich-edit th { background: #f3f4f6; font-weight: 700; }
+
 .part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
 .part-memo-view {
   min-height: 32px;
@@ -4049,8 +4217,8 @@ body {
       </div>
     </div>
     <div id="notesView" class="notes-view"></div>
-    <textarea id="notesEdit" class="form-control d-none" rows="8"
-      placeholder="설비 정보, 부품 구매 사이트 URL 등을 자유롭게 기록하세요. (http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></textarea>
+    <div id="notesEdit" class="form-control d-none rich-edit" contenteditable="true" style="min-height: 160px;"
+      data-placeholder="설비 정보, 부품 구매 사이트 URL, 엑셀 표 등을 자유롭게 기록하세요. (엑셀 표를 붙여넣으면 서식이 유지되고, http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></div>
   </div>
 
 </main>
@@ -4158,6 +4326,110 @@ function renderIconPicker(containerId, inputId, current) {
 function tick() {
   const el = document.getElementById("clock");
   if (el) el.textContent = new Date().toLocaleString("ko-KR");
+}
+
+// ── 리치 메모/노트: 엑셀 표 붙여넣기 시 서식(표 구조) 유지 ─────────────────
+const RICH_ALLOWED_TAGS = {
+  TABLE: [], THEAD: [], TBODY: [], TFOOT: [], TR: [], COL: [], COLGROUP: [], CAPTION: [],
+  TH: ["colspan", "rowspan"], TD: ["colspan", "rowspan"],
+  B: [], STRONG: [], I: [], EM: [], U: [], BR: [], P: [], DIV: [], SPAN: [],
+  UL: [], OL: [], LI: [], A: ["href"],
+};
+const RICH_STRIP_TAGS = new Set([
+  "SCRIPT", "STYLE", "IFRAME", "OBJECT", "EMBED", "LINK", "META", "SVG",
+  "FORM", "IMG", "INPUT", "BUTTON", "TEXTAREA", "SELECT", "VIDEO", "AUDIO", "SOURCE",
+]);
+
+function sanitizeRichNode(node) {
+  Array.from(node.childNodes).forEach((child) => {
+    if (child.nodeType === Node.COMMENT_NODE) {
+      child.remove();
+      return;
+    }
+    if (child.nodeType !== Node.ELEMENT_NODE) return;
+    const tag = child.tagName;
+    if (RICH_STRIP_TAGS.has(tag)) {
+      child.remove();
+      return;
+    }
+    const allowed = RICH_ALLOWED_TAGS[tag];
+    if (!allowed) {
+      sanitizeRichNode(child);
+      while (child.firstChild) node.insertBefore(child.firstChild, child);
+      child.remove();
+      return;
+    }
+    Array.from(child.attributes).forEach((attr) => {
+      if (!allowed.includes(attr.name)) child.removeAttribute(attr.name);
+    });
+    if (tag === "A") {
+      const href = child.getAttribute("href") || "";
+      if (!/^https?:\/\//i.test(href)) {
+        child.removeAttribute("href");
+      } else {
+        child.setAttribute("target", "_blank");
+        child.setAttribute("rel", "noopener noreferrer");
+      }
+    }
+    sanitizeRichNode(child);
+  });
+}
+
+function sanitizeRichHtml(rawHtml) {
+  const container = document.createElement("div");
+  container.innerHTML = rawHtml || "";
+  sanitizeRichNode(container);
+  return container.innerHTML;
+}
+
+function linkifyRichHtml(rawHtml) {
+  const container = document.createElement("div");
+  container.innerHTML = rawHtml || "";
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  const targets = [];
+  let node;
+  while ((node = walker.nextNode())) {
+    if (node.parentElement && node.parentElement.closest("a")) continue;
+    if (/https?:\/\//.test(node.nodeValue)) targets.push(node);
+  }
+  targets.forEach((textNode) => {
+    const frag = document.createDocumentFragment();
+    textNode.nodeValue.split(/(https?:\/\/[^\s<]+)/g).forEach((part) => {
+      if (/^https?:\/\//.test(part)) {
+        const a = document.createElement("a");
+        a.href = part;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        a.textContent = part;
+        frag.appendChild(a);
+      } else if (part) {
+        frag.appendChild(document.createTextNode(part));
+      }
+    });
+    textNode.parentNode.replaceChild(frag, textNode);
+  });
+  return container.innerHTML;
+}
+
+function isRichContentEmpty(html) {
+  const container = document.createElement("div");
+  container.innerHTML = html || "";
+  return container.textContent.trim() === "";
+}
+
+function attachRichPasteHandler(el) {
+  if (!el || el.dataset.richPasteBound) return;
+  el.dataset.richPasteBound = "1";
+  el.addEventListener("paste", (e) => {
+    e.preventDefault();
+    const html = e.clipboardData.getData("text/html");
+    const text = e.clipboardData.getData("text/plain");
+    if (html) {
+      document.execCommand("insertHTML", false, sanitizeRichHtml(html));
+    } else if (text) {
+      document.execCommand("insertText", false, text);
+    }
+  });
 }
 
 async function fetchJson(url, options) {
@@ -4400,21 +4672,13 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
-function linkifyText(text) {
-  const escaped = escapeHtml(text);
-  return escaped.replace(
-    /(https?:\/\/[^\s<]+)/g,
-    '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
-  );
-}
-
 let lastNotesContent = "";
 
 async function loadNotes() {
   const data = await fetchJson(`/api/equipments/${EQUIPMENT_ID}/notes`);
   lastNotesContent = data.content || "";
   renderNotesView(lastNotesContent);
-  document.getElementById("notesEdit").value = lastNotesContent;
+  document.getElementById("notesEdit").innerHTML = lastNotesContent;
   document.getElementById("notesSavedAt").textContent = data.updated_at
     ? `최종 수정: ${data.updated_at}`
     : "";
@@ -4422,12 +4686,12 @@ async function loadNotes() {
 
 function renderNotesView(content) {
   const view = document.getElementById("notesView");
-  if (!content || !content.trim()) {
+  if (isRichContentEmpty(content)) {
     view.innerHTML = "";
     view.classList.add("is-empty");
   } else {
     view.classList.remove("is-empty");
-    view.innerHTML = linkifyText(content);
+    view.innerHTML = linkifyRichHtml(content);
   }
 }
 
@@ -4555,13 +4819,14 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  attachRichPasteHandler(document.getElementById("notesEdit"));
   document.getElementById("editNotesBtn").addEventListener("click", () => setNotesEditing(true));
   document.getElementById("cancelNotesBtn").addEventListener("click", () => {
-    document.getElementById("notesEdit").value = lastNotesContent;
+    document.getElementById("notesEdit").innerHTML = lastNotesContent;
     setNotesEditing(false);
   });
   document.getElementById("saveNotesBtn").addEventListener("click", async () => {
-    const content = document.getElementById("notesEdit").value;
+    const content = sanitizeRichHtml(document.getElementById("notesEdit").innerHTML);
     try {
       const data = await fetchJson(`/api/equipments/${EQUIPMENT_ID}/notes`, {
         method: "PUT",
@@ -5112,6 +5377,32 @@ body {
 }
 #notesEdit { font-size: 14px; }
 
+/* ── 리치 메모/노트 (엑셀 표 붙여넣기 서식 유지) ─────────────────────── */
+.rich-edit {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.rich-edit:empty::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+}
+.notes-view table,
+.part-memo-view table,
+.rich-edit table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  max-width: 100%;
+}
+.notes-view td, .notes-view th,
+.part-memo-view td, .part-memo-view th,
+.rich-edit td, .rich-edit th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.notes-view th, .part-memo-view th, .rich-edit th { background: #f3f4f6; font-weight: 700; }
+
 .part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
 .part-memo-view {
   min-height: 32px;
@@ -5388,6 +5679,7 @@ body {
 <header class="topbar">
   <div class="d-flex align-items-center gap-2">
     <a href="/" id="backToEquipmentBtn" class="btn btn-sm btn-outline-light"><i class="bi bi-arrow-left"></i> 설비로</a>
+    <a href="/" class="btn btn-sm btn-outline-light"><i class="bi bi-grid-3x3-gap"></i> 대시보드</a>
     <h1 id="unitPageTitle">유닛 상세</h1>
   </div>
   <div class="d-flex align-items-center gap-2">
@@ -5443,8 +5735,8 @@ body {
       </div>
     </div>
     <div id="notesView" class="notes-view"></div>
-    <textarea id="notesEdit" class="form-control d-none" rows="8"
-      placeholder="부품 규격, 구매처 URL 등을 자유롭게 기록하세요. (http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></textarea>
+    <div id="notesEdit" class="form-control d-none rich-edit" contenteditable="true" style="min-height: 160px;"
+      data-placeholder="부품 규격, 구매처 URL, 엑셀 표 등을 자유롭게 기록하세요. (엑셀 표를 붙여넣으면 서식이 유지되고, http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></div>
   </div>
 
 </main>
@@ -5482,8 +5774,8 @@ body {
             </div>
           </div>
           <div id="partDetailMemo" class="part-memo-view"></div>
-          <textarea id="partDetailMemoEdit" class="form-control form-control-sm d-none" rows="4"
-            placeholder="부품 관련 메모를 자유롭게 기록하세요. (http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></textarea>
+          <div id="partDetailMemoEdit" class="form-control form-control-sm d-none rich-edit" contenteditable="true" style="min-height: 90px;"
+            data-placeholder="부품 관련 메모를 자유롭게 기록하세요. (엑셀 표를 붙여넣으면 서식이 유지되고, http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></div>
         </div>
       </div>
     </div>
@@ -5605,8 +5897,8 @@ body {
           </div>
           <div class="mb-2 mt-1">
             <label class="form-label">메모장</label>
-            <textarea class="form-control" id="partEditMemo" rows="4"
-              placeholder="부품 관련 세부 정보를 자유롭게 기록하세요. (http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></textarea>
+            <div class="form-control rich-edit" id="partEditMemo" contenteditable="true" style="min-height: 90px;"
+              data-placeholder="부품 관련 세부 정보를 자유롭게 기록하세요. (엑셀 표를 붙여넣으면 서식이 유지되고, http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></div>
           </div>
           <div class="row g-2 mt-1">
             <div class="col-6">
@@ -5730,12 +6022,108 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
-function linkifyText(text) {
-  const escaped = escapeHtml(text);
-  return escaped.replace(
-    /(https?:\/\/[^\s<]+)/g,
-    '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
-  );
+// ── 리치 메모/노트: 엑셀 표 붙여넣기 시 서식(표 구조) 유지 ─────────────────
+const RICH_ALLOWED_TAGS = {
+  TABLE: [], THEAD: [], TBODY: [], TFOOT: [], TR: [], COL: [], COLGROUP: [], CAPTION: [],
+  TH: ["colspan", "rowspan"], TD: ["colspan", "rowspan"],
+  B: [], STRONG: [], I: [], EM: [], U: [], BR: [], P: [], DIV: [], SPAN: [],
+  UL: [], OL: [], LI: [], A: ["href"],
+};
+const RICH_STRIP_TAGS = new Set([
+  "SCRIPT", "STYLE", "IFRAME", "OBJECT", "EMBED", "LINK", "META", "SVG",
+  "FORM", "IMG", "INPUT", "BUTTON", "TEXTAREA", "SELECT", "VIDEO", "AUDIO", "SOURCE",
+]);
+
+function sanitizeRichNode(node) {
+  Array.from(node.childNodes).forEach((child) => {
+    if (child.nodeType === Node.COMMENT_NODE) {
+      child.remove();
+      return;
+    }
+    if (child.nodeType !== Node.ELEMENT_NODE) return;
+    const tag = child.tagName;
+    if (RICH_STRIP_TAGS.has(tag)) {
+      child.remove();
+      return;
+    }
+    const allowed = RICH_ALLOWED_TAGS[tag];
+    if (!allowed) {
+      sanitizeRichNode(child);
+      while (child.firstChild) node.insertBefore(child.firstChild, child);
+      child.remove();
+      return;
+    }
+    Array.from(child.attributes).forEach((attr) => {
+      if (!allowed.includes(attr.name)) child.removeAttribute(attr.name);
+    });
+    if (tag === "A") {
+      const href = child.getAttribute("href") || "";
+      if (!/^https?:\/\//i.test(href)) {
+        child.removeAttribute("href");
+      } else {
+        child.setAttribute("target", "_blank");
+        child.setAttribute("rel", "noopener noreferrer");
+      }
+    }
+    sanitizeRichNode(child);
+  });
+}
+
+function sanitizeRichHtml(rawHtml) {
+  const container = document.createElement("div");
+  container.innerHTML = rawHtml || "";
+  sanitizeRichNode(container);
+  return container.innerHTML;
+}
+
+function linkifyRichHtml(rawHtml) {
+  const container = document.createElement("div");
+  container.innerHTML = rawHtml || "";
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  const targets = [];
+  let node;
+  while ((node = walker.nextNode())) {
+    if (node.parentElement && node.parentElement.closest("a")) continue;
+    if (/https?:\/\//.test(node.nodeValue)) targets.push(node);
+  }
+  targets.forEach((textNode) => {
+    const frag = document.createDocumentFragment();
+    textNode.nodeValue.split(/(https?:\/\/[^\s<]+)/g).forEach((part) => {
+      if (/^https?:\/\//.test(part)) {
+        const a = document.createElement("a");
+        a.href = part;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        a.textContent = part;
+        frag.appendChild(a);
+      } else if (part) {
+        frag.appendChild(document.createTextNode(part));
+      }
+    });
+    textNode.parentNode.replaceChild(frag, textNode);
+  });
+  return container.innerHTML;
+}
+
+function isRichContentEmpty(html) {
+  const container = document.createElement("div");
+  container.innerHTML = html || "";
+  return container.textContent.trim() === "";
+}
+
+function attachRichPasteHandler(el) {
+  if (!el || el.dataset.richPasteBound) return;
+  el.dataset.richPasteBound = "1";
+  el.addEventListener("paste", (e) => {
+    e.preventDefault();
+    const html = e.clipboardData.getData("text/html");
+    const text = e.clipboardData.getData("text/plain");
+    if (html) {
+      document.execCommand("insertHTML", false, sanitizeRichHtml(html));
+    } else if (text) {
+      document.execCommand("insertText", false, text);
+    }
+  });
 }
 
 let lastNotesContent = "";
@@ -5744,7 +6132,7 @@ async function loadNotes() {
   const data = await fetchJson(`/api/units/${UNIT_ID}/notes`);
   lastNotesContent = data.content || "";
   renderNotesView(lastNotesContent);
-  document.getElementById("notesEdit").value = lastNotesContent;
+  document.getElementById("notesEdit").innerHTML = lastNotesContent;
   document.getElementById("notesSavedAt").textContent = data.updated_at
     ? `최종 수정: ${data.updated_at}`
     : "";
@@ -5752,12 +6140,12 @@ async function loadNotes() {
 
 function renderNotesView(content) {
   const view = document.getElementById("notesView");
-  if (!content || !content.trim()) {
+  if (isRichContentEmpty(content)) {
     view.innerHTML = "";
     view.classList.add("is-empty");
   } else {
     view.classList.remove("is-empty");
-    view.innerHTML = linkifyText(content);
+    view.innerHTML = linkifyRichHtml(content);
   }
 }
 
@@ -6141,7 +6529,7 @@ function openPartDetailModal(partId) {
       <br>${stockText}${supplierText}${leadTimeText}
     </div>`;
   renderPartMemoView(p.memo);
-  document.getElementById("partDetailMemoEdit").value = p.memo || "";
+  document.getElementById("partDetailMemoEdit").innerHTML = p.memo || "";
   setPartMemoEditing(false);
   document.getElementById("partDetailDrawingBtn").classList.toggle("d-none", !p.drawing_data);
   partDetailModal.show();
@@ -6149,12 +6537,12 @@ function openPartDetailModal(partId) {
 
 function renderPartMemoView(memo) {
   const memoView = document.getElementById("partDetailMemo");
-  if (!memo || !memo.trim()) {
+  if (isRichContentEmpty(memo)) {
     memoView.innerHTML = "";
     memoView.classList.add("is-empty");
   } else {
     memoView.classList.remove("is-empty");
-    memoView.innerHTML = linkifyText(memo);
+    memoView.innerHTML = linkifyRichHtml(memo);
   }
 }
 
@@ -6221,7 +6609,7 @@ function openPartEditModal(part) {
   document.getElementById("partEditCycle").value = part ? cycleDaysToDisplayValue(part.cycle_days, cycleUnit) : 90;
   document.getElementById("partEditCost").value = part ? part.cost || 0 : 0;
   document.getElementById("partEditNote").value = part ? part.note || "" : "";
-  document.getElementById("partEditMemo").value = part ? part.memo || "" : "";
+  document.getElementById("partEditMemo").innerHTML = part ? part.memo || "" : "";
   document.getElementById("partEditStockQty").value = part ? part.stock_qty || 0 : 0;
   document.getElementById("partEditLeadTime").value = part && part.lead_time_days != null ? part.lead_time_days : "";
   document.getElementById("partEditSupplier").value = part ? part.supplier || "" : "";
@@ -6245,6 +6633,7 @@ document.addEventListener("DOMContentLoaded", () => {
   loadUnitHeader();
   loadParts();
   loadNotes();
+  attachRichPasteHandler(document.getElementById("partEditMemo"));
 
   document.getElementById("editModeBtn").addEventListener("click", (e) => {
     editMode = !editMode;
@@ -6258,13 +6647,14 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("addPartBtn").addEventListener("click", () => openPartEditModal(null));
   document.getElementById("pastePartBtn").addEventListener("click", pastePart);
 
+  attachRichPasteHandler(document.getElementById("notesEdit"));
   document.getElementById("editNotesBtn").addEventListener("click", () => setNotesEditing(true));
   document.getElementById("cancelNotesBtn").addEventListener("click", () => {
-    document.getElementById("notesEdit").value = lastNotesContent;
+    document.getElementById("notesEdit").innerHTML = lastNotesContent;
     setNotesEditing(false);
   });
   document.getElementById("saveNotesBtn").addEventListener("click", async () => {
-    const content = document.getElementById("notesEdit").value;
+    const content = sanitizeRichHtml(document.getElementById("notesEdit").innerHTML);
     try {
       const data = await fetchJson(`/api/units/${UNIT_ID}/notes`, {
         method: "PUT",
@@ -6282,14 +6672,15 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  attachRichPasteHandler(document.getElementById("partDetailMemoEdit"));
   document.getElementById("editPartMemoBtn").addEventListener("click", () => setPartMemoEditing(true));
   document.getElementById("cancelPartMemoBtn").addEventListener("click", () => {
     const p = currentParts.find((x) => x.id === currentPartId);
-    document.getElementById("partDetailMemoEdit").value = (p && p.memo) || "";
+    document.getElementById("partDetailMemoEdit").innerHTML = (p && p.memo) || "";
     setPartMemoEditing(false);
   });
   document.getElementById("savePartMemoBtn").addEventListener("click", async () => {
-    const memo = document.getElementById("partDetailMemoEdit").value;
+    const memo = sanitizeRichHtml(document.getElementById("partDetailMemoEdit").innerHTML);
     try {
       const updated = await fetchJson(`/api/parts/${currentPartId}`, {
         method: "PUT",
@@ -6362,7 +6753,7 @@ document.addEventListener("DOMContentLoaded", () => {
       cycle_unit: cycleUnit,
       cost: parseFloat(document.getElementById("partEditCost").value) || 0,
       note: document.getElementById("partEditNote").value.trim(),
-      memo: document.getElementById("partEditMemo").value,
+      memo: sanitizeRichHtml(document.getElementById("partEditMemo").innerHTML),
       drawing_data: currentPartDrawingData,
       stock_qty: parseInt(document.getElementById("partEditStockQty").value, 10) || 0,
       lead_time_days: document.getElementById("partEditLeadTime").value || null,
@@ -6898,6 +7289,32 @@ body {
   font-weight: 500;
 }
 #notesEdit { font-size: 14px; }
+
+/* ── 리치 메모/노트 (엑셀 표 붙여넣기 서식 유지) ─────────────────────── */
+.rich-edit {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.rich-edit:empty::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+}
+.notes-view table,
+.part-memo-view table,
+.rich-edit table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  max-width: 100%;
+}
+.notes-view td, .notes-view th,
+.part-memo-view td, .part-memo-view th,
+.rich-edit td, .rich-edit th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.notes-view th, .part-memo-view th, .rich-edit th { background: #f3f4f6; font-weight: 700; }
 
 .part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
 .part-memo-view {
@@ -8102,6 +8519,32 @@ body {
 }
 #notesEdit { font-size: 14px; }
 
+/* ── 리치 메모/노트 (엑셀 표 붙여넣기 서식 유지) ─────────────────────── */
+.rich-edit {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.rich-edit:empty::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+}
+.notes-view table,
+.part-memo-view table,
+.rich-edit table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  max-width: 100%;
+}
+.notes-view td, .notes-view th,
+.part-memo-view td, .part-memo-view th,
+.rich-edit td, .rich-edit th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.notes-view th, .part-memo-view th, .rich-edit th { background: #f3f4f6; font-weight: 700; }
+
 .part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
 .part-memo-view {
   min-height: 32px;
@@ -8955,6 +9398,32 @@ body {
   font-weight: 500;
 }
 #notesEdit { font-size: 14px; }
+
+/* ── 리치 메모/노트 (엑셀 표 붙여넣기 서식 유지) ─────────────────────── */
+.rich-edit {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.rich-edit:empty::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+}
+.notes-view table,
+.part-memo-view table,
+.rich-edit table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  max-width: 100%;
+}
+.notes-view td, .notes-view th,
+.part-memo-view td, .part-memo-view th,
+.rich-edit td, .rich-edit th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.notes-view th, .part-memo-view th, .rich-edit th { background: #f3f4f6; font-weight: 700; }
 
 .part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
 .part-memo-view {
@@ -9866,6 +10335,32 @@ body {
   font-weight: 500;
 }
 #notesEdit { font-size: 14px; }
+
+/* ── 리치 메모/노트 (엑셀 표 붙여넣기 서식 유지) ─────────────────────── */
+.rich-edit {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.rich-edit:empty::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+}
+.notes-view table,
+.part-memo-view table,
+.rich-edit table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  max-width: 100%;
+}
+.notes-view td, .notes-view th,
+.part-memo-view td, .part-memo-view th,
+.rich-edit td, .rich-edit th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.notes-view th, .part-memo-view th, .rich-edit th { background: #f3f4f6; font-weight: 700; }
 
 .part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
 .part-memo-view {
@@ -10871,6 +11366,32 @@ body {
 }
 #notesEdit { font-size: 14px; }
 
+/* ── 리치 메모/노트 (엑셀 표 붙여넣기 서식 유지) ─────────────────────── */
+.rich-edit {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.rich-edit:empty::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+}
+.notes-view table,
+.part-memo-view table,
+.rich-edit table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  max-width: 100%;
+}
+.notes-view td, .notes-view th,
+.part-memo-view td, .part-memo-view th,
+.rich-edit td, .rich-edit th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.notes-view th, .part-memo-view th, .rich-edit th { background: #f3f4f6; font-weight: 700; }
+
 .part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
 .part-memo-view {
   min-height: 32px;
@@ -11659,6 +12180,32 @@ body {
   font-weight: 500;
 }
 #notesEdit { font-size: 14px; }
+
+/* ── 리치 메모/노트 (엑셀 표 붙여넣기 서식 유지) ─────────────────────── */
+.rich-edit {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.rich-edit:empty::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+}
+.notes-view table,
+.part-memo-view table,
+.rich-edit table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  max-width: 100%;
+}
+.notes-view td, .notes-view th,
+.part-memo-view td, .part-memo-view th,
+.rich-edit td, .rich-edit th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.notes-view th, .part-memo-view th, .rich-edit th { background: #f3f4f6; font-weight: 700; }
 
 .part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
 .part-memo-view {
@@ -12741,6 +13288,32 @@ body {
 }
 #notesEdit { font-size: 14px; }
 
+/* ── 리치 메모/노트 (엑셀 표 붙여넣기 서식 유지) ─────────────────────── */
+.rich-edit {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.rich-edit:empty::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+}
+.notes-view table,
+.part-memo-view table,
+.rich-edit table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  max-width: 100%;
+}
+.notes-view td, .notes-view th,
+.part-memo-view td, .part-memo-view th,
+.rich-edit td, .rich-edit th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.notes-view th, .part-memo-view th, .rich-edit th { background: #f3f4f6; font-weight: 700; }
+
 .part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
 .part-memo-view {
   min-height: 32px;
@@ -13699,6 +14272,32 @@ body {
 }
 #notesEdit { font-size: 14px; }
 
+/* ── 리치 메모/노트 (엑셀 표 붙여넣기 서식 유지) ─────────────────────── */
+.rich-edit {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.rich-edit:empty::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+}
+.notes-view table,
+.part-memo-view table,
+.rich-edit table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  max-width: 100%;
+}
+.notes-view td, .notes-view th,
+.part-memo-view td, .part-memo-view th,
+.rich-edit td, .rich-edit th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.notes-view th, .part-memo-view th, .rich-edit th { background: #f3f4f6; font-weight: 700; }
+
 .part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
 .part-memo-view {
   min-height: 32px;
@@ -14572,6 +15171,32 @@ body {
   font-weight: 500;
 }
 #notesEdit { font-size: 14px; }
+
+/* ── 리치 메모/노트 (엑셀 표 붙여넣기 서식 유지) ─────────────────────── */
+.rich-edit {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.rich-edit:empty::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+}
+.notes-view table,
+.part-memo-view table,
+.rich-edit table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  max-width: 100%;
+}
+.notes-view td, .notes-view th,
+.part-memo-view td, .part-memo-view th,
+.rich-edit td, .rich-edit th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.notes-view th, .part-memo-view th, .rich-edit th { background: #f3f4f6; font-weight: 700; }
 
 .part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
 .part-memo-view {

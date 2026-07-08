@@ -475,6 +475,32 @@ body {
 }
 #notesEdit { font-size: 14px; }
 
+/* ── 리치 메모/노트 (엑셀 표 붙여넣기 서식 유지) ─────────────────────── */
+.rich-edit {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.rich-edit:empty::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+}
+.notes-view table,
+.part-memo-view table,
+.rich-edit table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  max-width: 100%;
+}
+.notes-view td, .notes-view th,
+.part-memo-view td, .part-memo-view th,
+.rich-edit td, .rich-edit th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.notes-view th, .part-memo-view th, .rich-edit th { background: #f3f4f6; font-weight: 700; }
+
 .part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
 .part-memo-view {
   min-height: 32px;

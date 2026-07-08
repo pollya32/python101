@@ -13,6 +13,7 @@
 <header class="topbar">
   <div class="d-flex align-items-center gap-2">
     <a href="/" id="backToEquipmentBtn" class="btn btn-sm btn-outline-light"><i class="bi bi-arrow-left"></i> 설비로</a>
+    <a href="/" class="btn btn-sm btn-outline-light"><i class="bi bi-grid-3x3-gap"></i> 대시보드</a>
     <h1 id="unitPageTitle">유닛 상세</h1>
   </div>
   <div class="d-flex align-items-center gap-2">
@@ -68,8 +69,8 @@
       </div>
     </div>
     <div id="notesView" class="notes-view"></div>
-    <textarea id="notesEdit" class="form-control d-none" rows="8"
-      placeholder="부품 규격, 구매처 URL 등을 자유롭게 기록하세요. (http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></textarea>
+    <div id="notesEdit" class="form-control d-none rich-edit" contenteditable="true" style="min-height: 160px;"
+      data-placeholder="부품 규격, 구매처 URL, 엑셀 표 등을 자유롭게 기록하세요. (엑셀 표를 붙여넣으면 서식이 유지되고, http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></div>
   </div>
 
 </main>
@@ -107,8 +108,8 @@
             </div>
           </div>
           <div id="partDetailMemo" class="part-memo-view"></div>
-          <textarea id="partDetailMemoEdit" class="form-control form-control-sm d-none" rows="4"
-            placeholder="부품 관련 메모를 자유롭게 기록하세요. (http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></textarea>
+          <div id="partDetailMemoEdit" class="form-control form-control-sm d-none rich-edit" contenteditable="true" style="min-height: 90px;"
+            data-placeholder="부품 관련 메모를 자유롭게 기록하세요. (엑셀 표를 붙여넣으면 서식이 유지되고, http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></div>
         </div>
       </div>
     </div>
@@ -230,8 +231,8 @@
           </div>
           <div class="mb-2 mt-1">
             <label class="form-label">메모장</label>
-            <textarea class="form-control" id="partEditMemo" rows="4"
-              placeholder="부품 관련 세부 정보를 자유롭게 기록하세요. (http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></textarea>
+            <div class="form-control rich-edit" id="partEditMemo" contenteditable="true" style="min-height: 90px;"
+              data-placeholder="부품 관련 세부 정보를 자유롭게 기록하세요. (엑셀 표를 붙여넣으면 서식이 유지되고, http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></div>
           </div>
           <div class="row g-2 mt-1">
             <div class="col-6">

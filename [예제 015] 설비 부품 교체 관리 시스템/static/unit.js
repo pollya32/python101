@@ -70,12 +70,108 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
-function linkifyText(text) {
-  const escaped = escapeHtml(text);
-  return escaped.replace(
-    /(https?:\/\/[^\s<]+)/g,
-    '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
-  );
+// ── 리치 메모/노트: 엑셀 표 붙여넣기 시 서식(표 구조) 유지 ─────────────────
+const RICH_ALLOWED_TAGS = {
+  TABLE: [], THEAD: [], TBODY: [], TFOOT: [], TR: [], COL: [], COLGROUP: [], CAPTION: [],
+  TH: ["colspan", "rowspan"], TD: ["colspan", "rowspan"],
+  B: [], STRONG: [], I: [], EM: [], U: [], BR: [], P: [], DIV: [], SPAN: [],
+  UL: [], OL: [], LI: [], A: ["href"],
+};
+const RICH_STRIP_TAGS = new Set([
+  "SCRIPT", "STYLE", "IFRAME", "OBJECT", "EMBED", "LINK", "META", "SVG",
+  "FORM", "IMG", "INPUT", "BUTTON", "TEXTAREA", "SELECT", "VIDEO", "AUDIO", "SOURCE",
+]);
+
+function sanitizeRichNode(node) {
+  Array.from(node.childNodes).forEach((child) => {
+    if (child.nodeType === Node.COMMENT_NODE) {
+      child.remove();
+      return;
+    }
+    if (child.nodeType !== Node.ELEMENT_NODE) return;
+    const tag = child.tagName;
+    if (RICH_STRIP_TAGS.has(tag)) {
+      child.remove();
+      return;
+    }
+    const allowed = RICH_ALLOWED_TAGS[tag];
+    if (!allowed) {
+      sanitizeRichNode(child);
+      while (child.firstChild) node.insertBefore(child.firstChild, child);
+      child.remove();
+      return;
+    }
+    Array.from(child.attributes).forEach((attr) => {
+      if (!allowed.includes(attr.name)) child.removeAttribute(attr.name);
+    });
+    if (tag === "A") {
+      const href = child.getAttribute("href") || "";
+      if (!/^https?:\/\//i.test(href)) {
+        child.removeAttribute("href");
+      } else {
+        child.setAttribute("target", "_blank");
+        child.setAttribute("rel", "noopener noreferrer");
+      }
+    }
+    sanitizeRichNode(child);
+  });
+}
+
+function sanitizeRichHtml(rawHtml) {
+  const container = document.createElement("div");
+  container.innerHTML = rawHtml || "";
+  sanitizeRichNode(container);
+  return container.innerHTML;
+}
+
+function linkifyRichHtml(rawHtml) {
+  const container = document.createElement("div");
+  container.innerHTML = rawHtml || "";
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  const targets = [];
+  let node;
+  while ((node = walker.nextNode())) {
+    if (node.parentElement && node.parentElement.closest("a")) continue;
+    if (/https?:\/\//.test(node.nodeValue)) targets.push(node);
+  }
+  targets.forEach((textNode) => {
+    const frag = document.createDocumentFragment();
+    textNode.nodeValue.split(/(https?:\/\/[^\s<]+)/g).forEach((part) => {
+      if (/^https?:\/\//.test(part)) {
+        const a = document.createElement("a");
+        a.href = part;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        a.textContent = part;
+        frag.appendChild(a);
+      } else if (part) {
+        frag.appendChild(document.createTextNode(part));
+      }
+    });
+    textNode.parentNode.replaceChild(frag, textNode);
+  });
+  return container.innerHTML;
+}
+
+function isRichContentEmpty(html) {
+  const container = document.createElement("div");
+  container.innerHTML = html || "";
+  return container.textContent.trim() === "";
+}
+
+function attachRichPasteHandler(el) {
+  if (!el || el.dataset.richPasteBound) return;
+  el.dataset.richPasteBound = "1";
+  el.addEventListener("paste", (e) => {
+    e.preventDefault();
+    const html = e.clipboardData.getData("text/html");
+    const text = e.clipboardData.getData("text/plain");
+    if (html) {
+      document.execCommand("insertHTML", false, sanitizeRichHtml(html));
+    } else if (text) {
+      document.execCommand("insertText", false, text);
+    }
+  });
 }
 
 let lastNotesContent = "";
@@ -84,7 +180,7 @@ async function loadNotes() {
   const data = await fetchJson(`/api/units/${UNIT_ID}/notes`);
   lastNotesContent = data.content || "";
   renderNotesView(lastNotesContent);
-  document.getElementById("notesEdit").value = lastNotesContent;
+  document.getElementById("notesEdit").innerHTML = lastNotesContent;
   document.getElementById("notesSavedAt").textContent = data.updated_at
     ? `최종 수정: ${data.updated_at}`
     : "";
@@ -92,12 +188,12 @@ async function loadNotes() {
 
 function renderNotesView(content) {
   const view = document.getElementById("notesView");
-  if (!content || !content.trim()) {
+  if (isRichContentEmpty(content)) {
     view.innerHTML = "";
     view.classList.add("is-empty");
   } else {
     view.classList.remove("is-empty");
-    view.innerHTML = linkifyText(content);
+    view.innerHTML = linkifyRichHtml(content);
   }
 }
 
@@ -481,7 +577,7 @@ function openPartDetailModal(partId) {
       <br>${stockText}${supplierText}${leadTimeText}
     </div>`;
   renderPartMemoView(p.memo);
-  document.getElementById("partDetailMemoEdit").value = p.memo || "";
+  document.getElementById("partDetailMemoEdit").innerHTML = p.memo || "";
   setPartMemoEditing(false);
   document.getElementById("partDetailDrawingBtn").classList.toggle("d-none", !p.drawing_data);
   partDetailModal.show();
@@ -489,12 +585,12 @@ function openPartDetailModal(partId) {
 
 function renderPartMemoView(memo) {
   const memoView = document.getElementById("partDetailMemo");
-  if (!memo || !memo.trim()) {
+  if (isRichContentEmpty(memo)) {
     memoView.innerHTML = "";
     memoView.classList.add("is-empty");
   } else {
     memoView.classList.remove("is-empty");
-    memoView.innerHTML = linkifyText(memo);
+    memoView.innerHTML = linkifyRichHtml(memo);
   }
 }
 
@@ -561,7 +657,7 @@ function openPartEditModal(part) {
   document.getElementById("partEditCycle").value = part ? cycleDaysToDisplayValue(part.cycle_days, cycleUnit) : 90;
   document.getElementById("partEditCost").value = part ? part.cost || 0 : 0;
   document.getElementById("partEditNote").value = part ? part.note || "" : "";
-  document.getElementById("partEditMemo").value = part ? part.memo || "" : "";
+  document.getElementById("partEditMemo").innerHTML = part ? part.memo || "" : "";
   document.getElementById("partEditStockQty").value = part ? part.stock_qty || 0 : 0;
   document.getElementById("partEditLeadTime").value = part && part.lead_time_days != null ? part.lead_time_days : "";
   document.getElementById("partEditSupplier").value = part ? part.supplier || "" : "";
@@ -585,6 +681,7 @@ document.addEventListener("DOMContentLoaded", () => {
   loadUnitHeader();
   loadParts();
   loadNotes();
+  attachRichPasteHandler(document.getElementById("partEditMemo"));
 
   document.getElementById("editModeBtn").addEventListener("click", (e) => {
     editMode = !editMode;
@@ -598,13 +695,14 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("addPartBtn").addEventListener("click", () => openPartEditModal(null));
   document.getElementById("pastePartBtn").addEventListener("click", pastePart);
 
+  attachRichPasteHandler(document.getElementById("notesEdit"));
   document.getElementById("editNotesBtn").addEventListener("click", () => setNotesEditing(true));
   document.getElementById("cancelNotesBtn").addEventListener("click", () => {
-    document.getElementById("notesEdit").value = lastNotesContent;
+    document.getElementById("notesEdit").innerHTML = lastNotesContent;
     setNotesEditing(false);
   });
   document.getElementById("saveNotesBtn").addEventListener("click", async () => {
-    const content = document.getElementById("notesEdit").value;
+    const content = sanitizeRichHtml(document.getElementById("notesEdit").innerHTML);
     try {
       const data = await fetchJson(`/api/units/${UNIT_ID}/notes`, {
         method: "PUT",
@@ -622,14 +720,15 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  attachRichPasteHandler(document.getElementById("partDetailMemoEdit"));
   document.getElementById("editPartMemoBtn").addEventListener("click", () => setPartMemoEditing(true));
   document.getElementById("cancelPartMemoBtn").addEventListener("click", () => {
     const p = currentParts.find((x) => x.id === currentPartId);
-    document.getElementById("partDetailMemoEdit").value = (p && p.memo) || "";
+    document.getElementById("partDetailMemoEdit").innerHTML = (p && p.memo) || "";
     setPartMemoEditing(false);
   });
   document.getElementById("savePartMemoBtn").addEventListener("click", async () => {
-    const memo = document.getElementById("partDetailMemoEdit").value;
+    const memo = sanitizeRichHtml(document.getElementById("partDetailMemoEdit").innerHTML);
     try {
       const updated = await fetchJson(`/api/parts/${currentPartId}`, {
         method: "PUT",
@@ -702,7 +801,7 @@ document.addEventListener("DOMContentLoaded", () => {
       cycle_unit: cycleUnit,
       cost: parseFloat(document.getElementById("partEditCost").value) || 0,
       note: document.getElementById("partEditNote").value.trim(),
-      memo: document.getElementById("partEditMemo").value,
+      memo: sanitizeRichHtml(document.getElementById("partEditMemo").innerHTML),
       drawing_data: currentPartDrawingData,
       stock_qty: parseInt(document.getElementById("partEditStockQty").value, 10) || 0,
       lead_time_days: document.getElementById("partEditLeadTime").value || null,
