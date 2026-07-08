@@ -20493,7 +20493,7 @@ async function loadItems() {
   renderItems();
 }
 
-// ── 데이터 팝업: 게이지 클릭 시 열리며, 행 선택 삭제와 누적 붙여넣기를 지원 ──
+// ── 데이터 팝업: 게이지 클릭 시 열리며, 셀 직접 수정·행 선택 삭제·누적 붙여넣기를 지원 ──
 function renderDataModalTable(item) {
   const wrap = document.getElementById("rolloutDataTableWrap");
   const container = document.createElement("div");
@@ -20511,6 +20511,10 @@ function renderDataModalTable(item) {
     }
     tr.insertBefore(cell, tr.firstChild);
   });
+  // 셀을 클릭해 날짜를 바로 기입/수정할 수 있게 한다 (체크박스 칸 제외)
+  table.querySelectorAll("td, th").forEach((cell) => {
+    if (!cell.classList.contains("row-select-cell")) cell.setAttribute("contenteditable", "true");
+  });
   wrap.innerHTML = "";
   wrap.appendChild(table);
 }
@@ -20521,6 +20525,32 @@ function openDataModal(item) {
   document.getElementById("rolloutAppendData").innerHTML = "";
   renderDataModalTable(item);
   rolloutDataModal.show();
+}
+
+// ── 팝업 표 직접 편집: 날짜를 기입하면 잠시 후 자동 저장되고 게이지에 즉시 반영 ──
+let dataEditSaveTimer = null;
+let dataEditDirty = false;
+
+function serializeDataModalTable() {
+  const table = document.querySelector("#rolloutDataTableWrap table");
+  if (!table) return "";
+  const clone = table.cloneNode(true);
+  clone.querySelectorAll(".row-select-cell").forEach((c) => c.remove());
+  clone.querySelectorAll("[contenteditable]").forEach((c) => c.removeAttribute("contenteditable"));
+  const div = document.createElement("div");
+  div.appendChild(clone);
+  return sanitizeRichHtml(div.innerHTML);
+}
+
+async function flushDataEdit() {
+  if (!dataEditDirty || currentDataItemId == null) return;
+  dataEditDirty = false;
+  clearTimeout(dataEditSaveTimer);
+  try {
+    await saveDataHtml(currentDataItemId, serializeDataModalTable());
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 async function saveDataHtml(itemId, dataHtml) {
@@ -20619,7 +20649,20 @@ document.addEventListener("DOMContentLoaded", () => {
   attachRichPasteHandler(document.getElementById("rolloutAppendData"));
   document.getElementById("addRolloutBtn").addEventListener("click", () => openEditModal(null));
 
+  // 팝업 표의 셀에 날짜를 기입하면 잠시 후 자동 저장 → 게이지 카운트 즉시 반영
+  document.getElementById("rolloutDataTableWrap").addEventListener("input", (e) => {
+    if (e.target && e.target.classList && e.target.classList.contains("row-select")) return;
+    dataEditDirty = true;
+    clearTimeout(dataEditSaveTimer);
+    dataEditSaveTimer = setTimeout(flushDataEdit, 600);
+  });
+  // 저장 전에 팝업을 닫아도 수정 내용이 유실되지 않도록 닫힐 때 즉시 저장
+  document.getElementById("rolloutDataModal").addEventListener("hide.bs.modal", () => {
+    flushDataEdit();
+  });
+
   document.getElementById("deleteRowsBtn").addEventListener("click", async () => {
+    await flushDataEdit();
     const item = allItems.find((x) => x.id === currentDataItemId);
     if (!item) return;
     const checked = Array.from(
@@ -20648,6 +20691,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("appendRowsBtn").addEventListener("click", async () => {
+    await flushDataEdit();
     const item = allItems.find((x) => x.id === currentDataItemId);
     if (!item) return;
     const pastedContainer = document.createElement("div");
