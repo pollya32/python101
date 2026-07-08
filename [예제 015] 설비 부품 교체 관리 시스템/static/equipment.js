@@ -146,6 +146,118 @@ function attachRichPasteHandler(el) {
   });
 }
 
+// ── 표 편집 툴바: 붙여넣은 표 안을 클릭하면 행/열 추가·삭제 버튼 표시 ───────
+let tableEditToolbar = null;
+let tableEditActiveCell = null;
+
+function ensureTableEditToolbar() {
+  if (tableEditToolbar) return tableEditToolbar;
+  const bar = document.createElement("div");
+  bar.className = "table-edit-toolbar d-none";
+  bar.innerHTML = `
+    <button type="button" data-action="add-row" title="아래에 행 추가"><i class="bi bi-plus-lg"></i>행</button>
+    <button type="button" data-action="del-row" title="이 행 삭제"><i class="bi bi-dash-lg"></i>행</button>
+    <button type="button" data-action="add-col" title="오른쪽에 열 추가"><i class="bi bi-plus-lg"></i>열</button>
+    <button type="button" data-action="del-col" title="이 열 삭제"><i class="bi bi-dash-lg"></i>열</button>
+  `;
+  document.body.appendChild(bar);
+  bar.addEventListener("mousedown", (e) => e.preventDefault());
+  bar.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-action]");
+    if (!btn || !tableEditActiveCell || !document.body.contains(tableEditActiveCell)) return;
+    const actions = {
+      "add-row": insertTableRow, "del-row": deleteTableRow,
+      "add-col": insertTableColumn, "del-col": deleteTableColumn,
+    };
+    actions[btn.dataset.action](tableEditActiveCell);
+  });
+  tableEditToolbar = bar;
+  return bar;
+}
+
+function showTableEditToolbar(cell) {
+  const bar = ensureTableEditToolbar();
+  tableEditActiveCell = cell;
+  const rect = cell.getBoundingClientRect();
+  bar.classList.remove("d-none");
+  bar.style.top = `${Math.max(rect.top - bar.offsetHeight - 4, 4)}px`;
+  bar.style.left = `${rect.left}px`;
+}
+
+function hideTableEditToolbar() {
+  if (tableEditToolbar) tableEditToolbar.classList.add("d-none");
+  tableEditActiveCell = null;
+}
+
+function cellColumnIndex(cell) {
+  return Array.from(cell.parentElement.children).indexOf(cell);
+}
+
+function insertTableRow(cell) {
+  const tr = cell.closest("tr");
+  if (!tr) return;
+  const newRow = document.createElement("tr");
+  Array.from(tr.children).forEach(() => newRow.appendChild(document.createElement("td")));
+  tr.after(newRow);
+}
+
+function deleteTableRow(cell) {
+  const tr = cell.closest("tr");
+  const table = cell.closest("table");
+  if (!tr || !table) return;
+  tr.remove();
+  if (!table.querySelector("tr")) table.remove();
+  hideTableEditToolbar();
+}
+
+function insertTableColumn(cell) {
+  const table = cell.closest("table");
+  if (!table) return;
+  const colIndex = cellColumnIndex(cell);
+  table.querySelectorAll("tr").forEach((row) => {
+    const rowCell = row.children[colIndex];
+    const newCell = document.createElement(rowCell && rowCell.tagName === "TH" ? "th" : "td");
+    if (rowCell) rowCell.after(newCell);
+    else row.appendChild(newCell);
+  });
+}
+
+function deleteTableColumn(cell) {
+  const table = cell.closest("table");
+  if (!table) return;
+  const colIndex = cellColumnIndex(cell);
+  table.querySelectorAll("tr").forEach((row) => {
+    const rowCell = row.children[colIndex];
+    if (rowCell) rowCell.remove();
+  });
+  if (!table.querySelector("td, th")) table.remove();
+  hideTableEditToolbar();
+}
+
+function attachTableEditToolbar(el) {
+  if (!el || el.dataset.tableToolbarBound) return;
+  el.dataset.tableToolbarBound = "1";
+  const check = () => {
+    const sel = window.getSelection();
+    let node = sel.rangeCount ? sel.anchorNode : null;
+    if (node && node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+    const cell = node && node.closest ? node.closest("td, th") : null;
+    if (cell && el.contains(cell)) {
+      showTableEditToolbar(cell);
+    } else {
+      hideTableEditToolbar();
+    }
+  };
+  el.addEventListener("keyup", check);
+  el.addEventListener("mouseup", check);
+  el.addEventListener("focus", check);
+  el.addEventListener("blur", () => {
+    setTimeout(() => {
+      if (!tableEditToolbar || !tableEditToolbar.matches(":hover")) hideTableEditToolbar();
+    }, 150);
+  });
+}
+
 async function fetchJson(url, options) {
   const res = await fetch(url, options);
   if (res.status === 401) {
@@ -534,6 +646,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   attachRichPasteHandler(document.getElementById("notesEdit"));
+  attachTableEditToolbar(document.getElementById("notesEdit"));
   document.getElementById("editNotesBtn").addEventListener("click", () => setNotesEditing(true));
   document.getElementById("cancelNotesBtn").addEventListener("click", () => {
     document.getElementById("notesEdit").innerHTML = lastNotesContent;

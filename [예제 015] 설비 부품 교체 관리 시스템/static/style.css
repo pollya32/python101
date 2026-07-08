@@ -500,6 +500,34 @@ body {
   font-size: 13px;
 }
 .notes-view th, .part-memo-view th, .rich-edit th { background: #f3f4f6; font-weight: 700; }
+.rich-edit table td, .rich-edit table th { cursor: text; }
+
+.table-edit-toolbar {
+  position: fixed;
+  z-index: 3000;
+  display: flex;
+  gap: 3px;
+  background: #1f2937;
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+.table-edit-toolbar button {
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.table-edit-toolbar button:hover { background: rgba(255, 255, 255, 0.18); }
+.table-edit-toolbar button[data-action^="del-"] { color: #fca5a5; }
 
 .part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
 .part-memo-view {
