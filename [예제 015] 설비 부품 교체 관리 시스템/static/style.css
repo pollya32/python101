@@ -972,3 +972,22 @@ html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
 html[data-theme="cyber"] .rollout-data tr:first-child td,
 html[data-theme="cyber"] .rollout-data th { background: #14203c; }
 html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
+
+/* 횡전개 데이터 팝업 (게이지 클릭) */
+.rollout-card-body { cursor: pointer; border-radius: var(--radius-sm); transition: background 0.12s ease; }
+.rollout-card-body:hover { background: color-mix(in srgb, var(--pri) 5%, transparent); }
+.rollout-data-modal-table { overflow-x: auto; }
+.rollout-data-modal-table table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data-modal-table td, .rollout-data-modal-table th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
+.rollout-data-modal-table tr:first-child td,
+.rollout-data-modal-table tr:first-child th { background: #f3f4f6; font-weight: 700; }
+.rollout-data-modal-table tr td:nth-child(2) { background: #f8f9fd; font-weight: 600; }
+.rollout-data-modal-table .row-select-cell { text-align: center; width: 34px; background: transparent !important; }
+.rollout-data-modal-table .row-select { cursor: pointer; }
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child td,
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { background: #0c1327; }

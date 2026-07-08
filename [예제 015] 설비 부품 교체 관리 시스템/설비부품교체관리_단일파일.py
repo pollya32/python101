@@ -3243,6 +3243,25 @@ html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
 html[data-theme="cyber"] .rollout-data tr:first-child td,
 html[data-theme="cyber"] .rollout-data th { background: #14203c; }
 html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
+
+/* 횡전개 데이터 팝업 (게이지 클릭) */
+.rollout-card-body { cursor: pointer; border-radius: var(--radius-sm); transition: background 0.12s ease; }
+.rollout-card-body:hover { background: color-mix(in srgb, var(--pri) 5%, transparent); }
+.rollout-data-modal-table { overflow-x: auto; }
+.rollout-data-modal-table table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data-modal-table td, .rollout-data-modal-table th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
+.rollout-data-modal-table tr:first-child td,
+.rollout-data-modal-table tr:first-child th { background: #f3f4f6; font-weight: 700; }
+.rollout-data-modal-table tr td:nth-child(2) { background: #f8f9fd; font-weight: 600; }
+.rollout-data-modal-table .row-select-cell { text-align: center; width: 34px; background: transparent !important; }
+.rollout-data-modal-table .row-select { cursor: pointer; }
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child td,
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -4741,6 +4760,25 @@ html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
 html[data-theme="cyber"] .rollout-data tr:first-child td,
 html[data-theme="cyber"] .rollout-data th { background: #14203c; }
 html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
+
+/* 횡전개 데이터 팝업 (게이지 클릭) */
+.rollout-card-body { cursor: pointer; border-radius: var(--radius-sm); transition: background 0.12s ease; }
+.rollout-card-body:hover { background: color-mix(in srgb, var(--pri) 5%, transparent); }
+.rollout-data-modal-table { overflow-x: auto; }
+.rollout-data-modal-table table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data-modal-table td, .rollout-data-modal-table th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
+.rollout-data-modal-table tr:first-child td,
+.rollout-data-modal-table tr:first-child th { background: #f3f4f6; font-weight: 700; }
+.rollout-data-modal-table tr td:nth-child(2) { background: #f8f9fd; font-weight: 600; }
+.rollout-data-modal-table .row-select-cell { text-align: center; width: 34px; background: transparent !important; }
+.rollout-data-modal-table .row-select { cursor: pointer; }
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child td,
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -6623,6 +6661,25 @@ html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
 html[data-theme="cyber"] .rollout-data tr:first-child td,
 html[data-theme="cyber"] .rollout-data th { background: #14203c; }
 html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
+
+/* 횡전개 데이터 팝업 (게이지 클릭) */
+.rollout-card-body { cursor: pointer; border-radius: var(--radius-sm); transition: background 0.12s ease; }
+.rollout-card-body:hover { background: color-mix(in srgb, var(--pri) 5%, transparent); }
+.rollout-data-modal-table { overflow-x: auto; }
+.rollout-data-modal-table table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data-modal-table td, .rollout-data-modal-table th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
+.rollout-data-modal-table tr:first-child td,
+.rollout-data-modal-table tr:first-child th { background: #f3f4f6; font-weight: 700; }
+.rollout-data-modal-table tr td:nth-child(2) { background: #f8f9fd; font-weight: 600; }
+.rollout-data-modal-table .row-select-cell { text-align: center; width: 34px; background: transparent !important; }
+.rollout-data-modal-table .row-select { cursor: pointer; }
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child td,
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -8902,6 +8959,25 @@ html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
 html[data-theme="cyber"] .rollout-data tr:first-child td,
 html[data-theme="cyber"] .rollout-data th { background: #14203c; }
 html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
+
+/* 횡전개 데이터 팝업 (게이지 클릭) */
+.rollout-card-body { cursor: pointer; border-radius: var(--radius-sm); transition: background 0.12s ease; }
+.rollout-card-body:hover { background: color-mix(in srgb, var(--pri) 5%, transparent); }
+.rollout-data-modal-table { overflow-x: auto; }
+.rollout-data-modal-table table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data-modal-table td, .rollout-data-modal-table th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
+.rollout-data-modal-table tr:first-child td,
+.rollout-data-modal-table tr:first-child th { background: #f3f4f6; font-weight: 700; }
+.rollout-data-modal-table tr td:nth-child(2) { background: #f8f9fd; font-weight: 600; }
+.rollout-data-modal-table .row-select-cell { text-align: center; width: 34px; background: transparent !important; }
+.rollout-data-modal-table .row-select { cursor: pointer; }
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child td,
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -10382,6 +10458,25 @@ html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
 html[data-theme="cyber"] .rollout-data tr:first-child td,
 html[data-theme="cyber"] .rollout-data th { background: #14203c; }
 html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
+
+/* 횡전개 데이터 팝업 (게이지 클릭) */
+.rollout-card-body { cursor: pointer; border-radius: var(--radius-sm); transition: background 0.12s ease; }
+.rollout-card-body:hover { background: color-mix(in srgb, var(--pri) 5%, transparent); }
+.rollout-data-modal-table { overflow-x: auto; }
+.rollout-data-modal-table table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data-modal-table td, .rollout-data-modal-table th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
+.rollout-data-modal-table tr:first-child td,
+.rollout-data-modal-table tr:first-child th { background: #f3f4f6; font-weight: 700; }
+.rollout-data-modal-table tr td:nth-child(2) { background: #f8f9fd; font-weight: 600; }
+.rollout-data-modal-table .row-select-cell { text-align: center; width: 34px; background: transparent !important; }
+.rollout-data-modal-table .row-select { cursor: pointer; }
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child td,
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -11513,6 +11608,25 @@ html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
 html[data-theme="cyber"] .rollout-data tr:first-child td,
 html[data-theme="cyber"] .rollout-data th { background: #14203c; }
 html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
+
+/* 횡전개 데이터 팝업 (게이지 클릭) */
+.rollout-card-body { cursor: pointer; border-radius: var(--radius-sm); transition: background 0.12s ease; }
+.rollout-card-body:hover { background: color-mix(in srgb, var(--pri) 5%, transparent); }
+.rollout-data-modal-table { overflow-x: auto; }
+.rollout-data-modal-table table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data-modal-table td, .rollout-data-modal-table th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
+.rollout-data-modal-table tr:first-child td,
+.rollout-data-modal-table tr:first-child th { background: #f3f4f6; font-weight: 700; }
+.rollout-data-modal-table tr td:nth-child(2) { background: #f8f9fd; font-weight: 600; }
+.rollout-data-modal-table .row-select-cell { text-align: center; width: 34px; background: transparent !important; }
+.rollout-data-modal-table .row-select { cursor: pointer; }
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child td,
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -12701,6 +12815,25 @@ html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
 html[data-theme="cyber"] .rollout-data tr:first-child td,
 html[data-theme="cyber"] .rollout-data th { background: #14203c; }
 html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
+
+/* 횡전개 데이터 팝업 (게이지 클릭) */
+.rollout-card-body { cursor: pointer; border-radius: var(--radius-sm); transition: background 0.12s ease; }
+.rollout-card-body:hover { background: color-mix(in srgb, var(--pri) 5%, transparent); }
+.rollout-data-modal-table { overflow-x: auto; }
+.rollout-data-modal-table table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data-modal-table td, .rollout-data-modal-table th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
+.rollout-data-modal-table tr:first-child td,
+.rollout-data-modal-table tr:first-child th { background: #f3f4f6; font-weight: 700; }
+.rollout-data-modal-table tr td:nth-child(2) { background: #f8f9fd; font-weight: 600; }
+.rollout-data-modal-table .row-select-cell { text-align: center; width: 34px; background: transparent !important; }
+.rollout-data-modal-table .row-select { cursor: pointer; }
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child td,
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -13982,6 +14115,25 @@ html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
 html[data-theme="cyber"] .rollout-data tr:first-child td,
 html[data-theme="cyber"] .rollout-data th { background: #14203c; }
 html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
+
+/* 횡전개 데이터 팝업 (게이지 클릭) */
+.rollout-card-body { cursor: pointer; border-radius: var(--radius-sm); transition: background 0.12s ease; }
+.rollout-card-body:hover { background: color-mix(in srgb, var(--pri) 5%, transparent); }
+.rollout-data-modal-table { overflow-x: auto; }
+.rollout-data-modal-table table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data-modal-table td, .rollout-data-modal-table th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
+.rollout-data-modal-table tr:first-child td,
+.rollout-data-modal-table tr:first-child th { background: #f3f4f6; font-weight: 700; }
+.rollout-data-modal-table tr td:nth-child(2) { background: #f8f9fd; font-weight: 600; }
+.rollout-data-modal-table .row-select-cell { text-align: center; width: 34px; background: transparent !important; }
+.rollout-data-modal-table .row-select { cursor: pointer; }
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child td,
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -15048,6 +15200,25 @@ html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
 html[data-theme="cyber"] .rollout-data tr:first-child td,
 html[data-theme="cyber"] .rollout-data th { background: #14203c; }
 html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
+
+/* 횡전개 데이터 팝업 (게이지 클릭) */
+.rollout-card-body { cursor: pointer; border-radius: var(--radius-sm); transition: background 0.12s ease; }
+.rollout-card-body:hover { background: color-mix(in srgb, var(--pri) 5%, transparent); }
+.rollout-data-modal-table { overflow-x: auto; }
+.rollout-data-modal-table table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data-modal-table td, .rollout-data-modal-table th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
+.rollout-data-modal-table tr:first-child td,
+.rollout-data-modal-table tr:first-child th { background: #f3f4f6; font-weight: 700; }
+.rollout-data-modal-table tr td:nth-child(2) { background: #f8f9fd; font-weight: 600; }
+.rollout-data-modal-table .row-select-cell { text-align: center; width: 34px; background: transparent !important; }
+.rollout-data-modal-table .row-select { cursor: pointer; }
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child td,
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -16406,6 +16577,25 @@ html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
 html[data-theme="cyber"] .rollout-data tr:first-child td,
 html[data-theme="cyber"] .rollout-data th { background: #14203c; }
 html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
+
+/* 횡전개 데이터 팝업 (게이지 클릭) */
+.rollout-card-body { cursor: pointer; border-radius: var(--radius-sm); transition: background 0.12s ease; }
+.rollout-card-body:hover { background: color-mix(in srgb, var(--pri) 5%, transparent); }
+.rollout-data-modal-table { overflow-x: auto; }
+.rollout-data-modal-table table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data-modal-table td, .rollout-data-modal-table th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
+.rollout-data-modal-table tr:first-child td,
+.rollout-data-modal-table tr:first-child th { background: #f3f4f6; font-weight: 700; }
+.rollout-data-modal-table tr td:nth-child(2) { background: #f8f9fd; font-weight: 600; }
+.rollout-data-modal-table .row-select-cell { text-align: center; width: 34px; background: transparent !important; }
+.rollout-data-modal-table .row-select { cursor: pointer; }
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child td,
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -17641,6 +17831,25 @@ html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
 html[data-theme="cyber"] .rollout-data tr:first-child td,
 html[data-theme="cyber"] .rollout-data th { background: #14203c; }
 html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
+
+/* 횡전개 데이터 팝업 (게이지 클릭) */
+.rollout-card-body { cursor: pointer; border-radius: var(--radius-sm); transition: background 0.12s ease; }
+.rollout-card-body:hover { background: color-mix(in srgb, var(--pri) 5%, transparent); }
+.rollout-data-modal-table { overflow-x: auto; }
+.rollout-data-modal-table table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data-modal-table td, .rollout-data-modal-table th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
+.rollout-data-modal-table tr:first-child td,
+.rollout-data-modal-table tr:first-child th { background: #f3f4f6; font-weight: 700; }
+.rollout-data-modal-table tr td:nth-child(2) { background: #f8f9fd; font-weight: 600; }
+.rollout-data-modal-table .row-select-cell { text-align: center; width: 34px; background: transparent !important; }
+.rollout-data-modal-table .row-select { cursor: pointer; }
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child td,
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -18792,6 +19001,25 @@ html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
 html[data-theme="cyber"] .rollout-data tr:first-child td,
 html[data-theme="cyber"] .rollout-data th { background: #14203c; }
 html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
+
+/* 횡전개 데이터 팝업 (게이지 클릭) */
+.rollout-card-body { cursor: pointer; border-radius: var(--radius-sm); transition: background 0.12s ease; }
+.rollout-card-body:hover { background: color-mix(in srgb, var(--pri) 5%, transparent); }
+.rollout-data-modal-table { overflow-x: auto; }
+.rollout-data-modal-table table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data-modal-table td, .rollout-data-modal-table th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
+.rollout-data-modal-table tr:first-child td,
+.rollout-data-modal-table tr:first-child th { background: #f3f4f6; font-weight: 700; }
+.rollout-data-modal-table tr td:nth-child(2) { background: #f8f9fd; font-weight: 600; }
+.rollout-data-modal-table .row-select-cell { text-align: center; width: 34px; background: transparent !important; }
+.rollout-data-modal-table .row-select { cursor: pointer; }
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child td,
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -19971,6 +20199,25 @@ html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
 html[data-theme="cyber"] .rollout-data tr:first-child td,
 html[data-theme="cyber"] .rollout-data th { background: #14203c; }
 html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
+
+/* 횡전개 데이터 팝업 (게이지 클릭) */
+.rollout-card-body { cursor: pointer; border-radius: var(--radius-sm); transition: background 0.12s ease; }
+.rollout-card-body:hover { background: color-mix(in srgb, var(--pri) 5%, transparent); }
+.rollout-data-modal-table { overflow-x: auto; }
+.rollout-data-modal-table table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data-modal-table td, .rollout-data-modal-table th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
+.rollout-data-modal-table tr:first-child td,
+.rollout-data-modal-table tr:first-child th { background: #f3f4f6; font-weight: 700; }
+.rollout-data-modal-table tr td:nth-child(2) { background: #f8f9fd; font-weight: 600; }
+.rollout-data-modal-table .row-select-cell { text-align: center; width: 34px; background: transparent !important; }
+.rollout-data-modal-table .row-select { cursor: pointer; }
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child td,
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -20074,6 +20321,35 @@ html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; 
           </div>
           <button type="submit" class="btn btn-primary w-100 mt-2">저장</button>
         </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 데이터 팝업 (게이지 클릭 시): 행 선택 삭제 + 누적 붙여넣기 -->
+<div class="modal fade" id="rolloutDataModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="rolloutDataTitle">데이터</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="text-muted small">행 앞의 체크박스를 선택해 삭제할 수 있습니다.</span>
+          <button id="deleteRowsBtn" class="btn btn-sm btn-outline-danger">
+            <i class="bi bi-trash3"></i> 선택 행 삭제
+          </button>
+        </div>
+        <div id="rolloutDataTableWrap" class="rollout-data-modal-table"></div>
+        <div class="mt-3 pt-3 border-top">
+          <label class="form-label">데이터 누적 추가 (엑셀에서 행을 복사해 붙여넣기)</label>
+          <div id="rolloutAppendData" class="form-control rich-edit" contenteditable="true" style="min-height: 80px;"
+            data-placeholder="추가할 행을 엑셀에서 복사해 붙여넣으세요. 기존 표 아래에 그대로 누적됩니다. (제목 행이 함께 붙여넣어졌다면 추가 후 선택 삭제로 지우면 됩니다)"></div>
+          <button id="appendRowsBtn" class="btn btn-sm btn-primary mt-2">
+            <i class="bi bi-plus-lg"></i> 누적 추가
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -20209,10 +20485,54 @@ function gaugeHtml(pct) {
 
 let allItems = [];
 let rolloutEditModal;
+let rolloutDataModal;
+let currentDataItemId = null;
 
 async function loadItems() {
   allItems = await fetchJson("/api/rollout");
   renderItems();
+}
+
+// ── 데이터 팝업: 게이지 클릭 시 열리며, 행 선택 삭제와 누적 붙여넣기를 지원 ──
+function renderDataModalTable(item) {
+  const wrap = document.getElementById("rolloutDataTableWrap");
+  const container = document.createElement("div");
+  container.innerHTML = item.data_html || "";
+  const table = container.querySelector("table");
+  if (!table) {
+    wrap.innerHTML = '<p class="text-muted small mb-0">붙여넣은 데이터가 없습니다. 아래에서 행을 추가해보세요.</p>';
+    return;
+  }
+  Array.from(table.querySelectorAll("tr")).forEach((tr, i) => {
+    const cell = document.createElement(i === 0 ? "th" : "td");
+    cell.className = "row-select-cell";
+    if (i > 0) {
+      cell.innerHTML = `<input type="checkbox" class="form-check-input row-select" data-row-index="${i}">`;
+    }
+    tr.insertBefore(cell, tr.firstChild);
+  });
+  wrap.innerHTML = "";
+  wrap.appendChild(table);
+}
+
+function openDataModal(item) {
+  currentDataItemId = item.id;
+  document.getElementById("rolloutDataTitle").textContent = `${item.title} — 데이터`;
+  document.getElementById("rolloutAppendData").innerHTML = "";
+  renderDataModalTable(item);
+  rolloutDataModal.show();
+}
+
+async function saveDataHtml(itemId, dataHtml) {
+  const updated = await fetchJson(`/api/rollout/${itemId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data_html: dataHtml }),
+  });
+  const idx = allItems.findIndex((x) => x.id === itemId);
+  if (idx >= 0) allItems[idx] = updated;
+  renderItems();
+  return updated;
 }
 
 function renderItems() {
@@ -20256,6 +20576,9 @@ function renderItems() {
 
   allItems.forEach((item) => {
     const card = list.querySelector(`[data-item-id="${item.id}"]`);
+    const gaugeArea = card.querySelector(".rollout-card-body");
+    gaugeArea.title = "클릭하면 데이터 팝업이 열립니다";
+    gaugeArea.addEventListener("click", () => openDataModal(item));
     const dataDiv = card.querySelector(".rollout-data");
     const toggleBtn = card.querySelector(".toggle-data-btn");
     toggleBtn.addEventListener("click", () => {
@@ -20287,12 +20610,71 @@ function openEditModal(item) {
 
 document.addEventListener("DOMContentLoaded", () => {
   rolloutEditModal = new bootstrap.Modal(document.getElementById("rolloutEditModal"));
+  rolloutDataModal = new bootstrap.Modal(document.getElementById("rolloutDataModal"));
   tick();
   setInterval(tick, 1000);
   loadItems();
 
   attachRichPasteHandler(document.getElementById("rolloutEditData"));
+  attachRichPasteHandler(document.getElementById("rolloutAppendData"));
   document.getElementById("addRolloutBtn").addEventListener("click", () => openEditModal(null));
+
+  document.getElementById("deleteRowsBtn").addEventListener("click", async () => {
+    const item = allItems.find((x) => x.id === currentDataItemId);
+    if (!item) return;
+    const checked = Array.from(
+      document.querySelectorAll("#rolloutDataTableWrap .row-select:checked")
+    ).map((cb) => parseInt(cb.dataset.rowIndex, 10));
+    if (checked.length === 0) {
+      alert("삭제할 행을 먼저 선택하세요.");
+      return;
+    }
+    if (!confirm(`선택한 ${checked.length}개 행을 삭제할까요?`)) return;
+    const container = document.createElement("div");
+    container.innerHTML = item.data_html || "";
+    const table = container.querySelector("table");
+    if (!table) return;
+    const rows = Array.from(table.querySelectorAll("tr"));
+    checked.sort((a, b) => b - a).forEach((i) => {
+      if (rows[i]) rows[i].remove();
+    });
+    if (!table.querySelector("tr")) table.remove();
+    try {
+      const updated = await saveDataHtml(item.id, container.innerHTML);
+      renderDataModalTable(updated);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById("appendRowsBtn").addEventListener("click", async () => {
+    const item = allItems.find((x) => x.id === currentDataItemId);
+    if (!item) return;
+    const pastedContainer = document.createElement("div");
+    pastedContainer.innerHTML = sanitizeRichHtml(document.getElementById("rolloutAppendData").innerHTML);
+    const pastedTable = pastedContainer.querySelector("table");
+    if (!pastedTable) {
+      alert("추가할 표 데이터를 먼저 붙여넣으세요.");
+      return;
+    }
+    const container = document.createElement("div");
+    container.innerHTML = item.data_html || "";
+    const table = container.querySelector("table");
+    if (!table) {
+      container.innerHTML = "";
+      container.appendChild(pastedTable);
+    } else {
+      const target = table.querySelector("tbody") || table;
+      Array.from(pastedTable.querySelectorAll("tr")).forEach((tr) => target.appendChild(tr));
+    }
+    try {
+      const updated = await saveDataHtml(item.id, container.innerHTML);
+      document.getElementById("rolloutAppendData").innerHTML = "";
+      renderDataModalTable(updated);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 
   document.getElementById("rolloutEditForm").addEventListener("submit", async (e) => {
     e.preventDefault();

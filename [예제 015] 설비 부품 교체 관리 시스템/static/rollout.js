@@ -126,10 +126,54 @@ function gaugeHtml(pct) {
 
 let allItems = [];
 let rolloutEditModal;
+let rolloutDataModal;
+let currentDataItemId = null;
 
 async function loadItems() {
   allItems = await fetchJson("/api/rollout");
   renderItems();
+}
+
+// ── 데이터 팝업: 게이지 클릭 시 열리며, 행 선택 삭제와 누적 붙여넣기를 지원 ──
+function renderDataModalTable(item) {
+  const wrap = document.getElementById("rolloutDataTableWrap");
+  const container = document.createElement("div");
+  container.innerHTML = item.data_html || "";
+  const table = container.querySelector("table");
+  if (!table) {
+    wrap.innerHTML = '<p class="text-muted small mb-0">붙여넣은 데이터가 없습니다. 아래에서 행을 추가해보세요.</p>';
+    return;
+  }
+  Array.from(table.querySelectorAll("tr")).forEach((tr, i) => {
+    const cell = document.createElement(i === 0 ? "th" : "td");
+    cell.className = "row-select-cell";
+    if (i > 0) {
+      cell.innerHTML = `<input type="checkbox" class="form-check-input row-select" data-row-index="${i}">`;
+    }
+    tr.insertBefore(cell, tr.firstChild);
+  });
+  wrap.innerHTML = "";
+  wrap.appendChild(table);
+}
+
+function openDataModal(item) {
+  currentDataItemId = item.id;
+  document.getElementById("rolloutDataTitle").textContent = `${item.title} — 데이터`;
+  document.getElementById("rolloutAppendData").innerHTML = "";
+  renderDataModalTable(item);
+  rolloutDataModal.show();
+}
+
+async function saveDataHtml(itemId, dataHtml) {
+  const updated = await fetchJson(`/api/rollout/${itemId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data_html: dataHtml }),
+  });
+  const idx = allItems.findIndex((x) => x.id === itemId);
+  if (idx >= 0) allItems[idx] = updated;
+  renderItems();
+  return updated;
 }
 
 function renderItems() {
@@ -173,6 +217,9 @@ function renderItems() {
 
   allItems.forEach((item) => {
     const card = list.querySelector(`[data-item-id="${item.id}"]`);
+    const gaugeArea = card.querySelector(".rollout-card-body");
+    gaugeArea.title = "클릭하면 데이터 팝업이 열립니다";
+    gaugeArea.addEventListener("click", () => openDataModal(item));
     const dataDiv = card.querySelector(".rollout-data");
     const toggleBtn = card.querySelector(".toggle-data-btn");
     toggleBtn.addEventListener("click", () => {
@@ -204,12 +251,71 @@ function openEditModal(item) {
 
 document.addEventListener("DOMContentLoaded", () => {
   rolloutEditModal = new bootstrap.Modal(document.getElementById("rolloutEditModal"));
+  rolloutDataModal = new bootstrap.Modal(document.getElementById("rolloutDataModal"));
   tick();
   setInterval(tick, 1000);
   loadItems();
 
   attachRichPasteHandler(document.getElementById("rolloutEditData"));
+  attachRichPasteHandler(document.getElementById("rolloutAppendData"));
   document.getElementById("addRolloutBtn").addEventListener("click", () => openEditModal(null));
+
+  document.getElementById("deleteRowsBtn").addEventListener("click", async () => {
+    const item = allItems.find((x) => x.id === currentDataItemId);
+    if (!item) return;
+    const checked = Array.from(
+      document.querySelectorAll("#rolloutDataTableWrap .row-select:checked")
+    ).map((cb) => parseInt(cb.dataset.rowIndex, 10));
+    if (checked.length === 0) {
+      alert("삭제할 행을 먼저 선택하세요.");
+      return;
+    }
+    if (!confirm(`선택한 ${checked.length}개 행을 삭제할까요?`)) return;
+    const container = document.createElement("div");
+    container.innerHTML = item.data_html || "";
+    const table = container.querySelector("table");
+    if (!table) return;
+    const rows = Array.from(table.querySelectorAll("tr"));
+    checked.sort((a, b) => b - a).forEach((i) => {
+      if (rows[i]) rows[i].remove();
+    });
+    if (!table.querySelector("tr")) table.remove();
+    try {
+      const updated = await saveDataHtml(item.id, container.innerHTML);
+      renderDataModalTable(updated);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById("appendRowsBtn").addEventListener("click", async () => {
+    const item = allItems.find((x) => x.id === currentDataItemId);
+    if (!item) return;
+    const pastedContainer = document.createElement("div");
+    pastedContainer.innerHTML = sanitizeRichHtml(document.getElementById("rolloutAppendData").innerHTML);
+    const pastedTable = pastedContainer.querySelector("table");
+    if (!pastedTable) {
+      alert("추가할 표 데이터를 먼저 붙여넣으세요.");
+      return;
+    }
+    const container = document.createElement("div");
+    container.innerHTML = item.data_html || "";
+    const table = container.querySelector("table");
+    if (!table) {
+      container.innerHTML = "";
+      container.appendChild(pastedTable);
+    } else {
+      const target = table.querySelector("tbody") || table;
+      Array.from(pastedTable.querySelectorAll("tr")).forEach((tr) => target.appendChild(tr));
+    }
+    try {
+      const updated = await saveDataHtml(item.id, container.innerHTML);
+      document.getElementById("rolloutAppendData").innerHTML = "";
+      renderDataModalTable(updated);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 
   document.getElementById("rolloutEditForm").addEventListener("submit", async (e) => {
     e.preventDefault();
