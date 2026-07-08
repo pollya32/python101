@@ -20288,8 +20288,9 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
 <main class="container-fluid py-4">
 
   <p class="text-muted small text-center mb-3">
-    엑셀에서 호기/Chamber별 진행 날짜 표를 복사해 붙여넣으면, 날짜가 입력된 칸은 완료·빈칸은 미진행으로
-    자동 집계되어 항목별 게이지로 표시됩니다. 붙여넣은 원본 데이터는 "데이터 보기"를 눌러야 나타납니다.
+    엑셀에서 [1열 호기 / 2열 CH 이름 / 3열 진행 날짜] 형식의 표를 복사해 붙여넣으면 (1행은 제목 행),
+    CH 이름이 있는 행만 집계되어 진행 날짜가 입력된 행은 완료·빈칸은 미진행으로 항목별 게이지에 표시됩니다.
+    붙여넣은 원본 데이터는 "데이터 보기"를 눌러야 나타납니다.
   </p>
 
   <div id="rolloutList" class="rollout-list"></div>
@@ -20317,7 +20318,7 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
           <div class="mb-2">
             <label class="form-label">진행 현황 표 (엑셀에서 복사해 붙여넣기)</label>
             <div id="rolloutEditData" class="form-control rich-edit" contenteditable="true" style="min-height: 180px;"
-              data-placeholder="엑셀 표를 붙여넣으세요. 첫 행은 Chamber 제목, 첫 열은 호기 이름으로 간주되어 집계에서 제외되고, 나머지 칸 중 날짜가 있으면 완료 / 빈칸은 미진행으로 카운트됩니다."></div>
+              data-placeholder="엑셀 표를 붙여넣으세요. 1행은 제목 행(1~2열 횡전개 제목, 3열 '진행 날짜'), 2행부터 1열=호기, 2열=CH 이름, 3열=진행 날짜로 인식됩니다. CH 이름이 있는 행만 집계되며, 진행 날짜가 있으면 완료 / 빈칸은 미진행으로 카운트됩니다."></div>
           </div>
           <button type="submit" class="btn btn-primary w-100 mt-2">저장</button>
         </form>
@@ -20345,7 +20346,7 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
         <div class="mt-3 pt-3 border-top">
           <label class="form-label">데이터 누적 추가 (엑셀에서 행을 복사해 붙여넣기)</label>
           <div id="rolloutAppendData" class="form-control rich-edit" contenteditable="true" style="min-height: 80px;"
-            data-placeholder="추가할 행을 엑셀에서 복사해 붙여넣으세요. 기존 표 아래에 그대로 누적됩니다. (제목 행이 함께 붙여넣어졌다면 추가 후 선택 삭제로 지우면 됩니다)"></div>
+            data-placeholder="추가할 행(1열=호기, 2열=CH 이름, 3열=진행 날짜)을 엑셀에서 복사해 붙여넣으세요. 기존 표 아래에 그대로 누적됩니다. (제목 행이 함께 붙여넣어졌다면 추가 후 선택 삭제로 지우면 됩니다)"></div>
           <button id="appendRowsBtn" class="btn btn-sm btn-primary mt-2">
             <i class="bi bi-plus-lg"></i> 누적 추가
           </button>
@@ -20450,22 +20451,50 @@ function attachRichPasteHandler(el) {
   });
 }
 
-// ── 진행 현황 집계: 첫 행(Chamber 제목)과 첫 열(호기 이름)을 제외한 칸에서
+// ── 표를 병합 셀(rowspan/colspan)까지 반영한 2차원 격자로 펼친다.
+//    엑셀에서 호기 칸이 세로 병합된 채 복사돼도 열 위치가 어긋나지 않게 하기 위함 ──
+function tableToGrid(table) {
+  const grid = [];
+  Array.from(table.querySelectorAll("tr")).forEach((tr, r) => {
+    grid[r] = grid[r] || [];
+    let c = 0;
+    Array.from(tr.children).forEach((cell) => {
+      while (grid[r][c] !== undefined) c++;
+      const colspan = parseInt(cell.getAttribute("colspan") || "1", 10) || 1;
+      const rowspan = parseInt(cell.getAttribute("rowspan") || "1", 10) || 1;
+      const text = cell.textContent.trim();
+      for (let dr = 0; dr < rowspan; dr++) {
+        for (let dc = 0; dc < colspan; dc++) {
+          grid[r + dr] = grid[r + dr] || [];
+          grid[r + dr][c + dc] = text;
+        }
+      }
+      c += colspan;
+    });
+  });
+  return grid;
+}
+
+// ── 진행 현황 집계 (열 형식 기준):
+//    1행 = 제목 행(1~2열 횡전개 제목, 3열 '진행 날짜' 제목)이므로 건너뛰고,
+//    2행부터 1열 = 호기, 2열 = CH 이름, 3열 = 진행 날짜로 본다.
+//    CH 이름(2열)이 있는 행만 집계 대상이며, 그 행의 진행 날짜(3열)에
 //    내용이 있으면 완료, 빈칸이면 미진행으로 센다 ─────────────────────────
 function computeProgress(dataHtml) {
   const container = document.createElement("div");
   container.innerHTML = dataHtml || "";
   const table = container.querySelector("table");
   if (!table) return { done: 0, pending: 0, total: 0 };
-  const rows = Array.from(table.querySelectorAll("tr"));
+  const grid = tableToGrid(table);
   let done = 0;
   let pending = 0;
-  rows.slice(1).forEach((tr) => {
-    Array.from(tr.children).slice(1).forEach((cell) => {
-      if (cell.textContent.trim()) done++;
-      else pending++;
-    });
-  });
+  for (let r = 1; r < grid.length; r++) {
+    const row = grid[r] || [];
+    const chName = (row[1] || "").trim();
+    if (!chName) continue;
+    if ((row[2] || "").trim()) done++;
+    else pending++;
+  }
   return { done, pending, total: done + pending };
 }
 

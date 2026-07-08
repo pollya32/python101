@@ -91,22 +91,50 @@ function attachRichPasteHandler(el) {
   });
 }
 
-// ── 진행 현황 집계: 첫 행(Chamber 제목)과 첫 열(호기 이름)을 제외한 칸에서
+// ── 표를 병합 셀(rowspan/colspan)까지 반영한 2차원 격자로 펼친다.
+//    엑셀에서 호기 칸이 세로 병합된 채 복사돼도 열 위치가 어긋나지 않게 하기 위함 ──
+function tableToGrid(table) {
+  const grid = [];
+  Array.from(table.querySelectorAll("tr")).forEach((tr, r) => {
+    grid[r] = grid[r] || [];
+    let c = 0;
+    Array.from(tr.children).forEach((cell) => {
+      while (grid[r][c] !== undefined) c++;
+      const colspan = parseInt(cell.getAttribute("colspan") || "1", 10) || 1;
+      const rowspan = parseInt(cell.getAttribute("rowspan") || "1", 10) || 1;
+      const text = cell.textContent.trim();
+      for (let dr = 0; dr < rowspan; dr++) {
+        for (let dc = 0; dc < colspan; dc++) {
+          grid[r + dr] = grid[r + dr] || [];
+          grid[r + dr][c + dc] = text;
+        }
+      }
+      c += colspan;
+    });
+  });
+  return grid;
+}
+
+// ── 진행 현황 집계 (열 형식 기준):
+//    1행 = 제목 행(1~2열 횡전개 제목, 3열 '진행 날짜' 제목)이므로 건너뛰고,
+//    2행부터 1열 = 호기, 2열 = CH 이름, 3열 = 진행 날짜로 본다.
+//    CH 이름(2열)이 있는 행만 집계 대상이며, 그 행의 진행 날짜(3열)에
 //    내용이 있으면 완료, 빈칸이면 미진행으로 센다 ─────────────────────────
 function computeProgress(dataHtml) {
   const container = document.createElement("div");
   container.innerHTML = dataHtml || "";
   const table = container.querySelector("table");
   if (!table) return { done: 0, pending: 0, total: 0 };
-  const rows = Array.from(table.querySelectorAll("tr"));
+  const grid = tableToGrid(table);
   let done = 0;
   let pending = 0;
-  rows.slice(1).forEach((tr) => {
-    Array.from(tr.children).slice(1).forEach((cell) => {
-      if (cell.textContent.trim()) done++;
-      else pending++;
-    });
-  });
+  for (let r = 1; r < grid.length; r++) {
+    const row = grid[r] || [];
+    const chName = (row[1] || "").trim();
+    if (!chName) continue;
+    if ((row[2] || "").trim()) done++;
+    else pending++;
+  }
   return { done, pending, total: done + pending };
 }
 
