@@ -489,6 +489,12 @@ def init_db():
             )
         c.execute("INSERT INTO app_config (key, value) VALUES ('memo_rich_migrated_v1', '1')")
 
+    # 설비/유닛/부품이 많아져도 목록 조회가 느려지지 않도록, 자주 필터링되는 외래키 컬럼에
+    # 인덱스를 추가한다 (이미 있으면 아무 일도 하지 않음).
+    c.execute("CREATE INDEX IF NOT EXISTS idx_units_equipment_id ON units(equipment_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_parts_unit_id ON parts(unit_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_replacement_history_part_id ON replacement_history(part_id)")
+
     conn.commit()
     conn.close()
 
@@ -595,25 +601,45 @@ def apply_unit_parts_to_other_equipment(conn, unit_id):
     return len(target_units), len(master_parts)
 
 
+def units_with_status_bulk(conn, units):
+    """유닛 여러 개의 상태/부품수를 부품 테이블 조회 1번으로 한꺼번에 계산한다
+    (유닛마다 따로 쿼리를 날리는 N+1 패턴을 피하기 위함)."""
+    if not units:
+        return []
+    unit_ids = [u["id"] for u in units]
+    placeholders = ",".join("?" for _ in unit_ids)
+    all_parts = conn.execute(
+        f"SELECT * FROM parts WHERE unit_id IN ({placeholders}) AND deleted_at IS NULL", unit_ids
+    ).fetchall()
+    parts_by_unit = {}
+    for p in all_parts:
+        parts_by_unit.setdefault(p["unit_id"], []).append(p)
+
+    result = []
+    for u in units:
+        parts = parts_by_unit.get(u["id"], [])
+        statuses = [part_status(p["cycle_days"], p["last_replaced_date"])["status"] for p in parts]
+        if "overdue" in statuses:
+            overall = "overdue"
+        elif "soon" in statuses:
+            overall = "soon"
+        elif "unknown" in statuses:
+            overall = "unknown" if not any(s == "ok" for s in statuses) else "ok"
+        elif statuses:
+            overall = "ok"
+        else:
+            overall = "empty"
+        d = dict(u)
+        d["part_count"] = len(parts)
+        d["overall_status"] = overall
+        d["overdue_count"] = statuses.count("overdue")
+        d["soon_count"] = statuses.count("soon")
+        result.append(d)
+    return result
+
+
 def unit_with_status(conn, u):
-    parts = conn.execute("SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL", (u["id"],)).fetchall()
-    statuses = [part_status(p["cycle_days"], p["last_replaced_date"])["status"] for p in parts]
-    if "overdue" in statuses:
-        overall = "overdue"
-    elif "soon" in statuses:
-        overall = "soon"
-    elif "unknown" in statuses:
-        overall = "unknown" if not any(s == "ok" for s in statuses) else "ok"
-    elif statuses:
-        overall = "ok"
-    else:
-        overall = "empty"
-    d = dict(u)
-    d["part_count"] = len(parts)
-    d["overall_status"] = overall
-    d["overdue_count"] = statuses.count("overdue")
-    d["soon_count"] = statuses.count("soon")
-    return d
+    return units_with_status_bulk(conn, [u])[0]
 
 
 STATUS_PRIORITY = ["overdue", "soon", "unknown", "ok", "empty"]
@@ -637,18 +663,38 @@ def calc_setup_runtime(setup_date):
     return f"{years}년 {months}개월"
 
 
+def equipments_with_status_bulk(conn, equipments):
+    """설비 여러 개의 상태/유닛수를 유닛+부품 조회 2번으로 한꺼번에 계산한다
+    (설비마다, 유닛마다 따로 쿼리를 날리는 N+1 패턴을 피하기 위함)."""
+    if not equipments:
+        return []
+    eq_ids = [e["id"] for e in equipments]
+    placeholders = ",".join("?" for _ in eq_ids)
+    all_units = conn.execute(
+        f"SELECT * FROM units WHERE equipment_id IN ({placeholders}) AND deleted_at IS NULL", eq_ids
+    ).fetchall()
+    unit_statuses_all = units_with_status_bulk(conn, all_units)
+    units_by_equipment = {}
+    for us in unit_statuses_all:
+        units_by_equipment.setdefault(us["equipment_id"], []).append(us)
+
+    result = []
+    for e in equipments:
+        unit_statuses = units_by_equipment.get(e["id"], [])
+        statuses = [us["overall_status"] for us in unit_statuses]
+        overall = next((s for s in STATUS_PRIORITY if s in statuses), "empty")
+        d = dict(e)
+        d["unit_count"] = len(unit_statuses)
+        d["overall_status"] = overall
+        d["overdue_count"] = sum(us["overdue_count"] for us in unit_statuses)
+        d["soon_count"] = sum(us["soon_count"] for us in unit_statuses)
+        d["runtime_display"] = calc_setup_runtime(e["setup_date"])
+        result.append(d)
+    return result
+
+
 def equipment_with_status(conn, e):
-    units = conn.execute("SELECT * FROM units WHERE equipment_id = ? AND deleted_at IS NULL", (e["id"],)).fetchall()
-    unit_statuses = [unit_with_status(conn, u) for u in units]
-    statuses = [us["overall_status"] for us in unit_statuses]
-    overall = next((s for s in STATUS_PRIORITY if s in statuses), "empty")
-    d = dict(e)
-    d["unit_count"] = len(units)
-    d["overall_status"] = overall
-    d["overdue_count"] = sum(us["overdue_count"] for us in unit_statuses)
-    d["soon_count"] = sum(us["soon_count"] for us in unit_statuses)
-    d["runtime_display"] = calc_setup_runtime(e["setup_date"])
-    return d
+    return equipments_with_status_bulk(conn, [e])[0]
 
 
 def seed_default_units_for_equipment(conn, equipment_id):
@@ -732,6 +778,25 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
     parts = conn.execute(query, params).fetchall()
     period_filter = bool(start_date or end_date)
 
+    # 그룹마다 따로 교체 이력을 조회하는 대신, 관련된 모든 부품의 이력을 한 번에 가져와
+    # part_id 기준으로 집계해둔다 (N+1 쿼리 방지).
+    hist_by_part = {}
+    part_ids = [p["id"] for p in parts]
+    if part_ids:
+        placeholders = ",".join("?" for _ in part_ids)
+        hist_query = f"SELECT part_id, cost FROM replacement_history WHERE part_id IN ({placeholders})"
+        hist_params = list(part_ids)
+        if start_date:
+            hist_query += " AND replaced_date >= ?"
+            hist_params.append(start_date)
+        if end_date:
+            hist_query += " AND replaced_date <= ?"
+            hist_params.append(end_date)
+        for h in conn.execute(hist_query, hist_params).fetchall():
+            entry = hist_by_part.setdefault(h["part_id"], {"n": 0, "total": 0})
+            entry["n"] += 1
+            entry["total"] += h["cost"] or 0
+
     groups = {}
     for p in parts:
         key = (p["name"], p["spec"] or "")
@@ -742,40 +807,23 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
                 "spec": p["spec"] or "",
                 "total_cost": 0,
                 "instance_count": 0,
+                "usage_count": 0,
                 "min_cycle_days": None,
                 "min_cycle_unit": "일",
-                "part_ids": [],
             }
             groups[key] = g
         g["instance_count"] += 1
-        g["part_ids"].append(p["id"])
         if g["min_cycle_days"] is None or p["cycle_days"] < g["min_cycle_days"]:
             g["min_cycle_days"] = p["cycle_days"]
             g["min_cycle_unit"] = p["cycle_unit"]
-        if not period_filter:
+        hist = hist_by_part.get(p["id"], {"n": 0, "total": 0})
+        g["usage_count"] += hist["n"]
+        if period_filter:
+            g["total_cost"] += hist["total"]
+        else:
             g["total_cost"] += p["cost"] or 0
 
-    result = []
-    for g in groups.values():
-        part_ids = g.pop("part_ids")
-        placeholders = ",".join("?" for _ in part_ids)
-        hist_query = (
-            f"SELECT COUNT(*) AS n, COALESCE(SUM(cost), 0) AS total "
-            f"FROM replacement_history WHERE part_id IN ({placeholders})"
-        )
-        hist_params = list(part_ids)
-        if start_date:
-            hist_query += " AND replaced_date >= ?"
-            hist_params.append(start_date)
-        if end_date:
-            hist_query += " AND replaced_date <= ?"
-            hist_params.append(end_date)
-        hist = conn.execute(hist_query, hist_params).fetchone()
-        g["usage_count"] = hist["n"]
-        if period_filter:
-            g["total_cost"] = hist["total"]
-        result.append(g)
-    return result
+    return list(groups.values())
 
 
 def csv_response(filename, header, rows):
@@ -958,7 +1006,7 @@ def unit_detail(unit_id):
 def list_equipments():
     conn = get_db()
     equipments = conn.execute("SELECT * FROM equipments WHERE deleted_at IS NULL ORDER BY id").fetchall()
-    result = [equipment_with_status(conn, e) for e in equipments]
+    result = equipments_with_status_bulk(conn, equipments)
     conn.close()
     return jsonify(result)
 
@@ -1071,7 +1119,7 @@ def list_units(equipment_id):
     units = conn.execute(
         "SELECT * FROM units WHERE equipment_id = ? AND deleted_at IS NULL ORDER BY id", (equipment_id,)
     ).fetchall()
-    result = [unit_with_status(conn, u) for u in units]
+    result = units_with_status_bulk(conn, units)
     conn.close()
     return jsonify(result)
 
