@@ -2993,7 +2993,171 @@ body {
 .bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }
+
+/* ══ 사이버틱 테마 ══════════════════════════════════════════════
+   html[data-theme="cyber"]가 붙으면 전체 화면이 네온/다크 스타일로 전환된다.
+   모든 효과는 정적 CSS(변수 재정의 + 색상 오버라이드)로만 구현되어 있어
+   애니메이션/필터 등 렌더링 비용이 발생하는 요소가 없다. */
+html[data-theme="cyber"] {
+  --pri: #06b6d4;
+  --pri-dark: #0891b2;
+  --accent: #d946ef;
+  --bg-a: #060913;
+  --bg-b: #0b1022;
+  --surface: #0f1629;
+  --border: #1e335c;
+  --text: #d7e4f5;
+  --text-muted: #7c93b5;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.55), 0 0 12px rgba(6, 182, 212, 0.07);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 20px rgba(6, 182, 212, 0.1);
+}
+html[data-theme="cyber"] body {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(6, 182, 212, 0.08), transparent 45%),
+    radial-gradient(circle at 80% 100%, rgba(217, 70, 239, 0.06), transparent 45%),
+    linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+}
+html[data-theme="cyber"] .topbar {
+  background: linear-gradient(120deg, #0b1428, #101a35 60%, #1a1033);
+  border-bottom: 1px solid rgba(6, 182, 212, 0.45);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5), 0 1px 12px rgba(6, 182, 212, 0.15);
+}
+html[data-theme="cyber"] .topbar h1 {
+  background: linear-gradient(90deg, #22d3ee, #e879f9);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+html[data-theme="cyber"] .equipment-frame {
+  background:
+    radial-gradient(circle, rgba(6, 182, 212, 0.16) 1px, transparent 1px),
+    linear-gradient(180deg, #0c1327, #090e1e);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md);
+}
+html[data-theme="cyber"] .unit-shape {
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 22%, transparent);
+}
+html[data-theme="cyber"] .unit-icon-wrap {
+  background: #14203c;
+  background: color-mix(in srgb, var(--uc) 24%, #0d1428);
+}
+html[data-theme="cyber"] .overdue-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(239, 68, 68, 0.7); }
+html[data-theme="cyber"] .soon-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(245, 158, 11, 0.7); }
+html[data-theme="cyber"] .dot-ok { box-shadow: 0 0 0 3px currentColor, 0 0 8px #22c55e; }
+html[data-theme="cyber"] .dot-soon { box-shadow: 0 0 0 3px currentColor, 0 0 8px #f59e0b; }
+html[data-theme="cyber"] .dot-overdue { box-shadow: 0 0 0 3px currentColor, 0 0 8px #ef4444; }
+html[data-theme="cyber"] .part-card { background: #0d1428; }
+html[data-theme="cyber"] .badge-ok { background: rgba(34, 197, 94, 0.16); color: #4ade80; }
+html[data-theme="cyber"] .badge-soon { background: rgba(245, 158, 11, 0.16); color: #fbbf24; }
+html[data-theme="cyber"] .badge-overdue { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+html[data-theme="cyber"] .badge-unknown { background: rgba(148, 163, 184, 0.16); color: #94a3b8; }
+html[data-theme="cyber"] .history-row { border-bottom-color: var(--border); }
+html[data-theme="cyber"] .notes-view,
+html[data-theme="cyber"] .part-memo-view { color: var(--text); }
+html[data-theme="cyber"] .notes-view th,
+html[data-theme="cyber"] .part-memo-view th,
+html[data-theme="cyber"] .rich-edit th { background: #14203c; }
+html[data-theme="cyber"] .master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.14), rgba(245, 158, 11, 0.1));
+  color: #fbbf24;
+}
+html[data-theme="cyber"] .btn-outline-secondary { color: #9fb4d6; border-color: #2a4470; }
+html[data-theme="cyber"] .btn-outline-secondary:hover { background: #1a2a4d; color: var(--text); border-color: #2a4470; }
+html[data-theme="cyber"] .icon-picker { background: #0c1327; }
+html[data-theme="cyber"] .icon-choice { background: #14203c; }
+html[data-theme="cyber"] .icon-choice:hover { background: #1c2c52; }
+html[data-theme="cyber"] .icon-choice.selected { background: color-mix(in srgb, var(--pri) 24%, #0d1428); }
+html[data-theme="cyber"] .part-drawing-paste { background: #0c1327; }
+html[data-theme="cyber"] .alert-row:hover,
+html[data-theme="cyber"] .stats-row:hover { background: #14203c; }
+html[data-theme="cyber"] .bulk-table thead th { background: #0c1327; }
+html[data-theme="cyber"] .bulk-status-registered { color: #4ade80; }
+
+/* 사이버틱: 부트스트랩 기본 컴포넌트(모달/폼/드롭다운/테이블) 다크화 */
+html[data-theme="cyber"] .modal-content { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+html[data-theme="cyber"] .btn-close { filter: invert(1) brightness(1.6); }
+html[data-theme="cyber"] .form-control,
+html[data-theme="cyber"] .form-select {
+  background-color: #0c1327;
+  border-color: #2a4470;
+  color: var(--text);
+}
+html[data-theme="cyber"] .form-control:focus,
+html[data-theme="cyber"] .form-select:focus {
+  background-color: #0c1327;
+  color: var(--text);
+  border-color: var(--pri);
+  box-shadow: 0 0 0 0.2rem rgba(6, 182, 212, 0.25);
+}
+html[data-theme="cyber"] .form-control::placeholder { color: #5a7196; }
+html[data-theme="cyber"] .dropdown-menu { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+html[data-theme="cyber"] .dropdown-item { color: var(--text); }
+html[data-theme="cyber"] .dropdown-item:hover { background: #14203c; color: var(--text); }
+html[data-theme="cyber"] .table { color: var(--text); border-color: var(--border); --bs-table-bg: transparent; --bs-table-color: var(--text); --bs-table-border-color: var(--border); }
+html[data-theme="cyber"] .table-danger { --bs-table-bg: rgba(239, 68, 68, 0.14); --bs-table-color: #fca5a5; }
+html[data-theme="cyber"] .text-muted { color: var(--text-muted) !important; }
+html[data-theme="cyber"] .form-check-input { background-color: #0c1327; border-color: #2a4470; }
+html[data-theme="cyber"] .form-check-input:checked { background-color: var(--pri); border-color: var(--pri); }
+html[data-theme="cyber"] .rich-edit:empty::before,
+html[data-theme="cyber"] .notes-view:empty::before,
+html[data-theme="cyber"] .notes-view.is-empty::before,
+html[data-theme="cyber"] .part-memo-view:empty::before,
+html[data-theme="cyber"] .part-memo-view.is-empty::before,
+html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
 </style>
+<script>
+// 전체 스타일 테마 (기본 / 사이버틱) 전환.
+// <head>에서 동기 로드되어 본문이 그려지기 전에 저장된 테마를 즉시 적용하므로
+// 페이지 진입 시 밝은 화면이 번쩍이는 현상(FOUC)이 없다. 추가 네트워크 요청이나
+// 반복 실행 코드가 없어 성능에는 영향을 주지 않는다.
+(function () {
+  const THEME_KEY = "appTheme";
+
+  function currentTheme() {
+    return localStorage.getItem(THEME_KEY) === "cyber" ? "cyber" : "default";
+  }
+
+  function applyTheme(theme) {
+    if (theme === "cyber") {
+      document.documentElement.dataset.theme = "cyber";
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+  }
+
+  applyTheme(currentTheme());
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const bar = document.querySelector(".topbar > div:last-of-type");
+    if (!bar) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-sm btn-outline-light theme-toggle-btn";
+    btn.title = "화면 스타일 전환 (기본 / 사이버틱)";
+
+    function refreshLabel() {
+      btn.innerHTML =
+        currentTheme() === "cyber"
+          ? '<i class="bi bi-stars"></i> 사이버'
+          : '<i class="bi bi-palette"></i> 기본';
+    }
+
+    btn.addEventListener("click", () => {
+      const next = currentTheme() === "cyber" ? "default" : "cyber";
+      localStorage.setItem(THEME_KEY, next);
+      applyTheme(next);
+      refreshLabel();
+    });
+
+    refreshLabel();
+    bar.appendChild(btn);
+  });
+})();
+</script>
 </head>
 <body>
 
@@ -4265,7 +4429,171 @@ body {
 .bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }
+
+/* ══ 사이버틱 테마 ══════════════════════════════════════════════
+   html[data-theme="cyber"]가 붙으면 전체 화면이 네온/다크 스타일로 전환된다.
+   모든 효과는 정적 CSS(변수 재정의 + 색상 오버라이드)로만 구현되어 있어
+   애니메이션/필터 등 렌더링 비용이 발생하는 요소가 없다. */
+html[data-theme="cyber"] {
+  --pri: #06b6d4;
+  --pri-dark: #0891b2;
+  --accent: #d946ef;
+  --bg-a: #060913;
+  --bg-b: #0b1022;
+  --surface: #0f1629;
+  --border: #1e335c;
+  --text: #d7e4f5;
+  --text-muted: #7c93b5;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.55), 0 0 12px rgba(6, 182, 212, 0.07);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 20px rgba(6, 182, 212, 0.1);
+}
+html[data-theme="cyber"] body {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(6, 182, 212, 0.08), transparent 45%),
+    radial-gradient(circle at 80% 100%, rgba(217, 70, 239, 0.06), transparent 45%),
+    linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+}
+html[data-theme="cyber"] .topbar {
+  background: linear-gradient(120deg, #0b1428, #101a35 60%, #1a1033);
+  border-bottom: 1px solid rgba(6, 182, 212, 0.45);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5), 0 1px 12px rgba(6, 182, 212, 0.15);
+}
+html[data-theme="cyber"] .topbar h1 {
+  background: linear-gradient(90deg, #22d3ee, #e879f9);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+html[data-theme="cyber"] .equipment-frame {
+  background:
+    radial-gradient(circle, rgba(6, 182, 212, 0.16) 1px, transparent 1px),
+    linear-gradient(180deg, #0c1327, #090e1e);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md);
+}
+html[data-theme="cyber"] .unit-shape {
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 22%, transparent);
+}
+html[data-theme="cyber"] .unit-icon-wrap {
+  background: #14203c;
+  background: color-mix(in srgb, var(--uc) 24%, #0d1428);
+}
+html[data-theme="cyber"] .overdue-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(239, 68, 68, 0.7); }
+html[data-theme="cyber"] .soon-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(245, 158, 11, 0.7); }
+html[data-theme="cyber"] .dot-ok { box-shadow: 0 0 0 3px currentColor, 0 0 8px #22c55e; }
+html[data-theme="cyber"] .dot-soon { box-shadow: 0 0 0 3px currentColor, 0 0 8px #f59e0b; }
+html[data-theme="cyber"] .dot-overdue { box-shadow: 0 0 0 3px currentColor, 0 0 8px #ef4444; }
+html[data-theme="cyber"] .part-card { background: #0d1428; }
+html[data-theme="cyber"] .badge-ok { background: rgba(34, 197, 94, 0.16); color: #4ade80; }
+html[data-theme="cyber"] .badge-soon { background: rgba(245, 158, 11, 0.16); color: #fbbf24; }
+html[data-theme="cyber"] .badge-overdue { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+html[data-theme="cyber"] .badge-unknown { background: rgba(148, 163, 184, 0.16); color: #94a3b8; }
+html[data-theme="cyber"] .history-row { border-bottom-color: var(--border); }
+html[data-theme="cyber"] .notes-view,
+html[data-theme="cyber"] .part-memo-view { color: var(--text); }
+html[data-theme="cyber"] .notes-view th,
+html[data-theme="cyber"] .part-memo-view th,
+html[data-theme="cyber"] .rich-edit th { background: #14203c; }
+html[data-theme="cyber"] .master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.14), rgba(245, 158, 11, 0.1));
+  color: #fbbf24;
+}
+html[data-theme="cyber"] .btn-outline-secondary { color: #9fb4d6; border-color: #2a4470; }
+html[data-theme="cyber"] .btn-outline-secondary:hover { background: #1a2a4d; color: var(--text); border-color: #2a4470; }
+html[data-theme="cyber"] .icon-picker { background: #0c1327; }
+html[data-theme="cyber"] .icon-choice { background: #14203c; }
+html[data-theme="cyber"] .icon-choice:hover { background: #1c2c52; }
+html[data-theme="cyber"] .icon-choice.selected { background: color-mix(in srgb, var(--pri) 24%, #0d1428); }
+html[data-theme="cyber"] .part-drawing-paste { background: #0c1327; }
+html[data-theme="cyber"] .alert-row:hover,
+html[data-theme="cyber"] .stats-row:hover { background: #14203c; }
+html[data-theme="cyber"] .bulk-table thead th { background: #0c1327; }
+html[data-theme="cyber"] .bulk-status-registered { color: #4ade80; }
+
+/* 사이버틱: 부트스트랩 기본 컴포넌트(모달/폼/드롭다운/테이블) 다크화 */
+html[data-theme="cyber"] .modal-content { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+html[data-theme="cyber"] .btn-close { filter: invert(1) brightness(1.6); }
+html[data-theme="cyber"] .form-control,
+html[data-theme="cyber"] .form-select {
+  background-color: #0c1327;
+  border-color: #2a4470;
+  color: var(--text);
+}
+html[data-theme="cyber"] .form-control:focus,
+html[data-theme="cyber"] .form-select:focus {
+  background-color: #0c1327;
+  color: var(--text);
+  border-color: var(--pri);
+  box-shadow: 0 0 0 0.2rem rgba(6, 182, 212, 0.25);
+}
+html[data-theme="cyber"] .form-control::placeholder { color: #5a7196; }
+html[data-theme="cyber"] .dropdown-menu { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+html[data-theme="cyber"] .dropdown-item { color: var(--text); }
+html[data-theme="cyber"] .dropdown-item:hover { background: #14203c; color: var(--text); }
+html[data-theme="cyber"] .table { color: var(--text); border-color: var(--border); --bs-table-bg: transparent; --bs-table-color: var(--text); --bs-table-border-color: var(--border); }
+html[data-theme="cyber"] .table-danger { --bs-table-bg: rgba(239, 68, 68, 0.14); --bs-table-color: #fca5a5; }
+html[data-theme="cyber"] .text-muted { color: var(--text-muted) !important; }
+html[data-theme="cyber"] .form-check-input { background-color: #0c1327; border-color: #2a4470; }
+html[data-theme="cyber"] .form-check-input:checked { background-color: var(--pri); border-color: var(--pri); }
+html[data-theme="cyber"] .rich-edit:empty::before,
+html[data-theme="cyber"] .notes-view:empty::before,
+html[data-theme="cyber"] .notes-view.is-empty::before,
+html[data-theme="cyber"] .part-memo-view:empty::before,
+html[data-theme="cyber"] .part-memo-view.is-empty::before,
+html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
 </style>
+<script>
+// 전체 스타일 테마 (기본 / 사이버틱) 전환.
+// <head>에서 동기 로드되어 본문이 그려지기 전에 저장된 테마를 즉시 적용하므로
+// 페이지 진입 시 밝은 화면이 번쩍이는 현상(FOUC)이 없다. 추가 네트워크 요청이나
+// 반복 실행 코드가 없어 성능에는 영향을 주지 않는다.
+(function () {
+  const THEME_KEY = "appTheme";
+
+  function currentTheme() {
+    return localStorage.getItem(THEME_KEY) === "cyber" ? "cyber" : "default";
+  }
+
+  function applyTheme(theme) {
+    if (theme === "cyber") {
+      document.documentElement.dataset.theme = "cyber";
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+  }
+
+  applyTheme(currentTheme());
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const bar = document.querySelector(".topbar > div:last-of-type");
+    if (!bar) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-sm btn-outline-light theme-toggle-btn";
+    btn.title = "화면 스타일 전환 (기본 / 사이버틱)";
+
+    function refreshLabel() {
+      btn.innerHTML =
+        currentTheme() === "cyber"
+          ? '<i class="bi bi-stars"></i> 사이버'
+          : '<i class="bi bi-palette"></i> 기본';
+    }
+
+    btn.addEventListener("click", () => {
+      const next = currentTheme() === "cyber" ? "default" : "cyber";
+      localStorage.setItem(THEME_KEY, next);
+      applyTheme(next);
+      refreshLabel();
+    });
+
+    refreshLabel();
+    bar.appendChild(btn);
+  });
+})();
+</script>
 </head>
 <body>
 
@@ -5924,7 +6252,171 @@ body {
 .bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }
+
+/* ══ 사이버틱 테마 ══════════════════════════════════════════════
+   html[data-theme="cyber"]가 붙으면 전체 화면이 네온/다크 스타일로 전환된다.
+   모든 효과는 정적 CSS(변수 재정의 + 색상 오버라이드)로만 구현되어 있어
+   애니메이션/필터 등 렌더링 비용이 발생하는 요소가 없다. */
+html[data-theme="cyber"] {
+  --pri: #06b6d4;
+  --pri-dark: #0891b2;
+  --accent: #d946ef;
+  --bg-a: #060913;
+  --bg-b: #0b1022;
+  --surface: #0f1629;
+  --border: #1e335c;
+  --text: #d7e4f5;
+  --text-muted: #7c93b5;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.55), 0 0 12px rgba(6, 182, 212, 0.07);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 20px rgba(6, 182, 212, 0.1);
+}
+html[data-theme="cyber"] body {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(6, 182, 212, 0.08), transparent 45%),
+    radial-gradient(circle at 80% 100%, rgba(217, 70, 239, 0.06), transparent 45%),
+    linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+}
+html[data-theme="cyber"] .topbar {
+  background: linear-gradient(120deg, #0b1428, #101a35 60%, #1a1033);
+  border-bottom: 1px solid rgba(6, 182, 212, 0.45);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5), 0 1px 12px rgba(6, 182, 212, 0.15);
+}
+html[data-theme="cyber"] .topbar h1 {
+  background: linear-gradient(90deg, #22d3ee, #e879f9);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+html[data-theme="cyber"] .equipment-frame {
+  background:
+    radial-gradient(circle, rgba(6, 182, 212, 0.16) 1px, transparent 1px),
+    linear-gradient(180deg, #0c1327, #090e1e);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md);
+}
+html[data-theme="cyber"] .unit-shape {
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 22%, transparent);
+}
+html[data-theme="cyber"] .unit-icon-wrap {
+  background: #14203c;
+  background: color-mix(in srgb, var(--uc) 24%, #0d1428);
+}
+html[data-theme="cyber"] .overdue-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(239, 68, 68, 0.7); }
+html[data-theme="cyber"] .soon-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(245, 158, 11, 0.7); }
+html[data-theme="cyber"] .dot-ok { box-shadow: 0 0 0 3px currentColor, 0 0 8px #22c55e; }
+html[data-theme="cyber"] .dot-soon { box-shadow: 0 0 0 3px currentColor, 0 0 8px #f59e0b; }
+html[data-theme="cyber"] .dot-overdue { box-shadow: 0 0 0 3px currentColor, 0 0 8px #ef4444; }
+html[data-theme="cyber"] .part-card { background: #0d1428; }
+html[data-theme="cyber"] .badge-ok { background: rgba(34, 197, 94, 0.16); color: #4ade80; }
+html[data-theme="cyber"] .badge-soon { background: rgba(245, 158, 11, 0.16); color: #fbbf24; }
+html[data-theme="cyber"] .badge-overdue { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+html[data-theme="cyber"] .badge-unknown { background: rgba(148, 163, 184, 0.16); color: #94a3b8; }
+html[data-theme="cyber"] .history-row { border-bottom-color: var(--border); }
+html[data-theme="cyber"] .notes-view,
+html[data-theme="cyber"] .part-memo-view { color: var(--text); }
+html[data-theme="cyber"] .notes-view th,
+html[data-theme="cyber"] .part-memo-view th,
+html[data-theme="cyber"] .rich-edit th { background: #14203c; }
+html[data-theme="cyber"] .master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.14), rgba(245, 158, 11, 0.1));
+  color: #fbbf24;
+}
+html[data-theme="cyber"] .btn-outline-secondary { color: #9fb4d6; border-color: #2a4470; }
+html[data-theme="cyber"] .btn-outline-secondary:hover { background: #1a2a4d; color: var(--text); border-color: #2a4470; }
+html[data-theme="cyber"] .icon-picker { background: #0c1327; }
+html[data-theme="cyber"] .icon-choice { background: #14203c; }
+html[data-theme="cyber"] .icon-choice:hover { background: #1c2c52; }
+html[data-theme="cyber"] .icon-choice.selected { background: color-mix(in srgb, var(--pri) 24%, #0d1428); }
+html[data-theme="cyber"] .part-drawing-paste { background: #0c1327; }
+html[data-theme="cyber"] .alert-row:hover,
+html[data-theme="cyber"] .stats-row:hover { background: #14203c; }
+html[data-theme="cyber"] .bulk-table thead th { background: #0c1327; }
+html[data-theme="cyber"] .bulk-status-registered { color: #4ade80; }
+
+/* 사이버틱: 부트스트랩 기본 컴포넌트(모달/폼/드롭다운/테이블) 다크화 */
+html[data-theme="cyber"] .modal-content { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+html[data-theme="cyber"] .btn-close { filter: invert(1) brightness(1.6); }
+html[data-theme="cyber"] .form-control,
+html[data-theme="cyber"] .form-select {
+  background-color: #0c1327;
+  border-color: #2a4470;
+  color: var(--text);
+}
+html[data-theme="cyber"] .form-control:focus,
+html[data-theme="cyber"] .form-select:focus {
+  background-color: #0c1327;
+  color: var(--text);
+  border-color: var(--pri);
+  box-shadow: 0 0 0 0.2rem rgba(6, 182, 212, 0.25);
+}
+html[data-theme="cyber"] .form-control::placeholder { color: #5a7196; }
+html[data-theme="cyber"] .dropdown-menu { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+html[data-theme="cyber"] .dropdown-item { color: var(--text); }
+html[data-theme="cyber"] .dropdown-item:hover { background: #14203c; color: var(--text); }
+html[data-theme="cyber"] .table { color: var(--text); border-color: var(--border); --bs-table-bg: transparent; --bs-table-color: var(--text); --bs-table-border-color: var(--border); }
+html[data-theme="cyber"] .table-danger { --bs-table-bg: rgba(239, 68, 68, 0.14); --bs-table-color: #fca5a5; }
+html[data-theme="cyber"] .text-muted { color: var(--text-muted) !important; }
+html[data-theme="cyber"] .form-check-input { background-color: #0c1327; border-color: #2a4470; }
+html[data-theme="cyber"] .form-check-input:checked { background-color: var(--pri); border-color: var(--pri); }
+html[data-theme="cyber"] .rich-edit:empty::before,
+html[data-theme="cyber"] .notes-view:empty::before,
+html[data-theme="cyber"] .notes-view.is-empty::before,
+html[data-theme="cyber"] .part-memo-view:empty::before,
+html[data-theme="cyber"] .part-memo-view.is-empty::before,
+html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
 </style>
+<script>
+// 전체 스타일 테마 (기본 / 사이버틱) 전환.
+// <head>에서 동기 로드되어 본문이 그려지기 전에 저장된 테마를 즉시 적용하므로
+// 페이지 진입 시 밝은 화면이 번쩍이는 현상(FOUC)이 없다. 추가 네트워크 요청이나
+// 반복 실행 코드가 없어 성능에는 영향을 주지 않는다.
+(function () {
+  const THEME_KEY = "appTheme";
+
+  function currentTheme() {
+    return localStorage.getItem(THEME_KEY) === "cyber" ? "cyber" : "default";
+  }
+
+  function applyTheme(theme) {
+    if (theme === "cyber") {
+      document.documentElement.dataset.theme = "cyber";
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+  }
+
+  applyTheme(currentTheme());
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const bar = document.querySelector(".topbar > div:last-of-type");
+    if (!bar) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-sm btn-outline-light theme-toggle-btn";
+    btn.title = "화면 스타일 전환 (기본 / 사이버틱)";
+
+    function refreshLabel() {
+      btn.innerHTML =
+        currentTheme() === "cyber"
+          ? '<i class="bi bi-stars"></i> 사이버'
+          : '<i class="bi bi-palette"></i> 기본';
+    }
+
+    btn.addEventListener("click", () => {
+      const next = currentTheme() === "cyber" ? "default" : "cyber";
+      localStorage.setItem(THEME_KEY, next);
+      applyTheme(next);
+      refreshLabel();
+    });
+
+    refreshLabel();
+    bar.appendChild(btn);
+  });
+})();
+</script>
 </head>
 <body>
 
@@ -7980,7 +8472,171 @@ body {
 .bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }
+
+/* ══ 사이버틱 테마 ══════════════════════════════════════════════
+   html[data-theme="cyber"]가 붙으면 전체 화면이 네온/다크 스타일로 전환된다.
+   모든 효과는 정적 CSS(변수 재정의 + 색상 오버라이드)로만 구현되어 있어
+   애니메이션/필터 등 렌더링 비용이 발생하는 요소가 없다. */
+html[data-theme="cyber"] {
+  --pri: #06b6d4;
+  --pri-dark: #0891b2;
+  --accent: #d946ef;
+  --bg-a: #060913;
+  --bg-b: #0b1022;
+  --surface: #0f1629;
+  --border: #1e335c;
+  --text: #d7e4f5;
+  --text-muted: #7c93b5;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.55), 0 0 12px rgba(6, 182, 212, 0.07);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 20px rgba(6, 182, 212, 0.1);
+}
+html[data-theme="cyber"] body {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(6, 182, 212, 0.08), transparent 45%),
+    radial-gradient(circle at 80% 100%, rgba(217, 70, 239, 0.06), transparent 45%),
+    linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+}
+html[data-theme="cyber"] .topbar {
+  background: linear-gradient(120deg, #0b1428, #101a35 60%, #1a1033);
+  border-bottom: 1px solid rgba(6, 182, 212, 0.45);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5), 0 1px 12px rgba(6, 182, 212, 0.15);
+}
+html[data-theme="cyber"] .topbar h1 {
+  background: linear-gradient(90deg, #22d3ee, #e879f9);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+html[data-theme="cyber"] .equipment-frame {
+  background:
+    radial-gradient(circle, rgba(6, 182, 212, 0.16) 1px, transparent 1px),
+    linear-gradient(180deg, #0c1327, #090e1e);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md);
+}
+html[data-theme="cyber"] .unit-shape {
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 22%, transparent);
+}
+html[data-theme="cyber"] .unit-icon-wrap {
+  background: #14203c;
+  background: color-mix(in srgb, var(--uc) 24%, #0d1428);
+}
+html[data-theme="cyber"] .overdue-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(239, 68, 68, 0.7); }
+html[data-theme="cyber"] .soon-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(245, 158, 11, 0.7); }
+html[data-theme="cyber"] .dot-ok { box-shadow: 0 0 0 3px currentColor, 0 0 8px #22c55e; }
+html[data-theme="cyber"] .dot-soon { box-shadow: 0 0 0 3px currentColor, 0 0 8px #f59e0b; }
+html[data-theme="cyber"] .dot-overdue { box-shadow: 0 0 0 3px currentColor, 0 0 8px #ef4444; }
+html[data-theme="cyber"] .part-card { background: #0d1428; }
+html[data-theme="cyber"] .badge-ok { background: rgba(34, 197, 94, 0.16); color: #4ade80; }
+html[data-theme="cyber"] .badge-soon { background: rgba(245, 158, 11, 0.16); color: #fbbf24; }
+html[data-theme="cyber"] .badge-overdue { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+html[data-theme="cyber"] .badge-unknown { background: rgba(148, 163, 184, 0.16); color: #94a3b8; }
+html[data-theme="cyber"] .history-row { border-bottom-color: var(--border); }
+html[data-theme="cyber"] .notes-view,
+html[data-theme="cyber"] .part-memo-view { color: var(--text); }
+html[data-theme="cyber"] .notes-view th,
+html[data-theme="cyber"] .part-memo-view th,
+html[data-theme="cyber"] .rich-edit th { background: #14203c; }
+html[data-theme="cyber"] .master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.14), rgba(245, 158, 11, 0.1));
+  color: #fbbf24;
+}
+html[data-theme="cyber"] .btn-outline-secondary { color: #9fb4d6; border-color: #2a4470; }
+html[data-theme="cyber"] .btn-outline-secondary:hover { background: #1a2a4d; color: var(--text); border-color: #2a4470; }
+html[data-theme="cyber"] .icon-picker { background: #0c1327; }
+html[data-theme="cyber"] .icon-choice { background: #14203c; }
+html[data-theme="cyber"] .icon-choice:hover { background: #1c2c52; }
+html[data-theme="cyber"] .icon-choice.selected { background: color-mix(in srgb, var(--pri) 24%, #0d1428); }
+html[data-theme="cyber"] .part-drawing-paste { background: #0c1327; }
+html[data-theme="cyber"] .alert-row:hover,
+html[data-theme="cyber"] .stats-row:hover { background: #14203c; }
+html[data-theme="cyber"] .bulk-table thead th { background: #0c1327; }
+html[data-theme="cyber"] .bulk-status-registered { color: #4ade80; }
+
+/* 사이버틱: 부트스트랩 기본 컴포넌트(모달/폼/드롭다운/테이블) 다크화 */
+html[data-theme="cyber"] .modal-content { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+html[data-theme="cyber"] .btn-close { filter: invert(1) brightness(1.6); }
+html[data-theme="cyber"] .form-control,
+html[data-theme="cyber"] .form-select {
+  background-color: #0c1327;
+  border-color: #2a4470;
+  color: var(--text);
+}
+html[data-theme="cyber"] .form-control:focus,
+html[data-theme="cyber"] .form-select:focus {
+  background-color: #0c1327;
+  color: var(--text);
+  border-color: var(--pri);
+  box-shadow: 0 0 0 0.2rem rgba(6, 182, 212, 0.25);
+}
+html[data-theme="cyber"] .form-control::placeholder { color: #5a7196; }
+html[data-theme="cyber"] .dropdown-menu { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+html[data-theme="cyber"] .dropdown-item { color: var(--text); }
+html[data-theme="cyber"] .dropdown-item:hover { background: #14203c; color: var(--text); }
+html[data-theme="cyber"] .table { color: var(--text); border-color: var(--border); --bs-table-bg: transparent; --bs-table-color: var(--text); --bs-table-border-color: var(--border); }
+html[data-theme="cyber"] .table-danger { --bs-table-bg: rgba(239, 68, 68, 0.14); --bs-table-color: #fca5a5; }
+html[data-theme="cyber"] .text-muted { color: var(--text-muted) !important; }
+html[data-theme="cyber"] .form-check-input { background-color: #0c1327; border-color: #2a4470; }
+html[data-theme="cyber"] .form-check-input:checked { background-color: var(--pri); border-color: var(--pri); }
+html[data-theme="cyber"] .rich-edit:empty::before,
+html[data-theme="cyber"] .notes-view:empty::before,
+html[data-theme="cyber"] .notes-view.is-empty::before,
+html[data-theme="cyber"] .part-memo-view:empty::before,
+html[data-theme="cyber"] .part-memo-view.is-empty::before,
+html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
 </style>
+<script>
+// 전체 스타일 테마 (기본 / 사이버틱) 전환.
+// <head>에서 동기 로드되어 본문이 그려지기 전에 저장된 테마를 즉시 적용하므로
+// 페이지 진입 시 밝은 화면이 번쩍이는 현상(FOUC)이 없다. 추가 네트워크 요청이나
+// 반복 실행 코드가 없어 성능에는 영향을 주지 않는다.
+(function () {
+  const THEME_KEY = "appTheme";
+
+  function currentTheme() {
+    return localStorage.getItem(THEME_KEY) === "cyber" ? "cyber" : "default";
+  }
+
+  function applyTheme(theme) {
+    if (theme === "cyber") {
+      document.documentElement.dataset.theme = "cyber";
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+  }
+
+  applyTheme(currentTheme());
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const bar = document.querySelector(".topbar > div:last-of-type");
+    if (!bar) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-sm btn-outline-light theme-toggle-btn";
+    btn.title = "화면 스타일 전환 (기본 / 사이버틱)";
+
+    function refreshLabel() {
+      btn.innerHTML =
+        currentTheme() === "cyber"
+          ? '<i class="bi bi-stars"></i> 사이버'
+          : '<i class="bi bi-palette"></i> 기본';
+    }
+
+    btn.addEventListener("click", () => {
+      const next = currentTheme() === "cyber" ? "default" : "cyber";
+      localStorage.setItem(THEME_KEY, next);
+      applyTheme(next);
+      refreshLabel();
+    });
+
+    refreshLabel();
+    bar.appendChild(btn);
+  });
+})();
+</script>
 </head>
 <body>
 
@@ -9237,7 +9893,171 @@ body {
 .bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }
+
+/* ══ 사이버틱 테마 ══════════════════════════════════════════════
+   html[data-theme="cyber"]가 붙으면 전체 화면이 네온/다크 스타일로 전환된다.
+   모든 효과는 정적 CSS(변수 재정의 + 색상 오버라이드)로만 구현되어 있어
+   애니메이션/필터 등 렌더링 비용이 발생하는 요소가 없다. */
+html[data-theme="cyber"] {
+  --pri: #06b6d4;
+  --pri-dark: #0891b2;
+  --accent: #d946ef;
+  --bg-a: #060913;
+  --bg-b: #0b1022;
+  --surface: #0f1629;
+  --border: #1e335c;
+  --text: #d7e4f5;
+  --text-muted: #7c93b5;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.55), 0 0 12px rgba(6, 182, 212, 0.07);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 20px rgba(6, 182, 212, 0.1);
+}
+html[data-theme="cyber"] body {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(6, 182, 212, 0.08), transparent 45%),
+    radial-gradient(circle at 80% 100%, rgba(217, 70, 239, 0.06), transparent 45%),
+    linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+}
+html[data-theme="cyber"] .topbar {
+  background: linear-gradient(120deg, #0b1428, #101a35 60%, #1a1033);
+  border-bottom: 1px solid rgba(6, 182, 212, 0.45);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5), 0 1px 12px rgba(6, 182, 212, 0.15);
+}
+html[data-theme="cyber"] .topbar h1 {
+  background: linear-gradient(90deg, #22d3ee, #e879f9);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+html[data-theme="cyber"] .equipment-frame {
+  background:
+    radial-gradient(circle, rgba(6, 182, 212, 0.16) 1px, transparent 1px),
+    linear-gradient(180deg, #0c1327, #090e1e);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md);
+}
+html[data-theme="cyber"] .unit-shape {
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 22%, transparent);
+}
+html[data-theme="cyber"] .unit-icon-wrap {
+  background: #14203c;
+  background: color-mix(in srgb, var(--uc) 24%, #0d1428);
+}
+html[data-theme="cyber"] .overdue-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(239, 68, 68, 0.7); }
+html[data-theme="cyber"] .soon-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(245, 158, 11, 0.7); }
+html[data-theme="cyber"] .dot-ok { box-shadow: 0 0 0 3px currentColor, 0 0 8px #22c55e; }
+html[data-theme="cyber"] .dot-soon { box-shadow: 0 0 0 3px currentColor, 0 0 8px #f59e0b; }
+html[data-theme="cyber"] .dot-overdue { box-shadow: 0 0 0 3px currentColor, 0 0 8px #ef4444; }
+html[data-theme="cyber"] .part-card { background: #0d1428; }
+html[data-theme="cyber"] .badge-ok { background: rgba(34, 197, 94, 0.16); color: #4ade80; }
+html[data-theme="cyber"] .badge-soon { background: rgba(245, 158, 11, 0.16); color: #fbbf24; }
+html[data-theme="cyber"] .badge-overdue { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+html[data-theme="cyber"] .badge-unknown { background: rgba(148, 163, 184, 0.16); color: #94a3b8; }
+html[data-theme="cyber"] .history-row { border-bottom-color: var(--border); }
+html[data-theme="cyber"] .notes-view,
+html[data-theme="cyber"] .part-memo-view { color: var(--text); }
+html[data-theme="cyber"] .notes-view th,
+html[data-theme="cyber"] .part-memo-view th,
+html[data-theme="cyber"] .rich-edit th { background: #14203c; }
+html[data-theme="cyber"] .master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.14), rgba(245, 158, 11, 0.1));
+  color: #fbbf24;
+}
+html[data-theme="cyber"] .btn-outline-secondary { color: #9fb4d6; border-color: #2a4470; }
+html[data-theme="cyber"] .btn-outline-secondary:hover { background: #1a2a4d; color: var(--text); border-color: #2a4470; }
+html[data-theme="cyber"] .icon-picker { background: #0c1327; }
+html[data-theme="cyber"] .icon-choice { background: #14203c; }
+html[data-theme="cyber"] .icon-choice:hover { background: #1c2c52; }
+html[data-theme="cyber"] .icon-choice.selected { background: color-mix(in srgb, var(--pri) 24%, #0d1428); }
+html[data-theme="cyber"] .part-drawing-paste { background: #0c1327; }
+html[data-theme="cyber"] .alert-row:hover,
+html[data-theme="cyber"] .stats-row:hover { background: #14203c; }
+html[data-theme="cyber"] .bulk-table thead th { background: #0c1327; }
+html[data-theme="cyber"] .bulk-status-registered { color: #4ade80; }
+
+/* 사이버틱: 부트스트랩 기본 컴포넌트(모달/폼/드롭다운/테이블) 다크화 */
+html[data-theme="cyber"] .modal-content { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+html[data-theme="cyber"] .btn-close { filter: invert(1) brightness(1.6); }
+html[data-theme="cyber"] .form-control,
+html[data-theme="cyber"] .form-select {
+  background-color: #0c1327;
+  border-color: #2a4470;
+  color: var(--text);
+}
+html[data-theme="cyber"] .form-control:focus,
+html[data-theme="cyber"] .form-select:focus {
+  background-color: #0c1327;
+  color: var(--text);
+  border-color: var(--pri);
+  box-shadow: 0 0 0 0.2rem rgba(6, 182, 212, 0.25);
+}
+html[data-theme="cyber"] .form-control::placeholder { color: #5a7196; }
+html[data-theme="cyber"] .dropdown-menu { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+html[data-theme="cyber"] .dropdown-item { color: var(--text); }
+html[data-theme="cyber"] .dropdown-item:hover { background: #14203c; color: var(--text); }
+html[data-theme="cyber"] .table { color: var(--text); border-color: var(--border); --bs-table-bg: transparent; --bs-table-color: var(--text); --bs-table-border-color: var(--border); }
+html[data-theme="cyber"] .table-danger { --bs-table-bg: rgba(239, 68, 68, 0.14); --bs-table-color: #fca5a5; }
+html[data-theme="cyber"] .text-muted { color: var(--text-muted) !important; }
+html[data-theme="cyber"] .form-check-input { background-color: #0c1327; border-color: #2a4470; }
+html[data-theme="cyber"] .form-check-input:checked { background-color: var(--pri); border-color: var(--pri); }
+html[data-theme="cyber"] .rich-edit:empty::before,
+html[data-theme="cyber"] .notes-view:empty::before,
+html[data-theme="cyber"] .notes-view.is-empty::before,
+html[data-theme="cyber"] .part-memo-view:empty::before,
+html[data-theme="cyber"] .part-memo-view.is-empty::before,
+html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
 </style>
+<script>
+// 전체 스타일 테마 (기본 / 사이버틱) 전환.
+// <head>에서 동기 로드되어 본문이 그려지기 전에 저장된 테마를 즉시 적용하므로
+// 페이지 진입 시 밝은 화면이 번쩍이는 현상(FOUC)이 없다. 추가 네트워크 요청이나
+// 반복 실행 코드가 없어 성능에는 영향을 주지 않는다.
+(function () {
+  const THEME_KEY = "appTheme";
+
+  function currentTheme() {
+    return localStorage.getItem(THEME_KEY) === "cyber" ? "cyber" : "default";
+  }
+
+  function applyTheme(theme) {
+    if (theme === "cyber") {
+      document.documentElement.dataset.theme = "cyber";
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+  }
+
+  applyTheme(currentTheme());
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const bar = document.querySelector(".topbar > div:last-of-type");
+    if (!bar) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-sm btn-outline-light theme-toggle-btn";
+    btn.title = "화면 스타일 전환 (기본 / 사이버틱)";
+
+    function refreshLabel() {
+      btn.innerHTML =
+        currentTheme() === "cyber"
+          ? '<i class="bi bi-stars"></i> 사이버'
+          : '<i class="bi bi-palette"></i> 기본';
+    }
+
+    btn.addEventListener("click", () => {
+      const next = currentTheme() === "cyber" ? "default" : "cyber";
+      localStorage.setItem(THEME_KEY, next);
+      applyTheme(next);
+      refreshLabel();
+    });
+
+    refreshLabel();
+    bar.appendChild(btn);
+  });
+})();
+</script>
 </head>
 <body>
 
@@ -10145,7 +10965,171 @@ body {
 .bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }
+
+/* ══ 사이버틱 테마 ══════════════════════════════════════════════
+   html[data-theme="cyber"]가 붙으면 전체 화면이 네온/다크 스타일로 전환된다.
+   모든 효과는 정적 CSS(변수 재정의 + 색상 오버라이드)로만 구현되어 있어
+   애니메이션/필터 등 렌더링 비용이 발생하는 요소가 없다. */
+html[data-theme="cyber"] {
+  --pri: #06b6d4;
+  --pri-dark: #0891b2;
+  --accent: #d946ef;
+  --bg-a: #060913;
+  --bg-b: #0b1022;
+  --surface: #0f1629;
+  --border: #1e335c;
+  --text: #d7e4f5;
+  --text-muted: #7c93b5;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.55), 0 0 12px rgba(6, 182, 212, 0.07);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 20px rgba(6, 182, 212, 0.1);
+}
+html[data-theme="cyber"] body {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(6, 182, 212, 0.08), transparent 45%),
+    radial-gradient(circle at 80% 100%, rgba(217, 70, 239, 0.06), transparent 45%),
+    linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+}
+html[data-theme="cyber"] .topbar {
+  background: linear-gradient(120deg, #0b1428, #101a35 60%, #1a1033);
+  border-bottom: 1px solid rgba(6, 182, 212, 0.45);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5), 0 1px 12px rgba(6, 182, 212, 0.15);
+}
+html[data-theme="cyber"] .topbar h1 {
+  background: linear-gradient(90deg, #22d3ee, #e879f9);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+html[data-theme="cyber"] .equipment-frame {
+  background:
+    radial-gradient(circle, rgba(6, 182, 212, 0.16) 1px, transparent 1px),
+    linear-gradient(180deg, #0c1327, #090e1e);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md);
+}
+html[data-theme="cyber"] .unit-shape {
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 22%, transparent);
+}
+html[data-theme="cyber"] .unit-icon-wrap {
+  background: #14203c;
+  background: color-mix(in srgb, var(--uc) 24%, #0d1428);
+}
+html[data-theme="cyber"] .overdue-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(239, 68, 68, 0.7); }
+html[data-theme="cyber"] .soon-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(245, 158, 11, 0.7); }
+html[data-theme="cyber"] .dot-ok { box-shadow: 0 0 0 3px currentColor, 0 0 8px #22c55e; }
+html[data-theme="cyber"] .dot-soon { box-shadow: 0 0 0 3px currentColor, 0 0 8px #f59e0b; }
+html[data-theme="cyber"] .dot-overdue { box-shadow: 0 0 0 3px currentColor, 0 0 8px #ef4444; }
+html[data-theme="cyber"] .part-card { background: #0d1428; }
+html[data-theme="cyber"] .badge-ok { background: rgba(34, 197, 94, 0.16); color: #4ade80; }
+html[data-theme="cyber"] .badge-soon { background: rgba(245, 158, 11, 0.16); color: #fbbf24; }
+html[data-theme="cyber"] .badge-overdue { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+html[data-theme="cyber"] .badge-unknown { background: rgba(148, 163, 184, 0.16); color: #94a3b8; }
+html[data-theme="cyber"] .history-row { border-bottom-color: var(--border); }
+html[data-theme="cyber"] .notes-view,
+html[data-theme="cyber"] .part-memo-view { color: var(--text); }
+html[data-theme="cyber"] .notes-view th,
+html[data-theme="cyber"] .part-memo-view th,
+html[data-theme="cyber"] .rich-edit th { background: #14203c; }
+html[data-theme="cyber"] .master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.14), rgba(245, 158, 11, 0.1));
+  color: #fbbf24;
+}
+html[data-theme="cyber"] .btn-outline-secondary { color: #9fb4d6; border-color: #2a4470; }
+html[data-theme="cyber"] .btn-outline-secondary:hover { background: #1a2a4d; color: var(--text); border-color: #2a4470; }
+html[data-theme="cyber"] .icon-picker { background: #0c1327; }
+html[data-theme="cyber"] .icon-choice { background: #14203c; }
+html[data-theme="cyber"] .icon-choice:hover { background: #1c2c52; }
+html[data-theme="cyber"] .icon-choice.selected { background: color-mix(in srgb, var(--pri) 24%, #0d1428); }
+html[data-theme="cyber"] .part-drawing-paste { background: #0c1327; }
+html[data-theme="cyber"] .alert-row:hover,
+html[data-theme="cyber"] .stats-row:hover { background: #14203c; }
+html[data-theme="cyber"] .bulk-table thead th { background: #0c1327; }
+html[data-theme="cyber"] .bulk-status-registered { color: #4ade80; }
+
+/* 사이버틱: 부트스트랩 기본 컴포넌트(모달/폼/드롭다운/테이블) 다크화 */
+html[data-theme="cyber"] .modal-content { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+html[data-theme="cyber"] .btn-close { filter: invert(1) brightness(1.6); }
+html[data-theme="cyber"] .form-control,
+html[data-theme="cyber"] .form-select {
+  background-color: #0c1327;
+  border-color: #2a4470;
+  color: var(--text);
+}
+html[data-theme="cyber"] .form-control:focus,
+html[data-theme="cyber"] .form-select:focus {
+  background-color: #0c1327;
+  color: var(--text);
+  border-color: var(--pri);
+  box-shadow: 0 0 0 0.2rem rgba(6, 182, 212, 0.25);
+}
+html[data-theme="cyber"] .form-control::placeholder { color: #5a7196; }
+html[data-theme="cyber"] .dropdown-menu { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+html[data-theme="cyber"] .dropdown-item { color: var(--text); }
+html[data-theme="cyber"] .dropdown-item:hover { background: #14203c; color: var(--text); }
+html[data-theme="cyber"] .table { color: var(--text); border-color: var(--border); --bs-table-bg: transparent; --bs-table-color: var(--text); --bs-table-border-color: var(--border); }
+html[data-theme="cyber"] .table-danger { --bs-table-bg: rgba(239, 68, 68, 0.14); --bs-table-color: #fca5a5; }
+html[data-theme="cyber"] .text-muted { color: var(--text-muted) !important; }
+html[data-theme="cyber"] .form-check-input { background-color: #0c1327; border-color: #2a4470; }
+html[data-theme="cyber"] .form-check-input:checked { background-color: var(--pri); border-color: var(--pri); }
+html[data-theme="cyber"] .rich-edit:empty::before,
+html[data-theme="cyber"] .notes-view:empty::before,
+html[data-theme="cyber"] .notes-view.is-empty::before,
+html[data-theme="cyber"] .part-memo-view:empty::before,
+html[data-theme="cyber"] .part-memo-view.is-empty::before,
+html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
 </style>
+<script>
+// 전체 스타일 테마 (기본 / 사이버틱) 전환.
+// <head>에서 동기 로드되어 본문이 그려지기 전에 저장된 테마를 즉시 적용하므로
+// 페이지 진입 시 밝은 화면이 번쩍이는 현상(FOUC)이 없다. 추가 네트워크 요청이나
+// 반복 실행 코드가 없어 성능에는 영향을 주지 않는다.
+(function () {
+  const THEME_KEY = "appTheme";
+
+  function currentTheme() {
+    return localStorage.getItem(THEME_KEY) === "cyber" ? "cyber" : "default";
+  }
+
+  function applyTheme(theme) {
+    if (theme === "cyber") {
+      document.documentElement.dataset.theme = "cyber";
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+  }
+
+  applyTheme(currentTheme());
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const bar = document.querySelector(".topbar > div:last-of-type");
+    if (!bar) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-sm btn-outline-light theme-toggle-btn";
+    btn.title = "화면 스타일 전환 (기본 / 사이버틱)";
+
+    function refreshLabel() {
+      btn.innerHTML =
+        currentTheme() === "cyber"
+          ? '<i class="bi bi-stars"></i> 사이버'
+          : '<i class="bi bi-palette"></i> 기본';
+    }
+
+    btn.addEventListener("click", () => {
+      const next = currentTheme() === "cyber" ? "default" : "cyber";
+      localStorage.setItem(THEME_KEY, next);
+      applyTheme(next);
+      refreshLabel();
+    });
+
+    refreshLabel();
+    bar.appendChild(btn);
+  });
+})();
+</script>
 </head>
 <body>
 
@@ -11110,7 +12094,171 @@ body {
 .bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }
+
+/* ══ 사이버틱 테마 ══════════════════════════════════════════════
+   html[data-theme="cyber"]가 붙으면 전체 화면이 네온/다크 스타일로 전환된다.
+   모든 효과는 정적 CSS(변수 재정의 + 색상 오버라이드)로만 구현되어 있어
+   애니메이션/필터 등 렌더링 비용이 발생하는 요소가 없다. */
+html[data-theme="cyber"] {
+  --pri: #06b6d4;
+  --pri-dark: #0891b2;
+  --accent: #d946ef;
+  --bg-a: #060913;
+  --bg-b: #0b1022;
+  --surface: #0f1629;
+  --border: #1e335c;
+  --text: #d7e4f5;
+  --text-muted: #7c93b5;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.55), 0 0 12px rgba(6, 182, 212, 0.07);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 20px rgba(6, 182, 212, 0.1);
+}
+html[data-theme="cyber"] body {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(6, 182, 212, 0.08), transparent 45%),
+    radial-gradient(circle at 80% 100%, rgba(217, 70, 239, 0.06), transparent 45%),
+    linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+}
+html[data-theme="cyber"] .topbar {
+  background: linear-gradient(120deg, #0b1428, #101a35 60%, #1a1033);
+  border-bottom: 1px solid rgba(6, 182, 212, 0.45);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5), 0 1px 12px rgba(6, 182, 212, 0.15);
+}
+html[data-theme="cyber"] .topbar h1 {
+  background: linear-gradient(90deg, #22d3ee, #e879f9);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+html[data-theme="cyber"] .equipment-frame {
+  background:
+    radial-gradient(circle, rgba(6, 182, 212, 0.16) 1px, transparent 1px),
+    linear-gradient(180deg, #0c1327, #090e1e);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md);
+}
+html[data-theme="cyber"] .unit-shape {
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 22%, transparent);
+}
+html[data-theme="cyber"] .unit-icon-wrap {
+  background: #14203c;
+  background: color-mix(in srgb, var(--uc) 24%, #0d1428);
+}
+html[data-theme="cyber"] .overdue-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(239, 68, 68, 0.7); }
+html[data-theme="cyber"] .soon-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(245, 158, 11, 0.7); }
+html[data-theme="cyber"] .dot-ok { box-shadow: 0 0 0 3px currentColor, 0 0 8px #22c55e; }
+html[data-theme="cyber"] .dot-soon { box-shadow: 0 0 0 3px currentColor, 0 0 8px #f59e0b; }
+html[data-theme="cyber"] .dot-overdue { box-shadow: 0 0 0 3px currentColor, 0 0 8px #ef4444; }
+html[data-theme="cyber"] .part-card { background: #0d1428; }
+html[data-theme="cyber"] .badge-ok { background: rgba(34, 197, 94, 0.16); color: #4ade80; }
+html[data-theme="cyber"] .badge-soon { background: rgba(245, 158, 11, 0.16); color: #fbbf24; }
+html[data-theme="cyber"] .badge-overdue { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+html[data-theme="cyber"] .badge-unknown { background: rgba(148, 163, 184, 0.16); color: #94a3b8; }
+html[data-theme="cyber"] .history-row { border-bottom-color: var(--border); }
+html[data-theme="cyber"] .notes-view,
+html[data-theme="cyber"] .part-memo-view { color: var(--text); }
+html[data-theme="cyber"] .notes-view th,
+html[data-theme="cyber"] .part-memo-view th,
+html[data-theme="cyber"] .rich-edit th { background: #14203c; }
+html[data-theme="cyber"] .master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.14), rgba(245, 158, 11, 0.1));
+  color: #fbbf24;
+}
+html[data-theme="cyber"] .btn-outline-secondary { color: #9fb4d6; border-color: #2a4470; }
+html[data-theme="cyber"] .btn-outline-secondary:hover { background: #1a2a4d; color: var(--text); border-color: #2a4470; }
+html[data-theme="cyber"] .icon-picker { background: #0c1327; }
+html[data-theme="cyber"] .icon-choice { background: #14203c; }
+html[data-theme="cyber"] .icon-choice:hover { background: #1c2c52; }
+html[data-theme="cyber"] .icon-choice.selected { background: color-mix(in srgb, var(--pri) 24%, #0d1428); }
+html[data-theme="cyber"] .part-drawing-paste { background: #0c1327; }
+html[data-theme="cyber"] .alert-row:hover,
+html[data-theme="cyber"] .stats-row:hover { background: #14203c; }
+html[data-theme="cyber"] .bulk-table thead th { background: #0c1327; }
+html[data-theme="cyber"] .bulk-status-registered { color: #4ade80; }
+
+/* 사이버틱: 부트스트랩 기본 컴포넌트(모달/폼/드롭다운/테이블) 다크화 */
+html[data-theme="cyber"] .modal-content { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+html[data-theme="cyber"] .btn-close { filter: invert(1) brightness(1.6); }
+html[data-theme="cyber"] .form-control,
+html[data-theme="cyber"] .form-select {
+  background-color: #0c1327;
+  border-color: #2a4470;
+  color: var(--text);
+}
+html[data-theme="cyber"] .form-control:focus,
+html[data-theme="cyber"] .form-select:focus {
+  background-color: #0c1327;
+  color: var(--text);
+  border-color: var(--pri);
+  box-shadow: 0 0 0 0.2rem rgba(6, 182, 212, 0.25);
+}
+html[data-theme="cyber"] .form-control::placeholder { color: #5a7196; }
+html[data-theme="cyber"] .dropdown-menu { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+html[data-theme="cyber"] .dropdown-item { color: var(--text); }
+html[data-theme="cyber"] .dropdown-item:hover { background: #14203c; color: var(--text); }
+html[data-theme="cyber"] .table { color: var(--text); border-color: var(--border); --bs-table-bg: transparent; --bs-table-color: var(--text); --bs-table-border-color: var(--border); }
+html[data-theme="cyber"] .table-danger { --bs-table-bg: rgba(239, 68, 68, 0.14); --bs-table-color: #fca5a5; }
+html[data-theme="cyber"] .text-muted { color: var(--text-muted) !important; }
+html[data-theme="cyber"] .form-check-input { background-color: #0c1327; border-color: #2a4470; }
+html[data-theme="cyber"] .form-check-input:checked { background-color: var(--pri); border-color: var(--pri); }
+html[data-theme="cyber"] .rich-edit:empty::before,
+html[data-theme="cyber"] .notes-view:empty::before,
+html[data-theme="cyber"] .notes-view.is-empty::before,
+html[data-theme="cyber"] .part-memo-view:empty::before,
+html[data-theme="cyber"] .part-memo-view.is-empty::before,
+html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
 </style>
+<script>
+// 전체 스타일 테마 (기본 / 사이버틱) 전환.
+// <head>에서 동기 로드되어 본문이 그려지기 전에 저장된 테마를 즉시 적용하므로
+// 페이지 진입 시 밝은 화면이 번쩍이는 현상(FOUC)이 없다. 추가 네트워크 요청이나
+// 반복 실행 코드가 없어 성능에는 영향을 주지 않는다.
+(function () {
+  const THEME_KEY = "appTheme";
+
+  function currentTheme() {
+    return localStorage.getItem(THEME_KEY) === "cyber" ? "cyber" : "default";
+  }
+
+  function applyTheme(theme) {
+    if (theme === "cyber") {
+      document.documentElement.dataset.theme = "cyber";
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+  }
+
+  applyTheme(currentTheme());
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const bar = document.querySelector(".topbar > div:last-of-type");
+    if (!bar) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-sm btn-outline-light theme-toggle-btn";
+    btn.title = "화면 스타일 전환 (기본 / 사이버틱)";
+
+    function refreshLabel() {
+      btn.innerHTML =
+        currentTheme() === "cyber"
+          ? '<i class="bi bi-stars"></i> 사이버'
+          : '<i class="bi bi-palette"></i> 기본';
+    }
+
+    btn.addEventListener("click", () => {
+      const next = currentTheme() === "cyber" ? "default" : "cyber";
+      localStorage.setItem(THEME_KEY, next);
+      applyTheme(next);
+      refreshLabel();
+    });
+
+    refreshLabel();
+    bar.appendChild(btn);
+  });
+})();
+</script>
 </head>
 <body>
 
@@ -12168,7 +13316,171 @@ body {
 .bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }
+
+/* ══ 사이버틱 테마 ══════════════════════════════════════════════
+   html[data-theme="cyber"]가 붙으면 전체 화면이 네온/다크 스타일로 전환된다.
+   모든 효과는 정적 CSS(변수 재정의 + 색상 오버라이드)로만 구현되어 있어
+   애니메이션/필터 등 렌더링 비용이 발생하는 요소가 없다. */
+html[data-theme="cyber"] {
+  --pri: #06b6d4;
+  --pri-dark: #0891b2;
+  --accent: #d946ef;
+  --bg-a: #060913;
+  --bg-b: #0b1022;
+  --surface: #0f1629;
+  --border: #1e335c;
+  --text: #d7e4f5;
+  --text-muted: #7c93b5;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.55), 0 0 12px rgba(6, 182, 212, 0.07);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 20px rgba(6, 182, 212, 0.1);
+}
+html[data-theme="cyber"] body {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(6, 182, 212, 0.08), transparent 45%),
+    radial-gradient(circle at 80% 100%, rgba(217, 70, 239, 0.06), transparent 45%),
+    linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+}
+html[data-theme="cyber"] .topbar {
+  background: linear-gradient(120deg, #0b1428, #101a35 60%, #1a1033);
+  border-bottom: 1px solid rgba(6, 182, 212, 0.45);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5), 0 1px 12px rgba(6, 182, 212, 0.15);
+}
+html[data-theme="cyber"] .topbar h1 {
+  background: linear-gradient(90deg, #22d3ee, #e879f9);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+html[data-theme="cyber"] .equipment-frame {
+  background:
+    radial-gradient(circle, rgba(6, 182, 212, 0.16) 1px, transparent 1px),
+    linear-gradient(180deg, #0c1327, #090e1e);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md);
+}
+html[data-theme="cyber"] .unit-shape {
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 22%, transparent);
+}
+html[data-theme="cyber"] .unit-icon-wrap {
+  background: #14203c;
+  background: color-mix(in srgb, var(--uc) 24%, #0d1428);
+}
+html[data-theme="cyber"] .overdue-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(239, 68, 68, 0.7); }
+html[data-theme="cyber"] .soon-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(245, 158, 11, 0.7); }
+html[data-theme="cyber"] .dot-ok { box-shadow: 0 0 0 3px currentColor, 0 0 8px #22c55e; }
+html[data-theme="cyber"] .dot-soon { box-shadow: 0 0 0 3px currentColor, 0 0 8px #f59e0b; }
+html[data-theme="cyber"] .dot-overdue { box-shadow: 0 0 0 3px currentColor, 0 0 8px #ef4444; }
+html[data-theme="cyber"] .part-card { background: #0d1428; }
+html[data-theme="cyber"] .badge-ok { background: rgba(34, 197, 94, 0.16); color: #4ade80; }
+html[data-theme="cyber"] .badge-soon { background: rgba(245, 158, 11, 0.16); color: #fbbf24; }
+html[data-theme="cyber"] .badge-overdue { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+html[data-theme="cyber"] .badge-unknown { background: rgba(148, 163, 184, 0.16); color: #94a3b8; }
+html[data-theme="cyber"] .history-row { border-bottom-color: var(--border); }
+html[data-theme="cyber"] .notes-view,
+html[data-theme="cyber"] .part-memo-view { color: var(--text); }
+html[data-theme="cyber"] .notes-view th,
+html[data-theme="cyber"] .part-memo-view th,
+html[data-theme="cyber"] .rich-edit th { background: #14203c; }
+html[data-theme="cyber"] .master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.14), rgba(245, 158, 11, 0.1));
+  color: #fbbf24;
+}
+html[data-theme="cyber"] .btn-outline-secondary { color: #9fb4d6; border-color: #2a4470; }
+html[data-theme="cyber"] .btn-outline-secondary:hover { background: #1a2a4d; color: var(--text); border-color: #2a4470; }
+html[data-theme="cyber"] .icon-picker { background: #0c1327; }
+html[data-theme="cyber"] .icon-choice { background: #14203c; }
+html[data-theme="cyber"] .icon-choice:hover { background: #1c2c52; }
+html[data-theme="cyber"] .icon-choice.selected { background: color-mix(in srgb, var(--pri) 24%, #0d1428); }
+html[data-theme="cyber"] .part-drawing-paste { background: #0c1327; }
+html[data-theme="cyber"] .alert-row:hover,
+html[data-theme="cyber"] .stats-row:hover { background: #14203c; }
+html[data-theme="cyber"] .bulk-table thead th { background: #0c1327; }
+html[data-theme="cyber"] .bulk-status-registered { color: #4ade80; }
+
+/* 사이버틱: 부트스트랩 기본 컴포넌트(모달/폼/드롭다운/테이블) 다크화 */
+html[data-theme="cyber"] .modal-content { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+html[data-theme="cyber"] .btn-close { filter: invert(1) brightness(1.6); }
+html[data-theme="cyber"] .form-control,
+html[data-theme="cyber"] .form-select {
+  background-color: #0c1327;
+  border-color: #2a4470;
+  color: var(--text);
+}
+html[data-theme="cyber"] .form-control:focus,
+html[data-theme="cyber"] .form-select:focus {
+  background-color: #0c1327;
+  color: var(--text);
+  border-color: var(--pri);
+  box-shadow: 0 0 0 0.2rem rgba(6, 182, 212, 0.25);
+}
+html[data-theme="cyber"] .form-control::placeholder { color: #5a7196; }
+html[data-theme="cyber"] .dropdown-menu { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+html[data-theme="cyber"] .dropdown-item { color: var(--text); }
+html[data-theme="cyber"] .dropdown-item:hover { background: #14203c; color: var(--text); }
+html[data-theme="cyber"] .table { color: var(--text); border-color: var(--border); --bs-table-bg: transparent; --bs-table-color: var(--text); --bs-table-border-color: var(--border); }
+html[data-theme="cyber"] .table-danger { --bs-table-bg: rgba(239, 68, 68, 0.14); --bs-table-color: #fca5a5; }
+html[data-theme="cyber"] .text-muted { color: var(--text-muted) !important; }
+html[data-theme="cyber"] .form-check-input { background-color: #0c1327; border-color: #2a4470; }
+html[data-theme="cyber"] .form-check-input:checked { background-color: var(--pri); border-color: var(--pri); }
+html[data-theme="cyber"] .rich-edit:empty::before,
+html[data-theme="cyber"] .notes-view:empty::before,
+html[data-theme="cyber"] .notes-view.is-empty::before,
+html[data-theme="cyber"] .part-memo-view:empty::before,
+html[data-theme="cyber"] .part-memo-view.is-empty::before,
+html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
 </style>
+<script>
+// 전체 스타일 테마 (기본 / 사이버틱) 전환.
+// <head>에서 동기 로드되어 본문이 그려지기 전에 저장된 테마를 즉시 적용하므로
+// 페이지 진입 시 밝은 화면이 번쩍이는 현상(FOUC)이 없다. 추가 네트워크 요청이나
+// 반복 실행 코드가 없어 성능에는 영향을 주지 않는다.
+(function () {
+  const THEME_KEY = "appTheme";
+
+  function currentTheme() {
+    return localStorage.getItem(THEME_KEY) === "cyber" ? "cyber" : "default";
+  }
+
+  function applyTheme(theme) {
+    if (theme === "cyber") {
+      document.documentElement.dataset.theme = "cyber";
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+  }
+
+  applyTheme(currentTheme());
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const bar = document.querySelector(".topbar > div:last-of-type");
+    if (!bar) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-sm btn-outline-light theme-toggle-btn";
+    btn.title = "화면 스타일 전환 (기본 / 사이버틱)";
+
+    function refreshLabel() {
+      btn.innerHTML =
+        currentTheme() === "cyber"
+          ? '<i class="bi bi-stars"></i> 사이버'
+          : '<i class="bi bi-palette"></i> 기본';
+    }
+
+    btn.addEventListener("click", () => {
+      const next = currentTheme() === "cyber" ? "default" : "cyber";
+      localStorage.setItem(THEME_KEY, next);
+      applyTheme(next);
+      refreshLabel();
+    });
+
+    refreshLabel();
+    bar.appendChild(btn);
+  });
+})();
+</script>
 </head>
 <body>
 
@@ -13011,7 +14323,171 @@ body {
 .bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }
+
+/* ══ 사이버틱 테마 ══════════════════════════════════════════════
+   html[data-theme="cyber"]가 붙으면 전체 화면이 네온/다크 스타일로 전환된다.
+   모든 효과는 정적 CSS(변수 재정의 + 색상 오버라이드)로만 구현되어 있어
+   애니메이션/필터 등 렌더링 비용이 발생하는 요소가 없다. */
+html[data-theme="cyber"] {
+  --pri: #06b6d4;
+  --pri-dark: #0891b2;
+  --accent: #d946ef;
+  --bg-a: #060913;
+  --bg-b: #0b1022;
+  --surface: #0f1629;
+  --border: #1e335c;
+  --text: #d7e4f5;
+  --text-muted: #7c93b5;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.55), 0 0 12px rgba(6, 182, 212, 0.07);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 20px rgba(6, 182, 212, 0.1);
+}
+html[data-theme="cyber"] body {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(6, 182, 212, 0.08), transparent 45%),
+    radial-gradient(circle at 80% 100%, rgba(217, 70, 239, 0.06), transparent 45%),
+    linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+}
+html[data-theme="cyber"] .topbar {
+  background: linear-gradient(120deg, #0b1428, #101a35 60%, #1a1033);
+  border-bottom: 1px solid rgba(6, 182, 212, 0.45);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5), 0 1px 12px rgba(6, 182, 212, 0.15);
+}
+html[data-theme="cyber"] .topbar h1 {
+  background: linear-gradient(90deg, #22d3ee, #e879f9);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+html[data-theme="cyber"] .equipment-frame {
+  background:
+    radial-gradient(circle, rgba(6, 182, 212, 0.16) 1px, transparent 1px),
+    linear-gradient(180deg, #0c1327, #090e1e);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md);
+}
+html[data-theme="cyber"] .unit-shape {
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 22%, transparent);
+}
+html[data-theme="cyber"] .unit-icon-wrap {
+  background: #14203c;
+  background: color-mix(in srgb, var(--uc) 24%, #0d1428);
+}
+html[data-theme="cyber"] .overdue-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(239, 68, 68, 0.7); }
+html[data-theme="cyber"] .soon-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(245, 158, 11, 0.7); }
+html[data-theme="cyber"] .dot-ok { box-shadow: 0 0 0 3px currentColor, 0 0 8px #22c55e; }
+html[data-theme="cyber"] .dot-soon { box-shadow: 0 0 0 3px currentColor, 0 0 8px #f59e0b; }
+html[data-theme="cyber"] .dot-overdue { box-shadow: 0 0 0 3px currentColor, 0 0 8px #ef4444; }
+html[data-theme="cyber"] .part-card { background: #0d1428; }
+html[data-theme="cyber"] .badge-ok { background: rgba(34, 197, 94, 0.16); color: #4ade80; }
+html[data-theme="cyber"] .badge-soon { background: rgba(245, 158, 11, 0.16); color: #fbbf24; }
+html[data-theme="cyber"] .badge-overdue { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+html[data-theme="cyber"] .badge-unknown { background: rgba(148, 163, 184, 0.16); color: #94a3b8; }
+html[data-theme="cyber"] .history-row { border-bottom-color: var(--border); }
+html[data-theme="cyber"] .notes-view,
+html[data-theme="cyber"] .part-memo-view { color: var(--text); }
+html[data-theme="cyber"] .notes-view th,
+html[data-theme="cyber"] .part-memo-view th,
+html[data-theme="cyber"] .rich-edit th { background: #14203c; }
+html[data-theme="cyber"] .master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.14), rgba(245, 158, 11, 0.1));
+  color: #fbbf24;
+}
+html[data-theme="cyber"] .btn-outline-secondary { color: #9fb4d6; border-color: #2a4470; }
+html[data-theme="cyber"] .btn-outline-secondary:hover { background: #1a2a4d; color: var(--text); border-color: #2a4470; }
+html[data-theme="cyber"] .icon-picker { background: #0c1327; }
+html[data-theme="cyber"] .icon-choice { background: #14203c; }
+html[data-theme="cyber"] .icon-choice:hover { background: #1c2c52; }
+html[data-theme="cyber"] .icon-choice.selected { background: color-mix(in srgb, var(--pri) 24%, #0d1428); }
+html[data-theme="cyber"] .part-drawing-paste { background: #0c1327; }
+html[data-theme="cyber"] .alert-row:hover,
+html[data-theme="cyber"] .stats-row:hover { background: #14203c; }
+html[data-theme="cyber"] .bulk-table thead th { background: #0c1327; }
+html[data-theme="cyber"] .bulk-status-registered { color: #4ade80; }
+
+/* 사이버틱: 부트스트랩 기본 컴포넌트(모달/폼/드롭다운/테이블) 다크화 */
+html[data-theme="cyber"] .modal-content { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+html[data-theme="cyber"] .btn-close { filter: invert(1) brightness(1.6); }
+html[data-theme="cyber"] .form-control,
+html[data-theme="cyber"] .form-select {
+  background-color: #0c1327;
+  border-color: #2a4470;
+  color: var(--text);
+}
+html[data-theme="cyber"] .form-control:focus,
+html[data-theme="cyber"] .form-select:focus {
+  background-color: #0c1327;
+  color: var(--text);
+  border-color: var(--pri);
+  box-shadow: 0 0 0 0.2rem rgba(6, 182, 212, 0.25);
+}
+html[data-theme="cyber"] .form-control::placeholder { color: #5a7196; }
+html[data-theme="cyber"] .dropdown-menu { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+html[data-theme="cyber"] .dropdown-item { color: var(--text); }
+html[data-theme="cyber"] .dropdown-item:hover { background: #14203c; color: var(--text); }
+html[data-theme="cyber"] .table { color: var(--text); border-color: var(--border); --bs-table-bg: transparent; --bs-table-color: var(--text); --bs-table-border-color: var(--border); }
+html[data-theme="cyber"] .table-danger { --bs-table-bg: rgba(239, 68, 68, 0.14); --bs-table-color: #fca5a5; }
+html[data-theme="cyber"] .text-muted { color: var(--text-muted) !important; }
+html[data-theme="cyber"] .form-check-input { background-color: #0c1327; border-color: #2a4470; }
+html[data-theme="cyber"] .form-check-input:checked { background-color: var(--pri); border-color: var(--pri); }
+html[data-theme="cyber"] .rich-edit:empty::before,
+html[data-theme="cyber"] .notes-view:empty::before,
+html[data-theme="cyber"] .notes-view.is-empty::before,
+html[data-theme="cyber"] .part-memo-view:empty::before,
+html[data-theme="cyber"] .part-memo-view.is-empty::before,
+html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
 </style>
+<script>
+// 전체 스타일 테마 (기본 / 사이버틱) 전환.
+// <head>에서 동기 로드되어 본문이 그려지기 전에 저장된 테마를 즉시 적용하므로
+// 페이지 진입 시 밝은 화면이 번쩍이는 현상(FOUC)이 없다. 추가 네트워크 요청이나
+// 반복 실행 코드가 없어 성능에는 영향을 주지 않는다.
+(function () {
+  const THEME_KEY = "appTheme";
+
+  function currentTheme() {
+    return localStorage.getItem(THEME_KEY) === "cyber" ? "cyber" : "default";
+  }
+
+  function applyTheme(theme) {
+    if (theme === "cyber") {
+      document.documentElement.dataset.theme = "cyber";
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+  }
+
+  applyTheme(currentTheme());
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const bar = document.querySelector(".topbar > div:last-of-type");
+    if (!bar) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-sm btn-outline-light theme-toggle-btn";
+    btn.title = "화면 스타일 전환 (기본 / 사이버틱)";
+
+    function refreshLabel() {
+      btn.innerHTML =
+        currentTheme() === "cyber"
+          ? '<i class="bi bi-stars"></i> 사이버'
+          : '<i class="bi bi-palette"></i> 기본';
+    }
+
+    btn.addEventListener("click", () => {
+      const next = currentTheme() === "cyber" ? "default" : "cyber";
+      localStorage.setItem(THEME_KEY, next);
+      applyTheme(next);
+      refreshLabel();
+    });
+
+    refreshLabel();
+    bar.appendChild(btn);
+  });
+})();
+</script>
 </head>
 <body>
 
@@ -14146,7 +15622,171 @@ body {
 .bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }
+
+/* ══ 사이버틱 테마 ══════════════════════════════════════════════
+   html[data-theme="cyber"]가 붙으면 전체 화면이 네온/다크 스타일로 전환된다.
+   모든 효과는 정적 CSS(변수 재정의 + 색상 오버라이드)로만 구현되어 있어
+   애니메이션/필터 등 렌더링 비용이 발생하는 요소가 없다. */
+html[data-theme="cyber"] {
+  --pri: #06b6d4;
+  --pri-dark: #0891b2;
+  --accent: #d946ef;
+  --bg-a: #060913;
+  --bg-b: #0b1022;
+  --surface: #0f1629;
+  --border: #1e335c;
+  --text: #d7e4f5;
+  --text-muted: #7c93b5;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.55), 0 0 12px rgba(6, 182, 212, 0.07);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 20px rgba(6, 182, 212, 0.1);
+}
+html[data-theme="cyber"] body {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(6, 182, 212, 0.08), transparent 45%),
+    radial-gradient(circle at 80% 100%, rgba(217, 70, 239, 0.06), transparent 45%),
+    linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+}
+html[data-theme="cyber"] .topbar {
+  background: linear-gradient(120deg, #0b1428, #101a35 60%, #1a1033);
+  border-bottom: 1px solid rgba(6, 182, 212, 0.45);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5), 0 1px 12px rgba(6, 182, 212, 0.15);
+}
+html[data-theme="cyber"] .topbar h1 {
+  background: linear-gradient(90deg, #22d3ee, #e879f9);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+html[data-theme="cyber"] .equipment-frame {
+  background:
+    radial-gradient(circle, rgba(6, 182, 212, 0.16) 1px, transparent 1px),
+    linear-gradient(180deg, #0c1327, #090e1e);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md);
+}
+html[data-theme="cyber"] .unit-shape {
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 22%, transparent);
+}
+html[data-theme="cyber"] .unit-icon-wrap {
+  background: #14203c;
+  background: color-mix(in srgb, var(--uc) 24%, #0d1428);
+}
+html[data-theme="cyber"] .overdue-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(239, 68, 68, 0.7); }
+html[data-theme="cyber"] .soon-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(245, 158, 11, 0.7); }
+html[data-theme="cyber"] .dot-ok { box-shadow: 0 0 0 3px currentColor, 0 0 8px #22c55e; }
+html[data-theme="cyber"] .dot-soon { box-shadow: 0 0 0 3px currentColor, 0 0 8px #f59e0b; }
+html[data-theme="cyber"] .dot-overdue { box-shadow: 0 0 0 3px currentColor, 0 0 8px #ef4444; }
+html[data-theme="cyber"] .part-card { background: #0d1428; }
+html[data-theme="cyber"] .badge-ok { background: rgba(34, 197, 94, 0.16); color: #4ade80; }
+html[data-theme="cyber"] .badge-soon { background: rgba(245, 158, 11, 0.16); color: #fbbf24; }
+html[data-theme="cyber"] .badge-overdue { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+html[data-theme="cyber"] .badge-unknown { background: rgba(148, 163, 184, 0.16); color: #94a3b8; }
+html[data-theme="cyber"] .history-row { border-bottom-color: var(--border); }
+html[data-theme="cyber"] .notes-view,
+html[data-theme="cyber"] .part-memo-view { color: var(--text); }
+html[data-theme="cyber"] .notes-view th,
+html[data-theme="cyber"] .part-memo-view th,
+html[data-theme="cyber"] .rich-edit th { background: #14203c; }
+html[data-theme="cyber"] .master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.14), rgba(245, 158, 11, 0.1));
+  color: #fbbf24;
+}
+html[data-theme="cyber"] .btn-outline-secondary { color: #9fb4d6; border-color: #2a4470; }
+html[data-theme="cyber"] .btn-outline-secondary:hover { background: #1a2a4d; color: var(--text); border-color: #2a4470; }
+html[data-theme="cyber"] .icon-picker { background: #0c1327; }
+html[data-theme="cyber"] .icon-choice { background: #14203c; }
+html[data-theme="cyber"] .icon-choice:hover { background: #1c2c52; }
+html[data-theme="cyber"] .icon-choice.selected { background: color-mix(in srgb, var(--pri) 24%, #0d1428); }
+html[data-theme="cyber"] .part-drawing-paste { background: #0c1327; }
+html[data-theme="cyber"] .alert-row:hover,
+html[data-theme="cyber"] .stats-row:hover { background: #14203c; }
+html[data-theme="cyber"] .bulk-table thead th { background: #0c1327; }
+html[data-theme="cyber"] .bulk-status-registered { color: #4ade80; }
+
+/* 사이버틱: 부트스트랩 기본 컴포넌트(모달/폼/드롭다운/테이블) 다크화 */
+html[data-theme="cyber"] .modal-content { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+html[data-theme="cyber"] .btn-close { filter: invert(1) brightness(1.6); }
+html[data-theme="cyber"] .form-control,
+html[data-theme="cyber"] .form-select {
+  background-color: #0c1327;
+  border-color: #2a4470;
+  color: var(--text);
+}
+html[data-theme="cyber"] .form-control:focus,
+html[data-theme="cyber"] .form-select:focus {
+  background-color: #0c1327;
+  color: var(--text);
+  border-color: var(--pri);
+  box-shadow: 0 0 0 0.2rem rgba(6, 182, 212, 0.25);
+}
+html[data-theme="cyber"] .form-control::placeholder { color: #5a7196; }
+html[data-theme="cyber"] .dropdown-menu { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+html[data-theme="cyber"] .dropdown-item { color: var(--text); }
+html[data-theme="cyber"] .dropdown-item:hover { background: #14203c; color: var(--text); }
+html[data-theme="cyber"] .table { color: var(--text); border-color: var(--border); --bs-table-bg: transparent; --bs-table-color: var(--text); --bs-table-border-color: var(--border); }
+html[data-theme="cyber"] .table-danger { --bs-table-bg: rgba(239, 68, 68, 0.14); --bs-table-color: #fca5a5; }
+html[data-theme="cyber"] .text-muted { color: var(--text-muted) !important; }
+html[data-theme="cyber"] .form-check-input { background-color: #0c1327; border-color: #2a4470; }
+html[data-theme="cyber"] .form-check-input:checked { background-color: var(--pri); border-color: var(--pri); }
+html[data-theme="cyber"] .rich-edit:empty::before,
+html[data-theme="cyber"] .notes-view:empty::before,
+html[data-theme="cyber"] .notes-view.is-empty::before,
+html[data-theme="cyber"] .part-memo-view:empty::before,
+html[data-theme="cyber"] .part-memo-view.is-empty::before,
+html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
 </style>
+<script>
+// 전체 스타일 테마 (기본 / 사이버틱) 전환.
+// <head>에서 동기 로드되어 본문이 그려지기 전에 저장된 테마를 즉시 적용하므로
+// 페이지 진입 시 밝은 화면이 번쩍이는 현상(FOUC)이 없다. 추가 네트워크 요청이나
+// 반복 실행 코드가 없어 성능에는 영향을 주지 않는다.
+(function () {
+  const THEME_KEY = "appTheme";
+
+  function currentTheme() {
+    return localStorage.getItem(THEME_KEY) === "cyber" ? "cyber" : "default";
+  }
+
+  function applyTheme(theme) {
+    if (theme === "cyber") {
+      document.documentElement.dataset.theme = "cyber";
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+  }
+
+  applyTheme(currentTheme());
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const bar = document.querySelector(".topbar > div:last-of-type");
+    if (!bar) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-sm btn-outline-light theme-toggle-btn";
+    btn.title = "화면 스타일 전환 (기본 / 사이버틱)";
+
+    function refreshLabel() {
+      btn.innerHTML =
+        currentTheme() === "cyber"
+          ? '<i class="bi bi-stars"></i> 사이버'
+          : '<i class="bi bi-palette"></i> 기본';
+    }
+
+    btn.addEventListener("click", () => {
+      const next = currentTheme() === "cyber" ? "default" : "cyber";
+      localStorage.setItem(THEME_KEY, next);
+      applyTheme(next);
+      refreshLabel();
+    });
+
+    refreshLabel();
+    bar.appendChild(btn);
+  });
+})();
+</script>
 </head>
 <body>
 
@@ -15158,7 +16798,171 @@ body {
 .bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }
+
+/* ══ 사이버틱 테마 ══════════════════════════════════════════════
+   html[data-theme="cyber"]가 붙으면 전체 화면이 네온/다크 스타일로 전환된다.
+   모든 효과는 정적 CSS(변수 재정의 + 색상 오버라이드)로만 구현되어 있어
+   애니메이션/필터 등 렌더링 비용이 발생하는 요소가 없다. */
+html[data-theme="cyber"] {
+  --pri: #06b6d4;
+  --pri-dark: #0891b2;
+  --accent: #d946ef;
+  --bg-a: #060913;
+  --bg-b: #0b1022;
+  --surface: #0f1629;
+  --border: #1e335c;
+  --text: #d7e4f5;
+  --text-muted: #7c93b5;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.55), 0 0 12px rgba(6, 182, 212, 0.07);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 20px rgba(6, 182, 212, 0.1);
+}
+html[data-theme="cyber"] body {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(6, 182, 212, 0.08), transparent 45%),
+    radial-gradient(circle at 80% 100%, rgba(217, 70, 239, 0.06), transparent 45%),
+    linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+}
+html[data-theme="cyber"] .topbar {
+  background: linear-gradient(120deg, #0b1428, #101a35 60%, #1a1033);
+  border-bottom: 1px solid rgba(6, 182, 212, 0.45);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5), 0 1px 12px rgba(6, 182, 212, 0.15);
+}
+html[data-theme="cyber"] .topbar h1 {
+  background: linear-gradient(90deg, #22d3ee, #e879f9);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+html[data-theme="cyber"] .equipment-frame {
+  background:
+    radial-gradient(circle, rgba(6, 182, 212, 0.16) 1px, transparent 1px),
+    linear-gradient(180deg, #0c1327, #090e1e);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md);
+}
+html[data-theme="cyber"] .unit-shape {
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 22%, transparent);
+}
+html[data-theme="cyber"] .unit-icon-wrap {
+  background: #14203c;
+  background: color-mix(in srgb, var(--uc) 24%, #0d1428);
+}
+html[data-theme="cyber"] .overdue-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(239, 68, 68, 0.7); }
+html[data-theme="cyber"] .soon-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(245, 158, 11, 0.7); }
+html[data-theme="cyber"] .dot-ok { box-shadow: 0 0 0 3px currentColor, 0 0 8px #22c55e; }
+html[data-theme="cyber"] .dot-soon { box-shadow: 0 0 0 3px currentColor, 0 0 8px #f59e0b; }
+html[data-theme="cyber"] .dot-overdue { box-shadow: 0 0 0 3px currentColor, 0 0 8px #ef4444; }
+html[data-theme="cyber"] .part-card { background: #0d1428; }
+html[data-theme="cyber"] .badge-ok { background: rgba(34, 197, 94, 0.16); color: #4ade80; }
+html[data-theme="cyber"] .badge-soon { background: rgba(245, 158, 11, 0.16); color: #fbbf24; }
+html[data-theme="cyber"] .badge-overdue { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+html[data-theme="cyber"] .badge-unknown { background: rgba(148, 163, 184, 0.16); color: #94a3b8; }
+html[data-theme="cyber"] .history-row { border-bottom-color: var(--border); }
+html[data-theme="cyber"] .notes-view,
+html[data-theme="cyber"] .part-memo-view { color: var(--text); }
+html[data-theme="cyber"] .notes-view th,
+html[data-theme="cyber"] .part-memo-view th,
+html[data-theme="cyber"] .rich-edit th { background: #14203c; }
+html[data-theme="cyber"] .master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.14), rgba(245, 158, 11, 0.1));
+  color: #fbbf24;
+}
+html[data-theme="cyber"] .btn-outline-secondary { color: #9fb4d6; border-color: #2a4470; }
+html[data-theme="cyber"] .btn-outline-secondary:hover { background: #1a2a4d; color: var(--text); border-color: #2a4470; }
+html[data-theme="cyber"] .icon-picker { background: #0c1327; }
+html[data-theme="cyber"] .icon-choice { background: #14203c; }
+html[data-theme="cyber"] .icon-choice:hover { background: #1c2c52; }
+html[data-theme="cyber"] .icon-choice.selected { background: color-mix(in srgb, var(--pri) 24%, #0d1428); }
+html[data-theme="cyber"] .part-drawing-paste { background: #0c1327; }
+html[data-theme="cyber"] .alert-row:hover,
+html[data-theme="cyber"] .stats-row:hover { background: #14203c; }
+html[data-theme="cyber"] .bulk-table thead th { background: #0c1327; }
+html[data-theme="cyber"] .bulk-status-registered { color: #4ade80; }
+
+/* 사이버틱: 부트스트랩 기본 컴포넌트(모달/폼/드롭다운/테이블) 다크화 */
+html[data-theme="cyber"] .modal-content { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+html[data-theme="cyber"] .btn-close { filter: invert(1) brightness(1.6); }
+html[data-theme="cyber"] .form-control,
+html[data-theme="cyber"] .form-select {
+  background-color: #0c1327;
+  border-color: #2a4470;
+  color: var(--text);
+}
+html[data-theme="cyber"] .form-control:focus,
+html[data-theme="cyber"] .form-select:focus {
+  background-color: #0c1327;
+  color: var(--text);
+  border-color: var(--pri);
+  box-shadow: 0 0 0 0.2rem rgba(6, 182, 212, 0.25);
+}
+html[data-theme="cyber"] .form-control::placeholder { color: #5a7196; }
+html[data-theme="cyber"] .dropdown-menu { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+html[data-theme="cyber"] .dropdown-item { color: var(--text); }
+html[data-theme="cyber"] .dropdown-item:hover { background: #14203c; color: var(--text); }
+html[data-theme="cyber"] .table { color: var(--text); border-color: var(--border); --bs-table-bg: transparent; --bs-table-color: var(--text); --bs-table-border-color: var(--border); }
+html[data-theme="cyber"] .table-danger { --bs-table-bg: rgba(239, 68, 68, 0.14); --bs-table-color: #fca5a5; }
+html[data-theme="cyber"] .text-muted { color: var(--text-muted) !important; }
+html[data-theme="cyber"] .form-check-input { background-color: #0c1327; border-color: #2a4470; }
+html[data-theme="cyber"] .form-check-input:checked { background-color: var(--pri); border-color: var(--pri); }
+html[data-theme="cyber"] .rich-edit:empty::before,
+html[data-theme="cyber"] .notes-view:empty::before,
+html[data-theme="cyber"] .notes-view.is-empty::before,
+html[data-theme="cyber"] .part-memo-view:empty::before,
+html[data-theme="cyber"] .part-memo-view.is-empty::before,
+html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
 </style>
+<script>
+// 전체 스타일 테마 (기본 / 사이버틱) 전환.
+// <head>에서 동기 로드되어 본문이 그려지기 전에 저장된 테마를 즉시 적용하므로
+// 페이지 진입 시 밝은 화면이 번쩍이는 현상(FOUC)이 없다. 추가 네트워크 요청이나
+// 반복 실행 코드가 없어 성능에는 영향을 주지 않는다.
+(function () {
+  const THEME_KEY = "appTheme";
+
+  function currentTheme() {
+    return localStorage.getItem(THEME_KEY) === "cyber" ? "cyber" : "default";
+  }
+
+  function applyTheme(theme) {
+    if (theme === "cyber") {
+      document.documentElement.dataset.theme = "cyber";
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+  }
+
+  applyTheme(currentTheme());
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const bar = document.querySelector(".topbar > div:last-of-type");
+    if (!bar) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-sm btn-outline-light theme-toggle-btn";
+    btn.title = "화면 스타일 전환 (기본 / 사이버틱)";
+
+    function refreshLabel() {
+      btn.innerHTML =
+        currentTheme() === "cyber"
+          ? '<i class="bi bi-stars"></i> 사이버'
+          : '<i class="bi bi-palette"></i> 기본';
+    }
+
+    btn.addEventListener("click", () => {
+      const next = currentTheme() === "cyber" ? "default" : "cyber";
+      localStorage.setItem(THEME_KEY, next);
+      applyTheme(next);
+      refreshLabel();
+    });
+
+    refreshLabel();
+    bar.appendChild(btn);
+  });
+})();
+</script>
 </head>
 <body>
 
@@ -16086,7 +17890,171 @@ body {
 .bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
 .bulk-status-pending { color: var(--text-muted); }
 .bulk-status-registered { color: #16a34a; font-weight: 700; }
+
+/* ══ 사이버틱 테마 ══════════════════════════════════════════════
+   html[data-theme="cyber"]가 붙으면 전체 화면이 네온/다크 스타일로 전환된다.
+   모든 효과는 정적 CSS(변수 재정의 + 색상 오버라이드)로만 구현되어 있어
+   애니메이션/필터 등 렌더링 비용이 발생하는 요소가 없다. */
+html[data-theme="cyber"] {
+  --pri: #06b6d4;
+  --pri-dark: #0891b2;
+  --accent: #d946ef;
+  --bg-a: #060913;
+  --bg-b: #0b1022;
+  --surface: #0f1629;
+  --border: #1e335c;
+  --text: #d7e4f5;
+  --text-muted: #7c93b5;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.55), 0 0 12px rgba(6, 182, 212, 0.07);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 20px rgba(6, 182, 212, 0.1);
+}
+html[data-theme="cyber"] body {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(6, 182, 212, 0.08), transparent 45%),
+    radial-gradient(circle at 80% 100%, rgba(217, 70, 239, 0.06), transparent 45%),
+    linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+}
+html[data-theme="cyber"] .topbar {
+  background: linear-gradient(120deg, #0b1428, #101a35 60%, #1a1033);
+  border-bottom: 1px solid rgba(6, 182, 212, 0.45);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5), 0 1px 12px rgba(6, 182, 212, 0.15);
+}
+html[data-theme="cyber"] .topbar h1 {
+  background: linear-gradient(90deg, #22d3ee, #e879f9);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+html[data-theme="cyber"] .equipment-frame {
+  background:
+    radial-gradient(circle, rgba(6, 182, 212, 0.16) 1px, transparent 1px),
+    linear-gradient(180deg, #0c1327, #090e1e);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md);
+}
+html[data-theme="cyber"] .unit-shape {
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 22%, transparent);
+}
+html[data-theme="cyber"] .unit-icon-wrap {
+  background: #14203c;
+  background: color-mix(in srgb, var(--uc) 24%, #0d1428);
+}
+html[data-theme="cyber"] .overdue-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(239, 68, 68, 0.7); }
+html[data-theme="cyber"] .soon-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(245, 158, 11, 0.7); }
+html[data-theme="cyber"] .dot-ok { box-shadow: 0 0 0 3px currentColor, 0 0 8px #22c55e; }
+html[data-theme="cyber"] .dot-soon { box-shadow: 0 0 0 3px currentColor, 0 0 8px #f59e0b; }
+html[data-theme="cyber"] .dot-overdue { box-shadow: 0 0 0 3px currentColor, 0 0 8px #ef4444; }
+html[data-theme="cyber"] .part-card { background: #0d1428; }
+html[data-theme="cyber"] .badge-ok { background: rgba(34, 197, 94, 0.16); color: #4ade80; }
+html[data-theme="cyber"] .badge-soon { background: rgba(245, 158, 11, 0.16); color: #fbbf24; }
+html[data-theme="cyber"] .badge-overdue { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+html[data-theme="cyber"] .badge-unknown { background: rgba(148, 163, 184, 0.16); color: #94a3b8; }
+html[data-theme="cyber"] .history-row { border-bottom-color: var(--border); }
+html[data-theme="cyber"] .notes-view,
+html[data-theme="cyber"] .part-memo-view { color: var(--text); }
+html[data-theme="cyber"] .notes-view th,
+html[data-theme="cyber"] .part-memo-view th,
+html[data-theme="cyber"] .rich-edit th { background: #14203c; }
+html[data-theme="cyber"] .master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.14), rgba(245, 158, 11, 0.1));
+  color: #fbbf24;
+}
+html[data-theme="cyber"] .btn-outline-secondary { color: #9fb4d6; border-color: #2a4470; }
+html[data-theme="cyber"] .btn-outline-secondary:hover { background: #1a2a4d; color: var(--text); border-color: #2a4470; }
+html[data-theme="cyber"] .icon-picker { background: #0c1327; }
+html[data-theme="cyber"] .icon-choice { background: #14203c; }
+html[data-theme="cyber"] .icon-choice:hover { background: #1c2c52; }
+html[data-theme="cyber"] .icon-choice.selected { background: color-mix(in srgb, var(--pri) 24%, #0d1428); }
+html[data-theme="cyber"] .part-drawing-paste { background: #0c1327; }
+html[data-theme="cyber"] .alert-row:hover,
+html[data-theme="cyber"] .stats-row:hover { background: #14203c; }
+html[data-theme="cyber"] .bulk-table thead th { background: #0c1327; }
+html[data-theme="cyber"] .bulk-status-registered { color: #4ade80; }
+
+/* 사이버틱: 부트스트랩 기본 컴포넌트(모달/폼/드롭다운/테이블) 다크화 */
+html[data-theme="cyber"] .modal-content { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+html[data-theme="cyber"] .btn-close { filter: invert(1) brightness(1.6); }
+html[data-theme="cyber"] .form-control,
+html[data-theme="cyber"] .form-select {
+  background-color: #0c1327;
+  border-color: #2a4470;
+  color: var(--text);
+}
+html[data-theme="cyber"] .form-control:focus,
+html[data-theme="cyber"] .form-select:focus {
+  background-color: #0c1327;
+  color: var(--text);
+  border-color: var(--pri);
+  box-shadow: 0 0 0 0.2rem rgba(6, 182, 212, 0.25);
+}
+html[data-theme="cyber"] .form-control::placeholder { color: #5a7196; }
+html[data-theme="cyber"] .dropdown-menu { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+html[data-theme="cyber"] .dropdown-item { color: var(--text); }
+html[data-theme="cyber"] .dropdown-item:hover { background: #14203c; color: var(--text); }
+html[data-theme="cyber"] .table { color: var(--text); border-color: var(--border); --bs-table-bg: transparent; --bs-table-color: var(--text); --bs-table-border-color: var(--border); }
+html[data-theme="cyber"] .table-danger { --bs-table-bg: rgba(239, 68, 68, 0.14); --bs-table-color: #fca5a5; }
+html[data-theme="cyber"] .text-muted { color: var(--text-muted) !important; }
+html[data-theme="cyber"] .form-check-input { background-color: #0c1327; border-color: #2a4470; }
+html[data-theme="cyber"] .form-check-input:checked { background-color: var(--pri); border-color: var(--pri); }
+html[data-theme="cyber"] .rich-edit:empty::before,
+html[data-theme="cyber"] .notes-view:empty::before,
+html[data-theme="cyber"] .notes-view.is-empty::before,
+html[data-theme="cyber"] .part-memo-view:empty::before,
+html[data-theme="cyber"] .part-memo-view.is-empty::before,
+html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
 </style>
+<script>
+// 전체 스타일 테마 (기본 / 사이버틱) 전환.
+// <head>에서 동기 로드되어 본문이 그려지기 전에 저장된 테마를 즉시 적용하므로
+// 페이지 진입 시 밝은 화면이 번쩍이는 현상(FOUC)이 없다. 추가 네트워크 요청이나
+// 반복 실행 코드가 없어 성능에는 영향을 주지 않는다.
+(function () {
+  const THEME_KEY = "appTheme";
+
+  function currentTheme() {
+    return localStorage.getItem(THEME_KEY) === "cyber" ? "cyber" : "default";
+  }
+
+  function applyTheme(theme) {
+    if (theme === "cyber") {
+      document.documentElement.dataset.theme = "cyber";
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+  }
+
+  applyTheme(currentTheme());
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const bar = document.querySelector(".topbar > div:last-of-type");
+    if (!bar) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-sm btn-outline-light theme-toggle-btn";
+    btn.title = "화면 스타일 전환 (기본 / 사이버틱)";
+
+    function refreshLabel() {
+      btn.innerHTML =
+        currentTheme() === "cyber"
+          ? '<i class="bi bi-stars"></i> 사이버'
+          : '<i class="bi bi-palette"></i> 기본';
+    }
+
+    btn.addEventListener("click", () => {
+      const next = currentTheme() === "cyber" ? "default" : "cyber";
+      localStorage.setItem(THEME_KEY, next);
+      applyTheme(next);
+      refreshLabel();
+    });
+
+    refreshLabel();
+    bar.appendChild(btn);
+  });
+})();
+</script>
 </head>
 <body>
 
