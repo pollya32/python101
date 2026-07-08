@@ -387,6 +387,17 @@ def init_db():
         )
     """)
 
+    # 횡전개 현황판: 엑셀에서 붙여넣은 호기/Chamber별 진행 날짜 표(data_html)를 항목별로 저장
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS rollout_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            data_html TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            updated_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS bulk_part_entries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -971,6 +982,71 @@ def export_inventory_csv():
         ])
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return csv_response(f"재고관리_{timestamp}.csv", header, data_rows)
+
+
+@app.route("/rollout")
+def rollout_page():
+    return ROLLOUT_HTML
+
+
+@app.route("/api/rollout")
+def list_rollout_items():
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM rollout_items ORDER BY id").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/rollout", methods=["POST"])
+def add_rollout_item():
+    data = request.get_json()
+    title = (data.get("title") or "").strip()
+    if not title:
+        return jsonify({"error": "제목을 입력하세요"}), 400
+    data_html = sanitize_rich_html(data.get("data_html") or "")
+    conn = get_db()
+    cur = conn.execute("INSERT INTO rollout_items (title, data_html) VALUES (?, ?)", (title, data_html))
+    new_id = cur.lastrowid
+    log_activity(conn, "create", "rollout", new_id, title, "횡전개 항목 추가")
+    conn.commit()
+    row = conn.execute("SELECT * FROM rollout_items WHERE id = ?", (new_id,)).fetchone()
+    conn.close()
+    return jsonify(dict(row)), 201
+
+
+@app.route("/api/rollout/<int:item_id>", methods=["PUT"])
+def update_rollout_item(item_id):
+    data = request.get_json()
+    conn = get_db()
+    row = conn.execute("SELECT * FROM rollout_items WHERE id = ?", (item_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "항목을 찾을 수 없습니다"}), 404
+    title = (data.get("title") or row["title"]).strip()
+    data_html = sanitize_rich_html(data.get("data_html", row["data_html"]))
+    conn.execute(
+        "UPDATE rollout_items SET title = ?, data_html = ?, updated_at = datetime('now','localtime') WHERE id = ?",
+        (title, data_html, item_id),
+    )
+    log_activity(conn, "update", "rollout", item_id, title, "횡전개 항목 수정")
+    conn.commit()
+    updated = conn.execute("SELECT * FROM rollout_items WHERE id = ?", (item_id,)).fetchone()
+    conn.close()
+    return jsonify(dict(updated))
+
+
+@app.route("/api/rollout/<int:item_id>", methods=["DELETE"])
+def delete_rollout_item(item_id):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM rollout_items WHERE id = ?", (item_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "항목을 찾을 수 없습니다"}), 404
+    conn.execute("DELETE FROM rollout_items WHERE id = ?", (item_id,))
+    log_activity(conn, "delete", "rollout", item_id, row["title"], "횡전개 항목 삭제")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
 
 
 @app.route("/equipment/<int:equipment_id>")
@@ -3108,6 +3184,65 @@ html[data-theme="cyber"] .notes-view.is-empty::before,
 html[data-theme="cyber"] .part-memo-view:empty::before,
 html[data-theme="cyber"] .part-memo-view.is-empty::before,
 html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
+
+/* ── 횡전개 현황판 ────────────────────────────────────────────── */
+.rollout-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+.rollout-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 16px 18px 12px;
+  display: flex;
+  flex-direction: column;
+}
+.rollout-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rollout-title { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; word-break: break-word; }
+.rollout-card-body { text-align: center; }
+.gauge-svg { width: 190px; max-width: 100%; display: block; margin: 0 auto; }
+.gauge-track { stroke: var(--border); }
+.gauge-pct { font-size: 21px; font-weight: 800; fill: var(--text); }
+.rollout-counts {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+.rollout-count-done { color: #16a34a; }
+.rollout-count-pending { color: #d97706; }
+.rollout-data {
+  margin-top: 12px;
+  border-top: 1px dashed var(--border);
+  padding-top: 12px;
+  overflow-x: auto;
+  font-size: 13px;
+}
+.rollout-data table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data td, .rollout-data th { border: 1px solid var(--border); padding: 4px 8px; font-size: 12.5px; }
+.rollout-data tr:first-child td, .rollout-data th { background: #f3f4f6; font-weight: 700; }
+.rollout-data tr td:first-child { background: #f8f9fd; font-weight: 600; }
+.rollout-updated { font-size: 11.5px; margin-top: 10px; text-align: right; }
+
+html[data-theme="cyber"] .rollout-count-done { color: #4ade80; }
+html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
+html[data-theme="cyber"] .rollout-data tr:first-child td,
+html[data-theme="cyber"] .rollout-data th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -3185,6 +3320,9 @@ html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
     </a>
     <a href="/inventory" class="btn btn-sm btn-outline-light">
       <i class="bi bi-boxes"></i> 재고 관리
+    </a>
+    <a href="/rollout" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-clipboard2-check"></i> 횡전개 현황판
     </a>
     <button id="backupBtn" class="btn btn-sm btn-outline-light">
       <i class="bi bi-download"></i> DB 백업
@@ -4544,6 +4682,65 @@ html[data-theme="cyber"] .notes-view.is-empty::before,
 html[data-theme="cyber"] .part-memo-view:empty::before,
 html[data-theme="cyber"] .part-memo-view.is-empty::before,
 html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
+
+/* ── 횡전개 현황판 ────────────────────────────────────────────── */
+.rollout-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+.rollout-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 16px 18px 12px;
+  display: flex;
+  flex-direction: column;
+}
+.rollout-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rollout-title { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; word-break: break-word; }
+.rollout-card-body { text-align: center; }
+.gauge-svg { width: 190px; max-width: 100%; display: block; margin: 0 auto; }
+.gauge-track { stroke: var(--border); }
+.gauge-pct { font-size: 21px; font-weight: 800; fill: var(--text); }
+.rollout-counts {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+.rollout-count-done { color: #16a34a; }
+.rollout-count-pending { color: #d97706; }
+.rollout-data {
+  margin-top: 12px;
+  border-top: 1px dashed var(--border);
+  padding-top: 12px;
+  overflow-x: auto;
+  font-size: 13px;
+}
+.rollout-data table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data td, .rollout-data th { border: 1px solid var(--border); padding: 4px 8px; font-size: 12.5px; }
+.rollout-data tr:first-child td, .rollout-data th { background: #f3f4f6; font-weight: 700; }
+.rollout-data tr td:first-child { background: #f8f9fd; font-weight: 600; }
+.rollout-updated { font-size: 11.5px; margin-top: 10px; text-align: right; }
+
+html[data-theme="cyber"] .rollout-count-done { color: #4ade80; }
+html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
+html[data-theme="cyber"] .rollout-data tr:first-child td,
+html[data-theme="cyber"] .rollout-data th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -6367,6 +6564,65 @@ html[data-theme="cyber"] .notes-view.is-empty::before,
 html[data-theme="cyber"] .part-memo-view:empty::before,
 html[data-theme="cyber"] .part-memo-view.is-empty::before,
 html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
+
+/* ── 횡전개 현황판 ────────────────────────────────────────────── */
+.rollout-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+.rollout-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 16px 18px 12px;
+  display: flex;
+  flex-direction: column;
+}
+.rollout-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rollout-title { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; word-break: break-word; }
+.rollout-card-body { text-align: center; }
+.gauge-svg { width: 190px; max-width: 100%; display: block; margin: 0 auto; }
+.gauge-track { stroke: var(--border); }
+.gauge-pct { font-size: 21px; font-weight: 800; fill: var(--text); }
+.rollout-counts {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+.rollout-count-done { color: #16a34a; }
+.rollout-count-pending { color: #d97706; }
+.rollout-data {
+  margin-top: 12px;
+  border-top: 1px dashed var(--border);
+  padding-top: 12px;
+  overflow-x: auto;
+  font-size: 13px;
+}
+.rollout-data table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data td, .rollout-data th { border: 1px solid var(--border); padding: 4px 8px; font-size: 12.5px; }
+.rollout-data tr:first-child td, .rollout-data th { background: #f3f4f6; font-weight: 700; }
+.rollout-data tr td:first-child { background: #f8f9fd; font-weight: 600; }
+.rollout-updated { font-size: 11.5px; margin-top: 10px; text-align: right; }
+
+html[data-theme="cyber"] .rollout-count-done { color: #4ade80; }
+html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
+html[data-theme="cyber"] .rollout-data tr:first-child td,
+html[data-theme="cyber"] .rollout-data th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -8587,6 +8843,65 @@ html[data-theme="cyber"] .notes-view.is-empty::before,
 html[data-theme="cyber"] .part-memo-view:empty::before,
 html[data-theme="cyber"] .part-memo-view.is-empty::before,
 html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
+
+/* ── 횡전개 현황판 ────────────────────────────────────────────── */
+.rollout-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+.rollout-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 16px 18px 12px;
+  display: flex;
+  flex-direction: column;
+}
+.rollout-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rollout-title { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; word-break: break-word; }
+.rollout-card-body { text-align: center; }
+.gauge-svg { width: 190px; max-width: 100%; display: block; margin: 0 auto; }
+.gauge-track { stroke: var(--border); }
+.gauge-pct { font-size: 21px; font-weight: 800; fill: var(--text); }
+.rollout-counts {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+.rollout-count-done { color: #16a34a; }
+.rollout-count-pending { color: #d97706; }
+.rollout-data {
+  margin-top: 12px;
+  border-top: 1px dashed var(--border);
+  padding-top: 12px;
+  overflow-x: auto;
+  font-size: 13px;
+}
+.rollout-data table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data td, .rollout-data th { border: 1px solid var(--border); padding: 4px 8px; font-size: 12.5px; }
+.rollout-data tr:first-child td, .rollout-data th { background: #f3f4f6; font-weight: 700; }
+.rollout-data tr td:first-child { background: #f8f9fd; font-weight: 600; }
+.rollout-updated { font-size: 11.5px; margin-top: 10px; text-align: right; }
+
+html[data-theme="cyber"] .rollout-count-done { color: #4ade80; }
+html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
+html[data-theme="cyber"] .rollout-data tr:first-child td,
+html[data-theme="cyber"] .rollout-data th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -10008,6 +10323,65 @@ html[data-theme="cyber"] .notes-view.is-empty::before,
 html[data-theme="cyber"] .part-memo-view:empty::before,
 html[data-theme="cyber"] .part-memo-view.is-empty::before,
 html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
+
+/* ── 횡전개 현황판 ────────────────────────────────────────────── */
+.rollout-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+.rollout-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 16px 18px 12px;
+  display: flex;
+  flex-direction: column;
+}
+.rollout-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rollout-title { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; word-break: break-word; }
+.rollout-card-body { text-align: center; }
+.gauge-svg { width: 190px; max-width: 100%; display: block; margin: 0 auto; }
+.gauge-track { stroke: var(--border); }
+.gauge-pct { font-size: 21px; font-weight: 800; fill: var(--text); }
+.rollout-counts {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+.rollout-count-done { color: #16a34a; }
+.rollout-count-pending { color: #d97706; }
+.rollout-data {
+  margin-top: 12px;
+  border-top: 1px dashed var(--border);
+  padding-top: 12px;
+  overflow-x: auto;
+  font-size: 13px;
+}
+.rollout-data table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data td, .rollout-data th { border: 1px solid var(--border); padding: 4px 8px; font-size: 12.5px; }
+.rollout-data tr:first-child td, .rollout-data th { background: #f3f4f6; font-weight: 700; }
+.rollout-data tr td:first-child { background: #f8f9fd; font-weight: 600; }
+.rollout-updated { font-size: 11.5px; margin-top: 10px; text-align: right; }
+
+html[data-theme="cyber"] .rollout-count-done { color: #4ade80; }
+html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
+html[data-theme="cyber"] .rollout-data tr:first-child td,
+html[data-theme="cyber"] .rollout-data th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -11080,6 +11454,65 @@ html[data-theme="cyber"] .notes-view.is-empty::before,
 html[data-theme="cyber"] .part-memo-view:empty::before,
 html[data-theme="cyber"] .part-memo-view.is-empty::before,
 html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
+
+/* ── 횡전개 현황판 ────────────────────────────────────────────── */
+.rollout-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+.rollout-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 16px 18px 12px;
+  display: flex;
+  flex-direction: column;
+}
+.rollout-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rollout-title { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; word-break: break-word; }
+.rollout-card-body { text-align: center; }
+.gauge-svg { width: 190px; max-width: 100%; display: block; margin: 0 auto; }
+.gauge-track { stroke: var(--border); }
+.gauge-pct { font-size: 21px; font-weight: 800; fill: var(--text); }
+.rollout-counts {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+.rollout-count-done { color: #16a34a; }
+.rollout-count-pending { color: #d97706; }
+.rollout-data {
+  margin-top: 12px;
+  border-top: 1px dashed var(--border);
+  padding-top: 12px;
+  overflow-x: auto;
+  font-size: 13px;
+}
+.rollout-data table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data td, .rollout-data th { border: 1px solid var(--border); padding: 4px 8px; font-size: 12.5px; }
+.rollout-data tr:first-child td, .rollout-data th { background: #f3f4f6; font-weight: 700; }
+.rollout-data tr td:first-child { background: #f8f9fd; font-weight: 600; }
+.rollout-updated { font-size: 11.5px; margin-top: 10px; text-align: right; }
+
+html[data-theme="cyber"] .rollout-count-done { color: #4ade80; }
+html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
+html[data-theme="cyber"] .rollout-data tr:first-child td,
+html[data-theme="cyber"] .rollout-data th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -12209,6 +12642,65 @@ html[data-theme="cyber"] .notes-view.is-empty::before,
 html[data-theme="cyber"] .part-memo-view:empty::before,
 html[data-theme="cyber"] .part-memo-view.is-empty::before,
 html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
+
+/* ── 횡전개 현황판 ────────────────────────────────────────────── */
+.rollout-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+.rollout-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 16px 18px 12px;
+  display: flex;
+  flex-direction: column;
+}
+.rollout-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rollout-title { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; word-break: break-word; }
+.rollout-card-body { text-align: center; }
+.gauge-svg { width: 190px; max-width: 100%; display: block; margin: 0 auto; }
+.gauge-track { stroke: var(--border); }
+.gauge-pct { font-size: 21px; font-weight: 800; fill: var(--text); }
+.rollout-counts {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+.rollout-count-done { color: #16a34a; }
+.rollout-count-pending { color: #d97706; }
+.rollout-data {
+  margin-top: 12px;
+  border-top: 1px dashed var(--border);
+  padding-top: 12px;
+  overflow-x: auto;
+  font-size: 13px;
+}
+.rollout-data table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data td, .rollout-data th { border: 1px solid var(--border); padding: 4px 8px; font-size: 12.5px; }
+.rollout-data tr:first-child td, .rollout-data th { background: #f3f4f6; font-weight: 700; }
+.rollout-data tr td:first-child { background: #f8f9fd; font-weight: 600; }
+.rollout-updated { font-size: 11.5px; margin-top: 10px; text-align: right; }
+
+html[data-theme="cyber"] .rollout-count-done { color: #4ade80; }
+html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
+html[data-theme="cyber"] .rollout-data tr:first-child td,
+html[data-theme="cyber"] .rollout-data th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -13431,6 +13923,65 @@ html[data-theme="cyber"] .notes-view.is-empty::before,
 html[data-theme="cyber"] .part-memo-view:empty::before,
 html[data-theme="cyber"] .part-memo-view.is-empty::before,
 html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
+
+/* ── 횡전개 현황판 ────────────────────────────────────────────── */
+.rollout-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+.rollout-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 16px 18px 12px;
+  display: flex;
+  flex-direction: column;
+}
+.rollout-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rollout-title { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; word-break: break-word; }
+.rollout-card-body { text-align: center; }
+.gauge-svg { width: 190px; max-width: 100%; display: block; margin: 0 auto; }
+.gauge-track { stroke: var(--border); }
+.gauge-pct { font-size: 21px; font-weight: 800; fill: var(--text); }
+.rollout-counts {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+.rollout-count-done { color: #16a34a; }
+.rollout-count-pending { color: #d97706; }
+.rollout-data {
+  margin-top: 12px;
+  border-top: 1px dashed var(--border);
+  padding-top: 12px;
+  overflow-x: auto;
+  font-size: 13px;
+}
+.rollout-data table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data td, .rollout-data th { border: 1px solid var(--border); padding: 4px 8px; font-size: 12.5px; }
+.rollout-data tr:first-child td, .rollout-data th { background: #f3f4f6; font-weight: 700; }
+.rollout-data tr td:first-child { background: #f8f9fd; font-weight: 600; }
+.rollout-updated { font-size: 11.5px; margin-top: 10px; text-align: right; }
+
+html[data-theme="cyber"] .rollout-count-done { color: #4ade80; }
+html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
+html[data-theme="cyber"] .rollout-data tr:first-child td,
+html[data-theme="cyber"] .rollout-data th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -14438,6 +14989,65 @@ html[data-theme="cyber"] .notes-view.is-empty::before,
 html[data-theme="cyber"] .part-memo-view:empty::before,
 html[data-theme="cyber"] .part-memo-view.is-empty::before,
 html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
+
+/* ── 횡전개 현황판 ────────────────────────────────────────────── */
+.rollout-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+.rollout-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 16px 18px 12px;
+  display: flex;
+  flex-direction: column;
+}
+.rollout-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rollout-title { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; word-break: break-word; }
+.rollout-card-body { text-align: center; }
+.gauge-svg { width: 190px; max-width: 100%; display: block; margin: 0 auto; }
+.gauge-track { stroke: var(--border); }
+.gauge-pct { font-size: 21px; font-weight: 800; fill: var(--text); }
+.rollout-counts {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+.rollout-count-done { color: #16a34a; }
+.rollout-count-pending { color: #d97706; }
+.rollout-data {
+  margin-top: 12px;
+  border-top: 1px dashed var(--border);
+  padding-top: 12px;
+  overflow-x: auto;
+  font-size: 13px;
+}
+.rollout-data table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data td, .rollout-data th { border: 1px solid var(--border); padding: 4px 8px; font-size: 12.5px; }
+.rollout-data tr:first-child td, .rollout-data th { background: #f3f4f6; font-weight: 700; }
+.rollout-data tr td:first-child { background: #f8f9fd; font-weight: 600; }
+.rollout-updated { font-size: 11.5px; margin-top: 10px; text-align: right; }
+
+html[data-theme="cyber"] .rollout-count-done { color: #4ade80; }
+html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
+html[data-theme="cyber"] .rollout-data tr:first-child td,
+html[data-theme="cyber"] .rollout-data th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -15737,6 +16347,65 @@ html[data-theme="cyber"] .notes-view.is-empty::before,
 html[data-theme="cyber"] .part-memo-view:empty::before,
 html[data-theme="cyber"] .part-memo-view.is-empty::before,
 html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
+
+/* ── 횡전개 현황판 ────────────────────────────────────────────── */
+.rollout-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+.rollout-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 16px 18px 12px;
+  display: flex;
+  flex-direction: column;
+}
+.rollout-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rollout-title { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; word-break: break-word; }
+.rollout-card-body { text-align: center; }
+.gauge-svg { width: 190px; max-width: 100%; display: block; margin: 0 auto; }
+.gauge-track { stroke: var(--border); }
+.gauge-pct { font-size: 21px; font-weight: 800; fill: var(--text); }
+.rollout-counts {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+.rollout-count-done { color: #16a34a; }
+.rollout-count-pending { color: #d97706; }
+.rollout-data {
+  margin-top: 12px;
+  border-top: 1px dashed var(--border);
+  padding-top: 12px;
+  overflow-x: auto;
+  font-size: 13px;
+}
+.rollout-data table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data td, .rollout-data th { border: 1px solid var(--border); padding: 4px 8px; font-size: 12.5px; }
+.rollout-data tr:first-child td, .rollout-data th { background: #f3f4f6; font-weight: 700; }
+.rollout-data tr td:first-child { background: #f8f9fd; font-weight: 600; }
+.rollout-updated { font-size: 11.5px; margin-top: 10px; text-align: right; }
+
+html[data-theme="cyber"] .rollout-count-done { color: #4ade80; }
+html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
+html[data-theme="cyber"] .rollout-data tr:first-child td,
+html[data-theme="cyber"] .rollout-data th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -16913,6 +17582,65 @@ html[data-theme="cyber"] .notes-view.is-empty::before,
 html[data-theme="cyber"] .part-memo-view:empty::before,
 html[data-theme="cyber"] .part-memo-view.is-empty::before,
 html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
+
+/* ── 횡전개 현황판 ────────────────────────────────────────────── */
+.rollout-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+.rollout-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 16px 18px 12px;
+  display: flex;
+  flex-direction: column;
+}
+.rollout-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rollout-title { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; word-break: break-word; }
+.rollout-card-body { text-align: center; }
+.gauge-svg { width: 190px; max-width: 100%; display: block; margin: 0 auto; }
+.gauge-track { stroke: var(--border); }
+.gauge-pct { font-size: 21px; font-weight: 800; fill: var(--text); }
+.rollout-counts {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+.rollout-count-done { color: #16a34a; }
+.rollout-count-pending { color: #d97706; }
+.rollout-data {
+  margin-top: 12px;
+  border-top: 1px dashed var(--border);
+  padding-top: 12px;
+  overflow-x: auto;
+  font-size: 13px;
+}
+.rollout-data table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data td, .rollout-data th { border: 1px solid var(--border); padding: 4px 8px; font-size: 12.5px; }
+.rollout-data tr:first-child td, .rollout-data th { background: #f3f4f6; font-weight: 700; }
+.rollout-data tr td:first-child { background: #f8f9fd; font-weight: 600; }
+.rollout-updated { font-size: 11.5px; margin-top: 10px; text-align: right; }
+
+html[data-theme="cyber"] .rollout-count-done { color: #4ade80; }
+html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
+html[data-theme="cyber"] .rollout-data tr:first-child td,
+html[data-theme="cyber"] .rollout-data th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -18005,6 +18733,65 @@ html[data-theme="cyber"] .notes-view.is-empty::before,
 html[data-theme="cyber"] .part-memo-view:empty::before,
 html[data-theme="cyber"] .part-memo-view.is-empty::before,
 html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
+
+/* ── 횡전개 현황판 ────────────────────────────────────────────── */
+.rollout-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+.rollout-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 16px 18px 12px;
+  display: flex;
+  flex-direction: column;
+}
+.rollout-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rollout-title { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; word-break: break-word; }
+.rollout-card-body { text-align: center; }
+.gauge-svg { width: 190px; max-width: 100%; display: block; margin: 0 auto; }
+.gauge-track { stroke: var(--border); }
+.gauge-pct { font-size: 21px; font-weight: 800; fill: var(--text); }
+.rollout-counts {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+.rollout-count-done { color: #16a34a; }
+.rollout-count-pending { color: #d97706; }
+.rollout-data {
+  margin-top: 12px;
+  border-top: 1px dashed var(--border);
+  padding-top: 12px;
+  overflow-x: auto;
+  font-size: 13px;
+}
+.rollout-data table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data td, .rollout-data th { border: 1px solid var(--border); padding: 4px 8px; font-size: 12.5px; }
+.rollout-data tr:first-child td, .rollout-data th { background: #f3f4f6; font-weight: 700; }
+.rollout-data tr td:first-child { background: #f8f9fd; font-weight: 600; }
+.rollout-updated { font-size: 11.5px; margin-top: 10px; text-align: right; }
+
+html[data-theme="cyber"] .rollout-count-done { color: #4ade80; }
+html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
+html[data-theme="cyber"] .rollout-data tr:first-child td,
+html[data-theme="cyber"] .rollout-data th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
 </style>
 <script>
 // 전체 스타일 테마 (기본 / 사이버틱) 전환.
@@ -18194,6 +18981,1346 @@ document.addEventListener("DOMContentLoaded", () => {
   loadInventory();
 
   document.getElementById("lowStockOnlyCheck").addEventListener("change", renderInventory);
+});
+</script>
+</body>
+</html>
+"""
+
+
+ROLLOUT_HTML = r"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>횡전개 현황판 - 설비 부품 교체 관리 시스템</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<style>
+:root {
+  --pri: #4338ca;
+  --pri-dark: #362f8c;
+  --accent: #6366f1;
+  --bg-a: #e5e7eb;
+  --bg-b: #f3f4f6;
+  --surface: #ffffff;
+  --border: #e5e7eb;
+  --text: #1e2432;
+  --text-muted: #6b7280;
+  --radius-lg: 18px;
+  --radius-md: 14px;
+  --radius-sm: 10px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
+  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+    "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  color: var(--text);
+}
+
+/* ── 로그인 페이지 ────────────────────────────────────────────── */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 36px 32px;
+  max-width: 380px;
+  width: 100%;
+  text-align: center;
+}
+.login-icon {
+  font-size: 40px;
+  color: var(--pri);
+  margin-bottom: 10px;
+}
+.login-card h1 {
+  font-size: 18px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+/* ── 버튼 공통 리스킨 ─────────────────────────────────────────── */
+.btn {
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: all 0.15s ease;
+}
+.btn-primary {
+  background: var(--pri);
+  border-color: var(--pri);
+  box-shadow: 0 2px 8px rgba(67, 56, 202, 0.35);
+}
+.btn-primary:hover {
+  background: var(--pri-dark);
+  border-color: var(--pri-dark);
+  box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
+}
+.btn-outline-light {
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.btn-outline-light:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #fff;
+}
+.btn-warning {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+}
+.btn-warning:hover { background: #d97706; border-color: #d97706; color: #fff; }
+.btn-outline-secondary { border-color: var(--border); color: var(--text-muted); }
+.btn-outline-secondary:hover { background: #f3f4f6; color: var(--text); }
+.btn-outline-primary { color: var(--pri); border-color: var(--pri); }
+.btn-outline-primary:hover { background: var(--pri); border-color: var(--pri); }
+.btn-outline-danger:hover { box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25); }
+
+.form-control:focus, .form-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 0.2rem rgba(99, 102, 241, 0.2);
+}
+
+/* ── 상단바 ───────────────────────────────────────────────────── */
+.topbar {
+  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
+  color: #fff;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 90;
+  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
+}
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.topbar i.bi { font-size: 18px; opacity: 0.9; }
+.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+
+/* ── 범례 ─────────────────────────────────────────────────────── */
+.legend {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  font-size: 13px;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 9px 20px;
+  box-shadow: var(--shadow-sm);
+}
+.legend-item { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-shadow: 0 0 0 3px currentColor; opacity: 0.9; }
+.dot-ok { background: #22c55e; color: rgba(34, 197, 94, 0.18); }
+.dot-soon { background: #f59e0b; color: rgba(245, 158, 11, 0.18); }
+.dot-overdue { background: #ef4444; color: rgba(239, 68, 68, 0.18); }
+.dot-unknown { background: #9ca3af; color: rgba(156, 163, 175, 0.18); }
+.legend-edit-btn { font-size: 13px; color: var(--pri); line-height: 1; }
+.legend-edit-btn:hover { color: var(--pri); opacity: 0.8; }
+
+/* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
+.equipment-frame {
+  background:
+    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
+    linear-gradient(180deg, #fcfcfd, #e9eaed);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid #dcdee2;
+  border-radius: var(--radius-lg);
+  padding: 30px 22px 22px;
+  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
+  position: relative;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.12), rgba(245, 158, 11, 0.12));
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  color: #92400e;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  margin-bottom: 14px;
+  text-align: center;
+}
+.equipment-label {
+  position: absolute;
+  top: -14px;
+  left: 22px;
+  background: linear-gradient(120deg, var(--pri), var(--accent));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 14px;
+  border-radius: 999px;
+  box-shadow: 0 3px 10px rgba(67, 56, 202, 0.3);
+}
+
+.unit-shape {
+  --shape-color: var(--pri);
+  border: 3px solid var(--shape-color);
+  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+}
+.unit-shape-header {
+  text-align: center;
+  margin-bottom: 6px;
+}
+.unit-shape-icon {
+  font-size: 42px;
+  display: block;
+  line-height: 1.2;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.12));
+}
+.unit-shape-name {
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--shape-color);
+}
+
+/* ── 대시보드 그리드 ──────────────────────────────────────────── */
+.equipment-canvas.dashboard-canvas {
+  max-width: 1300px;
+  margin: 10px auto 0;
+  min-height: 860px;
+}
+@media (max-width: 768px) {
+  .equipment-canvas.dashboard-canvas { min-height: 1150px; }
+}
+.equipment-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 150px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--pri);
+  border-radius: var(--radius-md);
+  padding: 20px 10px 14px;
+  cursor: pointer;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  user-select: none;
+  touch-action: none;
+  box-sizing: border-box;
+}
+.equipment-card:hover {
+  box-shadow: var(--shadow-lg);
+  border-top-color: var(--accent);
+  z-index: 5;
+}
+.equipment-card.edit-mode { cursor: grab; }
+.equipment-card.dragging {
+  cursor: grabbing;
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+  transition: none;
+}
+.equipment-card .unit-icon { font-size: 30px; }
+
+.align-guide {
+  position: absolute;
+  background: var(--accent, #f59e0b);
+  opacity: 0.9;
+  pointer-events: none;
+  z-index: 30;
+}
+.align-guide-v { top: 0; bottom: 0; width: 2px; transform: translateX(-50%); }
+.align-guide-h { left: 0; right: 0; height: 2px; transform: translateY(-50%); }
+
+/* ── 캔버스 ───────────────────────────────────────────────────── */
+.equipment-canvas {
+  position: relative;
+  width: 100%;
+  min-height: 460px;
+  margin-top: 10px;
+}
+@media (max-width: 768px) {
+  .equipment-canvas { min-height: 620px; }
+}
+
+/* ── 유닛/부품 카드 ───────────────────────────────────────────── */
+.unit-card {
+  --uc: #4338ca;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 140px;
+  min-height: 110px;
+  background: var(--surface);
+  border: 1.5px solid var(--uc);
+  border-radius: var(--radius-md);
+  padding: 14px 10px 10px;
+  cursor: pointer;
+  transition: box-shadow 0.18s ease, transform 0.12s ease;
+  text-align: center;
+  user-select: none;
+  touch-action: none;
+  box-sizing: border-box;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.unit-card:hover {
+  box-shadow: var(--shadow-lg);
+  z-index: 5;
+}
+.edit-mode.unit-card { cursor: grab; }
+.unit-card.dragging {
+  cursor: grabbing;
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+  transition: none;
+}
+.unit-icon-wrap {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 6px;
+  background: #eef0fb;
+  background: color-mix(in srgb, var(--uc) 14%, white);
+}
+.overdue-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(239, 68, 68, 0.4);
+}
+.soon-badge {
+  position: absolute;
+  top: -6px;
+  left: -8px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #f59e0b;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(245, 158, 11, 0.4);
+}
+.unit-icon { font-size: 22px; display: block; line-height: 1; }
+.unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
+.unit-status-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+.unit-part-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-weight: 500;
+}
+.unit-edit-actions {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  display: none;
+  gap: 4px;
+}
+.edit-mode .unit-edit-actions { display: flex; }
+.unit-edit-actions button {
+  border: none;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 7px;
+  font-size: 11px;
+  padding: 3px 6px;
+  transition: background 0.15s;
+}
+.unit-edit-actions button:hover { background: rgba(15, 23, 42, 0.14); }
+
+.resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  display: none;
+  cursor: nwse-resize;
+}
+.edit-mode .resize-handle { display: block; }
+.resize-handle::before {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid rgba(67, 56, 202, 0.45);
+  border-bottom: 2px solid rgba(67, 56, 202, 0.45);
+}
+
+.resize-handle-h {
+  position: absolute;
+  right: -3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 30px;
+  display: none;
+  cursor: ew-resize;
+}
+.edit-mode .resize-handle-h { display: block; }
+.resize-handle-h::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+  background: rgba(67, 56, 202, 0.4);
+}
+
+.canvas-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* ── 부품 목록/배지 ───────────────────────────────────────────── */
+.part-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 15px;
+  margin-bottom: 10px;
+  background: #fafbfe;
+  transition: box-shadow 0.15s;
+}
+.part-card:hover { box-shadow: var(--shadow-sm); }
+.part-card .part-title { font-weight: 700; font-size: 14px; }
+.part-card .part-spec { font-size: 12px; color: var(--text-muted); }
+.badge-ok { background: #d1fae5; color: #065f46; }
+.badge-soon { background: #fef3c7; color: #92400e; }
+.badge-overdue { background: #fee2e2; color: #991b1b; }
+.badge-unknown { background: #e5e7eb; color: #374151; }
+
+.history-row { font-size: 13px; border-bottom: 1px solid #f1f1f1; padding: 7px 0; }
+
+/* ── 메모장 ───────────────────────────────────────────────────── */
+.notes-section {
+  max-width: 1100px;
+  margin: 20px auto 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+}
+.notes-view {
+  min-height: 60px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+  color: #333;
+  line-height: 1.6;
+}
+.notes-view:empty::before,
+.notes-view.is-empty::before {
+  content: "등록된 메모가 없습니다. \"편집\" 버튼을 눌러 설비 정보나 부품 구매처 링크를 기록해보세요.";
+  color: #9ca3af;
+}
+.notes-view a {
+  color: var(--pri);
+  word-break: break-all;
+  font-weight: 500;
+}
+#notesEdit { font-size: 14px; }
+
+/* ── 리치 메모/노트 (엑셀 표 붙여넣기 서식 유지) ─────────────────────── */
+.rich-edit {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.rich-edit:empty::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+}
+.notes-view table,
+.part-memo-view table,
+.rich-edit table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  max-width: 100%;
+}
+.notes-view td, .notes-view th,
+.part-memo-view td, .part-memo-view th,
+.rich-edit td, .rich-edit th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.notes-view th, .part-memo-view th, .rich-edit th { background: #f3f4f6; font-weight: 700; }
+.rich-edit table td, .rich-edit table th { cursor: text; }
+
+.table-edit-toolbar {
+  position: fixed;
+  z-index: 3000;
+  display: flex;
+  gap: 3px;
+  background: #1f2937;
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+.table-edit-toolbar button {
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.table-edit-toolbar button:hover { background: rgba(255, 255, 255, 0.18); }
+.table-edit-toolbar button[data-action^="del-"] { color: #fca5a5; }
+
+.part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
+.part-memo-view {
+  min-height: 32px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13.5px;
+  color: #333;
+  line-height: 1.6;
+}
+.part-memo-view:empty::before,
+.part-memo-view.is-empty::before {
+  content: "등록된 메모가 없습니다.";
+  color: #9ca3af;
+}
+.part-memo-view a {
+  color: var(--pri);
+  word-break: break-all;
+  font-weight: 500;
+}
+
+/* ── 부품 도면 ────────────────────────────────────────────────── */
+.part-drawing-paste {
+  margin-top: 8px;
+  min-height: 90px;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: #f8f9fc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  cursor: text;
+}
+.part-drawing-paste:focus { outline: none; border-color: var(--pri); }
+.part-drawing-placeholder { color: #9ca3af; font-size: 13px; text-align: center; }
+.part-drawing-preview {
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: var(--radius-sm);
+}
+.drawing-modal-img { max-width: 100%; max-height: 75vh; }
+
+/* ── 모달 리스킨 ──────────────────────────────────────────────── */
+.modal-content { border: none; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
+.modal-header { border-bottom: 1px solid var(--border); padding: 18px 22px; }
+.modal-title { font-weight: 700; letter-spacing: -0.01em; }
+.modal-body { padding: 20px 22px; }
+.form-label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+
+/* ── 아이콘 선택기 ────────────────────────────────────────────── */
+.icon-picker {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+  padding: 10px;
+  background: #f8f9fc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  max-height: 168px;
+  overflow-y: auto;
+}
+.icon-choice {
+  width: 34px;
+  height: 34px;
+  border: 1.5px solid transparent;
+  border-radius: 9px;
+  background: #fff;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.icon-choice:hover { background: #eef0fb; transform: translateY(-1px); }
+.icon-choice.selected {
+  border-color: var(--pri);
+  background: color-mix(in srgb, var(--pri) 12%, white);
+  box-shadow: 0 0 0 2px rgba(67, 56, 202, 0.18);
+}
+
+/* ── 대시보드 검색/정렬 툴바 ──────────────────────────────────── */
+.dashboard-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1100px;
+  margin: 0 auto 16px;
+}
+.dashboard-toolbar .search-box {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
+}
+.dashboard-toolbar .search-box i {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.dashboard-toolbar .search-box input {
+  padding-left: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.dashboard-toolbar select {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 13px;
+  padding: 6px 14px;
+}
+.nav-badge {
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  margin-left: 2px;
+}
+
+/* ── 전체 교체 현황 목록 ──────────────────────────────────────── */
+.alerts-list {
+  max-width: 900px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.alert-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.alert-row:last-child { border-bottom: none; }
+.alert-row:hover { background: #f8f9fd; }
+.alert-badge { flex-shrink: 0; min-width: 66px; text-align: center; }
+.alert-main { flex: 1; min-width: 0; }
+.alert-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.alert-sep { color: var(--text-muted); margin: 0 2px; }
+.alert-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.alert-chevron { color: var(--text-muted); flex-shrink: 0; }
+
+/* ── 통계 페이지 ───────────────────────────────────────────────── */
+.unit-filter-menu {
+  max-height: 320px;
+  overflow-y: auto;
+  min-width: 240px;
+}
+.unit-filter-menu .form-check { padding-left: 1.6em; }
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+@media (max-width: 900px) {
+  .stats-grid { grid-template-columns: 1fr; }
+}
+.stats-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 0 6px;
+}
+.stats-panel h6 {
+  font-weight: 700;
+  padding: 0 18px 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid #f1f2f6;
+}
+.stats-subtitle {
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.stats-list {
+  max-height: 380px;
+  overflow-y: auto;
+}
+.stats-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.stats-row:last-child { border-bottom: none; }
+.stats-row:hover { background: #f8f9fd; }
+.stats-rank {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--pri) 12%, white);
+  color: var(--pri);
+  font-size: 11px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
+.master-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  padding: 3px 10px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.bulk-paste-box {
+  max-width: 1300px;
+  margin: 0 auto 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 18px;
+}
+.bulk-paste-box textarea { font-family: ui-monospace, monospace; font-size: 13px; }
+.bulk-table-wrap {
+  max-width: 1300px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.bulk-table { margin-bottom: 0; font-size: 13.5px; }
+.bulk-table thead th {
+  background: #f8f9fd;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+}
+.bulk-table td { vertical-align: middle; }
+.bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-cycle-group { min-width: 105px; }
+.bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
+.bulk-status-pending { color: var(--text-muted); }
+.bulk-status-registered { color: #16a34a; font-weight: 700; }
+
+/* ══ 사이버틱 테마 ══════════════════════════════════════════════
+   html[data-theme="cyber"]가 붙으면 전체 화면이 네온/다크 스타일로 전환된다.
+   모든 효과는 정적 CSS(변수 재정의 + 색상 오버라이드)로만 구현되어 있어
+   애니메이션/필터 등 렌더링 비용이 발생하는 요소가 없다. */
+html[data-theme="cyber"] {
+  --pri: #06b6d4;
+  --pri-dark: #0891b2;
+  --accent: #d946ef;
+  --bg-a: #060913;
+  --bg-b: #0b1022;
+  --surface: #0f1629;
+  --border: #1e335c;
+  --text: #d7e4f5;
+  --text-muted: #7c93b5;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.55), 0 0 12px rgba(6, 182, 212, 0.07);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 20px rgba(6, 182, 212, 0.1);
+}
+html[data-theme="cyber"] body {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(6, 182, 212, 0.08), transparent 45%),
+    radial-gradient(circle at 80% 100%, rgba(217, 70, 239, 0.06), transparent 45%),
+    linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+}
+html[data-theme="cyber"] .topbar {
+  background: linear-gradient(120deg, #0b1428, #101a35 60%, #1a1033);
+  border-bottom: 1px solid rgba(6, 182, 212, 0.45);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5), 0 1px 12px rgba(6, 182, 212, 0.15);
+}
+html[data-theme="cyber"] .topbar h1 {
+  background: linear-gradient(90deg, #22d3ee, #e879f9);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+html[data-theme="cyber"] .equipment-frame {
+  background:
+    radial-gradient(circle, rgba(6, 182, 212, 0.16) 1px, transparent 1px),
+    linear-gradient(180deg, #0c1327, #090e1e);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md);
+}
+html[data-theme="cyber"] .unit-shape {
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 22%, transparent);
+}
+html[data-theme="cyber"] .unit-icon-wrap {
+  background: #14203c;
+  background: color-mix(in srgb, var(--uc) 24%, #0d1428);
+}
+html[data-theme="cyber"] .overdue-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(239, 68, 68, 0.7); }
+html[data-theme="cyber"] .soon-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(245, 158, 11, 0.7); }
+html[data-theme="cyber"] .dot-ok { box-shadow: 0 0 0 3px currentColor, 0 0 8px #22c55e; }
+html[data-theme="cyber"] .dot-soon { box-shadow: 0 0 0 3px currentColor, 0 0 8px #f59e0b; }
+html[data-theme="cyber"] .dot-overdue { box-shadow: 0 0 0 3px currentColor, 0 0 8px #ef4444; }
+html[data-theme="cyber"] .part-card { background: #0d1428; }
+html[data-theme="cyber"] .badge-ok { background: rgba(34, 197, 94, 0.16); color: #4ade80; }
+html[data-theme="cyber"] .badge-soon { background: rgba(245, 158, 11, 0.16); color: #fbbf24; }
+html[data-theme="cyber"] .badge-overdue { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+html[data-theme="cyber"] .badge-unknown { background: rgba(148, 163, 184, 0.16); color: #94a3b8; }
+html[data-theme="cyber"] .history-row { border-bottom-color: var(--border); }
+html[data-theme="cyber"] .notes-view,
+html[data-theme="cyber"] .part-memo-view { color: var(--text); }
+html[data-theme="cyber"] .notes-view th,
+html[data-theme="cyber"] .part-memo-view th,
+html[data-theme="cyber"] .rich-edit th { background: #14203c; }
+html[data-theme="cyber"] .master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.14), rgba(245, 158, 11, 0.1));
+  color: #fbbf24;
+}
+html[data-theme="cyber"] .btn-outline-secondary { color: #9fb4d6; border-color: #2a4470; }
+html[data-theme="cyber"] .btn-outline-secondary:hover { background: #1a2a4d; color: var(--text); border-color: #2a4470; }
+html[data-theme="cyber"] .icon-picker { background: #0c1327; }
+html[data-theme="cyber"] .icon-choice { background: #14203c; }
+html[data-theme="cyber"] .icon-choice:hover { background: #1c2c52; }
+html[data-theme="cyber"] .icon-choice.selected { background: color-mix(in srgb, var(--pri) 24%, #0d1428); }
+html[data-theme="cyber"] .part-drawing-paste { background: #0c1327; }
+html[data-theme="cyber"] .alert-row:hover,
+html[data-theme="cyber"] .stats-row:hover { background: #14203c; }
+html[data-theme="cyber"] .bulk-table thead th { background: #0c1327; }
+html[data-theme="cyber"] .bulk-status-registered { color: #4ade80; }
+
+/* 사이버틱: 부트스트랩 기본 컴포넌트(모달/폼/드롭다운/테이블) 다크화 */
+html[data-theme="cyber"] .modal-content { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+html[data-theme="cyber"] .btn-close { filter: invert(1) brightness(1.6); }
+html[data-theme="cyber"] .form-control,
+html[data-theme="cyber"] .form-select {
+  background-color: #0c1327;
+  border-color: #2a4470;
+  color: var(--text);
+}
+html[data-theme="cyber"] .form-control:focus,
+html[data-theme="cyber"] .form-select:focus {
+  background-color: #0c1327;
+  color: var(--text);
+  border-color: var(--pri);
+  box-shadow: 0 0 0 0.2rem rgba(6, 182, 212, 0.25);
+}
+html[data-theme="cyber"] .form-control::placeholder { color: #5a7196; }
+html[data-theme="cyber"] .dropdown-menu { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+html[data-theme="cyber"] .dropdown-item { color: var(--text); }
+html[data-theme="cyber"] .dropdown-item:hover { background: #14203c; color: var(--text); }
+html[data-theme="cyber"] .table { color: var(--text); border-color: var(--border); --bs-table-bg: transparent; --bs-table-color: var(--text); --bs-table-border-color: var(--border); }
+html[data-theme="cyber"] .table-danger { --bs-table-bg: rgba(239, 68, 68, 0.14); --bs-table-color: #fca5a5; }
+html[data-theme="cyber"] .text-muted { color: var(--text-muted) !important; }
+html[data-theme="cyber"] .form-check-input { background-color: #0c1327; border-color: #2a4470; }
+html[data-theme="cyber"] .form-check-input:checked { background-color: var(--pri); border-color: var(--pri); }
+html[data-theme="cyber"] .rich-edit:empty::before,
+html[data-theme="cyber"] .notes-view:empty::before,
+html[data-theme="cyber"] .notes-view.is-empty::before,
+html[data-theme="cyber"] .part-memo-view:empty::before,
+html[data-theme="cyber"] .part-memo-view.is-empty::before,
+html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
+
+/* ── 횡전개 현황판 ────────────────────────────────────────────── */
+.rollout-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+.rollout-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 16px 18px 12px;
+  display: flex;
+  flex-direction: column;
+}
+.rollout-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rollout-title { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; word-break: break-word; }
+.rollout-card-body { text-align: center; }
+.gauge-svg { width: 190px; max-width: 100%; display: block; margin: 0 auto; }
+.gauge-track { stroke: var(--border); }
+.gauge-pct { font-size: 21px; font-weight: 800; fill: var(--text); }
+.rollout-counts {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+.rollout-count-done { color: #16a34a; }
+.rollout-count-pending { color: #d97706; }
+.rollout-data {
+  margin-top: 12px;
+  border-top: 1px dashed var(--border);
+  padding-top: 12px;
+  overflow-x: auto;
+  font-size: 13px;
+}
+.rollout-data table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data td, .rollout-data th { border: 1px solid var(--border); padding: 4px 8px; font-size: 12.5px; }
+.rollout-data tr:first-child td, .rollout-data th { background: #f3f4f6; font-weight: 700; }
+.rollout-data tr td:first-child { background: #f8f9fd; font-weight: 600; }
+.rollout-updated { font-size: 11.5px; margin-top: 10px; text-align: right; }
+
+html[data-theme="cyber"] .rollout-count-done { color: #4ade80; }
+html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
+html[data-theme="cyber"] .rollout-data tr:first-child td,
+html[data-theme="cyber"] .rollout-data th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
+</style>
+<script>
+// 전체 스타일 테마 (기본 / 사이버틱) 전환.
+// <head>에서 동기 로드되어 본문이 그려지기 전에 저장된 테마를 즉시 적용하므로
+// 페이지 진입 시 밝은 화면이 번쩍이는 현상(FOUC)이 없다. 추가 네트워크 요청이나
+// 반복 실행 코드가 없어 성능에는 영향을 주지 않는다.
+(function () {
+  const THEME_KEY = "appTheme";
+
+  function currentTheme() {
+    return localStorage.getItem(THEME_KEY) === "cyber" ? "cyber" : "default";
+  }
+
+  function applyTheme(theme) {
+    if (theme === "cyber") {
+      document.documentElement.dataset.theme = "cyber";
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+  }
+
+  applyTheme(currentTheme());
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const bar = document.querySelector(".topbar > div:last-of-type");
+    if (!bar) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-sm btn-outline-light theme-toggle-btn";
+    btn.title = "화면 스타일 전환 (기본 / 사이버틱)";
+
+    function refreshLabel() {
+      btn.innerHTML =
+        currentTheme() === "cyber"
+          ? '<i class="bi bi-stars"></i> 사이버'
+          : '<i class="bi bi-palette"></i> 기본';
+    }
+
+    btn.addEventListener("click", () => {
+      const next = currentTheme() === "cyber" ? "default" : "cyber";
+      localStorage.setItem(THEME_KEY, next);
+      applyTheme(next);
+      refreshLabel();
+    });
+
+    refreshLabel();
+    bar.appendChild(btn);
+  });
+})();
+</script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="d-flex align-items-center gap-2">
+    <a href="/" class="btn btn-sm btn-outline-light"><i class="bi bi-arrow-left"></i> 대시보드</a>
+    <i class="bi bi-clipboard2-check"></i>
+    <h1>횡전개 현황판</h1>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span id="clock" class="clock"></span>
+    <button id="addRolloutBtn" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-plus-lg"></i> 항목 추가
+    </button>
+  </div>
+</header>
+
+<main class="container-fluid py-4">
+
+  <p class="text-muted small text-center mb-3">
+    엑셀에서 호기/Chamber별 진행 날짜 표를 복사해 붙여넣으면, 날짜가 입력된 칸은 완료·빈칸은 미진행으로
+    자동 집계되어 항목별 게이지로 표시됩니다. 붙여넣은 원본 데이터는 "데이터 보기"를 눌러야 나타납니다.
+  </p>
+
+  <div id="rolloutList" class="rollout-list"></div>
+  <p id="rolloutEmpty" class="text-muted text-center py-5 mb-0 d-none">
+    등록된 횡전개 항목이 없습니다. 우측 상단 "항목 추가" 버튼으로 시작하세요.
+  </p>
+
+</main>
+
+<!-- 항목 추가/편집 모달 -->
+<div class="modal fade" id="rolloutEditModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="rolloutEditTitle">횡전개 항목 추가</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="rolloutEditForm">
+          <input type="hidden" id="rolloutEditId">
+          <div class="mb-2">
+            <label class="form-label">제목</label>
+            <input type="text" class="form-control" id="rolloutEditName" placeholder="예: OO 부품 개선 횡전개" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">진행 현황 표 (엑셀에서 복사해 붙여넣기)</label>
+            <div id="rolloutEditData" class="form-control rich-edit" contenteditable="true" style="min-height: 180px;"
+              data-placeholder="엑셀 표를 붙여넣으세요. 첫 행은 Chamber 제목, 첫 열은 호기 이름으로 간주되어 집계에서 제외되고, 나머지 칸 중 날짜가 있으면 완료 / 빈칸은 미진행으로 카운트됩니다."></div>
+          </div>
+          <button type="submit" class="btn btn-primary w-100 mt-2">저장</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+function tick() {
+  const el = document.getElementById("clock");
+  if (el) el.textContent = new Date().toLocaleString("ko-KR");
+}
+
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s || "";
+  return div.innerHTML;
+}
+
+async function fetchJson(url, options) {
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    window.location.href = "/login";
+    throw new Error("로그인이 필요합니다");
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || "요청 처리 중 오류가 발생했습니다");
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+// ── 리치 붙여넣기 (엑셀 표 서식 유지) — 다른 페이지와 동일한 화이트리스트 정제 ──
+const RICH_ALLOWED_TAGS = {
+  TABLE: [], THEAD: [], TBODY: [], TFOOT: [], TR: [], COL: [], COLGROUP: [], CAPTION: [],
+  TH: ["colspan", "rowspan"], TD: ["colspan", "rowspan"],
+  B: [], STRONG: [], I: [], EM: [], U: [], BR: [], P: [], DIV: [], SPAN: [],
+  UL: [], OL: [], LI: [], A: ["href"],
+};
+const RICH_STRIP_TAGS = new Set([
+  "SCRIPT", "STYLE", "IFRAME", "OBJECT", "EMBED", "LINK", "META", "SVG",
+  "FORM", "IMG", "INPUT", "BUTTON", "TEXTAREA", "SELECT", "VIDEO", "AUDIO", "SOURCE",
+]);
+
+function sanitizeRichNode(node) {
+  Array.from(node.childNodes).forEach((child) => {
+    if (child.nodeType === Node.COMMENT_NODE) {
+      child.remove();
+      return;
+    }
+    if (child.nodeType !== Node.ELEMENT_NODE) return;
+    const tag = child.tagName;
+    if (RICH_STRIP_TAGS.has(tag)) {
+      child.remove();
+      return;
+    }
+    const allowed = RICH_ALLOWED_TAGS[tag];
+    if (!allowed) {
+      sanitizeRichNode(child);
+      while (child.firstChild) node.insertBefore(child.firstChild, child);
+      child.remove();
+      return;
+    }
+    Array.from(child.attributes).forEach((attr) => {
+      if (!allowed.includes(attr.name)) child.removeAttribute(attr.name);
+    });
+    if (tag === "A") {
+      const href = child.getAttribute("href") || "";
+      if (!/^https?:\/\//i.test(href)) {
+        child.removeAttribute("href");
+      } else {
+        child.setAttribute("target", "_blank");
+        child.setAttribute("rel", "noopener noreferrer");
+      }
+    }
+    sanitizeRichNode(child);
+  });
+}
+
+function sanitizeRichHtml(rawHtml) {
+  const container = document.createElement("div");
+  container.innerHTML = rawHtml || "";
+  sanitizeRichNode(container);
+  return container.innerHTML;
+}
+
+function attachRichPasteHandler(el) {
+  if (!el || el.dataset.richPasteBound) return;
+  el.dataset.richPasteBound = "1";
+  el.addEventListener("paste", (e) => {
+    e.preventDefault();
+    const html = e.clipboardData.getData("text/html");
+    const text = e.clipboardData.getData("text/plain");
+    if (html) {
+      document.execCommand("insertHTML", false, sanitizeRichHtml(html));
+    } else if (text) {
+      document.execCommand("insertText", false, text);
+    }
+  });
+}
+
+// ── 진행 현황 집계: 첫 행(Chamber 제목)과 첫 열(호기 이름)을 제외한 칸에서
+//    내용이 있으면 완료, 빈칸이면 미진행으로 센다 ─────────────────────────
+function computeProgress(dataHtml) {
+  const container = document.createElement("div");
+  container.innerHTML = dataHtml || "";
+  const table = container.querySelector("table");
+  if (!table) return { done: 0, pending: 0, total: 0 };
+  const rows = Array.from(table.querySelectorAll("tr"));
+  let done = 0;
+  let pending = 0;
+  rows.slice(1).forEach((tr) => {
+    Array.from(tr.children).slice(1).forEach((cell) => {
+      if (cell.textContent.trim()) done++;
+      else pending++;
+    });
+  });
+  return { done, pending, total: done + pending };
+}
+
+// 반원형 게이지 (정적 SVG — 애니메이션 없음)
+function gaugeHtml(pct) {
+  const ARC_LEN = 157.08; // 반지름 50 반원 둘레
+  const dash = (Math.max(0, Math.min(100, pct)) / 100) * ARC_LEN;
+  const color = pct >= 100 ? "#22c55e" : pct >= 50 ? "#4338ca" : "#f59e0b";
+  return `
+    <svg viewBox="0 0 120 70" class="gauge-svg" role="img" aria-label="진행률 ${pct}%">
+      <path d="M 10 62 A 50 50 0 0 1 110 62" fill="none" class="gauge-track" stroke-width="11" stroke-linecap="round"/>
+      <path d="M 10 62 A 50 50 0 0 1 110 62" fill="none" stroke="${color}" stroke-width="11" stroke-linecap="round"
+        stroke-dasharray="${dash.toFixed(2)} ${ARC_LEN.toFixed(2)}"/>
+      <text x="60" y="56" text-anchor="middle" class="gauge-pct">${pct}%</text>
+    </svg>`;
+}
+
+let allItems = [];
+let rolloutEditModal;
+
+async function loadItems() {
+  allItems = await fetchJson("/api/rollout");
+  renderItems();
+}
+
+function renderItems() {
+  const list = document.getElementById("rolloutList");
+  const empty = document.getElementById("rolloutEmpty");
+  if (allItems.length === 0) {
+    list.innerHTML = "";
+    empty.classList.remove("d-none");
+    return;
+  }
+  empty.classList.add("d-none");
+  list.innerHTML = allItems
+    .map((item) => {
+      const p = computeProgress(item.data_html);
+      const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
+      return `
+      <div class="rollout-card" data-item-id="${item.id}">
+        <div class="rollout-card-head">
+          <div class="rollout-title">${escapeHtml(item.title)}</div>
+          <div class="d-flex align-items-center gap-1">
+            <button class="btn btn-sm btn-outline-secondary toggle-data-btn">
+              <i class="bi bi-eye"></i> 데이터 보기
+            </button>
+            <button class="btn btn-sm btn-outline-secondary edit-item-btn" title="편집"><i class="bi bi-pencil"></i></button>
+            <button class="btn btn-sm btn-outline-secondary delete-item-btn" title="삭제"><i class="bi bi-trash3"></i></button>
+          </div>
+        </div>
+        <div class="rollout-card-body">
+          ${gaugeHtml(pct)}
+          <div class="rollout-counts">
+            <span class="rollout-count-done"><i class="bi bi-check-circle-fill"></i> 완료 ${p.done}건</span>
+            <span class="rollout-count-pending"><i class="bi bi-circle"></i> 미진행 ${p.pending}건</span>
+            <span class="text-muted small">전체 ${p.total}건</span>
+          </div>
+        </div>
+        <div class="rollout-data d-none">${item.data_html || '<p class="text-muted small mb-0">붙여넣은 데이터가 없습니다.</p>'}</div>
+        <div class="rollout-updated text-muted">최종 수정: ${item.updated_at || item.created_at || ""}</div>
+      </div>`;
+    })
+    .join("");
+
+  allItems.forEach((item) => {
+    const card = list.querySelector(`[data-item-id="${item.id}"]`);
+    const dataDiv = card.querySelector(".rollout-data");
+    const toggleBtn = card.querySelector(".toggle-data-btn");
+    toggleBtn.addEventListener("click", () => {
+      const hidden = dataDiv.classList.toggle("d-none");
+      toggleBtn.innerHTML = hidden
+        ? '<i class="bi bi-eye"></i> 데이터 보기'
+        : '<i class="bi bi-eye-slash"></i> 데이터 숨기기';
+    });
+    card.querySelector(".edit-item-btn").addEventListener("click", () => openEditModal(item));
+    card.querySelector(".delete-item-btn").addEventListener("click", async () => {
+      if (!confirm(`"${item.title}" 항목을 삭제할까요?`)) return;
+      try {
+        await fetchJson(`/api/rollout/${item.id}`, { method: "DELETE" });
+        loadItems();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+}
+
+function openEditModal(item) {
+  document.getElementById("rolloutEditTitle").textContent = item ? "횡전개 항목 편집" : "횡전개 항목 추가";
+  document.getElementById("rolloutEditId").value = item ? item.id : "";
+  document.getElementById("rolloutEditName").value = item ? item.title : "";
+  document.getElementById("rolloutEditData").innerHTML = item ? item.data_html || "" : "";
+  rolloutEditModal.show();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  rolloutEditModal = new bootstrap.Modal(document.getElementById("rolloutEditModal"));
+  tick();
+  setInterval(tick, 1000);
+  loadItems();
+
+  attachRichPasteHandler(document.getElementById("rolloutEditData"));
+  document.getElementById("addRolloutBtn").addEventListener("click", () => openEditModal(null));
+
+  document.getElementById("rolloutEditForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = document.getElementById("rolloutEditId").value;
+    const payload = {
+      title: document.getElementById("rolloutEditName").value.trim(),
+      data_html: sanitizeRichHtml(document.getElementById("rolloutEditData").innerHTML),
+    };
+    try {
+      if (id) {
+        await fetchJson(`/api/rollout/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await fetchJson("/api/rollout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
+      rolloutEditModal.hide();
+      loadItems();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 });
 </script>
 </body>

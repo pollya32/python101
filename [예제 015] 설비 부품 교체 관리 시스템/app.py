@@ -360,6 +360,17 @@ def init_db():
         )
     """)
 
+    # 횡전개 현황판: 엑셀에서 붙여넣은 호기/Chamber별 진행 날짜 표(data_html)를 항목별로 저장
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS rollout_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            data_html TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            updated_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS bulk_part_entries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -944,6 +955,71 @@ def export_inventory_csv():
         ])
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return csv_response(f"재고관리_{timestamp}.csv", header, data_rows)
+
+
+@app.route("/rollout")
+def rollout_page():
+    return render_template("rollout.html")
+
+
+@app.route("/api/rollout")
+def list_rollout_items():
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM rollout_items ORDER BY id").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/rollout", methods=["POST"])
+def add_rollout_item():
+    data = request.get_json()
+    title = (data.get("title") or "").strip()
+    if not title:
+        return jsonify({"error": "제목을 입력하세요"}), 400
+    data_html = sanitize_rich_html(data.get("data_html") or "")
+    conn = get_db()
+    cur = conn.execute("INSERT INTO rollout_items (title, data_html) VALUES (?, ?)", (title, data_html))
+    new_id = cur.lastrowid
+    log_activity(conn, "create", "rollout", new_id, title, "횡전개 항목 추가")
+    conn.commit()
+    row = conn.execute("SELECT * FROM rollout_items WHERE id = ?", (new_id,)).fetchone()
+    conn.close()
+    return jsonify(dict(row)), 201
+
+
+@app.route("/api/rollout/<int:item_id>", methods=["PUT"])
+def update_rollout_item(item_id):
+    data = request.get_json()
+    conn = get_db()
+    row = conn.execute("SELECT * FROM rollout_items WHERE id = ?", (item_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "항목을 찾을 수 없습니다"}), 404
+    title = (data.get("title") or row["title"]).strip()
+    data_html = sanitize_rich_html(data.get("data_html", row["data_html"]))
+    conn.execute(
+        "UPDATE rollout_items SET title = ?, data_html = ?, updated_at = datetime('now','localtime') WHERE id = ?",
+        (title, data_html, item_id),
+    )
+    log_activity(conn, "update", "rollout", item_id, title, "횡전개 항목 수정")
+    conn.commit()
+    updated = conn.execute("SELECT * FROM rollout_items WHERE id = ?", (item_id,)).fetchone()
+    conn.close()
+    return jsonify(dict(updated))
+
+
+@app.route("/api/rollout/<int:item_id>", methods=["DELETE"])
+def delete_rollout_item(item_id):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM rollout_items WHERE id = ?", (item_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "항목을 찾을 수 없습니다"}), 404
+    conn.execute("DELETE FROM rollout_items WHERE id = ?", (item_id,))
+    log_activity(conn, "delete", "rollout", item_id, row["title"], "횡전개 항목 삭제")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
 
 
 @app.route("/equipment/<int:equipment_id>")
