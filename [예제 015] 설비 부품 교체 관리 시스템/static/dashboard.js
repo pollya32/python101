@@ -319,3 +319,98 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 });
+
+// ── 현황 메일 발송 (사내 메일 API) ─────────────────────────────────────
+document.addEventListener("DOMContentLoaded", () => {
+  const mailModalEl = document.getElementById("mailModal");
+  if (!mailModalEl) return;
+  const mailModal = new bootstrap.Modal(mailModalEl);
+  const statusMsg = document.getElementById("mailStatusMsg");
+
+  async function loadRecipients() {
+    const list = await fetchJson("/api/mail/recipients");
+    const ul = document.getElementById("mailRecipientList");
+    if (list.length === 0) {
+      ul.innerHTML = '<li class="list-group-item text-muted small">등록된 수신자가 없습니다.</li>';
+      return;
+    }
+    ul.innerHTML = list
+      .map(
+        (r) => `
+      <li class="list-group-item d-flex justify-content-between align-items-center py-1">
+        <span>${r.email_id}@samsung.com</span>
+        <button class="btn btn-sm btn-outline-danger py-0 del-recipient-btn" data-id="${r.id}">삭제</button>
+      </li>`
+      )
+      .join("");
+    ul.querySelectorAll(".del-recipient-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        await fetchJson(`/api/mail/recipients/${btn.dataset.id}`, { method: "DELETE" });
+        loadRecipients();
+      });
+    });
+  }
+
+  async function loadSchedule() {
+    const data = await fetchJson("/api/mail/schedule");
+    document.getElementById("mailScheduleTime").value = data.time || "";
+  }
+
+  document.getElementById("mailBtn").addEventListener("click", () => {
+    statusMsg.textContent = "";
+    loadRecipients();
+    loadSchedule();
+    mailModal.show();
+  });
+
+  document.getElementById("addRecipientBtn").addEventListener("click", async () => {
+    const input = document.getElementById("mailRecipientInput");
+    if (!input.value.trim()) return;
+    try {
+      await fetchJson("/api/mail/recipients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email_id: input.value.trim() }),
+      });
+      input.value = "";
+      loadRecipients();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById("saveScheduleBtn").addEventListener("click", async () => {
+    const t = document.getElementById("mailScheduleTime").value;
+    await fetchJson("/api/mail/schedule", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ time: t }),
+    });
+    statusMsg.textContent = t ? `매일 ${t}에 자동 발송됩니다.` : "자동 발송이 해제되었습니다.";
+  });
+
+  document.getElementById("clearScheduleBtn").addEventListener("click", async () => {
+    document.getElementById("mailScheduleTime").value = "";
+    await fetchJson("/api/mail/schedule", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ time: "" }),
+    });
+    statusMsg.textContent = "자동 발송이 해제되었습니다.";
+  });
+
+  document.getElementById("sendMailNowBtn").addEventListener("click", async () => {
+    const btn = document.getElementById("sendMailNowBtn");
+    btn.disabled = true;
+    statusMsg.textContent = "발송 중...";
+    try {
+      const res = await fetch("/api/mail/send", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      statusMsg.textContent = data.message || "오류가 발생했습니다";
+    } catch (err) {
+      statusMsg.textContent = "발송 요청 실패: " + err.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+});

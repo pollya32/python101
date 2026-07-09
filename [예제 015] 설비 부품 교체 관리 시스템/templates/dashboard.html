@@ -39,6 +39,9 @@
     <a href="/rollout" class="btn btn-sm btn-outline-light">
       <i class="bi bi-clipboard2-check"></i> 횡전개 현황판
     </a>
+    <button id="mailBtn" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-envelope"></i> 메일 보내기
+    </button>
     <button id="backupBtn" class="btn btn-sm btn-outline-light">
       <i class="bi bi-download"></i> DB 백업
     </button>
@@ -91,6 +94,38 @@
   <p id="noResultsMsg" class="text-muted text-center py-4 d-none">검색 결과가 없습니다.</p>
 
 </main>
+
+<!-- 메일 발송/설정 모달 -->
+<div class="modal fade" id="mailModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-envelope"></i> 현황 메일 발송</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label">수신자 (녹스 ID, @samsung.com 제외)</label>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="mailRecipientInput" placeholder="예: hong.gildong">
+          <button id="addRecipientBtn" class="btn btn-sm btn-primary flex-shrink-0">추가</button>
+        </div>
+        <ul id="mailRecipientList" class="list-group mb-3"></ul>
+
+        <label class="form-label">매일 자동 발송 시각 (비워두면 자동 발송 안 함)</label>
+        <div class="d-flex gap-2 mb-3">
+          <input type="time" class="form-control form-control-sm" id="mailScheduleTime">
+          <button id="saveScheduleBtn" class="btn btn-sm btn-outline-secondary flex-shrink-0">시간 저장</button>
+          <button id="clearScheduleBtn" class="btn btn-sm btn-outline-secondary flex-shrink-0">해제</button>
+        </div>
+
+        <button id="sendMailNowBtn" class="btn btn-primary w-100">
+          <i class="bi bi-send"></i> 지금 바로 발송
+        </button>
+        <p id="mailStatusMsg" class="text-muted small text-center mt-2 mb-0"></p>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- 설비 편집 모달 -->
 <div class="modal fade" id="equipmentEditModal" tabindex="-1">

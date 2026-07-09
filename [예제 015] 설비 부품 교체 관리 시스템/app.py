@@ -17,6 +17,10 @@ from pptx.util import Inches, Pt
 from pptx.chart.data import CategoryChartData
 from pptx.enum.chart import XL_CHART_TYPE
 from werkzeug.security import generate_password_hash, check_password_hash
+import threading
+import time
+import requests
+from html.parser import HTMLParser
 
 app = Flask(__name__)
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
@@ -27,6 +31,14 @@ EQUIPMENT_COUNT = 20
 EQUIPMENT_PREFIX = "TEAG"
 MASTER_EQUIPMENT_ID = 1  # TEAG01호기: 이 설비에 추가한 부품은 동일한 이름의 유닛을 가진 나머지 설비에도 자동 복제된다
 DEFAULT_PASSWORD = "0000"
+# ══ 사내 메일 API 설정 ═══════════════════════════════════════════════
+# (보안) 실제 값으로 교체한 뒤에는 이 파일을 외부에 공유/업로드하지 마세요.
+os.environ["no_proxy"] = "openapi.samsung.net"
+MAIL_SENDER_ID = "lbr-32.lee"                    # 발신자 녹스 ID (@samsung.com 앞부분)
+MAIL_AUTHORIZATION = "XXXXXXXXXXXXXXX"           # ← 실제 Authorization 값으로 교체
+MAIL_SYSTEM_ID = "XXXXXXXXXXXXXX"                # ← 실제 System-ID 값으로 교체
+MAIL_SUBJECT = "[부품관리] TES 설비 부품 현황"
+# ════════════════════════════════════════════════════════════════════
 MAX_DRAWING_DATA_LEN = 8 * 1024 * 1024  # 도면 이미지(base64 data URL) 최대 길이, 원본 파일 약 5MB에 해당
 
 
@@ -371,6 +383,15 @@ def init_db():
         )
     """)
 
+    # 메일 수신자 목록 (녹스 ID만 저장, @samsung.com 은 발송 시 자동으로 붙임)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS mail_recipients (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email_id TEXT NOT NULL UNIQUE,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS bulk_part_entries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -690,6 +711,149 @@ def seed_default_units_for_equipment(conn, equipment_id):
         )
 
 
+class _TableGridParser(HTMLParser):
+    """rollout_items.data_html 의 첫 번째 표를 병합 셀(rowspan/colspan)까지
+    반영한 2차원 격자로 펼친다 (화면의 게이지 집계 로직과 동일한 규칙)."""
+    def __init__(self):
+        super().__init__()
+        self.grid = []
+        self.row = -1
+        self.col = 0
+        self.in_cell = False
+        self.cell_text = ""
+        self.cell_span = (1, 1)
+        self.cell_pos = (0, 0)
+        self.table_depth = 0
+        self.done_first_table = False
+
+    def handle_starttag(self, tag, attrs):
+        if self.done_first_table:
+            return
+        if tag == "table":
+            self.table_depth += 1
+            return
+        if self.table_depth == 0:
+            return
+        if tag == "tr":
+            self.row += 1
+            self.col = 0
+            while len(self.grid) <= self.row:
+                self.grid.append({})
+        elif tag in ("td", "th"):
+            attrs = dict(attrs)
+            colspan = int(attrs.get("colspan") or 1)
+            rowspan = int(attrs.get("rowspan") or 1)
+            while self.col in self.grid[self.row]:
+                self.col += 1
+            self.in_cell = True
+            self.cell_text = ""
+            self.cell_span = (rowspan, colspan)
+            self.cell_pos = (self.row, self.col)
+
+    def handle_endtag(self, tag):
+        if self.done_first_table:
+            return
+        if tag == "table" and self.table_depth:
+            self.table_depth -= 1
+            if self.table_depth == 0:
+                self.done_first_table = True
+        elif tag in ("td", "th") and self.in_cell:
+            r0, c0 = self.cell_pos
+            rowspan, colspan = self.cell_span
+            text = self.cell_text.strip()
+            for dr in range(rowspan):
+                while len(self.grid) <= r0 + dr:
+                    self.grid.append({})
+                for dc in range(colspan):
+                    self.grid[r0 + dr][c0 + dc] = text
+            self.col = c0 + colspan
+            self.in_cell = False
+
+    def handle_data(self, data):
+        if self.in_cell:
+            self.cell_text += data
+
+
+def rollout_progress_from_html(data_html):
+    """CH 이름(2열)이 있는 행만 대상으로 진행 날짜(3열) 기입 여부를 센다."""
+    parser = _TableGridParser()
+    parser.feed(data_html or "")
+    done = pending = 0
+    for r in range(1, len(parser.grid)):
+        row = parser.grid[r]
+        if not (row.get(1) or "").strip():
+            continue
+        if (row.get(2) or "").strip():
+            done += 1
+        else:
+            pending += 1
+    return done, pending
+
+
+def build_mail_report_html():
+    """횡전개 항목별 진행 현황을 메일 본문용 HTML 표로 만든다."""
+    conn = get_db()
+    items = conn.execute("SELECT * FROM rollout_items ORDER BY id").fetchall()
+    conn.close()
+    td = "border:1px solid #ccc;padding:6px 12px"
+    rows_html = ""
+    for it in items:
+        done, pending = rollout_progress_from_html(it["data_html"])
+        total = done + pending
+        pct = round(done / total * 100) if total else 0
+        rows_html += (
+            f"<tr><td style='{td}'>{html_lib.escape(it['title'])}</td>"
+            f"<td style='{td};text-align:center'>{done}</td>"
+            f"<td style='{td};text-align:center'>{pending}</td>"
+            f"<td style='{td};text-align:center'>{total}</td>"
+            f"<td style='{td};text-align:center;font-weight:bold'>{pct}%</td></tr>"
+        )
+    if not rows_html:
+        rows_html = f"<tr><td colspan='5' style='{td}'>등록된 횡전개 항목이 없습니다.</td></tr>"
+    return (
+        f"<h3>[부품관리] TES 설비 부품 현황 — 횡전개 진행 리포트</h3>"
+        f"<p>발송 시각: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>"
+        f"<table style='border-collapse:collapse;font-size:14px'>"
+        f"<tr style='background:#f3f4f6'>"
+        f"<th style='{td}'>횡전개 항목</th><th style='{td}'>완료</th>"
+        f"<th style='{td}'>미진행</th><th style='{td}'>전체</th><th style='{td}'>진행률</th></tr>"
+        f"{rows_html}</table>"
+    )
+
+
+def send_status_mail():
+    """사내 메일 API로 횡전개 현황 리포트를 발송한다. (성공 여부, 메시지) 반환."""
+    conn = get_db()
+    receivers = [
+        r["email_id"]
+        for r in conn.execute("SELECT email_id FROM mail_recipients ORDER BY id").fetchall()
+    ]
+    conn.close()
+    if not receivers:
+        return False, "수신자가 등록되어 있지 않습니다. 메일 설정에서 수신자를 먼저 추가하세요."
+    if "XXXX" in MAIL_AUTHORIZATION or not MAIL_AUTHORIZATION:
+        return False, "메일 API 키가 설정되지 않았습니다. app.py 상단의 MAIL_AUTHORIZATION / MAIL_SYSTEM_ID 를 확인하세요."
+    api = "https://openapi.samsung.net/mail/api/v2.0/mails/send?userId=" + MAIL_SENDER_ID
+    header = {"Authorization": MAIL_AUTHORIZATION, "System-ID": MAIL_SYSTEM_ID}
+    body = {
+        "subject": MAIL_SUBJECT,
+        "contents": build_mail_report_html(),
+        "contentType": "HTML",
+        "docSecuType": "PERSONAL",
+        "sender": {"emailAddress": f"{MAIL_SENDER_ID}@samsung.com"},
+        "recipients": [
+            {"emailAddress": f"{r}@samsung.com", "recipientType": "TO"} for r in receivers
+        ],
+    }
+    try:
+        res = requests.post(api, headers=header, json=body, timeout=15)
+        if res.status_code // 100 == 2:
+            return True, f"수신자 {len(receivers)}명에게 발송 완료"
+        return False, f"메일 API 오류 (HTTP {res.status_code}): {res.text[:200]}"
+    except Exception as e:
+        return False, f"메일 발송 실패: {e}"
+
+
 def get_alert_parts():
     """모든 설비를 통틀어 교체 필요/임박 상태인 부품 목록 (경과가 급한 순)"""
     conn = get_db()
@@ -955,6 +1119,63 @@ def export_inventory_csv():
         ])
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return csv_response(f"재고관리_{timestamp}.csv", header, data_rows)
+
+
+@app.route("/api/mail/recipients")
+def list_mail_recipients():
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM mail_recipients ORDER BY id").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/mail/recipients", methods=["POST"])
+def add_mail_recipient():
+    data = request.get_json()
+    email_id = (data.get("email_id") or "").strip().replace("@samsung.com", "")
+    if not email_id:
+        return jsonify({"error": "수신자 녹스 ID를 입력하세요"}), 400
+    conn = get_db()
+    try:
+        conn.execute("INSERT INTO mail_recipients (email_id) VALUES (?)", (email_id,))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({"error": "이미 등록된 수신자입니다"}), 409
+    conn.close()
+    return jsonify({"ok": True}), 201
+
+
+@app.route("/api/mail/recipients/<int:rid>", methods=["DELETE"])
+def delete_mail_recipient(rid):
+    conn = get_db()
+    conn.execute("DELETE FROM mail_recipients WHERE id = ?", (rid,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/mail/send", methods=["POST"])
+def api_send_mail():
+    ok, msg = send_status_mail()
+    if ok:
+        conn = get_db()
+        log_activity(conn, "mail", "mail", None, MAIL_SUBJECT, msg)
+        conn.commit()
+        conn.close()
+    return jsonify({"ok": ok, "message": msg}), (200 if ok else 500)
+
+
+@app.route("/api/mail/schedule", methods=["GET", "PUT"])
+def api_mail_schedule():
+    conn = get_db()
+    if request.method == "PUT":
+        t = (request.get_json().get("time") or "").strip()  # "HH:MM" 또는 "" (해제)
+        set_config(conn, "mail_schedule_time", t)
+        conn.commit()
+    t = get_config(conn, "mail_schedule_time") or ""
+    conn.close()
+    return jsonify({"time": t})
 
 
 @app.route("/rollout")
@@ -2233,6 +2454,25 @@ def api_activity_log():
     return jsonify([dict(r) for r in rows])
 
 
+def mail_scheduler_loop():
+    """30초마다 예약 시간을 확인해, 설정된 시각(HH:MM)이 되면 하루 1회 발송한다."""
+    last_sent_date = None
+    while True:
+        try:
+            conn = get_db()
+            t = get_config(conn, "mail_schedule_time")
+            conn.close()
+            if t:
+                now = datetime.now()
+                if now.strftime("%H:%M") == t and last_sent_date != now.strftime("%Y-%m-%d"):
+                    ok, msg = send_status_mail()
+                    print(f"[예약 메일] {now:%Y-%m-%d %H:%M} → {msg}")
+                    last_sent_date = now.strftime("%Y-%m-%d")
+        except Exception as e:
+            print("[예약 메일] 오류:", e)
+        time.sleep(30)
+
+
 if __name__ == "__main__":
     init_db()
     _conn = get_db()
@@ -2244,4 +2484,5 @@ if __name__ == "__main__":
     print(f"  같은 네트워크의 다른 사람 접속: http://{lan_ip}:5000")
     print("  (다른 사람이 접속 안 되면 Windows 방화벽에서 Python 허용 여부를 확인하세요)")
     print(f"  최초 접속 비밀번호: {DEFAULT_PASSWORD} (로그인 후 반드시 변경해주세요)")
+    threading.Thread(target=mail_scheduler_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
