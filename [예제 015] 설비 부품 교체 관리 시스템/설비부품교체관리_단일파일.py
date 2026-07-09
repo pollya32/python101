@@ -818,33 +818,87 @@ def rollout_progress_from_html(data_html):
 
 
 def build_mail_report_html():
-    """횡전개 항목별 진행 현황을 메일 본문용 HTML 표로 만든다."""
+    """메일 본문 HTML을 만든다.
+    1번째: 사이트 접속 URL
+    2번째: 횡전개 현황 (항목별 완료/미진행/전체/진행률)
+    3번째: 이벤트 알림 - 재고 1개 이하 발생 리스트, 전날(발송 기준) 교체 기록 리스트"""
     conn = get_db()
     items = conn.execute("SELECT * FROM rollout_items ORDER BY id").fetchall()
+    low_stock = [p for p in get_inventory_rows(conn) if (p["stock_qty"] or 0) <= 1]
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    yesterday_history = conn.execute("""
+        SELECT h.cost, p.name AS part_name, p.spec,
+               u.name AS unit_name, e.name AS equipment_name
+        FROM replacement_history h
+        JOIN parts p ON h.part_id = p.id
+        JOIN units u ON p.unit_id = u.id
+        JOIN equipments e ON u.equipment_id = e.id
+        WHERE h.replaced_date = ?
+        ORDER BY e.id, u.id, p.id
+    """, (yesterday,)).fetchall()
     conn.close()
+
     td = "border:1px solid #ccc;padding:6px 12px"
-    rows_html = ""
+    site_url = f"http://{get_lan_ip()}:5000"
+
+    rollout_rows = ""
     for it in items:
         done, pending = rollout_progress_from_html(it["data_html"])
         total = done + pending
         pct = round(done / total * 100) if total else 0
-        rows_html += (
+        rollout_rows += (
             f"<tr><td style='{td}'>{html_lib.escape(it['title'])}</td>"
             f"<td style='{td};text-align:center'>{done}</td>"
             f"<td style='{td};text-align:center'>{pending}</td>"
             f"<td style='{td};text-align:center'>{total}</td>"
             f"<td style='{td};text-align:center;font-weight:bold'>{pct}%</td></tr>"
         )
-    if not rows_html:
-        rows_html = f"<tr><td colspan='5' style='{td}'>등록된 횡전개 항목이 없습니다.</td></tr>"
+    if not rollout_rows:
+        rollout_rows = f"<tr><td colspan='5' style='{td}'>등록된 횡전개 항목이 없습니다.</td></tr>"
+
+    low_stock_rows = ""
+    for p in low_stock:
+        low_stock_rows += (
+            f"<tr><td style='{td}'>{html_lib.escape(p['name'])}</td>"
+            f"<td style='{td}'>{html_lib.escape(p['spec'] or '')}</td>"
+            f"<td style='{td}'>{html_lib.escape(p['unit_name'])}</td>"
+            f"<td style='{td};text-align:center;color:#c0392b;font-weight:bold'>{p['stock_qty'] or 0}</td></tr>"
+        )
+    if not low_stock_rows:
+        low_stock_rows = f"<tr><td colspan='4' style='{td}'>재고 1개 이하 부품이 없습니다.</td></tr>"
+
+    history_rows = ""
+    for h in yesterday_history:
+        history_rows += (
+            f"<tr><td style='{td}'>{html_lib.escape(h['equipment_name'])}</td>"
+            f"<td style='{td}'>{html_lib.escape(h['unit_name'])}</td>"
+            f"<td style='{td}'>{html_lib.escape(h['part_name'])}</td>"
+            f"<td style='{td}'>{html_lib.escape(h['spec'] or '')}</td>"
+            f"<td style='{td};text-align:right'>{h['cost'] or 0:,.0f}원</td></tr>"
+        )
+    if not history_rows:
+        history_rows = f"<tr><td colspan='5' style='{td}'>{yesterday} 교체 기록이 없습니다.</td></tr>"
+
     return (
-        f"<h3>[부품관리] TES 설비 부품 현황 — 횡전개 진행 리포트</h3>"
-        f"<p>발송 시각: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>"
-        f"<table style='border-collapse:collapse;font-size:14px'>"
+        f"<p style='font-size:14px'>사이트 접속: <a href='{site_url}'>{site_url}</a></p>"
+        f"<h3>횡전개 현황</h3>"
+        f"<table style='border-collapse:collapse;font-size:14px;margin-bottom:20px'>"
         f"<tr style='background:#f3f4f6'>"
         f"<th style='{td}'>횡전개 항목</th><th style='{td}'>완료</th>"
         f"<th style='{td}'>미진행</th><th style='{td}'>전체</th><th style='{td}'>진행률</th></tr>"
-        f"{rows_html}</table>"
+        f"{rollout_rows}</table>"
+        f"<h3>이벤트 알림</h3>"
+        f"<p style='font-size:14px;margin-bottom:4px'><b>재고 1개 이하 발생</b></p>"
+        f"<table style='border-collapse:collapse;font-size:14px;margin-bottom:16px'>"
+        f"<tr style='background:#f3f4f6'>"
+        f"<th style='{td}'>부품명</th><th style='{td}'>규격</th><th style='{td}'>소속 유닛</th><th style='{td}'>재고</th></tr>"
+        f"{low_stock_rows}</table>"
+        f"<p style='font-size:14px;margin-bottom:4px'><b>전날({yesterday}) 교체 기록</b></p>"
+        f"<table style='border-collapse:collapse;font-size:14px'>"
+        f"<tr style='background:#f3f4f6'>"
+        f"<th style='{td}'>설비</th><th style='{td}'>유닛</th><th style='{td}'>부품</th>"
+        f"<th style='{td}'>규격</th><th style='{td}'>금액</th></tr>"
+        f"{history_rows}</table>"
     )
 
 
