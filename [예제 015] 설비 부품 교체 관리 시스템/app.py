@@ -1134,7 +1134,9 @@ def inventory_page():
 
 def get_inventory_rows(conn):
     """재고는 TEAG01호기(기준 설비) 기준으로 전 설비가 동일하게 관리되므로,
-    나머지 설비는 동일한 내용이 중복되어 나타나는 것을 막기 위해 TEAG01호기 것만 보여준다."""
+    나머지 설비는 동일한 내용이 중복되어 나타나는 것을 막기 위해 TEAG01호기 것만 보여준다.
+    규격이 같으면(부품 이름이 달라도) 나란히 묶여 보이도록 규격 기준으로 먼저 정렬하고,
+    같은 규격 안에서는 소속 유닛 기준으로 정렬한다."""
     return conn.execute("""
         SELECT p.id, p.name, p.spec, p.stock_qty, p.supplier, p.supplier_contact, p.lead_time_days,
                u.id AS unit_id, u.name AS unit_name
@@ -1143,7 +1145,7 @@ def get_inventory_rows(conn):
         JOIN equipments e ON u.equipment_id = e.id
         WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
           AND e.id = ?
-        ORDER BY p.stock_qty ASC, u.id, p.id
+        ORDER BY p.spec ASC, u.name ASC, p.name ASC
     """, (MASTER_EQUIPMENT_ID,)).fetchall()
 
 
@@ -1161,13 +1163,13 @@ def export_inventory_csv():
     conn = get_db()
     rows = get_inventory_rows(conn)
     conn.close()
-    header = ["부품이름", "규격", "소속 유닛", "재고 수량", "구매처", "연락처", "리드타임(일)"]
+    header = ["규격", "부품이름", "소속 유닛", "재고 수량", "구매처", "연락처", "리드타임(일)"]
     data_rows = []
     for p in rows:
         if low_only and (p["stock_qty"] or 0) > 0:
             continue
         data_rows.append([
-            p["name"], p["spec"] or "", p["unit_name"],
+            p["spec"] or "", p["name"], p["unit_name"],
             p["stock_qty"] or 0, p["supplier"] or "", p["supplier_contact"] or "",
             p["lead_time_days"] if p["lead_time_days"] is not None else "",
         ])

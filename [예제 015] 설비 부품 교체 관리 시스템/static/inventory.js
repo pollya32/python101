@@ -51,8 +51,8 @@ function renderInventory() {
     .map(
       (p) => `
     <tr data-part-id="${p.id}" class="${(p.stock_qty || 0) <= 0 ? "table-danger" : ""}">
-      <td>${escapeHtml(p.name)}</td>
       <td class="text-muted">${escapeHtml(p.spec)}</td>
+      <td>${escapeHtml(p.name)}</td>
       <td class="text-muted">${escapeHtml(p.unit_name)}</td>
       <td><input type="number" class="form-control form-control-sm stock-qty-input" data-id="${p.id}" value="${p.stock_qty || 0}" min="0" step="1"></td>
       <td class="text-muted">${escapeHtml(p.supplier)}</td>
