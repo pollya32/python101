@@ -19520,7 +19520,7 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
       <input class="form-check-input" type="checkbox" id="lowStockOnlyCheck">
       <label class="form-check-label small text-muted" for="lowStockOnlyCheck">재고 부족(0개)만 보기</label>
     </div>
-    <span class="text-muted small">재고는 TEAG01호기 기준으로 전 설비에 동일하게 적용되며, 여기서 바로 수정할 수 있습니다.</span>
+    <span class="text-muted small">규격이 같은 부품은 한 행으로 묶여 표시됩니다. 행을 클릭하면 개별 부품별 재고를 수정할 수 있습니다.</span>
   </div>
 
   <div class="bulk-table-wrap">
@@ -19530,10 +19530,7 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
           <th>규격</th>
           <th>부품이름</th>
           <th>소속 유닛</th>
-          <th style="width:110px">재고 수량</th>
-          <th>구매처</th>
-          <th>연락처</th>
-          <th style="width:100px">리드타임</th>
+          <th style="width:110px">재고 수량 합계</th>
         </tr>
       </thead>
       <tbody id="inventoryBody"></tbody>
@@ -19542,6 +19539,34 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
   </div>
 
 </main>
+
+<div class="modal fade" id="inventoryGroupModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">규격: <span id="groupModalSpec"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="table-responsive">
+          <table class="table bulk-table align-middle mb-0">
+            <thead>
+              <tr>
+                <th>부품이름</th>
+                <th>소속 유닛</th>
+                <th style="width:110px">재고 수량</th>
+                <th>구매처</th>
+                <th>연락처</th>
+                <th style="width:100px">리드타임</th>
+              </tr>
+            </thead>
+            <tbody id="groupModalBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
@@ -19570,6 +19595,7 @@ async function fetchJson(url, options) {
 }
 
 let allInventory = [];
+let groupModal = null;
 
 async function loadInventory() {
   allInventory = await fetchJson("/api/inventory");
@@ -19581,24 +19607,74 @@ function updateExportLink() {
   document.getElementById("exportInventoryBtn").href = `/api/inventory/export${lowOnly ? "?low_only=1" : ""}`;
 }
 
+// 규격이 같은 부품끼리 하나의 행으로 묶는다 (부품 이름/소속 유닛이 달라도 병합).
+// allInventory는 서버에서 이미 규격 → 소속 유닛 → 부품이름 순으로 정렬되어 오므로
+// 순서대로 훑으며 규격이 바뀌는 지점마다 새 그룹을 만들면 된다.
+function groupBySpec(rows) {
+  const groups = [];
+  const bySpec = new Map();
+  for (const p of rows) {
+    const key = p.spec || "";
+    let g = bySpec.get(key);
+    if (!g) {
+      g = { spec: p.spec, names: [], units: [], totalStock: 0, parts: [] };
+      bySpec.set(key, g);
+      groups.push(g);
+    }
+    if (!g.names.includes(p.name)) g.names.push(p.name);
+    if (!g.units.includes(p.unit_name)) g.units.push(p.unit_name);
+    g.totalStock += p.stock_qty || 0;
+    g.parts.push(p);
+  }
+  return groups;
+}
+
 function renderInventory() {
   const lowOnly = document.getElementById("lowStockOnlyCheck").checked;
   updateExportLink();
-  const rows = lowOnly ? allInventory.filter((p) => (p.stock_qty || 0) <= 0) : allInventory;
+  const groups = groupBySpec(allInventory).filter((g) => !lowOnly || g.totalStock <= 0);
   const tbody = document.getElementById("inventoryBody");
   const empty = document.getElementById("inventoryEmpty");
-  if (rows.length === 0) {
+  if (groups.length === 0) {
     tbody.innerHTML = "";
     empty.classList.remove("d-none");
     empty.textContent = lowOnly ? "재고 부족 부품이 없습니다." : "등록된 부품이 없습니다.";
     return;
   }
   empty.classList.add("d-none");
-  tbody.innerHTML = rows
+  tbody.innerHTML = groups
+    .map(
+      (g, idx) => `
+    <tr data-group-idx="${idx}" class="inventory-group-row ${g.totalStock <= 0 ? "table-danger" : ""}" style="cursor:pointer">
+      <td class="text-muted">${escapeHtml(g.spec)}</td>
+      <td>${escapeHtml(g.names.join(", "))}</td>
+      <td class="text-muted">${escapeHtml(g.units.join(", "))}</td>
+      <td class="fw-bold">${g.totalStock}</td>
+    </tr>`
+    )
+    .join("");
+
+  tbody.querySelectorAll(".inventory-group-row").forEach((tr) => {
+    tr.addEventListener("click", () => {
+      const idx = parseInt(tr.dataset.groupIdx, 10);
+      openGroupModal(groups[idx]);
+    });
+  });
+}
+
+function openGroupModal(group) {
+  document.getElementById("groupModalSpec").textContent = group.spec || "-";
+  renderGroupModalBody(group);
+  if (!groupModal) groupModal = new bootstrap.Modal(document.getElementById("inventoryGroupModal"));
+  groupModal.show();
+}
+
+function renderGroupModalBody(group) {
+  const tbody = document.getElementById("groupModalBody");
+  tbody.innerHTML = group.parts
     .map(
       (p) => `
-    <tr data-part-id="${p.id}" class="${(p.stock_qty || 0) <= 0 ? "table-danger" : ""}">
-      <td class="text-muted">${escapeHtml(p.spec)}</td>
+    <tr data-part-id="${p.id}">
       <td>${escapeHtml(p.name)}</td>
       <td class="text-muted">${escapeHtml(p.unit_name)}</td>
       <td><input type="number" class="form-control form-control-sm stock-qty-input" data-id="${p.id}" value="${p.stock_qty || 0}" min="0" step="1"></td>
@@ -19622,6 +19698,11 @@ function renderInventory() {
         const entry = allInventory.find((p) => p.id === id);
         if (entry) entry.stock_qty = stock_qty;
         renderInventory();
+        const group = groupBySpec(allInventory).find((g) => g.parts.some((p) => p.id === id));
+        if (group) {
+          document.getElementById("groupModalSpec").textContent = group.spec || "-";
+          renderGroupModalBody(group);
+        }
       } catch (err) {
         alert(err.message);
       }
