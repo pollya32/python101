@@ -257,8 +257,8 @@ def init_db():
             unit_id INTEGER NOT NULL,
             name TEXT NOT NULL,
             spec TEXT,
-            cycle_days INTEGER NOT NULL DEFAULT 90,
-            cycle_unit TEXT DEFAULT '일',
+            cycle_days INTEGER,
+            cycle_unit TEXT DEFAULT 'N/A',
             cost REAL DEFAULT 0,
             last_replaced_date TEXT,
             note TEXT,
@@ -278,6 +278,43 @@ def init_db():
             FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
         )
     """)
+    # 기존 DB는 cycle_days가 NOT NULL(기본값 90)이었다. 교체 주기를 "N/A"(주기 없음)로
+    # 남겨둘 수 있으려면 NULL을 허용해야 하는데, SQLite는 컬럼의 NOT NULL 제약을
+    # 직접 제거할 수 없으므로 테이블을 재생성해서 옮겨준다.
+    part_col_info = c.execute("PRAGMA table_info(parts)").fetchall()
+    if any(r["name"] == "cycle_days" and r["notnull"] for r in part_col_info):
+        old_cols = ", ".join(r["name"] for r in part_col_info)
+        c.execute("ALTER TABLE parts RENAME TO parts_pre_na_migration")
+        c.execute("""
+            CREATE TABLE parts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                unit_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                spec TEXT,
+                cycle_days INTEGER,
+                cycle_unit TEXT DEFAULT 'N/A',
+                cost REAL DEFAULT 0,
+                last_replaced_date TEXT,
+                note TEXT,
+                memo TEXT,
+                drawing_data TEXT,
+                icon TEXT DEFAULT '🔩',
+                pos_x REAL DEFAULT 50,
+                pos_y REAL DEFAULT 50,
+                width REAL DEFAULT 130,
+                height REAL DEFAULT 110,
+                stock_qty INTEGER DEFAULT 0,
+                supplier TEXT,
+                supplier_contact TEXT,
+                lead_time_days INTEGER,
+                deleted_at TEXT,
+                created_at TEXT DEFAULT (datetime('now','localtime')),
+                FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
+            )
+        """)
+        c.execute(f"INSERT INTO parts ({old_cols}) SELECT {old_cols} FROM parts_pre_na_migration")
+        c.execute("DROP TABLE parts_pre_na_migration")
+
     existing_part_cols = {r["name"] for r in c.execute("PRAGMA table_info(parts)").fetchall()}
     if "icon" not in existing_part_cols:
         c.execute("ALTER TABLE parts ADD COLUMN icon TEXT DEFAULT '🔩'")
@@ -401,8 +438,8 @@ def init_db():
             q_code TEXT,
             note TEXT,
             cost REAL DEFAULT 0,
-            cycle_days INTEGER DEFAULT 90,
-            cycle_unit TEXT DEFAULT '일',
+            cycle_days INTEGER,
+            cycle_unit TEXT DEFAULT 'N/A',
             status TEXT DEFAULT 'pending',
             created_at TEXT DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE SET NULL
@@ -413,9 +450,9 @@ def init_db():
         c.execute("ALTER TABLE bulk_part_entries ADD COLUMN cost REAL DEFAULT 0")
         c.execute("UPDATE bulk_part_entries SET cost = 0 WHERE cost IS NULL")
     if "cycle_days" not in existing_bulk_cols:
-        c.execute("ALTER TABLE bulk_part_entries ADD COLUMN cycle_days INTEGER DEFAULT 90")
-        c.execute("ALTER TABLE bulk_part_entries ADD COLUMN cycle_unit TEXT DEFAULT '일'")
-        c.execute("UPDATE bulk_part_entries SET cycle_days = 90, cycle_unit = '일' WHERE cycle_days IS NULL")
+        c.execute("ALTER TABLE bulk_part_entries ADD COLUMN cycle_days INTEGER")
+        c.execute("ALTER TABLE bulk_part_entries ADD COLUMN cycle_unit TEXT DEFAULT 'N/A'")
+        c.execute("UPDATE bulk_part_entries SET cycle_unit = 'N/A' WHERE cycle_days IS NULL")
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS bulk_part_entry_units (
@@ -506,6 +543,8 @@ def init_db():
 
 def part_status(cycle_days, last_replaced_date):
     """부품 교체 주기 대비 경과 상태 계산"""
+    if cycle_days is None:
+        return {"status": "unknown", "label": "N/A", "days_left": None, "next_due": None}
     if not last_replaced_date:
         return {"status": "unknown", "label": "미기록", "days_left": None, "next_due": None}
     last = datetime.strptime(last_replaced_date, "%Y-%m-%d").date()
@@ -532,7 +571,21 @@ def serialize_part(row):
     return d
 
 
-def insert_part(conn, unit_id, name, spec="", cycle_days=90, cycle_unit="일", cost=0,
+def resolve_cycle(data, current_days=None, current_unit=None):
+    """요청 바디의 cycle_days/cycle_unit을 정규화한다.
+    두 필드가 모두 없으면(다른 필드만 부분 수정하는 요청) 기존 값을 그대로 유지하고,
+    cycle_unit이 'N/A'면 주기 없음(cycle_days=None)으로 처리한다."""
+    if "cycle_unit" not in data and "cycle_days" not in data:
+        return current_days, current_unit
+    cycle_unit = (data.get("cycle_unit") or "").strip()
+    if cycle_unit == "N/A":
+        return None, "N/A"
+    cycle_days_raw = data.get("cycle_days")
+    cycle_days = int(cycle_days_raw) if cycle_days_raw not in (None, "") else current_days
+    return cycle_days, (cycle_unit or current_unit or "일")
+
+
+def insert_part(conn, unit_id, name, spec="", cycle_days=None, cycle_unit="N/A", cost=0,
                  last_replaced_date=None, note="", memo="", drawing_data=None, icon="🔩",
                  pos_x=None, pos_y=None, width=130, height=110,
                  stock_qty=0, supplier="", supplier_contact="", lead_time_days=None):
@@ -964,8 +1017,9 @@ def search_parts(query, status=None, equipment_id=None):
 
 def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
     """부품명+규격을 기준으로 시스템 전체(선택된 유닛 이름으로 범위 제한 가능)를 집계한다.
-    start_date/end_date가 주어지면 금액/사용량은 해당 기간의 교체 이력(replacement_history)을
-    기준으로 계산하고, 교체주기는 항상 현재 부품 구성 기준으로 계산한다."""
+    금액/사용량은 항상 실제 교체 이력(replacement_history)을 기준으로 계산하며,
+    start_date/end_date가 주어지면 해당 기간에 발생한 교체 기록만 집계한다.
+    교체주기는 항상 현재 부품 구성 기준으로 계산하되, 주기가 없는(N/A) 부품은 제외한다."""
     query = """
         SELECT p.*, u.name AS unit_name
         FROM parts p
@@ -978,7 +1032,6 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
         query += f" AND u.name IN ({placeholders})"
         params = list(unit_names)
     parts = conn.execute(query, params).fetchall()
-    period_filter = bool(start_date or end_date)
 
     # 그룹마다 따로 교체 이력을 조회하는 대신, 관련된 모든 부품의 이력을 한 번에 가져와
     # part_id 기준으로 집계해둔다 (N+1 쿼리 방지).
@@ -1015,15 +1068,12 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
             }
             groups[key] = g
         g["instance_count"] += 1
-        if g["min_cycle_days"] is None or p["cycle_days"] < g["min_cycle_days"]:
+        if p["cycle_days"] is not None and (g["min_cycle_days"] is None or p["cycle_days"] < g["min_cycle_days"]):
             g["min_cycle_days"] = p["cycle_days"]
             g["min_cycle_unit"] = p["cycle_unit"]
         hist = hist_by_part.get(p["id"], {"n": 0, "total": 0})
         g["usage_count"] += hist["n"]
-        if period_filter:
-            g["total_cost"] += hist["total"]
-        else:
-            g["total_cost"] += p["cost"] or 0
+        g["total_cost"] += hist["total"]
 
     return list(groups.values())
 
@@ -1555,8 +1605,7 @@ def add_part(unit_id):
     if not name:
         return jsonify({"error": "부품 이름을 입력하세요"}), 400
     spec = (data.get("spec") or "").strip()
-    cycle_days = int(data.get("cycle_days") or 90)
-    cycle_unit = (data.get("cycle_unit") or "일").strip()
+    cycle_days, cycle_unit = resolve_cycle(data, None, "N/A")
     cost = float(data.get("cost") or 0)
     last_replaced_date = data.get("last_replaced_date") or None
     note = (data.get("note") or "").strip()
@@ -1605,21 +1654,21 @@ def apply_unit_parts(unit_id):
 
 def parse_cycle_text(text):
     """"90", "90일", "2년" 등의 텍스트를 (cycle_days, cycle_unit) 튜플로 변환.
-    비어있거나 해석할 수 없으면 기본값(90일)을 반환한다."""
+    비어있거나 해석할 수 없으면 기본값(N/A, 주기 없음)을 반환한다."""
     text = (text or "").strip()
     if not text:
-        return 90, "일"
+        return None, "N/A"
     if text.endswith("년"):
         try:
             years = float(text[:-1].strip())
             return round(years * 365), "년"
         except ValueError:
-            return 90, "일"
+            return None, "N/A"
     text = text[:-1].strip() if text.endswith("일") else text
     try:
         return round(float(text)), "일"
     except ValueError:
-        return 90, "일"
+        return None, "N/A"
 
 
 def parse_bulk_paste_text(text):
@@ -1724,8 +1773,7 @@ def update_bulk_part(entry_id):
     q_code = data.get("q_code", entry["q_code"])
     note = data.get("note", entry["note"])
     cost = data.get("cost", entry["cost"])
-    cycle_days = int(data.get("cycle_days") or entry["cycle_days"])
-    cycle_unit = (data.get("cycle_unit") or entry["cycle_unit"]).strip()
+    cycle_days, cycle_unit = resolve_cycle(data, entry["cycle_days"], entry["cycle_unit"])
     conn.execute(
         "UPDATE bulk_part_entries SET part_name = ?, q_code = ?, note = ?, cost = ?, cycle_days = ?, cycle_unit = ? WHERE id = ?",
         (part_name, q_code, note, cost, cycle_days, cycle_unit, entry_id),
@@ -1766,7 +1814,7 @@ def register_bulk_part(entry_id):
         part_id = insert_part(
             conn, uid, entry["part_name"], spec=entry["q_code"] or "",
             cost=entry["cost"] or 0, note=entry["note"] or "",
-            cycle_days=entry["cycle_days"] or 90, cycle_unit=entry["cycle_unit"] or "일",
+            cycle_days=entry["cycle_days"], cycle_unit=entry["cycle_unit"] or "N/A",
         )
         part_ids.append(part_id)
         log_activity(conn, "create", "part", part_id, entry["part_name"], "부품 일괄 등록")
@@ -1795,8 +1843,7 @@ def update_part(part_id):
         return jsonify({"error": "부품을 찾을 수 없습니다"}), 404
     name = (data.get("name") or part["name"]).strip()
     spec = data.get("spec", part["spec"])
-    cycle_days = int(data.get("cycle_days") or part["cycle_days"])
-    cycle_unit = (data.get("cycle_unit") or part["cycle_unit"]).strip()
+    cycle_days, cycle_unit = resolve_cycle(data, part["cycle_days"], part["cycle_unit"])
     cost = data.get("cost", part["cost"])
     note = data.get("note", part["note"])
     memo = sanitize_rich_html(data.get("memo", part["memo"]))
@@ -2100,7 +2147,9 @@ def api_search():
 def build_stats_payload(conn, unit_names, start_date=None, end_date=None):
     """부품 규격 기준(금액순/사용량 많은순/교체주기 짧은순)과 유닛 기준(부품수 많은순) 통계를 함께 만든다."""
     spec_rows = get_part_spec_stats(conn, unit_names, start_date=start_date, end_date=end_date)
-    by_cost = sorted(spec_rows, key=lambda r: r["total_cost"], reverse=True)
+    by_cost = sorted(
+        (r for r in spec_rows if r["usage_count"] > 0), key=lambda r: r["total_cost"], reverse=True
+    )
     by_usage = sorted(spec_rows, key=lambda r: r["usage_count"], reverse=True)
     by_short_cycle = sorted(
         (r for r in spec_rows if r["min_cycle_days"] is not None), key=lambda r: r["min_cycle_days"]
@@ -2151,6 +2200,8 @@ def api_stats():
 
 
 def format_cycle_for_export(days, unit):
+    if days is None or unit == "N/A":
+        return "N/A"
     if unit == "년":
         return f"{round(days / 365, 2)}년"
     return f"{days}일"

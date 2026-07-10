@@ -284,8 +284,8 @@ def init_db():
             unit_id INTEGER NOT NULL,
             name TEXT NOT NULL,
             spec TEXT,
-            cycle_days INTEGER NOT NULL DEFAULT 90,
-            cycle_unit TEXT DEFAULT '일',
+            cycle_days INTEGER,
+            cycle_unit TEXT DEFAULT 'N/A',
             cost REAL DEFAULT 0,
             last_replaced_date TEXT,
             note TEXT,
@@ -305,6 +305,43 @@ def init_db():
             FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
         )
     """)
+    # 기존 DB는 cycle_days가 NOT NULL(기본값 90)이었다. 교체 주기를 "N/A"(주기 없음)로
+    # 남겨둘 수 있으려면 NULL을 허용해야 하는데, SQLite는 컬럼의 NOT NULL 제약을
+    # 직접 제거할 수 없으므로 테이블을 재생성해서 옮겨준다.
+    part_col_info = c.execute("PRAGMA table_info(parts)").fetchall()
+    if any(r["name"] == "cycle_days" and r["notnull"] for r in part_col_info):
+        old_cols = ", ".join(r["name"] for r in part_col_info)
+        c.execute("ALTER TABLE parts RENAME TO parts_pre_na_migration")
+        c.execute("""
+            CREATE TABLE parts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                unit_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                spec TEXT,
+                cycle_days INTEGER,
+                cycle_unit TEXT DEFAULT 'N/A',
+                cost REAL DEFAULT 0,
+                last_replaced_date TEXT,
+                note TEXT,
+                memo TEXT,
+                drawing_data TEXT,
+                icon TEXT DEFAULT '🔩',
+                pos_x REAL DEFAULT 50,
+                pos_y REAL DEFAULT 50,
+                width REAL DEFAULT 130,
+                height REAL DEFAULT 110,
+                stock_qty INTEGER DEFAULT 0,
+                supplier TEXT,
+                supplier_contact TEXT,
+                lead_time_days INTEGER,
+                deleted_at TEXT,
+                created_at TEXT DEFAULT (datetime('now','localtime')),
+                FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
+            )
+        """)
+        c.execute(f"INSERT INTO parts ({old_cols}) SELECT {old_cols} FROM parts_pre_na_migration")
+        c.execute("DROP TABLE parts_pre_na_migration")
+
     existing_part_cols = {r["name"] for r in c.execute("PRAGMA table_info(parts)").fetchall()}
     if "icon" not in existing_part_cols:
         c.execute("ALTER TABLE parts ADD COLUMN icon TEXT DEFAULT '🔩'")
@@ -428,8 +465,8 @@ def init_db():
             q_code TEXT,
             note TEXT,
             cost REAL DEFAULT 0,
-            cycle_days INTEGER DEFAULT 90,
-            cycle_unit TEXT DEFAULT '일',
+            cycle_days INTEGER,
+            cycle_unit TEXT DEFAULT 'N/A',
             status TEXT DEFAULT 'pending',
             created_at TEXT DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE SET NULL
@@ -440,9 +477,9 @@ def init_db():
         c.execute("ALTER TABLE bulk_part_entries ADD COLUMN cost REAL DEFAULT 0")
         c.execute("UPDATE bulk_part_entries SET cost = 0 WHERE cost IS NULL")
     if "cycle_days" not in existing_bulk_cols:
-        c.execute("ALTER TABLE bulk_part_entries ADD COLUMN cycle_days INTEGER DEFAULT 90")
-        c.execute("ALTER TABLE bulk_part_entries ADD COLUMN cycle_unit TEXT DEFAULT '일'")
-        c.execute("UPDATE bulk_part_entries SET cycle_days = 90, cycle_unit = '일' WHERE cycle_days IS NULL")
+        c.execute("ALTER TABLE bulk_part_entries ADD COLUMN cycle_days INTEGER")
+        c.execute("ALTER TABLE bulk_part_entries ADD COLUMN cycle_unit TEXT DEFAULT 'N/A'")
+        c.execute("UPDATE bulk_part_entries SET cycle_unit = 'N/A' WHERE cycle_days IS NULL")
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS bulk_part_entry_units (
@@ -533,6 +570,8 @@ def init_db():
 
 def part_status(cycle_days, last_replaced_date):
     """부품 교체 주기 대비 경과 상태 계산"""
+    if cycle_days is None:
+        return {"status": "unknown", "label": "N/A", "days_left": None, "next_due": None}
     if not last_replaced_date:
         return {"status": "unknown", "label": "미기록", "days_left": None, "next_due": None}
     last = datetime.strptime(last_replaced_date, "%Y-%m-%d").date()
@@ -559,7 +598,21 @@ def serialize_part(row):
     return d
 
 
-def insert_part(conn, unit_id, name, spec="", cycle_days=90, cycle_unit="일", cost=0,
+def resolve_cycle(data, current_days=None, current_unit=None):
+    """요청 바디의 cycle_days/cycle_unit을 정규화한다.
+    두 필드가 모두 없으면(다른 필드만 부분 수정하는 요청) 기존 값을 그대로 유지하고,
+    cycle_unit이 'N/A'면 주기 없음(cycle_days=None)으로 처리한다."""
+    if "cycle_unit" not in data and "cycle_days" not in data:
+        return current_days, current_unit
+    cycle_unit = (data.get("cycle_unit") or "").strip()
+    if cycle_unit == "N/A":
+        return None, "N/A"
+    cycle_days_raw = data.get("cycle_days")
+    cycle_days = int(cycle_days_raw) if cycle_days_raw not in (None, "") else current_days
+    return cycle_days, (cycle_unit or current_unit or "일")
+
+
+def insert_part(conn, unit_id, name, spec="", cycle_days=None, cycle_unit="N/A", cost=0,
                  last_replaced_date=None, note="", memo="", drawing_data=None, icon="🔩",
                  pos_x=None, pos_y=None, width=130, height=110,
                  stock_qty=0, supplier="", supplier_contact="", lead_time_days=None):
@@ -991,8 +1044,9 @@ def search_parts(query, status=None, equipment_id=None):
 
 def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
     """부품명+규격을 기준으로 시스템 전체(선택된 유닛 이름으로 범위 제한 가능)를 집계한다.
-    start_date/end_date가 주어지면 금액/사용량은 해당 기간의 교체 이력(replacement_history)을
-    기준으로 계산하고, 교체주기는 항상 현재 부품 구성 기준으로 계산한다."""
+    금액/사용량은 항상 실제 교체 이력(replacement_history)을 기준으로 계산하며,
+    start_date/end_date가 주어지면 해당 기간에 발생한 교체 기록만 집계한다.
+    교체주기는 항상 현재 부품 구성 기준으로 계산하되, 주기가 없는(N/A) 부품은 제외한다."""
     query = """
         SELECT p.*, u.name AS unit_name
         FROM parts p
@@ -1005,7 +1059,6 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
         query += f" AND u.name IN ({placeholders})"
         params = list(unit_names)
     parts = conn.execute(query, params).fetchall()
-    period_filter = bool(start_date or end_date)
 
     # 그룹마다 따로 교체 이력을 조회하는 대신, 관련된 모든 부품의 이력을 한 번에 가져와
     # part_id 기준으로 집계해둔다 (N+1 쿼리 방지).
@@ -1042,15 +1095,12 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
             }
             groups[key] = g
         g["instance_count"] += 1
-        if g["min_cycle_days"] is None or p["cycle_days"] < g["min_cycle_days"]:
+        if p["cycle_days"] is not None and (g["min_cycle_days"] is None or p["cycle_days"] < g["min_cycle_days"]):
             g["min_cycle_days"] = p["cycle_days"]
             g["min_cycle_unit"] = p["cycle_unit"]
         hist = hist_by_part.get(p["id"], {"n": 0, "total": 0})
         g["usage_count"] += hist["n"]
-        if period_filter:
-            g["total_cost"] += hist["total"]
-        else:
-            g["total_cost"] += p["cost"] or 0
+        g["total_cost"] += hist["total"]
 
     return list(groups.values())
 
@@ -1582,8 +1632,7 @@ def add_part(unit_id):
     if not name:
         return jsonify({"error": "부품 이름을 입력하세요"}), 400
     spec = (data.get("spec") or "").strip()
-    cycle_days = int(data.get("cycle_days") or 90)
-    cycle_unit = (data.get("cycle_unit") or "일").strip()
+    cycle_days, cycle_unit = resolve_cycle(data, None, "N/A")
     cost = float(data.get("cost") or 0)
     last_replaced_date = data.get("last_replaced_date") or None
     note = (data.get("note") or "").strip()
@@ -1632,21 +1681,21 @@ def apply_unit_parts(unit_id):
 
 def parse_cycle_text(text):
     """"90", "90일", "2년" 등의 텍스트를 (cycle_days, cycle_unit) 튜플로 변환.
-    비어있거나 해석할 수 없으면 기본값(90일)을 반환한다."""
+    비어있거나 해석할 수 없으면 기본값(N/A, 주기 없음)을 반환한다."""
     text = (text or "").strip()
     if not text:
-        return 90, "일"
+        return None, "N/A"
     if text.endswith("년"):
         try:
             years = float(text[:-1].strip())
             return round(years * 365), "년"
         except ValueError:
-            return 90, "일"
+            return None, "N/A"
     text = text[:-1].strip() if text.endswith("일") else text
     try:
         return round(float(text)), "일"
     except ValueError:
-        return 90, "일"
+        return None, "N/A"
 
 
 def parse_bulk_paste_text(text):
@@ -1751,8 +1800,7 @@ def update_bulk_part(entry_id):
     q_code = data.get("q_code", entry["q_code"])
     note = data.get("note", entry["note"])
     cost = data.get("cost", entry["cost"])
-    cycle_days = int(data.get("cycle_days") or entry["cycle_days"])
-    cycle_unit = (data.get("cycle_unit") or entry["cycle_unit"]).strip()
+    cycle_days, cycle_unit = resolve_cycle(data, entry["cycle_days"], entry["cycle_unit"])
     conn.execute(
         "UPDATE bulk_part_entries SET part_name = ?, q_code = ?, note = ?, cost = ?, cycle_days = ?, cycle_unit = ? WHERE id = ?",
         (part_name, q_code, note, cost, cycle_days, cycle_unit, entry_id),
@@ -1793,7 +1841,7 @@ def register_bulk_part(entry_id):
         part_id = insert_part(
             conn, uid, entry["part_name"], spec=entry["q_code"] or "",
             cost=entry["cost"] or 0, note=entry["note"] or "",
-            cycle_days=entry["cycle_days"] or 90, cycle_unit=entry["cycle_unit"] or "일",
+            cycle_days=entry["cycle_days"], cycle_unit=entry["cycle_unit"] or "N/A",
         )
         part_ids.append(part_id)
         log_activity(conn, "create", "part", part_id, entry["part_name"], "부품 일괄 등록")
@@ -1822,8 +1870,7 @@ def update_part(part_id):
         return jsonify({"error": "부품을 찾을 수 없습니다"}), 404
     name = (data.get("name") or part["name"]).strip()
     spec = data.get("spec", part["spec"])
-    cycle_days = int(data.get("cycle_days") or part["cycle_days"])
-    cycle_unit = (data.get("cycle_unit") or part["cycle_unit"]).strip()
+    cycle_days, cycle_unit = resolve_cycle(data, part["cycle_days"], part["cycle_unit"])
     cost = data.get("cost", part["cost"])
     note = data.get("note", part["note"])
     memo = sanitize_rich_html(data.get("memo", part["memo"]))
@@ -2127,7 +2174,9 @@ def api_search():
 def build_stats_payload(conn, unit_names, start_date=None, end_date=None):
     """부품 규격 기준(금액순/사용량 많은순/교체주기 짧은순)과 유닛 기준(부품수 많은순) 통계를 함께 만든다."""
     spec_rows = get_part_spec_stats(conn, unit_names, start_date=start_date, end_date=end_date)
-    by_cost = sorted(spec_rows, key=lambda r: r["total_cost"], reverse=True)
+    by_cost = sorted(
+        (r for r in spec_rows if r["usage_count"] > 0), key=lambda r: r["total_cost"], reverse=True
+    )
     by_usage = sorted(spec_rows, key=lambda r: r["usage_count"], reverse=True)
     by_short_cycle = sorted(
         (r for r in spec_rows if r["min_cycle_days"] is not None), key=lambda r: r["min_cycle_days"]
@@ -2178,6 +2227,8 @@ def api_stats():
 
 
 def format_cycle_for_export(days, unit):
+    if days is None or unit == "N/A":
+        return "N/A"
     if unit == "년":
         return f"{round(days / 365, 2)}년"
     return f"{days}일"
@@ -7356,8 +7407,9 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
             <div class="col-6">
               <label class="form-label">교체 주기</label>
               <div class="input-group">
-                <input type="number" class="form-control" id="partEditCycle" value="90" min="1" required>
+                <input type="number" class="form-control" id="partEditCycle" min="1">
                 <select class="form-select flex-grow-0 w-auto" id="partEditCycleUnit">
+                  <option value="N/A">N/A</option>
                   <option value="일">일</option>
                   <option value="년">년</option>
                 </select>
@@ -7958,7 +8010,7 @@ function partShapeHtml(p) {
       <span class="unit-status-dot dot-${p.status}"></span>
       <div class="unit-icon-wrap"><span class="unit-icon">${p.icon}</span></div>
       <div class="unit-name">${escapeHtml(p.name)}</div>
-      <div class="unit-part-count">${statusLabel[p.status]}</div>
+      <div class="unit-part-count">${p.label || statusLabel[p.status]}</div>
       <div class="unit-edit-actions">
         <button class="edit-unit-btn" title="편집"><i class="bi bi-pencil"></i></button>
         <button class="copy-part-btn" title="복사"><i class="bi bi-copy"></i></button>
@@ -8038,6 +8090,7 @@ async function pastePart() {
 }
 
 function formatCycleDisplay(cycleDays, cycleUnit) {
+  if (cycleUnit === "N/A" || cycleDays == null) return "N/A";
   if (cycleUnit === "년") {
     const years = Math.round((cycleDays / 365) * 100) / 100;
     return `${years}년`;
@@ -8046,10 +8099,18 @@ function formatCycleDisplay(cycleDays, cycleUnit) {
 }
 
 function cycleDaysToDisplayValue(cycleDays, cycleUnit) {
+  if (cycleUnit === "N/A" || cycleDays == null) return "";
   if (cycleUnit === "년") {
     return Math.round((cycleDays / 365) * 100) / 100;
   }
   return cycleDays;
+}
+
+function updateCycleInputState() {
+  const isNA = document.getElementById("partEditCycleUnit").value === "N/A";
+  const cycleInput = document.getElementById("partEditCycle");
+  cycleInput.disabled = isNA;
+  if (isNA) cycleInput.value = "";
 }
 
 function formatCost(cost) {
@@ -8104,7 +8165,7 @@ function openPartDetailModal(partId) {
   currentPartId = partId;
   document.getElementById("partDetailTitle").textContent = p.name;
   const badge = statusBadge[p.status];
-  const label = statusLabel[p.status];
+  const label = p.label || statusLabel[p.status];
   const lastText = p.last_replaced_date ? `최근 교체: ${p.last_replaced_date}` : "교체 이력 없음";
   const dueText = p.next_due
     ? `다음 교체 예정: ${p.next_due} (${p.days_left >= 0 ? p.days_left + "일 남음" : Math.abs(p.days_left) + "일 초과"})`
@@ -8199,9 +8260,10 @@ function openPartEditModal(part) {
   document.getElementById("partEditSpec").value = part ? part.spec || "" : "";
   const icon = part ? part.icon : "🔩";
   document.getElementById("partEditIcon").value = icon;
-  const cycleUnit = part ? part.cycle_unit || "일" : "일";
+  const cycleUnit = part ? part.cycle_unit || "N/A" : "N/A";
   document.getElementById("partEditCycleUnit").value = cycleUnit;
-  document.getElementById("partEditCycle").value = part ? cycleDaysToDisplayValue(part.cycle_days, cycleUnit) : 90;
+  document.getElementById("partEditCycle").value = part ? cycleDaysToDisplayValue(part.cycle_days, cycleUnit) : "";
+  updateCycleInputState();
   document.getElementById("partEditCost").value = part ? part.cost || 0 : 0;
   document.getElementById("partEditNote").value = part ? part.note || "" : "";
   document.getElementById("partEditMemo").innerHTML = part ? part.memo || "" : "";
@@ -8230,6 +8292,7 @@ document.addEventListener("DOMContentLoaded", () => {
   loadNotes();
   attachRichPasteHandler(document.getElementById("partEditMemo"));
   attachTableEditToolbar(document.getElementById("partEditMemo"));
+  document.getElementById("partEditCycleUnit").addEventListener("change", updateCycleInputState);
 
   document.getElementById("editModeBtn").addEventListener("click", (e) => {
     editMode = !editMode;
@@ -8341,8 +8404,15 @@ document.addEventListener("DOMContentLoaded", () => {
     e.preventDefault();
     const id = document.getElementById("partEditId").value;
     const cycleUnit = document.getElementById("partEditCycleUnit").value;
-    const cycleValue = parseFloat(document.getElementById("partEditCycle").value);
-    const cycleDays = cycleUnit === "년" ? Math.round(cycleValue * 365) : Math.round(cycleValue);
+    let cycleDays = null;
+    if (cycleUnit !== "N/A") {
+      const cycleValue = parseFloat(document.getElementById("partEditCycle").value);
+      if (isNaN(cycleValue) || cycleValue <= 0) {
+        alert("교체 주기를 입력하거나 N/A를 선택하세요");
+        return;
+      }
+      cycleDays = cycleUnit === "년" ? Math.round(cycleValue * 365) : Math.round(cycleValue);
+    }
     const payload = {
       name: document.getElementById("partEditName").value.trim(),
       spec: document.getElementById("partEditSpec").value.trim(),
@@ -12214,12 +12284,13 @@ async function runSearch() {
 }
 
 function searchRowHtml(p) {
-  const label = STATUS_LABEL[p.status] || "미기록";
+  const label = p.label || STATUS_LABEL[p.status] || "미기록";
   const lastText = p.last_replaced_date ? `최근 교체 ${p.last_replaced_date}` : "교체 이력 없음";
   const daysText = p.status === "overdue" ? `${Math.abs(p.days_left)}일 초과`
     : (p.status === "soon" || p.status === "ok") ? `${p.days_left}일 남음`
     : "";
   const specText = p.spec ? `${escapeHtml(p.spec)} &middot; ` : "";
+  const cycleText = p.cycle_days != null ? `${p.cycle_days}일` : "N/A";
   return `
     <div class="alert-row" data-row-id="${p.id}">
       <span class="badge badge-${p.status} alert-badge">${label}</span>
@@ -12229,7 +12300,7 @@ function searchRowHtml(p) {
           <span class="alert-sep">›</span> ${escapeHtml(p.unit_name)}
           <span class="alert-sep">›</span> <strong>${p.icon} ${escapeHtml(p.name)}</strong>
         </div>
-        <div class="alert-meta">${specText}교체 주기 ${p.cycle_days}일 &middot; ${lastText}${daysText ? " &middot; " + daysText : ""}</div>
+        <div class="alert-meta">${specText}교체 주기 ${cycleText} &middot; ${lastText}${daysText ? " &middot; " + daysText : ""}</div>
       </div>
       <i class="bi bi-chevron-right alert-chevron"></i>
     </div>`;
@@ -13422,8 +13493,8 @@ async function loadStats() {
   renderPartSpecPanel("statsUsage", data.by_usage, (r) => `${r.usage_count}회 교체`);
   renderPartSpecPanel("statsCycle", data.by_short_cycle, (r) => formatCycle(r.min_cycle_days, r.min_cycle_unit) + " 주기");
   renderUnitPanel("statsPartCount", data.by_part_count, (r) => `${r.part_count}개`);
-  document.getElementById("costSubtitle").textContent = data.period_active ? "(선택 기간 교체 이력 기준)" : "(부품 규격 기준)";
-  document.getElementById("usageSubtitle").textContent = data.period_active ? "(선택 기간 교체 이력 기준)" : "(부품 규격 기준)";
+  document.getElementById("costSubtitle").textContent = data.period_active ? "(선택 기간 교체 이력 기준)" : "(전체 교체 이력 기준)";
+  document.getElementById("usageSubtitle").textContent = data.period_active ? "(선택 기간 교체 이력 기준)" : "(전체 교체 이력 기준)";
   document.getElementById("clearPeriodBtn").classList.toggle("d-none", !data.period_active);
   updateExportLinks();
 }
@@ -15717,7 +15788,7 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
     </label>
     <p class="text-muted small mb-2">
       유닛 선택은 "기본 유닛 구성"에 등록된 유닛 이름을 기준으로 표시되며, 유닛 하나에 여러 개를 다중 선택할 수 있습니다(선택한 모든 유닛에 동일한 부품이 등록됩니다).
-      교체주기는 "90", "90일", "2년"처럼 입력할 수 있으며 비워두면 기본값(90일)이 적용됩니다.
+      교체주기는 "90", "90일", "2년"처럼 입력할 수 있으며 비워두면 기본값(N/A, 주기 없음)이 적용됩니다.
     </p>
     <textarea id="pasteArea" class="form-control" rows="4" placeholder="로드포트1&#9;오링&#9;Q-1234&#9;내열용&#9;5000&#9;90일&#10;HMI&#9;케이블&#9;Q-5678&#9;연결선&#9;12000&#9;2년"></textarea>
     <button id="applyPasteBtn" class="btn btn-primary btn-sm mt-2">
@@ -15775,6 +15846,7 @@ function escapeHtml(s) {
 }
 
 function cycleDaysToDisplayValue(cycleDays, cycleUnit) {
+  if (cycleUnit === "N/A" || cycleDays == null) return "";
   if (cycleUnit === "년") {
     return Math.round((cycleDays / 365) * 100) / 100;
   }
@@ -15869,9 +15941,10 @@ function renderTable() {
       <td><input type="number" class="form-control form-control-sm field-input" data-id="${e.id}" data-field="cost" value="${e.cost || 0}" min="0" step="100"></td>
       <td>
         <div class="input-group input-group-sm bulk-cycle-group">
-          <input type="number" class="form-control form-control-sm cycle-field-input" data-id="${e.id}" data-cyclefield="value" value="${cycleDaysToDisplayValue(e.cycle_days || 90, e.cycle_unit || "일")}" min="1" step="1">
+          <input type="number" class="form-control form-control-sm cycle-field-input" data-id="${e.id}" data-cyclefield="value" value="${cycleDaysToDisplayValue(e.cycle_days, e.cycle_unit)}" min="1" step="1" ${(e.cycle_unit || "N/A") === "N/A" ? "disabled" : ""}>
           <select class="form-select form-select-sm flex-grow-0 w-auto cycle-field-input" data-id="${e.id}" data-cyclefield="unit">
-            <option value="일" ${(e.cycle_unit || "일") === "일" ? "selected" : ""}>일</option>
+            <option value="N/A" ${(e.cycle_unit || "N/A") === "N/A" ? "selected" : ""}>N/A</option>
+            <option value="일" ${e.cycle_unit === "일" ? "selected" : ""}>일</option>
             <option value="년" ${e.cycle_unit === "년" ? "selected" : ""}>년</option>
           </select>
         </div>
@@ -15950,8 +16023,11 @@ function renderTable() {
     const id = parseInt(valueInput.dataset.id, 10);
     const commitCycle = async () => {
       const cycleUnit = unitSelect.value;
-      const cycleValue = parseFloat(valueInput.value) || 1;
-      const cycleDays = cycleUnit === "년" ? Math.round(cycleValue * 365) : Math.round(cycleValue);
+      let cycleDays = null;
+      if (cycleUnit !== "N/A") {
+        const cycleValue = parseFloat(valueInput.value) || 1;
+        cycleDays = cycleUnit === "년" ? Math.round(cycleValue * 365) : Math.round(cycleValue);
+      }
       await fetchJson(`/api/bulk-parts/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -15959,7 +16035,11 @@ function renderTable() {
       });
     };
     valueInput.addEventListener("change", commitCycle);
-    unitSelect.addEventListener("change", commitCycle);
+    unitSelect.addEventListener("change", () => {
+      valueInput.disabled = unitSelect.value === "N/A";
+      if (unitSelect.value === "N/A") valueInput.value = "";
+      commitCycle();
+    });
   });
 
   tbody.querySelectorAll(".register-btn").forEach((btn) => {

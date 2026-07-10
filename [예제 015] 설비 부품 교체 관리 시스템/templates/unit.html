@@ -208,8 +208,9 @@
             <div class="col-6">
               <label class="form-label">교체 주기</label>
               <div class="input-group">
-                <input type="number" class="form-control" id="partEditCycle" value="90" min="1" required>
+                <input type="number" class="form-control" id="partEditCycle" min="1">
                 <select class="form-select flex-grow-0 w-auto" id="partEditCycleUnit">
+                  <option value="N/A">N/A</option>
                   <option value="일">일</option>
                   <option value="년">년</option>
                 </select>

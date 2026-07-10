@@ -62,12 +62,13 @@ async function runSearch() {
 }
 
 function searchRowHtml(p) {
-  const label = STATUS_LABEL[p.status] || "미기록";
+  const label = p.label || STATUS_LABEL[p.status] || "미기록";
   const lastText = p.last_replaced_date ? `최근 교체 ${p.last_replaced_date}` : "교체 이력 없음";
   const daysText = p.status === "overdue" ? `${Math.abs(p.days_left)}일 초과`
     : (p.status === "soon" || p.status === "ok") ? `${p.days_left}일 남음`
     : "";
   const specText = p.spec ? `${escapeHtml(p.spec)} &middot; ` : "";
+  const cycleText = p.cycle_days != null ? `${p.cycle_days}일` : "N/A";
   return `
     <div class="alert-row" data-row-id="${p.id}">
       <span class="badge badge-${p.status} alert-badge">${label}</span>
@@ -77,7 +78,7 @@ function searchRowHtml(p) {
           <span class="alert-sep">›</span> ${escapeHtml(p.unit_name)}
           <span class="alert-sep">›</span> <strong>${p.icon} ${escapeHtml(p.name)}</strong>
         </div>
-        <div class="alert-meta">${specText}교체 주기 ${p.cycle_days}일 &middot; ${lastText}${daysText ? " &middot; " + daysText : ""}</div>
+        <div class="alert-meta">${specText}교체 주기 ${cycleText} &middot; ${lastText}${daysText ? " &middot; " + daysText : ""}</div>
       </div>
       <i class="bi bi-chevron-right alert-chevron"></i>
     </div>`;

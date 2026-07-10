@@ -523,7 +523,7 @@ function partShapeHtml(p) {
       <span class="unit-status-dot dot-${p.status}"></span>
       <div class="unit-icon-wrap"><span class="unit-icon">${p.icon}</span></div>
       <div class="unit-name">${escapeHtml(p.name)}</div>
-      <div class="unit-part-count">${statusLabel[p.status]}</div>
+      <div class="unit-part-count">${p.label || statusLabel[p.status]}</div>
       <div class="unit-edit-actions">
         <button class="edit-unit-btn" title="편집"><i class="bi bi-pencil"></i></button>
         <button class="copy-part-btn" title="복사"><i class="bi bi-copy"></i></button>
@@ -603,6 +603,7 @@ async function pastePart() {
 }
 
 function formatCycleDisplay(cycleDays, cycleUnit) {
+  if (cycleUnit === "N/A" || cycleDays == null) return "N/A";
   if (cycleUnit === "년") {
     const years = Math.round((cycleDays / 365) * 100) / 100;
     return `${years}년`;
@@ -611,10 +612,18 @@ function formatCycleDisplay(cycleDays, cycleUnit) {
 }
 
 function cycleDaysToDisplayValue(cycleDays, cycleUnit) {
+  if (cycleUnit === "N/A" || cycleDays == null) return "";
   if (cycleUnit === "년") {
     return Math.round((cycleDays / 365) * 100) / 100;
   }
   return cycleDays;
+}
+
+function updateCycleInputState() {
+  const isNA = document.getElementById("partEditCycleUnit").value === "N/A";
+  const cycleInput = document.getElementById("partEditCycle");
+  cycleInput.disabled = isNA;
+  if (isNA) cycleInput.value = "";
 }
 
 function formatCost(cost) {
@@ -669,7 +678,7 @@ function openPartDetailModal(partId) {
   currentPartId = partId;
   document.getElementById("partDetailTitle").textContent = p.name;
   const badge = statusBadge[p.status];
-  const label = statusLabel[p.status];
+  const label = p.label || statusLabel[p.status];
   const lastText = p.last_replaced_date ? `최근 교체: ${p.last_replaced_date}` : "교체 이력 없음";
   const dueText = p.next_due
     ? `다음 교체 예정: ${p.next_due} (${p.days_left >= 0 ? p.days_left + "일 남음" : Math.abs(p.days_left) + "일 초과"})`
@@ -764,9 +773,10 @@ function openPartEditModal(part) {
   document.getElementById("partEditSpec").value = part ? part.spec || "" : "";
   const icon = part ? part.icon : "🔩";
   document.getElementById("partEditIcon").value = icon;
-  const cycleUnit = part ? part.cycle_unit || "일" : "일";
+  const cycleUnit = part ? part.cycle_unit || "N/A" : "N/A";
   document.getElementById("partEditCycleUnit").value = cycleUnit;
-  document.getElementById("partEditCycle").value = part ? cycleDaysToDisplayValue(part.cycle_days, cycleUnit) : 90;
+  document.getElementById("partEditCycle").value = part ? cycleDaysToDisplayValue(part.cycle_days, cycleUnit) : "";
+  updateCycleInputState();
   document.getElementById("partEditCost").value = part ? part.cost || 0 : 0;
   document.getElementById("partEditNote").value = part ? part.note || "" : "";
   document.getElementById("partEditMemo").innerHTML = part ? part.memo || "" : "";
@@ -795,6 +805,7 @@ document.addEventListener("DOMContentLoaded", () => {
   loadNotes();
   attachRichPasteHandler(document.getElementById("partEditMemo"));
   attachTableEditToolbar(document.getElementById("partEditMemo"));
+  document.getElementById("partEditCycleUnit").addEventListener("change", updateCycleInputState);
 
   document.getElementById("editModeBtn").addEventListener("click", (e) => {
     editMode = !editMode;
@@ -906,8 +917,15 @@ document.addEventListener("DOMContentLoaded", () => {
     e.preventDefault();
     const id = document.getElementById("partEditId").value;
     const cycleUnit = document.getElementById("partEditCycleUnit").value;
-    const cycleValue = parseFloat(document.getElementById("partEditCycle").value);
-    const cycleDays = cycleUnit === "년" ? Math.round(cycleValue * 365) : Math.round(cycleValue);
+    let cycleDays = null;
+    if (cycleUnit !== "N/A") {
+      const cycleValue = parseFloat(document.getElementById("partEditCycle").value);
+      if (isNaN(cycleValue) || cycleValue <= 0) {
+        alert("교체 주기를 입력하거나 N/A를 선택하세요");
+        return;
+      }
+      cycleDays = cycleUnit === "년" ? Math.round(cycleValue * 365) : Math.round(cycleValue);
+    }
     const payload = {
       name: document.getElementById("partEditName").value.trim(),
       spec: document.getElementById("partEditSpec").value.trim(),

@@ -13,6 +13,7 @@ function escapeHtml(s) {
 }
 
 function cycleDaysToDisplayValue(cycleDays, cycleUnit) {
+  if (cycleUnit === "N/A" || cycleDays == null) return "";
   if (cycleUnit === "년") {
     return Math.round((cycleDays / 365) * 100) / 100;
   }
@@ -107,9 +108,10 @@ function renderTable() {
       <td><input type="number" class="form-control form-control-sm field-input" data-id="${e.id}" data-field="cost" value="${e.cost || 0}" min="0" step="100"></td>
       <td>
         <div class="input-group input-group-sm bulk-cycle-group">
-          <input type="number" class="form-control form-control-sm cycle-field-input" data-id="${e.id}" data-cyclefield="value" value="${cycleDaysToDisplayValue(e.cycle_days || 90, e.cycle_unit || "일")}" min="1" step="1">
+          <input type="number" class="form-control form-control-sm cycle-field-input" data-id="${e.id}" data-cyclefield="value" value="${cycleDaysToDisplayValue(e.cycle_days, e.cycle_unit)}" min="1" step="1" ${(e.cycle_unit || "N/A") === "N/A" ? "disabled" : ""}>
           <select class="form-select form-select-sm flex-grow-0 w-auto cycle-field-input" data-id="${e.id}" data-cyclefield="unit">
-            <option value="일" ${(e.cycle_unit || "일") === "일" ? "selected" : ""}>일</option>
+            <option value="N/A" ${(e.cycle_unit || "N/A") === "N/A" ? "selected" : ""}>N/A</option>
+            <option value="일" ${e.cycle_unit === "일" ? "selected" : ""}>일</option>
             <option value="년" ${e.cycle_unit === "년" ? "selected" : ""}>년</option>
           </select>
         </div>
@@ -188,8 +190,11 @@ function renderTable() {
     const id = parseInt(valueInput.dataset.id, 10);
     const commitCycle = async () => {
       const cycleUnit = unitSelect.value;
-      const cycleValue = parseFloat(valueInput.value) || 1;
-      const cycleDays = cycleUnit === "년" ? Math.round(cycleValue * 365) : Math.round(cycleValue);
+      let cycleDays = null;
+      if (cycleUnit !== "N/A") {
+        const cycleValue = parseFloat(valueInput.value) || 1;
+        cycleDays = cycleUnit === "년" ? Math.round(cycleValue * 365) : Math.round(cycleValue);
+      }
       await fetchJson(`/api/bulk-parts/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -197,7 +202,11 @@ function renderTable() {
       });
     };
     valueInput.addEventListener("change", commitCycle);
-    unitSelect.addEventListener("change", commitCycle);
+    unitSelect.addEventListener("change", () => {
+      valueInput.disabled = unitSelect.value === "N/A";
+      if (unitSelect.value === "N/A") valueInput.value = "";
+      commitCycle();
+    });
   });
 
   tbody.querySelectorAll(".register-btn").forEach((btn) => {
