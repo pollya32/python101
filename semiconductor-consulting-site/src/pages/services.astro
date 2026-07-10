@@ -1,0 +1,137 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { withBase } from '../utils/url';
+
+const services = [
+  {
+    title: '공정·수율 자문',
+    tag: 'Process & Yield',
+    points: [
+      '공정 데이터 기반 수율 저하 원인 분석',
+      '공정 단계별 개선 우선순위 도출',
+      '개선안 실행을 위한 실무 가이드 제공',
+    ],
+  },
+  {
+    title: '소자·설계 리뷰',
+    tag: 'Device & Design',
+    points: [
+      '소자 특성 데이터 검토 및 이슈 진단',
+      '설계 변경안 기술 리뷰',
+      '중장기 기술 로드맵 수립 지원',
+    ],
+  },
+  {
+    title: '신사업·투자 타당성 검토',
+    tag: 'Feasibility',
+    points: [
+      '반도체 산업 진입/투자 전 기술 타당성 분석',
+      '시장·경쟁 기술 동향 리서치',
+      '의사결정을 위한 자문 리포트 작성',
+    ],
+  },
+  {
+    title: '사내 교육·세미나',
+    tag: 'Training',
+    points: [
+      '반도체 공정/소자 기초 커리큘럼 설계',
+      '실무진 눈높이에 맞춘 강의 진행',
+      '사내 스터디·워크숍 운영 자문',
+    ],
+  },
+];
+
+const steps = [
+  { n: '01', title: '문의 및 상담', desc: '문의 폼 또는 이메일로 현황과 필요사항을 공유해주세요.' },
+  { n: '02', title: '범위 협의', desc: '자문 범위, 기간, 산출물을 함께 정의합니다.' },
+  { n: '03', title: '진행', desc: '자료 검토, 인터뷰, 분석을 통해 자문을 수행합니다.' },
+  { n: '04', title: '결과 공유', desc: '리포트 및 후속 논의를 통해 실행을 지원합니다.' },
+];
+---
+<BaseLayout title="자문 서비스" description="반도체 공정, 소자, 신사업 타당성, 사내 교육 등 자문 서비스 안내.">
+  <section class="section page-hero">
+    <div class="wrap">
+      <span class="eyebrow">Services</span>
+      <h1>자문 서비스</h1>
+      <p>필요한 범위에 맞춰 단발성 자문부터 장기 프로젝트까지 유연하게 진행합니다.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap service-list">
+      {services.map((s) => (
+        <div class="card service-detail">
+          <span class="tag">{s.tag}</span>
+          <h2>{s.title}</h2>
+          <ul>
+            {s.points.map((p) => <li>{p}</li>)}
+          </ul>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow">Process</span>
+        <h2>진행 절차</h2>
+      </div>
+      <div class="steps">
+        {steps.map((s) => (
+          <div class="step">
+            <span class="step-n">{s.n}</span>
+            <h3>{s.title}</h3>
+            <p>{s.desc}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="section cta">
+    <div class="wrap cta-card card">
+      <h2>어떤 자문이 필요하신가요?</h2>
+      <p>간단한 문의도 좋습니다. 편하게 연락 주세요.</p>
+      <a class="btn btn-primary" href={withBase('contact/')}>문의하기</a>
+    </div>
+  </section>
+
+  <style>
+    .page-hero { padding: 64px 0 24px; }
+    .page-hero h1 { font-size: 34px; margin: 0 0 10px; }
+    .page-hero p { color: var(--text-dim); margin: 0; max-width: 560px; }
+
+    .service-list { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .service-detail h2 { font-size: 19px; margin: 6px 0 14px; }
+    .tag {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--accent);
+      background: var(--accent-soft);
+      padding: 4px 10px;
+      border-radius: 999px;
+    }
+    .service-detail ul { margin: 0; padding-left: 18px; color: var(--text-dim); font-size: 14px; display: flex; flex-direction: column; gap: 6px; }
+
+    .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+    .step { border-top: 2px solid var(--accent); padding-top: 14px; }
+    .step-n { font-size: 12px; color: var(--text-faint); font-weight: 700; }
+    .step h3 { font-size: 16px; margin: 6px 0 6px; }
+    .step p { font-size: 14px; color: var(--text-dim); margin: 0; }
+
+    .cta-card { text-align: center; padding: 48px 24px; }
+    .cta-card h2 { margin: 0 0 10px; font-size: 26px; }
+    .cta-card p { color: var(--text-dim); margin: 0 0 24px; }
+
+    @media (max-width: 800px) {
+      .service-list { grid-template-columns: 1fr; }
+      .steps { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 480px) {
+      .steps { grid-template-columns: 1fr; }
+    }
+  </style>
+</BaseLayout>

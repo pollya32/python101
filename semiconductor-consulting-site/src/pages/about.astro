@@ -1,0 +1,68 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { withBase } from '../utils/url';
+
+const highlights = [
+  '반도체 제조/공정 현장 실무 경험',
+  '공정·수율 데이터 분석 및 개선 프로젝트 수행',
+  '사내 기술 교육 및 세미나 진행 경험',
+];
+---
+<BaseLayout title="소개" description="반도체 컨설팅을 운영하는 1인 컨설턴트 소개.">
+  <section class="section page-hero">
+    <div class="wrap">
+      <span class="eyebrow">About</span>
+      <h1>안녕하세요, 반도체 컨설팅입니다</h1>
+      <p>
+        현장에서 쌓은 공정·수율 경험을 바탕으로, 기업의 기술적 의사결정을 돕는
+        자문을 제공합니다. 큰 조직 대신 담당자가 직접 챙기는 자문을 지향합니다.
+      </p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap about-grid">
+      <div class="card">
+        <h2>이력 및 경력</h2>
+        <ul class="highlight-list">
+          {highlights.map((h) => <li>{h}</li>)}
+        </ul>
+      </div>
+      <div class="card">
+        <h2>자문 철학</h2>
+        <p class="philosophy">
+          "현장 데이터 없이는 좋은 자문도 없다"는 원칙으로, 추측이 아닌 근거에
+          기반한 자문을 제공합니다. 또한 자문 결과가 실제로 실행될 수 있도록
+          현실적인 실행 계획까지 함께 고민합니다.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section cta">
+    <div class="wrap cta-card card">
+      <h2>함께 이야기 나눠보시겠어요?</h2>
+      <p>어떤 도움이 필요하신지 편하게 말씀해주세요.</p>
+      <a class="btn btn-primary" href={withBase('contact/')}>문의하기</a>
+    </div>
+  </section>
+
+  <style>
+    .page-hero { padding: 64px 0 24px; }
+    .page-hero h1 { font-size: 34px; margin: 0 0 14px; }
+    .page-hero p { color: var(--text-dim); margin: 0; max-width: 620px; }
+
+    .about-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .about-grid h2 { font-size: 18px; margin: 0 0 14px; }
+    .highlight-list { margin: 0; padding-left: 18px; color: var(--text-dim); font-size: 14px; display: flex; flex-direction: column; gap: 8px; }
+    .philosophy { color: var(--text-dim); font-size: 14px; margin: 0; }
+
+    .cta-card { text-align: center; padding: 48px 24px; }
+    .cta-card h2 { margin: 0 0 10px; font-size: 26px; }
+    .cta-card p { color: var(--text-dim); margin: 0 0 24px; }
+
+    @media (max-width: 800px) {
+      .about-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</BaseLayout>

@@ -3,3 +3,8 @@
 */.idea
 .idea
 .DS_Store
+
+# Node / Astro
+node_modules/
+.astro/
+dist/

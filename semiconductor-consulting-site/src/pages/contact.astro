@@ -1,0 +1,55 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+// TODO: 실제 연락처로 교체하세요.
+const email = 'contact@example.com';
+
+const checklist = [
+  '소속(회사/개인) 및 담당 업무',
+  '자문이 필요한 주제 (공정, 소자, 신사업 등)',
+  '희망하는 진행 방식과 일정',
+];
+---
+<BaseLayout title="문의" description="반도체 컨설팅 자문 문의 방법 안내.">
+  <section class="section page-hero">
+    <div class="wrap">
+      <span class="eyebrow">Contact</span>
+      <h1>문의하기</h1>
+      <p>아래 이메일로 편하게 연락 주세요. 보통 1~2일 내에 답변드립니다.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap contact-grid">
+      <div class="card email-card">
+        <span class="eyebrow">Email</span>
+        <a class="email-link" href={`mailto:${email}`}>{email}</a>
+        <a class="btn btn-primary" href={`mailto:${email}`}>이메일 보내기</a>
+      </div>
+      <div class="card">
+        <h2>문의 시 포함하면 좋은 정보</h2>
+        <ul class="checklist">
+          {checklist.map((c) => <li>{c}</li>)}
+        </ul>
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .page-hero { padding: 64px 0 24px; }
+  .page-hero h1 { font-size: 34px; margin: 0 0 10px; }
+  .page-hero p { color: var(--text-dim); margin: 0; max-width: 560px; }
+
+  .contact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .email-card { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
+  .email-link { font-size: 20px; font-weight: 700; color: var(--text); }
+  .email-link:hover { color: var(--accent); }
+
+  .checklist { margin: 0; padding-left: 18px; color: var(--text-dim); font-size: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .contact-grid h2 { font-size: 18px; margin: 0 0 14px; }
+
+  @media (max-width: 800px) {
+    .contact-grid { grid-template-columns: 1fr; }
+  }
+</style>

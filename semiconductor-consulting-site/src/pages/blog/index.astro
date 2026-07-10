@@ -1,0 +1,59 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { getCollection } from 'astro:content';
+import { withBase } from '../../utils/url';
+
+const allPosts = await getCollection('blog', ({ data }) => !data.draft);
+const posts = allPosts.sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf());
+---
+<BaseLayout title="학습 노트" description="반도체 공정, 소자, 산업 동향 학습 노트 모음.">
+  <section class="section page-hero">
+    <div class="wrap">
+      <span class="eyebrow">Learning Notes</span>
+      <h1>학습 노트</h1>
+      <p>공부하고 정리한 반도체 공정·소자·산업 동향 노트를 공유합니다.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      {posts.length === 0 ? (
+        <p class="empty">아직 작성된 글이 없습니다. 곧 첫 글로 찾아뵐게요.</p>
+      ) : (
+        <div class="post-list">
+          {posts.map((post) => (
+            <a class="card post-row" href={withBase(`blog/${post.id}/`)}>
+              <time datetime={post.data.pubDate.toISOString()}>
+                {post.data.pubDate.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })}
+              </time>
+              <h2>{post.data.title}</h2>
+              <p>{post.data.description}</p>
+              {post.data.tags.length > 0 && (
+                <div class="tags">
+                  {post.data.tags.map((t) => <span class="tag">#{t}</span>)}
+                </div>
+              )}
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  </section>
+
+  <style>
+    .page-hero { padding: 64px 0 24px; }
+    .page-hero h1 { font-size: 34px; margin: 0 0 10px; }
+    .page-hero p { color: var(--text-dim); margin: 0; max-width: 560px; }
+
+    .empty { color: var(--text-dim); }
+
+    .post-list { display: flex; flex-direction: column; gap: 14px; }
+    .post-row { display: flex; flex-direction: column; gap: 6px; transition: border-color 0.15s, transform 0.15s; }
+    .post-row:hover { border-color: var(--accent); transform: translateY(-1px); }
+    .post-row time { font-size: 12px; color: var(--text-faint); }
+    .post-row h2 { font-size: 19px; margin: 0; }
+    .post-row p { font-size: 14px; color: var(--text-dim); margin: 0; }
+    .tags { display: flex; gap: 8px; margin-top: 4px; }
+    .tag { font-size: 12px; color: var(--accent); }
+  </style>
+</BaseLayout>

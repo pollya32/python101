@@ -1,0 +1,80 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { getCollection, render } from 'astro:content';
+import { withBase } from '../../utils/url';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('blog', ({ data }) => !data.draft);
+  return posts.map((post) => ({
+    params: { slug: post.id },
+    props: { post },
+  }));
+}
+
+const { post } = Astro.props;
+const { Content } = await render(post);
+---
+<BaseLayout title={post.data.title} description={post.data.description}>
+  <article class="section post">
+    <div class="wrap post-inner">
+      <a class="back-link" href={withBase('blog/')}>← 학습 노트 목록</a>
+      <span class="eyebrow">Learning Note</span>
+      <h1>{post.data.title}</h1>
+      <div class="meta">
+        <time datetime={post.data.pubDate.toISOString()}>
+          {post.data.pubDate.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })}
+        </time>
+        {post.data.tags.length > 0 && (
+          <div class="tags">
+            {post.data.tags.map((t) => <span class="tag">#{t}</span>)}
+          </div>
+        )}
+      </div>
+      <div class="prose">
+        <Content />
+      </div>
+    </div>
+  </article>
+
+  <style>
+    .post { padding-top: 48px; }
+    .post-inner { max-width: 720px; }
+    .back-link { display: block; font-size: 14px; color: var(--text-dim); margin-bottom: 24px; }
+    .back-link:hover { color: var(--accent); }
+    .post h1 { font-size: 32px; margin: 8px 0 14px; }
+    .meta { display: flex; align-items: center; gap: 14px; margin-bottom: 36px; }
+    .meta time { font-size: 13px; color: var(--text-faint); }
+    .tags { display: flex; gap: 8px; }
+    .tag { font-size: 12px; color: var(--accent); }
+
+    .prose { color: var(--text-dim); font-size: 16px; line-height: 1.8; }
+    .prose :global(h2) { color: var(--text); font-size: 22px; margin: 36px 0 14px; }
+    .prose :global(h3) { color: var(--text); font-size: 18px; margin: 28px 0 10px; }
+    .prose :global(p) { margin: 0 0 16px; }
+    .prose :global(ul), .prose :global(ol) { margin: 0 0 16px; padding-left: 22px; }
+    .prose :global(li) { margin-bottom: 6px; }
+    .prose :global(code) {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 0.9em;
+    }
+    .prose :global(pre) {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-sm);
+      padding: 16px;
+      overflow-x: auto;
+    }
+    .prose :global(pre code) { background: none; border: none; padding: 0; }
+    .prose :global(blockquote) {
+      border-left: 3px solid var(--accent);
+      margin: 0 0 16px;
+      padding-left: 16px;
+      color: var(--text-dim);
+    }
+    .prose :global(a) { color: var(--accent); text-decoration: underline; }
+    .prose :global(img) { max-width: 100%; border-radius: var(--radius-sm); }
+  </style>
+</BaseLayout>
