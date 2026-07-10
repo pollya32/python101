@@ -1056,9 +1056,13 @@ def search_parts(query, status=None, equipment_id=None):
 
 def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
     """부품명+규격을 기준으로 시스템 전체(선택된 유닛 이름으로 범위 제한 가능)를 집계한다.
-    금액/사용량은 항상 실제 교체 이력(replacement_history)을 기준으로 계산하며,
-    start_date/end_date가 주어지면 해당 기간에 발생한 교체 기록만 집계한다.
+    금액은 실제 교체 이력(replacement_history)이 있으면 그 금액을 사용하고, 기간 필터가
+    없는데 교체 이력이 아직 없는 부품은 등록된 금액(예상 비용)을 대신 사용한다(설치만 해두고
+    아직 한 번도 교체하지 않은 부품이 금액순 집계에서 통째로 사라지는 것을 막기 위함).
+    기간 필터가 있으면 해당 기간에 실제로 발생한 교체 기록의 금액만 집계한다.
+    사용량은 항상 실제 교체 이력 기준이다.
     교체주기는 항상 현재 부품 구성 기준으로 계산하되, 주기가 없는(N/A) 부품은 제외한다."""
+    period_filter = bool(start_date or end_date)
     query = """
         SELECT p.*, u.name AS unit_name
         FROM parts p
@@ -1112,7 +1116,10 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
             g["min_cycle_unit"] = p["cycle_unit"]
         hist = hist_by_part.get(p["id"], {"n": 0, "total": 0})
         g["usage_count"] += hist["n"]
-        g["total_cost"] += hist["total"]
+        if hist["n"] > 0:
+            g["total_cost"] += hist["total"]
+        elif not period_filter:
+            g["total_cost"] += p["cost"] or 0
 
     return list(groups.values())
 
@@ -2185,9 +2192,13 @@ def api_search():
 
 def build_stats_payload(conn, unit_names, start_date=None, end_date=None):
     """부품 규격 기준(금액순/사용량 많은순/교체주기 짧은순)과 유닛 기준(부품수 많은순) 통계를 함께 만든다."""
+    period_active = bool(start_date or end_date)
     spec_rows = get_part_spec_stats(conn, unit_names, start_date=start_date, end_date=end_date)
+    # 기간 필터가 없으면 아직 교체 이력이 없는 부품도 등록된 금액으로 집계되므로(get_part_spec_stats
+    # 참고) 전부 보여준다. 기간 필터가 있으면 그 기간에 실제 교체 기록이 있는 부품만 보여준다.
     by_cost = sorted(
-        (r for r in spec_rows if r["usage_count"] > 0), key=lambda r: r["total_cost"], reverse=True
+        (r for r in spec_rows if period_active is False or r["usage_count"] > 0),
+        key=lambda r: r["total_cost"], reverse=True
     )
     by_usage = sorted(spec_rows, key=lambda r: r["usage_count"], reverse=True)
     by_short_cycle = sorted(
@@ -13505,7 +13516,9 @@ async function loadStats() {
   renderPartSpecPanel("statsUsage", data.by_usage, (r) => `${r.usage_count}회 교체`);
   renderPartSpecPanel("statsCycle", data.by_short_cycle, (r) => formatCycle(r.min_cycle_days, r.min_cycle_unit) + " 주기");
   renderUnitPanel("statsPartCount", data.by_part_count, (r) => `${r.part_count}개`);
-  document.getElementById("costSubtitle").textContent = data.period_active ? "(선택 기간 교체 이력 기준)" : "(전체 교체 이력 기준)";
+  document.getElementById("costSubtitle").textContent = data.period_active
+    ? "(선택 기간 교체 이력 기준)"
+    : "(교체 이력 있으면 실제 금액, 없으면 등록 금액)";
   document.getElementById("usageSubtitle").textContent = data.period_active ? "(선택 기간 교체 이력 기준)" : "(전체 교체 이력 기준)";
   document.getElementById("clearPeriodBtn").classList.toggle("d-none", !data.period_active);
   updateExportLinks();
