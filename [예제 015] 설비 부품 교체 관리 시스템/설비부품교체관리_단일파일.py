@@ -1058,16 +1058,19 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
     """부품명+규격을 기준으로 시스템 전체(선택된 유닛 이름으로 범위 제한 가능)를 집계한다.
     금액은 실제 교체 이력(replacement_history)이 있으면 그 금액을 사용하고, 기간 필터가
     없는데 교체 이력이 아직 없는 부품은 등록된 금액(예상 비용)을 대신 사용한다(설치만 해두고
-    아직 한 번도 교체하지 않은 부품이 금액순 집계에서 통째로 사라지는 것을 막기 위함).
+    아직 한 번도 교체하지 않은 부품이 금액순 집계에서 통째로 사라지는 것을 막기 위함). 이때
+    부품은 전 설비에 동일하게 동기화되어 있으므로, 등록된 금액은 유닛별로 합산하지 않고
+    기준 설비(TEAG01호기)에 등록된 값 하나만 사용한다.
     기간 필터가 있으면 해당 기간에 실제로 발생한 교체 기록의 금액만 집계한다.
     사용량은 항상 실제 교체 이력 기준이다.
     교체주기는 항상 현재 부품 구성 기준으로 계산하되, 주기가 없는(N/A) 부품은 제외한다."""
     period_filter = bool(start_date or end_date)
     query = """
-        SELECT p.*, u.name AS unit_name
+        SELECT p.*, u.name AS unit_name, e.id AS equipment_id
         FROM parts p
         JOIN units u ON p.unit_id = u.id
-        WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL
+        JOIN equipments e ON u.equipment_id = e.id
+        WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
     """
     params = []
     if unit_names:
@@ -1118,7 +1121,7 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
         g["usage_count"] += hist["n"]
         if hist["n"] > 0:
             g["total_cost"] += hist["total"]
-        elif not period_filter:
+        elif not period_filter and p["equipment_id"] == MASTER_EQUIPMENT_ID:
             g["total_cost"] += p["cost"] or 0
 
     return list(groups.values())
@@ -8243,8 +8246,9 @@ function openDrawingModal() {
 }
 
 function openReplaceModal() {
+  const p = currentParts.find((x) => x.id === currentPartId);
   document.getElementById("replaceDate").value = new Date().toISOString().slice(0, 10);
-  document.getElementById("replaceCost").value = 0;
+  document.getElementById("replaceCost").value = (p && p.cost) || 0;
   document.getElementById("replaceNote").value = "";
   replaceModal.show();
 }

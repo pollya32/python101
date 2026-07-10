@@ -733,8 +733,9 @@ function openDrawingModal() {
 }
 
 function openReplaceModal() {
+  const p = currentParts.find((x) => x.id === currentPartId);
   document.getElementById("replaceDate").value = new Date().toISOString().slice(0, 10);
-  document.getElementById("replaceCost").value = 0;
+  document.getElementById("replaceCost").value = (p && p.cost) || 0;
   document.getElementById("replaceNote").value = "";
   replaceModal.show();
 }
