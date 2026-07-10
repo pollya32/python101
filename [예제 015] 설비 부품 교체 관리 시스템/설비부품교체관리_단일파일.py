@@ -308,12 +308,21 @@ def init_db():
     # 기존 DB는 cycle_days가 NOT NULL(기본값 90)이었다. 교체 주기를 "N/A"(주기 없음)로
     # 남겨둘 수 있으려면 NULL을 허용해야 하는데, SQLite는 컬럼의 NOT NULL 제약을
     # 직접 제거할 수 없으므로 테이블을 재생성해서 옮겨준다.
+    # (parts를 다른 이름으로 RENAME했다가 다시 만드는 방식은, replacement_history의
+    #  FOREIGN KEY ... ON DELETE CASCADE가 RENAME된 임시 이름을 따라가 버려서 임시
+    #  테이블을 DROP하는 순간 거기 딸린 교체 이력이 CASCADE로 통째로 삭제되거나,
+    #  FK 정의가 존재하지 않는 임시 테이블 이름을 계속 가리키게 되는 문제가 있었다.
+    #  대신 새 테이블을 다른 이름으로 만들어 데이터를 옮긴 뒤 기존 parts를 지우고
+    #  새 테이블을 parts로 RENAME해서, replacement_history의 FK 정의("parts" 참조)가
+    #  한 번도 다른 이름을 가리키지 않도록 한다. SQLite 공식 가이드대로 이 구간만
+    #  foreign_keys를 잠시 꺼서 진행한다.)
     part_col_info = c.execute("PRAGMA table_info(parts)").fetchall()
     if any(r["name"] == "cycle_days" and r["notnull"] for r in part_col_info):
         old_cols = ", ".join(r["name"] for r in part_col_info)
-        c.execute("ALTER TABLE parts RENAME TO parts_pre_na_migration")
+        conn.commit()  # foreign_keys pragma는 열려있는 트랜잭션이 없어야 적용된다
+        c.execute("PRAGMA foreign_keys = OFF")
         c.execute("""
-            CREATE TABLE parts (
+            CREATE TABLE parts_na_migrated (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 unit_id INTEGER NOT NULL,
                 name TEXT NOT NULL,
@@ -339,8 +348,11 @@ def init_db():
                 FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
             )
         """)
-        c.execute(f"INSERT INTO parts ({old_cols}) SELECT {old_cols} FROM parts_pre_na_migration")
-        c.execute("DROP TABLE parts_pre_na_migration")
+        c.execute(f"INSERT INTO parts_na_migrated ({old_cols}) SELECT {old_cols} FROM parts")
+        c.execute("DROP TABLE parts")
+        c.execute("ALTER TABLE parts_na_migrated RENAME TO parts")
+        conn.commit()
+        c.execute("PRAGMA foreign_keys = ON")
 
     existing_part_cols = {r["name"] for r in c.execute("PRAGMA table_info(parts)").fetchall()}
     if "icon" not in existing_part_cols:
