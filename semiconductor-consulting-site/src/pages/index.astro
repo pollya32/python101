@@ -1,0 +1,182 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { getCollection } from 'astro:content';
+import { withBase } from '../utils/url';
+
+const services = [
+  {
+    title: '공정·수율 자문',
+    desc: '반도체 제조 공정 진단과 수율 저하 원인 분석, 개선 방향 제시.',
+    icon: '🧪',
+  },
+  {
+    title: '소자·설계 리뷰',
+    desc: '소자 특성 및 설계 검토, 기술 로드맵 수립 지원.',
+    icon: '🧩',
+  },
+  {
+    title: '신사업·투자 타당성 검토',
+    desc: '반도체 산업 진입/투자 전 기술·시장 타당성 분석 자문.',
+    icon: '📊',
+  },
+  {
+    title: '사내 교육·세미나',
+    desc: '실무진 대상 반도체 공정/소자 기초 교육 커리큘럼 설계 및 강의.',
+    icon: '🎓',
+  },
+];
+
+const allPosts = await getCollection('blog', ({ data }) => !data.draft);
+const posts = allPosts
+  .sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf())
+  .slice(0, 3);
+---
+<BaseLayout
+  title="홈"
+  description="반도체 공정·소자·수율 자문과 학습 콘텐츠를 제공하는 1인 컨설팅 사이트입니다."
+>
+  <section class="hero">
+    <div class="wrap hero-inner">
+      <span class="eyebrow">Semiconductor Consulting</span>
+      <h1>현장 경험 기반의<br />반도체 공정·수율 자문</h1>
+      <p class="hero-desc">
+        공정 진단부터 수율 개선, 기술 타당성 검토, 실무 교육까지 —
+        데이터에 근거한 실행 가능한 자문을 제공합니다.
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href={withBase('contact/')}>자문 문의하기</a>
+        <a class="btn btn-ghost" href={withBase('services/')}>서비스 살펴보기</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow">Services</span>
+        <h2>이런 자문을 드립니다</h2>
+        <p>제조 현장 경험을 바탕으로, 필요한 범위에 맞춰 유연하게 진행합니다.</p>
+      </div>
+      <div class="grid-4">
+        {services.map((s) => (
+          <div class="card service-card">
+            <div class="service-icon" aria-hidden="true">{s.icon}</div>
+            <h3>{s.title}</h3>
+            <p>{s.desc}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="section why">
+    <div class="wrap why-grid">
+      <div class="section-head" style="margin-bottom:0">
+        <span class="eyebrow">Why</span>
+        <h2>왜 저와 함께해야 할까요</h2>
+        <p>대규모 조직이 아닌, 담당자가 직접 챙기는 자문이기에 가능한 것들이 있습니다.</p>
+      </div>
+      <ul class="why-list">
+        <li><strong>실무 중심</strong><span>이론이 아닌 현장 공정 데이터와 사례에 기반한 진단</span></li>
+        <li><strong>빠른 커뮤니케이션</strong><span>중간 보고 체계 없이 담당자와 직접 소통</span></li>
+        <li><strong>맞춤형 범위</strong><span>단발성 자문부터 장기 프로젝트까지 유연하게 설계</span></li>
+      </ul>
+    </div>
+  </section>
+
+  {posts.length > 0 && (
+    <section class="section">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">Learning Notes</span>
+          <h2>최근 학습 노트</h2>
+          <p>공부하며 정리한 반도체 공정·소자 노트를 공유합니다.</p>
+        </div>
+        <div class="grid-3">
+          {posts.map((post) => (
+            <a class="card post-card" href={withBase(`blog/${post.id}/`)}>
+              <time datetime={post.data.pubDate.toISOString()}>
+                {post.data.pubDate.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })}
+              </time>
+              <h3>{post.data.title}</h3>
+              <p>{post.data.description}</p>
+            </a>
+          ))}
+        </div>
+        <div class="see-all">
+          <a class="btn btn-ghost" href={withBase('blog/')}>모든 글 보기 →</a>
+        </div>
+      </div>
+    </section>
+  )}
+
+  <section class="section cta">
+    <div class="wrap cta-card card">
+      <h2>궁금한 점이 있으신가요?</h2>
+      <p>공정/수율 이슈, 기술 검토, 교육 커리큘럼 무엇이든 편하게 문의해주세요.</p>
+      <a class="btn btn-primary" href={withBase('contact/')}>지금 문의하기</a>
+    </div>
+  </section>
+
+  <style>
+    .hero { padding: 88px 0 40px; }
+    .hero-inner { max-width: 680px; }
+    .hero h1 {
+      font-size: 42px;
+      margin: 0 0 18px;
+      background: linear-gradient(135deg, #ffffff, #c9d6f2);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .hero-desc { font-size: 17px; color: var(--text-dim); margin: 0 0 30px; }
+    .hero-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+    .service-card h3 { font-size: 16px; margin: 4px 0 8px; }
+    .service-card p { font-size: 14px; color: var(--text-dim); margin: 0; }
+    .service-icon { font-size: 26px; margin-bottom: 4px; }
+
+    .why-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 40px;
+      align-items: start;
+    }
+    .why-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 20px; }
+    .why-list li { display: flex; flex-direction: column; gap: 4px; border-left: 2px solid var(--accent); padding-left: 16px; }
+    .why-list strong { font-size: 15px; }
+    .why-list span { color: var(--text-dim); font-size: 14px; }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    .post-card { display: flex; flex-direction: column; gap: 8px; transition: border-color 0.15s, transform 0.15s; }
+    .post-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .post-card time { font-size: 12px; color: var(--text-faint); }
+    .post-card h3 { font-size: 16px; margin: 0; }
+    .post-card p { font-size: 14px; color: var(--text-dim); margin: 0; }
+    .see-all { margin-top: 24px; }
+
+    .cta-card { text-align: center; padding: 48px 24px; }
+    .cta-card h2 { margin: 0 0 10px; font-size: 26px; }
+    .cta-card p { color: var(--text-dim); margin: 0 0 24px; }
+
+    @media (max-width: 900px) {
+      .grid-4 { grid-template-columns: repeat(2, 1fr); }
+      .grid-3 { grid-template-columns: 1fr; }
+      .why-grid { grid-template-columns: 1fr; gap: 24px; }
+    }
+    @media (max-width: 560px) {
+      .hero { padding: 56px 0 24px; }
+      .hero h1 { font-size: 32px; }
+      .grid-4 { grid-template-columns: 1fr; }
+    }
+  </style>
+</BaseLayout>
