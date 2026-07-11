@@ -365,6 +365,11 @@ function renderPartsCanvas(parts) {
       e.stopPropagation();
       copyPart(p);
     });
+    card.querySelector(".unit-drawing-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      currentPartId = p.id;
+      openDrawingModal();
+    });
 
     makeDraggable(card, p);
     makeResizable(card, p);
@@ -464,6 +469,7 @@ function makeDraggable(card, part) {
   card.addEventListener("mousedown", (e) => {
     if (!editMode) return;
     if (e.target.closest(".unit-edit-actions")) return;
+    if (e.target.closest(".unit-drawing-btn")) return;
     e.preventDefault();
 
     const canvas = document.getElementById("partsCanvas");
@@ -512,6 +518,7 @@ function makeDraggable(card, part) {
   card.addEventListener("click", (e) => {
     if (editMode) return;
     if (e.target.closest(".unit-edit-actions")) return;
+    if (e.target.closest(".unit-drawing-btn")) return;
     openPartDetailModal(part.id);
   });
 }
@@ -521,7 +528,10 @@ function partShapeHtml(p) {
   return `
     <div class="unit-card ${editMode ? "edit-mode" : ""}" data-part-id="${p.id}" style="--uc:${color}">
       <span class="unit-status-dot dot-${p.status}"></span>
-      <div class="unit-icon-wrap"><span class="unit-icon">${p.icon}</span></div>
+      <div class="unit-icon-wrap">
+        <span class="unit-icon">${p.icon}</span>
+        ${p.drawing_data ? `<button type="button" class="unit-drawing-btn" title="도면 보기"><i class="bi bi-image"></i></button>` : ""}
+      </div>
       <div class="unit-name">${escapeHtml(p.name)}</div>
       <div class="unit-part-count">${p.label || statusLabel[p.status]}</div>
       <div class="unit-edit-actions">

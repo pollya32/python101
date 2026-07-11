@@ -426,6 +426,7 @@ function makeDraggable(card, unit) {
   card.addEventListener("mousedown", (e) => {
     if (!editMode) return;
     if (e.target.closest(".unit-edit-actions")) return;
+    if (e.target.closest(".unit-drawing-btn")) return;
     e.preventDefault();
 
     const canvas = document.getElementById("canvas");
@@ -474,6 +475,7 @@ function makeDraggable(card, unit) {
   card.addEventListener("click", (e) => {
     if (editMode) return;
     if (e.target.closest(".unit-edit-actions")) return;
+    if (e.target.closest(".unit-drawing-btn")) return;
     window.location.href = `/unit/${unit.id}`;
   });
 }
