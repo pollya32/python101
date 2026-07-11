@@ -225,6 +225,7 @@ def init_db():
             pos_y REAL DEFAULT 50,
             width REAL DEFAULT 140,
             height REAL DEFAULT 110,
+            drawing_data TEXT,
             deleted_at TEXT,
             created_at TEXT DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (equipment_id) REFERENCES equipments(id) ON DELETE CASCADE
@@ -242,6 +243,8 @@ def init_db():
         c.execute("ALTER TABLE units ADD COLUMN height REAL")
     if "deleted_at" not in existing_cols:
         c.execute("ALTER TABLE units ADD COLUMN deleted_at TEXT")
+    if "drawing_data" not in existing_cols:
+        c.execute("ALTER TABLE units ADD COLUMN drawing_data TEXT")
     unplaced = c.execute(
         "SELECT id FROM units WHERE pos_x IS NULL OR pos_y IS NULL ORDER BY id"
     ).fetchall()
@@ -1536,10 +1539,14 @@ def add_unit(equipment_id):
         pos_x, pos_y = random.uniform(15, 85), random.uniform(20, 80)
     width = data.get("width") or 140
     height = data.get("height") or 110
+    drawing_data = data.get("drawing_data") or None
+    if drawing_data and len(drawing_data) > MAX_DRAWING_DATA_LEN:
+        return jsonify({"error": "도면 이미지 용량이 너무 큽니다 (최대 5MB)"}), 400
     conn = get_db()
     cur = conn.execute(
-        "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (equipment_id, name, icon, color, pos_x, pos_y, width, height),
+        "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y, width, height, drawing_data) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (equipment_id, name, icon, color, pos_x, pos_y, width, height, drawing_data),
     )
     conn.commit()
     new_id = cur.lastrowid
@@ -1582,10 +1589,15 @@ def update_unit(unit_id):
     pos_y = data.get("pos_y", unit["pos_y"])
     width = data.get("width", unit["width"])
     height = data.get("height", unit["height"])
+    drawing_data = data.get("drawing_data", unit["drawing_data"])
+    if drawing_data and len(drawing_data) > MAX_DRAWING_DATA_LEN:
+        conn.close()
+        return jsonify({"error": "도면 이미지 용량이 너무 큽니다 (최대 5MB)"}), 400
     meaningful_change = name != unit["name"] or icon != unit["icon"] or color != unit["color"]
     conn.execute(
-        "UPDATE units SET name = ?, icon = ?, color = ?, pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?",
-        (name, icon, color, pos_x, pos_y, width, height, unit_id),
+        "UPDATE units SET name = ?, icon = ?, color = ?, pos_x = ?, pos_y = ?, width = ?, height = ?, "
+        "drawing_data = ? WHERE id = ?",
+        (name, icon, color, pos_x, pos_y, width, height, drawing_data, unit_id),
     )
     if meaningful_change:
         log_activity(conn, "update", "unit", unit_id, name, "유닛 정보 수정")

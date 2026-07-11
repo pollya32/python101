@@ -1,6 +1,8 @@
 let editMode = false;
-let unitEditModal, equipmentInfoModal;
+let unitEditModal, equipmentInfoModal, unitDrawingModal;
 let currentEquipmentData = null;
+let currentUnitDrawingData = null;
+const MAX_DRAWING_BYTES = 5 * 1024 * 1024;
 
 const ICON_CHOICES = [
   "⚙️", "🔧", "🔩", "🛠️", "🪛", "🔨", "📦", "🖥️",
@@ -321,6 +323,11 @@ function renderCanvas(units) {
       copyUnit(u);
     });
 
+    card.querySelector(".unit-drawing-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openUnitDrawingModal(u);
+    });
+
     makeDraggable(card, u);
     makeResizable(card, u);
     makeResizableHorizontal(card, u);
@@ -479,6 +486,7 @@ function unitCardHtml(u) {
         <span class="unit-icon">${u.icon}</span>
         ${u.soon_count > 0 ? `<span class="soon-badge" title="교체 임박 부품 ${u.soon_count}건">${u.soon_count}</span>` : ""}
         ${u.overdue_count > 0 ? `<span class="overdue-badge" title="교체 필요 부품 ${u.overdue_count}건">${u.overdue_count}</span>` : ""}
+        ${u.drawing_data ? `<button type="button" class="unit-drawing-btn" title="도면 보기"><i class="bi bi-image"></i></button>` : ""}
       </div>
       <div class="unit-name">${escapeHtml(u.name)}</div>
       <div class="unit-part-count">${u.part_count}개 부품 등록</div>
@@ -607,18 +615,79 @@ function openUnitEditModal(unit) {
   document.getElementById("unitEditIcon").value = icon;
   document.getElementById("unitEditColor").value = unit ? unit.color : "#1a3a5c";
   renderIconPicker("unitIconPicker", "unitEditIcon", icon);
+  setUnitDrawingPreview(unit ? unit.drawing_data || null : null);
   unitEditModal.show();
+}
+
+function setUnitDrawingPreview(dataUrl) {
+  currentUnitDrawingData = dataUrl;
+  const preview = document.getElementById("unitDrawingPreview");
+  const placeholder = document.getElementById("unitDrawingPlaceholder");
+  const removeBtn = document.getElementById("unitDrawingRemoveBtn");
+  const status = document.getElementById("unitDrawingStatus");
+  if (dataUrl) {
+    preview.src = dataUrl;
+    preview.classList.remove("d-none");
+    placeholder.classList.add("d-none");
+    removeBtn.classList.remove("d-none");
+    status.textContent = "등록됨";
+    document.getElementById("unitDrawingArea").classList.remove("d-none");
+  } else {
+    preview.classList.add("d-none");
+    preview.src = "";
+    placeholder.classList.remove("d-none");
+    removeBtn.classList.add("d-none");
+    status.textContent = "";
+    document.getElementById("unitDrawingArea").classList.add("d-none");
+  }
+}
+
+function handleUnitDrawingPaste(e) {
+  const items = e.clipboardData ? e.clipboardData.items : null;
+  if (!items) return;
+  for (const item of items) {
+    if (item.kind === "file" && item.type.startsWith("image/")) {
+      e.preventDefault();
+      const file = item.getAsFile();
+      if (file.size > MAX_DRAWING_BYTES) {
+        alert("이미지 용량이 너무 큽니다 (최대 5MB).");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => setUnitDrawingPreview(reader.result);
+      reader.readAsDataURL(file);
+      return;
+    }
+  }
+}
+
+function openUnitDrawingModal(unit) {
+  if (!unit || !unit.drawing_data) return;
+  document.getElementById("unitDrawingModalTitle").textContent = `도면 - ${unit.name}`;
+  document.getElementById("unitDrawingModalImg").src = unit.drawing_data;
+  unitDrawingModal.show();
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   unitEditModal = new bootstrap.Modal(document.getElementById("unitEditModal"));
   equipmentInfoModal = new bootstrap.Modal(document.getElementById("equipmentInfoModal"));
+  unitDrawingModal = new bootstrap.Modal(document.getElementById("unitDrawingModal"));
 
   tick();
   setInterval(tick, 1000);
   loadEquipmentHeader();
   loadUnits();
   loadNotes();
+
+  document.getElementById("unitDrawingBtn").addEventListener("click", () => {
+    const area = document.getElementById("unitDrawingArea");
+    area.classList.toggle("d-none");
+    if (!area.classList.contains("d-none")) area.focus();
+  });
+  document.getElementById("unitDrawingArea").addEventListener("paste", handleUnitDrawingPaste);
+  document.getElementById("unitDrawingRemoveBtn").addEventListener("click", () => {
+    setUnitDrawingPreview(null);
+  });
 
   document.getElementById("editEquipmentInfoBtn").addEventListener("click", () => {
     document.getElementById("equipmentLocationInput").value = currentEquipmentData?.location || "";
@@ -690,6 +759,7 @@ document.addEventListener("DOMContentLoaded", () => {
       name: document.getElementById("unitEditName").value.trim(),
       icon: document.getElementById("unitEditIcon").value.trim(),
       color: document.getElementById("unitEditColor").value,
+      drawing_data: currentUnitDrawingData,
     };
     try {
       if (id) {

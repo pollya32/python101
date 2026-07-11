@@ -339,6 +339,26 @@ body {
   text-align: center;
   box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(245, 158, 11, 0.4);
 }
+.unit-drawing-btn {
+  position: absolute;
+  bottom: -6px;
+  right: -8px;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--pri);
+  color: #fff;
+  font-size: 10px;
+  line-height: 19px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(67, 56, 202, 0.4);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.unit-drawing-btn:hover { transform: scale(1.12); }
+html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(6, 182, 212, 0.6); }
 .unit-icon { font-size: 22px; display: block; line-height: 1; }
 .unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
 .unit-status-dot {

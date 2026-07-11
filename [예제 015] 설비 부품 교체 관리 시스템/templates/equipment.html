@@ -102,8 +102,43 @@
             </div>
           </div>
           <div id="unitIconPicker" class="icon-picker"></div>
-          <button type="submit" class="btn btn-primary w-100 mt-3">저장</button>
+          <div class="mb-2 mt-3">
+            <div class="d-flex justify-content-between align-items-center">
+              <label class="form-label mb-0">도면</label>
+              <div class="d-flex align-items-center gap-2">
+                <span id="unitDrawingStatus" class="small text-muted"></span>
+                <button type="button" id="unitDrawingBtn" class="btn btn-sm btn-outline-secondary">
+                  <i class="bi bi-image"></i> 도면 추가/변경
+                </button>
+              </div>
+            </div>
+            <div id="unitDrawingArea" class="part-drawing-paste d-none" tabindex="0">
+              <div id="unitDrawingPlaceholder" class="part-drawing-placeholder">
+                <i class="bi bi-clipboard"></i> 이 영역을 클릭한 후 이미지를 붙여넣으세요 (Ctrl+V)
+              </div>
+              <img id="unitDrawingPreview" class="part-drawing-preview d-none">
+            </div>
+            <button type="button" id="unitDrawingRemoveBtn" class="btn btn-sm btn-outline-danger d-none mt-2">
+              <i class="bi bi-trash"></i> 도면 삭제
+            </button>
+          </div>
+          <button type="submit" class="btn btn-primary w-100 mt-2">저장</button>
         </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 유닛 도면 보기 모달 -->
+<div class="modal fade" id="unitDrawingModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="unitDrawingModalTitle">도면</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center">
+        <img id="unitDrawingModalImg" class="drawing-modal-img">
       </div>
     </div>
   </div>

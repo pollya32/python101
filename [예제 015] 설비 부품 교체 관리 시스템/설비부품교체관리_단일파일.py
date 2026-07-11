@@ -252,6 +252,7 @@ def init_db():
             pos_y REAL DEFAULT 50,
             width REAL DEFAULT 140,
             height REAL DEFAULT 110,
+            drawing_data TEXT,
             deleted_at TEXT,
             created_at TEXT DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (equipment_id) REFERENCES equipments(id) ON DELETE CASCADE
@@ -269,6 +270,8 @@ def init_db():
         c.execute("ALTER TABLE units ADD COLUMN height REAL")
     if "deleted_at" not in existing_cols:
         c.execute("ALTER TABLE units ADD COLUMN deleted_at TEXT")
+    if "drawing_data" not in existing_cols:
+        c.execute("ALTER TABLE units ADD COLUMN drawing_data TEXT")
     unplaced = c.execute(
         "SELECT id FROM units WHERE pos_x IS NULL OR pos_y IS NULL ORDER BY id"
     ).fetchall()
@@ -1563,10 +1566,14 @@ def add_unit(equipment_id):
         pos_x, pos_y = random.uniform(15, 85), random.uniform(20, 80)
     width = data.get("width") or 140
     height = data.get("height") or 110
+    drawing_data = data.get("drawing_data") or None
+    if drawing_data and len(drawing_data) > MAX_DRAWING_DATA_LEN:
+        return jsonify({"error": "도면 이미지 용량이 너무 큽니다 (최대 5MB)"}), 400
     conn = get_db()
     cur = conn.execute(
-        "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (equipment_id, name, icon, color, pos_x, pos_y, width, height),
+        "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y, width, height, drawing_data) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (equipment_id, name, icon, color, pos_x, pos_y, width, height, drawing_data),
     )
     conn.commit()
     new_id = cur.lastrowid
@@ -1609,10 +1616,15 @@ def update_unit(unit_id):
     pos_y = data.get("pos_y", unit["pos_y"])
     width = data.get("width", unit["width"])
     height = data.get("height", unit["height"])
+    drawing_data = data.get("drawing_data", unit["drawing_data"])
+    if drawing_data and len(drawing_data) > MAX_DRAWING_DATA_LEN:
+        conn.close()
+        return jsonify({"error": "도면 이미지 용량이 너무 큽니다 (최대 5MB)"}), 400
     meaningful_change = name != unit["name"] or icon != unit["icon"] or color != unit["color"]
     conn.execute(
-        "UPDATE units SET name = ?, icon = ?, color = ?, pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?",
-        (name, icon, color, pos_x, pos_y, width, height, unit_id),
+        "UPDATE units SET name = ?, icon = ?, color = ?, pos_x = ?, pos_y = ?, width = ?, height = ?, "
+        "drawing_data = ? WHERE id = ?",
+        (name, icon, color, pos_x, pos_y, width, height, drawing_data, unit_id),
     )
     if meaningful_change:
         log_activity(conn, "update", "unit", unit_id, name, "유닛 정보 수정")
@@ -2983,6 +2995,26 @@ body {
   text-align: center;
   box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(245, 158, 11, 0.4);
 }
+.unit-drawing-btn {
+  position: absolute;
+  bottom: -6px;
+  right: -8px;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--pri);
+  color: #fff;
+  font-size: 10px;
+  line-height: 19px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(67, 56, 202, 0.4);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.unit-drawing-btn:hover { transform: scale(1.12); }
+html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(6, 182, 212, 0.6); }
 .unit-icon { font-size: 22px; display: block; line-height: 1; }
 .unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
 .unit-status-dot {
@@ -4630,6 +4662,26 @@ body {
   text-align: center;
   box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(245, 158, 11, 0.4);
 }
+.unit-drawing-btn {
+  position: absolute;
+  bottom: -6px;
+  right: -8px;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--pri);
+  color: #fff;
+  font-size: 10px;
+  line-height: 19px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(67, 56, 202, 0.4);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.unit-drawing-btn:hover { transform: scale(1.12); }
+html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(6, 182, 212, 0.6); }
 .unit-icon { font-size: 22px; display: block; line-height: 1; }
 .unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
 .unit-status-dot {
@@ -5426,8 +5478,43 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
             </div>
           </div>
           <div id="unitIconPicker" class="icon-picker"></div>
-          <button type="submit" class="btn btn-primary w-100 mt-3">저장</button>
+          <div class="mb-2 mt-3">
+            <div class="d-flex justify-content-between align-items-center">
+              <label class="form-label mb-0">도면</label>
+              <div class="d-flex align-items-center gap-2">
+                <span id="unitDrawingStatus" class="small text-muted"></span>
+                <button type="button" id="unitDrawingBtn" class="btn btn-sm btn-outline-secondary">
+                  <i class="bi bi-image"></i> 도면 추가/변경
+                </button>
+              </div>
+            </div>
+            <div id="unitDrawingArea" class="part-drawing-paste d-none" tabindex="0">
+              <div id="unitDrawingPlaceholder" class="part-drawing-placeholder">
+                <i class="bi bi-clipboard"></i> 이 영역을 클릭한 후 이미지를 붙여넣으세요 (Ctrl+V)
+              </div>
+              <img id="unitDrawingPreview" class="part-drawing-preview d-none">
+            </div>
+            <button type="button" id="unitDrawingRemoveBtn" class="btn btn-sm btn-outline-danger d-none mt-2">
+              <i class="bi bi-trash"></i> 도면 삭제
+            </button>
+          </div>
+          <button type="submit" class="btn btn-primary w-100 mt-2">저장</button>
         </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 유닛 도면 보기 모달 -->
+<div class="modal fade" id="unitDrawingModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="unitDrawingModalTitle">도면</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center">
+        <img id="unitDrawingModalImg" class="drawing-modal-img">
       </div>
     </div>
   </div>
@@ -5462,8 +5549,10 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 let editMode = false;
-let unitEditModal, equipmentInfoModal;
+let unitEditModal, equipmentInfoModal, unitDrawingModal;
 let currentEquipmentData = null;
+let currentUnitDrawingData = null;
+const MAX_DRAWING_BYTES = 5 * 1024 * 1024;
 
 const ICON_CHOICES = [
   "⚙️", "🔧", "🔩", "🛠️", "🪛", "🔨", "📦", "🖥️",
@@ -5784,6 +5873,11 @@ function renderCanvas(units) {
       copyUnit(u);
     });
 
+    card.querySelector(".unit-drawing-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openUnitDrawingModal(u);
+    });
+
     makeDraggable(card, u);
     makeResizable(card, u);
     makeResizableHorizontal(card, u);
@@ -5942,6 +6036,7 @@ function unitCardHtml(u) {
         <span class="unit-icon">${u.icon}</span>
         ${u.soon_count > 0 ? `<span class="soon-badge" title="교체 임박 부품 ${u.soon_count}건">${u.soon_count}</span>` : ""}
         ${u.overdue_count > 0 ? `<span class="overdue-badge" title="교체 필요 부품 ${u.overdue_count}건">${u.overdue_count}</span>` : ""}
+        ${u.drawing_data ? `<button type="button" class="unit-drawing-btn" title="도면 보기"><i class="bi bi-image"></i></button>` : ""}
       </div>
       <div class="unit-name">${escapeHtml(u.name)}</div>
       <div class="unit-part-count">${u.part_count}개 부품 등록</div>
@@ -6070,18 +6165,79 @@ function openUnitEditModal(unit) {
   document.getElementById("unitEditIcon").value = icon;
   document.getElementById("unitEditColor").value = unit ? unit.color : "#1a3a5c";
   renderIconPicker("unitIconPicker", "unitEditIcon", icon);
+  setUnitDrawingPreview(unit ? unit.drawing_data || null : null);
   unitEditModal.show();
+}
+
+function setUnitDrawingPreview(dataUrl) {
+  currentUnitDrawingData = dataUrl;
+  const preview = document.getElementById("unitDrawingPreview");
+  const placeholder = document.getElementById("unitDrawingPlaceholder");
+  const removeBtn = document.getElementById("unitDrawingRemoveBtn");
+  const status = document.getElementById("unitDrawingStatus");
+  if (dataUrl) {
+    preview.src = dataUrl;
+    preview.classList.remove("d-none");
+    placeholder.classList.add("d-none");
+    removeBtn.classList.remove("d-none");
+    status.textContent = "등록됨";
+    document.getElementById("unitDrawingArea").classList.remove("d-none");
+  } else {
+    preview.classList.add("d-none");
+    preview.src = "";
+    placeholder.classList.remove("d-none");
+    removeBtn.classList.add("d-none");
+    status.textContent = "";
+    document.getElementById("unitDrawingArea").classList.add("d-none");
+  }
+}
+
+function handleUnitDrawingPaste(e) {
+  const items = e.clipboardData ? e.clipboardData.items : null;
+  if (!items) return;
+  for (const item of items) {
+    if (item.kind === "file" && item.type.startsWith("image/")) {
+      e.preventDefault();
+      const file = item.getAsFile();
+      if (file.size > MAX_DRAWING_BYTES) {
+        alert("이미지 용량이 너무 큽니다 (최대 5MB).");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => setUnitDrawingPreview(reader.result);
+      reader.readAsDataURL(file);
+      return;
+    }
+  }
+}
+
+function openUnitDrawingModal(unit) {
+  if (!unit || !unit.drawing_data) return;
+  document.getElementById("unitDrawingModalTitle").textContent = `도면 - ${unit.name}`;
+  document.getElementById("unitDrawingModalImg").src = unit.drawing_data;
+  unitDrawingModal.show();
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   unitEditModal = new bootstrap.Modal(document.getElementById("unitEditModal"));
   equipmentInfoModal = new bootstrap.Modal(document.getElementById("equipmentInfoModal"));
+  unitDrawingModal = new bootstrap.Modal(document.getElementById("unitDrawingModal"));
 
   tick();
   setInterval(tick, 1000);
   loadEquipmentHeader();
   loadUnits();
   loadNotes();
+
+  document.getElementById("unitDrawingBtn").addEventListener("click", () => {
+    const area = document.getElementById("unitDrawingArea");
+    area.classList.toggle("d-none");
+    if (!area.classList.contains("d-none")) area.focus();
+  });
+  document.getElementById("unitDrawingArea").addEventListener("paste", handleUnitDrawingPaste);
+  document.getElementById("unitDrawingRemoveBtn").addEventListener("click", () => {
+    setUnitDrawingPreview(null);
+  });
 
   document.getElementById("editEquipmentInfoBtn").addEventListener("click", () => {
     document.getElementById("equipmentLocationInput").value = currentEquipmentData?.location || "";
@@ -6153,6 +6309,7 @@ document.addEventListener("DOMContentLoaded", () => {
       name: document.getElementById("unitEditName").value.trim(),
       icon: document.getElementById("unitEditIcon").value.trim(),
       color: document.getElementById("unitEditColor").value,
+      drawing_data: currentUnitDrawingData,
     };
     try {
       if (id) {
@@ -6531,6 +6688,26 @@ body {
   text-align: center;
   box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(245, 158, 11, 0.4);
 }
+.unit-drawing-btn {
+  position: absolute;
+  bottom: -6px;
+  right: -8px;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--pri);
+  color: #fff;
+  font-size: 10px;
+  line-height: 19px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(67, 56, 202, 0.4);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.unit-drawing-btn:hover { transform: scale(1.12); }
+html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(6, 182, 212, 0.6); }
 .unit-icon { font-size: 22px; display: block; line-height: 1; }
 .unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
 .unit-status-dot {
@@ -8849,6 +9026,26 @@ body {
   text-align: center;
   box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(245, 158, 11, 0.4);
 }
+.unit-drawing-btn {
+  position: absolute;
+  bottom: -6px;
+  right: -8px;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--pri);
+  color: #fff;
+  font-size: 10px;
+  line-height: 19px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(67, 56, 202, 0.4);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.unit-drawing-btn:hover { transform: scale(1.12); }
+html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(6, 182, 212, 0.6); }
 .unit-icon { font-size: 22px; display: block; line-height: 1; }
 .unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
 .unit-status-dot {
@@ -10348,6 +10545,26 @@ body {
   text-align: center;
   box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(245, 158, 11, 0.4);
 }
+.unit-drawing-btn {
+  position: absolute;
+  bottom: -6px;
+  right: -8px;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--pri);
+  color: #fff;
+  font-size: 10px;
+  line-height: 19px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(67, 56, 202, 0.4);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.unit-drawing-btn:hover { transform: scale(1.12); }
+html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(6, 182, 212, 0.6); }
 .unit-icon { font-size: 22px; display: block; line-height: 1; }
 .unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
 .unit-status-dot {
@@ -11498,6 +11715,26 @@ body {
   text-align: center;
   box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(245, 158, 11, 0.4);
 }
+.unit-drawing-btn {
+  position: absolute;
+  bottom: -6px;
+  right: -8px;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--pri);
+  color: #fff;
+  font-size: 10px;
+  line-height: 19px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(67, 56, 202, 0.4);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.unit-drawing-btn:hover { transform: scale(1.12); }
+html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(6, 182, 212, 0.6); }
 .unit-icon { font-size: 22px; display: block; line-height: 1; }
 .unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
 .unit-status-dot {
@@ -12706,6 +12943,26 @@ body {
   text-align: center;
   box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(245, 158, 11, 0.4);
 }
+.unit-drawing-btn {
+  position: absolute;
+  bottom: -6px;
+  right: -8px;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--pri);
+  color: #fff;
+  font-size: 10px;
+  line-height: 19px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(67, 56, 202, 0.4);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.unit-drawing-btn:hover { transform: scale(1.12); }
+html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(6, 182, 212, 0.6); }
 .unit-icon { font-size: 22px; display: block; line-height: 1; }
 .unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
 .unit-status-dot {
@@ -14008,6 +14265,26 @@ body {
   text-align: center;
   box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(245, 158, 11, 0.4);
 }
+.unit-drawing-btn {
+  position: absolute;
+  bottom: -6px;
+  right: -8px;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--pri);
+  color: #fff;
+  font-size: 10px;
+  line-height: 19px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(67, 56, 202, 0.4);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.unit-drawing-btn:hover { transform: scale(1.12); }
+html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(6, 182, 212, 0.6); }
 .unit-icon { font-size: 22px; display: block; line-height: 1; }
 .unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
 .unit-status-dot {
@@ -15093,6 +15370,26 @@ body {
   text-align: center;
   box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(245, 158, 11, 0.4);
 }
+.unit-drawing-btn {
+  position: absolute;
+  bottom: -6px;
+  right: -8px;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--pri);
+  color: #fff;
+  font-size: 10px;
+  line-height: 19px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(67, 56, 202, 0.4);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.unit-drawing-btn:hover { transform: scale(1.12); }
+html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(6, 182, 212, 0.6); }
 .unit-icon { font-size: 22px; display: block; line-height: 1; }
 .unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
 .unit-status-dot {
@@ -16479,6 +16776,26 @@ body {
   text-align: center;
   box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(245, 158, 11, 0.4);
 }
+.unit-drawing-btn {
+  position: absolute;
+  bottom: -6px;
+  right: -8px;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--pri);
+  color: #fff;
+  font-size: 10px;
+  line-height: 19px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(67, 56, 202, 0.4);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.unit-drawing-btn:hover { transform: scale(1.12); }
+html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(6, 182, 212, 0.6); }
 .unit-icon { font-size: 22px; display: block; line-height: 1; }
 .unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
 .unit-status-dot {
@@ -17733,6 +18050,26 @@ body {
   text-align: center;
   box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(245, 158, 11, 0.4);
 }
+.unit-drawing-btn {
+  position: absolute;
+  bottom: -6px;
+  right: -8px;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--pri);
+  color: #fff;
+  font-size: 10px;
+  line-height: 19px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(67, 56, 202, 0.4);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.unit-drawing-btn:hover { transform: scale(1.12); }
+html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(6, 182, 212, 0.6); }
 .unit-icon { font-size: 22px; display: block; line-height: 1; }
 .unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
 .unit-status-dot {
@@ -18903,6 +19240,26 @@ body {
   text-align: center;
   box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(245, 158, 11, 0.4);
 }
+.unit-drawing-btn {
+  position: absolute;
+  bottom: -6px;
+  right: -8px;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--pri);
+  color: #fff;
+  font-size: 10px;
+  line-height: 19px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(67, 56, 202, 0.4);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.unit-drawing-btn:hover { transform: scale(1.12); }
+html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(6, 182, 212, 0.6); }
 .unit-icon { font-size: 22px; display: block; line-height: 1; }
 .unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
 .unit-status-dot {
@@ -20182,6 +20539,26 @@ body {
   text-align: center;
   box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(245, 158, 11, 0.4);
 }
+.unit-drawing-btn {
+  position: absolute;
+  bottom: -6px;
+  right: -8px;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--pri);
+  color: #fff;
+  font-size: 10px;
+  line-height: 19px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(67, 56, 202, 0.4);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.unit-drawing-btn:hover { transform: scale(1.12); }
+html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(6, 182, 212, 0.6); }
 .unit-icon { font-size: 22px; display: block; line-height: 1; }
 .unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
 .unit-status-dot {
