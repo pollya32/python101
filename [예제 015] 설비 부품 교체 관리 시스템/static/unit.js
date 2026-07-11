@@ -693,7 +693,9 @@ function openPartDetailModal(partId) {
   const dueText = p.next_due
     ? `다음 교체 예정: ${p.next_due} (${p.days_left >= 0 ? p.days_left + "일 남음" : Math.abs(p.days_left) + "일 초과"})`
     : "";
-  const stockText = `재고: <span class="${(p.stock_qty || 0) <= 0 ? "text-danger fw-bold" : ""}">${p.stock_qty || 0}개</span>`;
+  const isLowStock = (p.stock_qty || 0) <= (p.safety_stock || 0);
+  const safetyText = p.safety_stock ? ` (안전재고 ${p.safety_stock}개)` : "";
+  const stockText = `재고: <span class="${isLowStock ? "text-danger fw-bold" : ""}">${p.stock_qty || 0}개</span>${safetyText}`;
   const supplierText = p.supplier
     ? ` &middot; 구매처: ${escapeHtml(p.supplier)}${p.supplier_contact ? " (" + escapeHtml(p.supplier_contact) + ")" : ""}`
     : "";
@@ -792,6 +794,7 @@ function openPartEditModal(part) {
   document.getElementById("partEditNote").value = part ? part.note || "" : "";
   document.getElementById("partEditMemo").innerHTML = part ? part.memo || "" : "";
   document.getElementById("partEditStockQty").value = part ? part.stock_qty || 0 : 0;
+  document.getElementById("partEditSafetyStock").value = part ? part.safety_stock || 0 : 0;
   document.getElementById("partEditLeadTime").value = part && part.lead_time_days != null ? part.lead_time_days : "";
   document.getElementById("partEditSupplier").value = part ? part.supplier || "" : "";
   document.getElementById("partEditSupplierContact").value = part ? part.supplier_contact || "" : "";
@@ -948,6 +951,7 @@ document.addEventListener("DOMContentLoaded", () => {
       memo: sanitizeRichHtml(document.getElementById("partEditMemo").innerHTML),
       drawing_data: currentPartDrawingData,
       stock_qty: parseInt(document.getElementById("partEditStockQty").value, 10) || 0,
+      safety_stock: parseInt(document.getElementById("partEditSafetyStock").value, 10) || 0,
       lead_time_days: document.getElementById("partEditLeadTime").value || null,
       supplier: document.getElementById("partEditSupplier").value.trim(),
       supplier_contact: document.getElementById("partEditSupplierContact").value.trim(),

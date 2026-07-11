@@ -45,13 +45,14 @@ function groupBySpec(rows) {
     const key = p.spec || "";
     let g = bySpec.get(key);
     if (!g) {
-      g = { spec: p.spec, names: [], units: [], totalStock: 0, parts: [] };
+      g = { spec: p.spec, names: [], units: [], totalStock: 0, totalSafetyStock: 0, parts: [] };
       bySpec.set(key, g);
       groups.push(g);
     }
     if (!g.names.includes(p.name)) g.names.push(p.name);
     if (!g.units.includes(p.unit_name)) g.units.push(p.unit_name);
     g.totalStock += p.stock_qty || 0;
+    g.totalSafetyStock += p.safety_stock || 0;
     g.parts.push(p);
   }
   return groups;
@@ -60,24 +61,24 @@ function groupBySpec(rows) {
 function renderInventory() {
   const lowOnly = document.getElementById("lowStockOnlyCheck").checked;
   updateExportLink();
-  const groups = groupBySpec(allInventory).filter((g) => !lowOnly || g.totalStock <= 0);
+  const groups = groupBySpec(allInventory).filter((g) => !lowOnly || g.totalStock <= g.totalSafetyStock);
   const tbody = document.getElementById("inventoryBody");
   const empty = document.getElementById("inventoryEmpty");
   if (groups.length === 0) {
     tbody.innerHTML = "";
     empty.classList.remove("d-none");
-    empty.textContent = lowOnly ? "재고 부족 부품이 없습니다." : "등록된 부품이 없습니다.";
+    empty.textContent = lowOnly ? "안전재고 이하인 부품이 없습니다." : "등록된 부품이 없습니다.";
     return;
   }
   empty.classList.add("d-none");
   tbody.innerHTML = groups
     .map(
       (g, idx) => `
-    <tr data-group-idx="${idx}" class="inventory-group-row ${g.totalStock <= 0 ? "table-danger" : ""}" style="cursor:pointer">
+    <tr data-group-idx="${idx}" class="inventory-group-row ${g.totalStock <= g.totalSafetyStock ? "table-danger" : ""}" style="cursor:pointer">
       <td class="text-muted">${escapeHtml(g.spec)}</td>
       <td>${escapeHtml(g.names.join(", "))}</td>
       <td class="text-muted">${escapeHtml(g.units.join(", "))}</td>
-      <td class="fw-bold">${g.totalStock}</td>
+      <td class="fw-bold">${g.totalStock}${g.totalSafetyStock ? `<span class="text-muted fw-normal small"> / 안전 ${g.totalSafetyStock}</span>` : ""}</td>
     </tr>`
     )
     .join("");
@@ -106,12 +107,24 @@ function renderGroupModalBody(group) {
       <td>${escapeHtml(p.name)}</td>
       <td class="text-muted">${escapeHtml(p.unit_name)}</td>
       <td><input type="number" class="form-control form-control-sm stock-qty-input" data-id="${p.id}" value="${p.stock_qty || 0}" min="0" step="1"></td>
+      <td><input type="number" class="form-control form-control-sm safety-stock-input" data-id="${p.id}" value="${p.safety_stock || 0}" min="0" step="1"></td>
       <td class="text-muted">${escapeHtml(p.supplier)}</td>
       <td class="text-muted">${escapeHtml(p.supplier_contact)}</td>
       <td class="text-muted">${p.lead_time_days != null ? p.lead_time_days + "일" : "-"}</td>
     </tr>`
     )
     .join("");
+
+  function reloadAfterFieldChange(id, field, value) {
+    const entry = allInventory.find((p) => p.id === id);
+    if (entry) entry[field] = value;
+    renderInventory();
+    const group = groupBySpec(allInventory).find((g) => g.parts.some((p) => p.id === id));
+    if (group) {
+      document.getElementById("groupModalSpec").textContent = group.spec || "-";
+      renderGroupModalBody(group);
+    }
+  }
 
   tbody.querySelectorAll(".stock-qty-input").forEach((input) => {
     input.addEventListener("change", async () => {
@@ -123,14 +136,24 @@ function renderGroupModalBody(group) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ stock_qty }),
         });
-        const entry = allInventory.find((p) => p.id === id);
-        if (entry) entry.stock_qty = stock_qty;
-        renderInventory();
-        const group = groupBySpec(allInventory).find((g) => g.parts.some((p) => p.id === id));
-        if (group) {
-          document.getElementById("groupModalSpec").textContent = group.spec || "-";
-          renderGroupModalBody(group);
-        }
+        reloadAfterFieldChange(id, "stock_qty", stock_qty);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+
+  tbody.querySelectorAll(".safety-stock-input").forEach((input) => {
+    input.addEventListener("change", async () => {
+      const id = parseInt(input.dataset.id, 10);
+      const safety_stock = parseInt(input.value, 10) || 0;
+      try {
+        await fetchJson(`/api/parts/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ safety_stock }),
+        });
+        reloadAfterFieldChange(id, "safety_stock", safety_stock);
       } catch (err) {
         alert(err.message);
       }

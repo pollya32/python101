@@ -300,6 +300,7 @@ def init_db():
             width REAL DEFAULT 130,
             height REAL DEFAULT 110,
             stock_qty INTEGER DEFAULT 0,
+            safety_stock INTEGER DEFAULT 0,
             supplier TEXT,
             supplier_contact TEXT,
             lead_time_days INTEGER,
@@ -343,6 +344,7 @@ def init_db():
                 width REAL DEFAULT 130,
                 height REAL DEFAULT 110,
                 stock_qty INTEGER DEFAULT 0,
+                safety_stock INTEGER DEFAULT 0,
                 supplier TEXT,
                 supplier_contact TEXT,
                 lead_time_days INTEGER,
@@ -381,6 +383,9 @@ def init_db():
         c.execute("ALTER TABLE parts ADD COLUMN supplier_contact TEXT")
         c.execute("ALTER TABLE parts ADD COLUMN lead_time_days INTEGER")
         c.execute("UPDATE parts SET stock_qty = 0 WHERE stock_qty IS NULL")
+    if "safety_stock" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN safety_stock INTEGER DEFAULT 0")
+        c.execute("UPDATE parts SET safety_stock = 0 WHERE safety_stock IS NULL")
     if "deleted_at" not in existing_part_cols:
         c.execute("ALTER TABLE parts ADD COLUMN deleted_at TEXT")
     for unit_row in c.execute("SELECT DISTINCT unit_id FROM parts").fetchall():
@@ -630,15 +635,16 @@ def resolve_cycle(data, current_days=None, current_unit=None):
 def insert_part(conn, unit_id, name, spec="", cycle_days=None, cycle_unit="N/A", cost=0,
                  last_replaced_date=None, note="", memo="", drawing_data=None, icon="🔩",
                  pos_x=None, pos_y=None, width=130, height=110,
-                 stock_qty=0, supplier="", supplier_contact="", lead_time_days=None):
+                 stock_qty=0, safety_stock=0, supplier="", supplier_contact="", lead_time_days=None):
     if pos_x is None or pos_y is None:
         pos_x, pos_y = random.uniform(15, 85), random.uniform(20, 80)
     cur = conn.execute(
         """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, memo,
-           drawing_data, icon, pos_x, pos_y, width, height, stock_qty, supplier, supplier_contact, lead_time_days)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           drawing_data, icon, pos_x, pos_y, width, height, stock_qty, safety_stock, supplier, supplier_contact,
+           lead_time_days)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, memo, drawing_data, icon,
-         pos_x, pos_y, width, height, stock_qty, supplier, supplier_contact, lead_time_days),
+         pos_x, pos_y, width, height, stock_qty, safety_stock, supplier, supplier_contact, lead_time_days),
     )
     part_id = cur.lastrowid
     if last_replaced_date:
@@ -676,22 +682,25 @@ def apply_unit_parts_to_other_equipment(conn, unit_id):
                 conn.execute(
                     """UPDATE parts SET spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, memo = ?,
                        drawing_data = ?, icon = ?, pos_x = ?, pos_y = ?, width = ?, height = ?,
-                       stock_qty = ?, supplier = ?, supplier_contact = ?, lead_time_days = ? WHERE id = ?""",
+                       stock_qty = ?, safety_stock = ?, supplier = ?, supplier_contact = ?, lead_time_days = ?
+                       WHERE id = ?""",
                     (
                         mp["spec"], mp["cycle_days"], mp["cycle_unit"], mp["cost"], mp["note"], mp["memo"],
                         mp["drawing_data"], mp["icon"], mp["pos_x"], mp["pos_y"], mp["width"], mp["height"],
-                        mp["stock_qty"], mp["supplier"], mp["supplier_contact"], mp["lead_time_days"], ep["id"],
+                        mp["stock_qty"], mp["safety_stock"], mp["supplier"], mp["supplier_contact"],
+                        mp["lead_time_days"], ep["id"],
                     ),
                 )
             else:
                 conn.execute(
                     """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, note, memo, drawing_data,
-                       icon, pos_x, pos_y, width, height, stock_qty, supplier, supplier_contact, lead_time_days)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       icon, pos_x, pos_y, width, height, stock_qty, safety_stock, supplier, supplier_contact,
+                       lead_time_days)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         t["id"], mp["name"], mp["spec"], mp["cycle_days"], mp["cycle_unit"], mp["cost"],
                         mp["note"], mp["memo"], mp["drawing_data"], mp["icon"], mp["pos_x"], mp["pos_y"], mp["width"], mp["height"],
-                        mp["stock_qty"], mp["supplier"], mp["supplier_contact"], mp["lead_time_days"],
+                        mp["stock_qty"], mp["safety_stock"], mp["supplier"], mp["supplier_contact"], mp["lead_time_days"],
                     ),
                 )
         for name, ep in existing.items():
@@ -889,10 +898,10 @@ def build_mail_report_html():
     """메일 본문 HTML을 만든다.
     1번째: 사이트 접속 URL
     2번째: 횡전개 현황 (항목별 완료/미진행/전체/진행률)
-    3번째: 이벤트 알림 - 재고 1개 이하 발생 리스트, 전날(발송 기준) 교체 기록 리스트"""
+    3번째: 이벤트 알림 - 부품별로 설정한 안전재고 이하로 떨어진 리스트, 전날(발송 기준) 교체 기록 리스트"""
     conn = get_db()
     items = conn.execute("SELECT * FROM rollout_items ORDER BY id").fetchall()
-    low_stock = [p for p in get_inventory_rows(conn) if (p["stock_qty"] or 0) <= 1]
+    low_stock = [p for p in get_inventory_rows(conn) if (p["stock_qty"] or 0) <= (p["safety_stock"] or 0)]
     yesterday = (date.today() - timedelta(days=1)).isoformat()
     yesterday_history = conn.execute("""
         SELECT h.cost, p.name AS part_name, p.spec,
@@ -930,10 +939,11 @@ def build_mail_report_html():
             f"<tr><td style='{td}'>{html_lib.escape(p['name'])}</td>"
             f"<td style='{td}'>{html_lib.escape(p['spec'] or '')}</td>"
             f"<td style='{td}'>{html_lib.escape(p['unit_name'])}</td>"
-            f"<td style='{td};text-align:center;color:#c0392b;font-weight:bold'>{p['stock_qty'] or 0}</td></tr>"
+            f"<td style='{td};text-align:center;color:#c0392b;font-weight:bold'>{p['stock_qty'] or 0}</td>"
+            f"<td style='{td};text-align:center'>{p['safety_stock'] or 0}</td></tr>"
         )
     if not low_stock_rows:
-        low_stock_rows = f"<tr><td colspan='4' style='{td}'>재고 1개 이하 부품이 없습니다.</td></tr>"
+        low_stock_rows = f"<tr><td colspan='5' style='{td}'>안전재고 이하로 떨어진 부품이 없습니다.</td></tr>"
 
     history_rows = ""
     for h in yesterday_history:
@@ -956,10 +966,11 @@ def build_mail_report_html():
         f"<th style='{td}'>미진행</th><th style='{td}'>전체</th><th style='{td}'>진행률</th></tr>"
         f"{rollout_rows}</table>"
         f"<h3>이벤트 알림</h3>"
-        f"<p style='font-size:14px;margin-bottom:4px'><b>재고 1개 이하 발생</b></p>"
+        f"<p style='font-size:14px;margin-bottom:4px'><b>안전재고 이하 발생</b></p>"
         f"<table style='border-collapse:collapse;font-size:14px;margin-bottom:16px'>"
         f"<tr style='background:#f3f4f6'>"
-        f"<th style='{td}'>부품명</th><th style='{td}'>규격</th><th style='{td}'>소속 유닛</th><th style='{td}'>재고</th></tr>"
+        f"<th style='{td}'>부품명</th><th style='{td}'>규격</th><th style='{td}'>소속 유닛</th>"
+        f"<th style='{td}'>재고</th><th style='{td}'>안전재고</th></tr>"
         f"{low_stock_rows}</table>"
         f"<p style='font-size:14px;margin-bottom:4px'><b>전날({yesterday}) 교체 기록</b></p>"
         f"<table style='border-collapse:collapse;font-size:14px'>"
@@ -1240,7 +1251,7 @@ def get_inventory_rows(conn):
     규격이 같으면(부품 이름이 달라도) 나란히 묶여 보이도록 규격 기준으로 먼저 정렬하고,
     같은 규격 안에서는 소속 유닛 기준으로 정렬한다."""
     return conn.execute("""
-        SELECT p.id, p.name, p.spec, p.stock_qty, p.supplier, p.supplier_contact, p.lead_time_days,
+        SELECT p.id, p.name, p.spec, p.stock_qty, p.safety_stock, p.supplier, p.supplier_contact, p.lead_time_days,
                u.id AS unit_id, u.name AS unit_name
         FROM parts p
         JOIN units u ON p.unit_id = u.id
@@ -1265,14 +1276,14 @@ def export_inventory_csv():
     conn = get_db()
     rows = get_inventory_rows(conn)
     conn.close()
-    header = ["규격", "부품이름", "소속 유닛", "재고 수량", "구매처", "연락처", "리드타임(일)"]
+    header = ["규격", "부품이름", "소속 유닛", "재고 수량", "안전재고", "구매처", "연락처", "리드타임(일)"]
     data_rows = []
     for p in rows:
-        if low_only and (p["stock_qty"] or 0) > 0:
+        if low_only and (p["stock_qty"] or 0) > (p["safety_stock"] or 0):
             continue
         data_rows.append([
             p["spec"] or "", p["name"], p["unit_name"],
-            p["stock_qty"] or 0, p["supplier"] or "", p["supplier_contact"] or "",
+            p["stock_qty"] or 0, p["safety_stock"] or 0, p["supplier"] or "", p["supplier_contact"] or "",
             p["lead_time_days"] if p["lead_time_days"] is not None else "",
         ])
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1678,6 +1689,7 @@ def add_part(unit_id):
     width = data.get("width") or 130
     height = data.get("height") or 110
     stock_qty = int(data.get("stock_qty") or 0)
+    safety_stock = int(data.get("safety_stock") or 0)
     supplier = (data.get("supplier") or "").strip()
     supplier_contact = (data.get("supplier_contact") or "").strip()
     lead_time_days = data.get("lead_time_days")
@@ -1688,7 +1700,8 @@ def add_part(unit_id):
         conn, unit_id, name, spec=spec, cycle_days=cycle_days, cycle_unit=cycle_unit, cost=cost,
         last_replaced_date=last_replaced_date, note=note, memo=memo, drawing_data=drawing_data, icon=icon,
         pos_x=data.get("pos_x"), pos_y=data.get("pos_y"), width=width, height=height,
-        stock_qty=stock_qty, supplier=supplier, supplier_contact=supplier_contact, lead_time_days=lead_time_days,
+        stock_qty=stock_qty, safety_stock=safety_stock, supplier=supplier, supplier_contact=supplier_contact,
+        lead_time_days=lead_time_days,
     )
     log_activity(conn, "create", "part", part_id, name)
     conn.commit()
@@ -1918,6 +1931,7 @@ def update_part(part_id):
     width = data.get("width", part["width"])
     height = data.get("height", part["height"])
     stock_qty = int(data.get("stock_qty", part["stock_qty"]) or 0)
+    safety_stock = int(data.get("safety_stock", part["safety_stock"]) or 0)
     supplier = data.get("supplier", part["supplier"])
     supplier_contact = data.get("supplier_contact", part["supplier_contact"])
     lead_time_days = data.get("lead_time_days", part["lead_time_days"])
@@ -1930,9 +1944,9 @@ def update_part(part_id):
     conn.execute(
         """UPDATE parts SET name = ?, spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, memo = ?,
            drawing_data = ?, icon = ?, pos_x = ?, pos_y = ?, width = ?, height = ?,
-           stock_qty = ?, supplier = ?, supplier_contact = ?, lead_time_days = ? WHERE id = ?""",
+           stock_qty = ?, safety_stock = ?, supplier = ?, supplier_contact = ?, lead_time_days = ? WHERE id = ?""",
         (name, spec, cycle_days, cycle_unit, cost, note, memo, drawing_data, icon, pos_x, pos_y, width, height,
-         stock_qty, supplier, supplier_contact, lead_time_days, part_id),
+         stock_qty, safety_stock, supplier, supplier_contact, lead_time_days, part_id),
     )
     if meaningful_change:
         log_activity(conn, "update", "part", part_id, name, "부품 정보 수정")
@@ -3430,6 +3444,50 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
   align-items: center;
   justify-content: center;
 }
+
+/* ── 통계 인터랙티브 막대 차트 (상위 5건) ─────────────────────── */
+.stats-chart {
+  padding: 4px 18px 10px;
+  border-bottom: 1px solid #f1f2f6;
+  margin-bottom: 2px;
+}
+.stat-bar-chart { width: 100%; height: auto; display: block; }
+.stat-bar-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-muted);
+  font-family: inherit;
+}
+.stat-bar-track { fill: var(--border); }
+.stat-bar-fill {
+  fill: var(--pri);
+  transition: fill 0.12s ease;
+}
+.stat-bar-row { cursor: pointer; outline: none; }
+.stat-bar-row:hover .stat-bar-fill,
+.stat-bar-row:focus .stat-bar-fill { fill: var(--accent); }
+.stat-bar-row:focus .stat-bar-track { stroke: var(--accent); stroke-width: 1.5; }
+.stat-bar-value {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-family: inherit;
+}
+.stat-chart-tooltip {
+  position: fixed;
+  z-index: 4000;
+  background: #1f2937;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  white-space: nowrap;
+}
+html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
 
 /* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
 .master-badge {
@@ -5097,6 +5155,50 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
   align-items: center;
   justify-content: center;
 }
+
+/* ── 통계 인터랙티브 막대 차트 (상위 5건) ─────────────────────── */
+.stats-chart {
+  padding: 4px 18px 10px;
+  border-bottom: 1px solid #f1f2f6;
+  margin-bottom: 2px;
+}
+.stat-bar-chart { width: 100%; height: auto; display: block; }
+.stat-bar-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-muted);
+  font-family: inherit;
+}
+.stat-bar-track { fill: var(--border); }
+.stat-bar-fill {
+  fill: var(--pri);
+  transition: fill 0.12s ease;
+}
+.stat-bar-row { cursor: pointer; outline: none; }
+.stat-bar-row:hover .stat-bar-fill,
+.stat-bar-row:focus .stat-bar-fill { fill: var(--accent); }
+.stat-bar-row:focus .stat-bar-track { stroke: var(--accent); stroke-width: 1.5; }
+.stat-bar-value {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-family: inherit;
+}
+.stat-chart-tooltip {
+  position: fixed;
+  z-index: 4000;
+  background: #1f2937;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  white-space: nowrap;
+}
+html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
 
 /* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
 .master-badge {
@@ -7126,6 +7228,50 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
   justify-content: center;
 }
 
+/* ── 통계 인터랙티브 막대 차트 (상위 5건) ─────────────────────── */
+.stats-chart {
+  padding: 4px 18px 10px;
+  border-bottom: 1px solid #f1f2f6;
+  margin-bottom: 2px;
+}
+.stat-bar-chart { width: 100%; height: auto; display: block; }
+.stat-bar-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-muted);
+  font-family: inherit;
+}
+.stat-bar-track { fill: var(--border); }
+.stat-bar-fill {
+  fill: var(--pri);
+  transition: fill 0.12s ease;
+}
+.stat-bar-row { cursor: pointer; outline: none; }
+.stat-bar-row:hover .stat-bar-fill,
+.stat-bar-row:focus .stat-bar-fill { fill: var(--accent); }
+.stat-bar-row:focus .stat-bar-track { stroke: var(--accent); stroke-width: 1.5; }
+.stat-bar-value {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-family: inherit;
+}
+.stat-chart-tooltip {
+  position: fixed;
+  z-index: 4000;
+  background: #1f2937;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  white-space: nowrap;
+}
+html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
+
 /* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
 .master-badge {
   font-size: 11px;
@@ -7646,15 +7792,21 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
               <input type="number" class="form-control" id="partEditStockQty" value="0" min="0" step="1">
             </div>
             <div class="col-6">
-              <label class="form-label">리드타임 (일)</label>
-              <input type="number" class="form-control" id="partEditLeadTime" min="0" step="1">
+              <label class="form-label">안전재고 (이하이면 부족 알림)</label>
+              <input type="number" class="form-control" id="partEditSafetyStock" value="0" min="0" step="1">
             </div>
           </div>
           <div class="row g-2 mt-1">
             <div class="col-6">
+              <label class="form-label">리드타임 (일)</label>
+              <input type="number" class="form-control" id="partEditLeadTime" min="0" step="1">
+            </div>
+            <div class="col-6">
               <label class="form-label">구매처</label>
               <input type="text" class="form-control" id="partEditSupplier" placeholder="예: OO상사">
             </div>
+          </div>
+          <div class="row g-2 mt-1">
             <div class="col-6">
               <label class="form-label">구매처 연락처</label>
               <input type="text" class="form-control" id="partEditSupplierContact" placeholder="예: 010-0000-0000">
@@ -8385,7 +8537,9 @@ function openPartDetailModal(partId) {
   const dueText = p.next_due
     ? `다음 교체 예정: ${p.next_due} (${p.days_left >= 0 ? p.days_left + "일 남음" : Math.abs(p.days_left) + "일 초과"})`
     : "";
-  const stockText = `재고: <span class="${(p.stock_qty || 0) <= 0 ? "text-danger fw-bold" : ""}">${p.stock_qty || 0}개</span>`;
+  const isLowStock = (p.stock_qty || 0) <= (p.safety_stock || 0);
+  const safetyText = p.safety_stock ? ` (안전재고 ${p.safety_stock}개)` : "";
+  const stockText = `재고: <span class="${isLowStock ? "text-danger fw-bold" : ""}">${p.stock_qty || 0}개</span>${safetyText}`;
   const supplierText = p.supplier
     ? ` &middot; 구매처: ${escapeHtml(p.supplier)}${p.supplier_contact ? " (" + escapeHtml(p.supplier_contact) + ")" : ""}`
     : "";
@@ -8484,6 +8638,7 @@ function openPartEditModal(part) {
   document.getElementById("partEditNote").value = part ? part.note || "" : "";
   document.getElementById("partEditMemo").innerHTML = part ? part.memo || "" : "";
   document.getElementById("partEditStockQty").value = part ? part.stock_qty || 0 : 0;
+  document.getElementById("partEditSafetyStock").value = part ? part.safety_stock || 0 : 0;
   document.getElementById("partEditLeadTime").value = part && part.lead_time_days != null ? part.lead_time_days : "";
   document.getElementById("partEditSupplier").value = part ? part.supplier || "" : "";
   document.getElementById("partEditSupplierContact").value = part ? part.supplier_contact || "" : "";
@@ -8640,6 +8795,7 @@ document.addEventListener("DOMContentLoaded", () => {
       memo: sanitizeRichHtml(document.getElementById("partEditMemo").innerHTML),
       drawing_data: currentPartDrawingData,
       stock_qty: parseInt(document.getElementById("partEditStockQty").value, 10) || 0,
+      safety_stock: parseInt(document.getElementById("partEditSafetyStock").value, 10) || 0,
       lead_time_days: document.getElementById("partEditLeadTime").value || null,
       supplier: document.getElementById("partEditSupplier").value.trim(),
       supplier_contact: document.getElementById("partEditSupplierContact").value.trim(),
@@ -9473,6 +9629,50 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
   align-items: center;
   justify-content: center;
 }
+
+/* ── 통계 인터랙티브 막대 차트 (상위 5건) ─────────────────────── */
+.stats-chart {
+  padding: 4px 18px 10px;
+  border-bottom: 1px solid #f1f2f6;
+  margin-bottom: 2px;
+}
+.stat-bar-chart { width: 100%; height: auto; display: block; }
+.stat-bar-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-muted);
+  font-family: inherit;
+}
+.stat-bar-track { fill: var(--border); }
+.stat-bar-fill {
+  fill: var(--pri);
+  transition: fill 0.12s ease;
+}
+.stat-bar-row { cursor: pointer; outline: none; }
+.stat-bar-row:hover .stat-bar-fill,
+.stat-bar-row:focus .stat-bar-fill { fill: var(--accent); }
+.stat-bar-row:focus .stat-bar-track { stroke: var(--accent); stroke-width: 1.5; }
+.stat-bar-value {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-family: inherit;
+}
+.stat-chart-tooltip {
+  position: fixed;
+  z-index: 4000;
+  background: #1f2937;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  white-space: nowrap;
+}
+html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
 
 /* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
 .master-badge {
@@ -10993,6 +11193,50 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
   justify-content: center;
 }
 
+/* ── 통계 인터랙티브 막대 차트 (상위 5건) ─────────────────────── */
+.stats-chart {
+  padding: 4px 18px 10px;
+  border-bottom: 1px solid #f1f2f6;
+  margin-bottom: 2px;
+}
+.stat-bar-chart { width: 100%; height: auto; display: block; }
+.stat-bar-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-muted);
+  font-family: inherit;
+}
+.stat-bar-track { fill: var(--border); }
+.stat-bar-fill {
+  fill: var(--pri);
+  transition: fill 0.12s ease;
+}
+.stat-bar-row { cursor: pointer; outline: none; }
+.stat-bar-row:hover .stat-bar-fill,
+.stat-bar-row:focus .stat-bar-fill { fill: var(--accent); }
+.stat-bar-row:focus .stat-bar-track { stroke: var(--accent); stroke-width: 1.5; }
+.stat-bar-value {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-family: inherit;
+}
+.stat-chart-tooltip {
+  position: fixed;
+  z-index: 4000;
+  background: #1f2937;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  white-space: nowrap;
+}
+html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
+
 /* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
 .master-badge {
   font-size: 11px;
@@ -12162,6 +12406,50 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
   align-items: center;
   justify-content: center;
 }
+
+/* ── 통계 인터랙티브 막대 차트 (상위 5건) ─────────────────────── */
+.stats-chart {
+  padding: 4px 18px 10px;
+  border-bottom: 1px solid #f1f2f6;
+  margin-bottom: 2px;
+}
+.stat-bar-chart { width: 100%; height: auto; display: block; }
+.stat-bar-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-muted);
+  font-family: inherit;
+}
+.stat-bar-track { fill: var(--border); }
+.stat-bar-fill {
+  fill: var(--pri);
+  transition: fill 0.12s ease;
+}
+.stat-bar-row { cursor: pointer; outline: none; }
+.stat-bar-row:hover .stat-bar-fill,
+.stat-bar-row:focus .stat-bar-fill { fill: var(--accent); }
+.stat-bar-row:focus .stat-bar-track { stroke: var(--accent); stroke-width: 1.5; }
+.stat-bar-value {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-family: inherit;
+}
+.stat-chart-tooltip {
+  position: fixed;
+  z-index: 4000;
+  background: #1f2937;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  white-space: nowrap;
+}
+html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
 
 /* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
 .master-badge {
@@ -13391,6 +13679,50 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
   justify-content: center;
 }
 
+/* ── 통계 인터랙티브 막대 차트 (상위 5건) ─────────────────────── */
+.stats-chart {
+  padding: 4px 18px 10px;
+  border-bottom: 1px solid #f1f2f6;
+  margin-bottom: 2px;
+}
+.stat-bar-chart { width: 100%; height: auto; display: block; }
+.stat-bar-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-muted);
+  font-family: inherit;
+}
+.stat-bar-track { fill: var(--border); }
+.stat-bar-fill {
+  fill: var(--pri);
+  transition: fill 0.12s ease;
+}
+.stat-bar-row { cursor: pointer; outline: none; }
+.stat-bar-row:hover .stat-bar-fill,
+.stat-bar-row:focus .stat-bar-fill { fill: var(--accent); }
+.stat-bar-row:focus .stat-bar-track { stroke: var(--accent); stroke-width: 1.5; }
+.stat-bar-value {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-family: inherit;
+}
+.stat-chart-tooltip {
+  position: fixed;
+  z-index: 4000;
+  background: #1f2937;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  white-space: nowrap;
+}
+html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
+
 /* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
 .master-badge {
   font-size: 11px;
@@ -13722,18 +14054,22 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
   <div class="stats-grid">
     <div class="stats-panel">
       <h6><i class="bi bi-cash-coin"></i> 금액순 <span id="costSubtitle" class="stats-subtitle">(부품 규격 기준)</span></h6>
+      <div id="statsCostChart" class="stats-chart"></div>
       <div id="statsCost" class="stats-list"></div>
     </div>
     <div class="stats-panel">
       <h6><i class="bi bi-arrow-repeat"></i> 사용량 많은순 <span id="usageSubtitle" class="stats-subtitle">(부품 규격 기준)</span></h6>
+      <div id="statsUsageChart" class="stats-chart"></div>
       <div id="statsUsage" class="stats-list"></div>
     </div>
     <div class="stats-panel">
       <h6><i class="bi bi-hourglass-split"></i> 교체 주기 짧은순 <span class="stats-subtitle">(부품 규격 기준)</span></h6>
+      <div id="statsCycleChart" class="stats-chart"></div>
       <div id="statsCycle" class="stats-list"></div>
     </div>
     <div class="stats-panel">
       <h6><i class="bi bi-box-seam"></i> 부품수 많은순 <span class="stats-subtitle">(유닛 기준)</span></h6>
+      <div id="statsPartCountChart" class="stats-chart"></div>
       <div id="statsPartCount" class="stats-list"></div>
     </div>
   </div>
@@ -13766,6 +14102,85 @@ function formatCycle(days, unit) {
   return `${days}일`;
 }
 
+// ── 통계 막대 차트 (규격/유닛 상위 5건, 순수 SVG로 그려서 별도 라이브러리 없이 동작) ──
+const CHART_W = 460;
+const CHART_LABEL_W = 108;
+const CHART_VALUE_W = 60;
+const CHART_ROW_H = 30;
+const CHART_BAR_H = 14;
+
+let chartTooltip = null;
+
+function ensureChartTooltip() {
+  if (chartTooltip) return chartTooltip;
+  chartTooltip = document.createElement("div");
+  chartTooltip.className = "stat-chart-tooltip d-none";
+  document.body.appendChild(chartTooltip);
+  return chartTooltip;
+}
+
+function showChartTooltip(evt, text) {
+  const tip = ensureChartTooltip();
+  tip.textContent = text;
+  tip.classList.remove("d-none");
+  positionChartTooltip(evt);
+}
+
+function positionChartTooltip(evt) {
+  if (!chartTooltip) return;
+  chartTooltip.style.left = `${evt.clientX + 14}px`;
+  chartTooltip.style.top = `${evt.clientY + 14}px`;
+}
+
+function hideChartTooltip() {
+  if (chartTooltip) chartTooltip.classList.add("d-none");
+}
+
+function renderBarChart(elId, rows, opts) {
+  const el = document.getElementById(elId);
+  const top = rows.slice(0, 5);
+  if (top.length === 0) {
+    el.innerHTML = "";
+    return;
+  }
+  const maxVal = Math.max(...top.map(opts.valueFn), 1);
+  const barMaxW = CHART_W - CHART_LABEL_W - CHART_VALUE_W - 16;
+  const height = top.length * CHART_ROW_H + 6;
+
+  const bars = top
+    .map((r, i) => {
+      const val = opts.valueFn(r);
+      const w = maxVal > 0 ? Math.max((val / maxVal) * barMaxW, val > 0 ? 4 : 0) : 0;
+      const y = i * CHART_ROW_H;
+      const rawLabel = opts.labelFn(r);
+      const label = rawLabel.length > 11 ? rawLabel.slice(0, 10) + "…" : rawLabel;
+      const valueText = opts.formatValue(val);
+      return `
+      <g class="stat-bar-row" data-idx="${i}" tabindex="0" role="button" aria-label="${escapeHtml(rawLabel)}: ${escapeHtml(valueText)}">
+        <text x="${CHART_LABEL_W - 8}" y="${y + CHART_BAR_H + 1}" text-anchor="end" class="stat-bar-label">${escapeHtml(label)}</text>
+        <rect x="${CHART_LABEL_W}" y="${y + 3}" width="${barMaxW}" height="${CHART_BAR_H}" rx="${CHART_BAR_H / 2}" class="stat-bar-track"></rect>
+        <rect x="${CHART_LABEL_W}" y="${y + 3}" width="${w}" height="${CHART_BAR_H}" rx="${CHART_BAR_H / 2}" class="stat-bar-fill"></rect>
+        <text x="${CHART_LABEL_W + barMaxW + 8}" y="${y + CHART_BAR_H + 1}" class="stat-bar-value">${escapeHtml(valueText)}</text>
+      </g>`;
+    })
+    .join("");
+
+  el.innerHTML = `<svg viewBox="0 0 ${CHART_W} ${height}" class="stat-bar-chart" role="img" aria-label="상위 ${top.length}건 막대 그래프">${bars}</svg>`;
+
+  top.forEach((r, i) => {
+    const row = el.querySelector(`[data-idx="${i}"]`);
+    if (!row) return;
+    const rawLabel = opts.labelFn(r);
+    const valueText = opts.formatValue(opts.valueFn(r));
+    row.addEventListener("mouseenter", (e) => showChartTooltip(e, `${rawLabel} · ${valueText}`));
+    row.addEventListener("mousemove", positionChartTooltip);
+    row.addEventListener("mouseleave", hideChartTooltip);
+    row.addEventListener("focus", (e) => showChartTooltip(e, `${rawLabel} · ${valueText}`));
+    row.addEventListener("blur", hideChartTooltip);
+    row.addEventListener("click", () => opts.onClick(r));
+  });
+}
+
 function currentPeriodParams() {
   const params = new URLSearchParams();
   selectedUnitNames.forEach((name) => params.append("unit_name", name));
@@ -13789,6 +14204,32 @@ async function loadStats() {
   renderPartSpecPanel("statsUsage", data.by_usage, (r) => `${r.usage_count}회 교체`);
   renderPartSpecPanel("statsCycle", data.by_short_cycle, (r) => formatCycle(r.min_cycle_days, r.min_cycle_unit) + " 주기");
   renderUnitPanel("statsPartCount", data.by_part_count, (r) => `${r.part_count}개`);
+
+  const goToSearch = (r) => { window.location.href = `/search?q=${encodeURIComponent(r.name)}`; };
+  renderBarChart("statsCostChart", data.by_cost, {
+    labelFn: (r) => r.name,
+    valueFn: (r) => r.total_cost,
+    formatValue: formatMoney,
+    onClick: goToSearch,
+  });
+  renderBarChart("statsUsageChart", data.by_usage, {
+    labelFn: (r) => r.name,
+    valueFn: (r) => r.usage_count,
+    formatValue: (v) => `${v}회`,
+    onClick: goToSearch,
+  });
+  renderBarChart("statsCycleChart", data.by_short_cycle, {
+    labelFn: (r) => r.name,
+    valueFn: (r) => r.min_cycle_days,
+    formatValue: (v) => `${v}일`,
+    onClick: goToSearch,
+  });
+  renderBarChart("statsPartCountChart", data.by_part_count, {
+    labelFn: (r) => `${r.equipment_name} ${r.unit_name}`,
+    valueFn: (r) => r.part_count,
+    formatValue: (v) => `${v}개`,
+    onClick: (r) => { window.location.href = `/unit/${r.unit_id}`; },
+  });
   document.getElementById("costSubtitle").textContent = data.period_active
     ? "(선택 기간 교체 이력 기준)"
     : "(교체 이력 있으면 실제 금액, 없으면 등록 금액)";
@@ -14712,6 +15153,50 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
   align-items: center;
   justify-content: center;
 }
+
+/* ── 통계 인터랙티브 막대 차트 (상위 5건) ─────────────────────── */
+.stats-chart {
+  padding: 4px 18px 10px;
+  border-bottom: 1px solid #f1f2f6;
+  margin-bottom: 2px;
+}
+.stat-bar-chart { width: 100%; height: auto; display: block; }
+.stat-bar-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-muted);
+  font-family: inherit;
+}
+.stat-bar-track { fill: var(--border); }
+.stat-bar-fill {
+  fill: var(--pri);
+  transition: fill 0.12s ease;
+}
+.stat-bar-row { cursor: pointer; outline: none; }
+.stat-bar-row:hover .stat-bar-fill,
+.stat-bar-row:focus .stat-bar-fill { fill: var(--accent); }
+.stat-bar-row:focus .stat-bar-track { stroke: var(--accent); stroke-width: 1.5; }
+.stat-bar-value {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-family: inherit;
+}
+.stat-chart-tooltip {
+  position: fixed;
+  z-index: 4000;
+  background: #1f2937;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  white-space: nowrap;
+}
+html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
 
 /* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
 .master-badge {
@@ -15817,6 +16302,50 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
   align-items: center;
   justify-content: center;
 }
+
+/* ── 통계 인터랙티브 막대 차트 (상위 5건) ─────────────────────── */
+.stats-chart {
+  padding: 4px 18px 10px;
+  border-bottom: 1px solid #f1f2f6;
+  margin-bottom: 2px;
+}
+.stat-bar-chart { width: 100%; height: auto; display: block; }
+.stat-bar-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-muted);
+  font-family: inherit;
+}
+.stat-bar-track { fill: var(--border); }
+.stat-bar-fill {
+  fill: var(--pri);
+  transition: fill 0.12s ease;
+}
+.stat-bar-row { cursor: pointer; outline: none; }
+.stat-bar-row:hover .stat-bar-fill,
+.stat-bar-row:focus .stat-bar-fill { fill: var(--accent); }
+.stat-bar-row:focus .stat-bar-track { stroke: var(--accent); stroke-width: 1.5; }
+.stat-bar-value {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-family: inherit;
+}
+.stat-chart-tooltip {
+  position: fixed;
+  z-index: 4000;
+  background: #1f2937;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  white-space: nowrap;
+}
+html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
 
 /* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
 .master-badge {
@@ -17224,6 +17753,50 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
   justify-content: center;
 }
 
+/* ── 통계 인터랙티브 막대 차트 (상위 5건) ─────────────────────── */
+.stats-chart {
+  padding: 4px 18px 10px;
+  border-bottom: 1px solid #f1f2f6;
+  margin-bottom: 2px;
+}
+.stat-bar-chart { width: 100%; height: auto; display: block; }
+.stat-bar-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-muted);
+  font-family: inherit;
+}
+.stat-bar-track { fill: var(--border); }
+.stat-bar-fill {
+  fill: var(--pri);
+  transition: fill 0.12s ease;
+}
+.stat-bar-row { cursor: pointer; outline: none; }
+.stat-bar-row:hover .stat-bar-fill,
+.stat-bar-row:focus .stat-bar-fill { fill: var(--accent); }
+.stat-bar-row:focus .stat-bar-track { stroke: var(--accent); stroke-width: 1.5; }
+.stat-bar-value {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-family: inherit;
+}
+.stat-chart-tooltip {
+  position: fixed;
+  z-index: 4000;
+  background: #1f2937;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  white-space: nowrap;
+}
+html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
+
 /* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
 .master-badge {
   font-size: 11px;
@@ -18498,6 +19071,50 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
   justify-content: center;
 }
 
+/* ── 통계 인터랙티브 막대 차트 (상위 5건) ─────────────────────── */
+.stats-chart {
+  padding: 4px 18px 10px;
+  border-bottom: 1px solid #f1f2f6;
+  margin-bottom: 2px;
+}
+.stat-bar-chart { width: 100%; height: auto; display: block; }
+.stat-bar-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-muted);
+  font-family: inherit;
+}
+.stat-bar-track { fill: var(--border); }
+.stat-bar-fill {
+  fill: var(--pri);
+  transition: fill 0.12s ease;
+}
+.stat-bar-row { cursor: pointer; outline: none; }
+.stat-bar-row:hover .stat-bar-fill,
+.stat-bar-row:focus .stat-bar-fill { fill: var(--accent); }
+.stat-bar-row:focus .stat-bar-track { stroke: var(--accent); stroke-width: 1.5; }
+.stat-bar-value {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-family: inherit;
+}
+.stat-chart-tooltip {
+  position: fixed;
+  z-index: 4000;
+  background: #1f2937;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  white-space: nowrap;
+}
+html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
+
 /* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
 .master-badge {
   font-size: 11px;
@@ -19688,6 +20305,50 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
   justify-content: center;
 }
 
+/* ── 통계 인터랙티브 막대 차트 (상위 5건) ─────────────────────── */
+.stats-chart {
+  padding: 4px 18px 10px;
+  border-bottom: 1px solid #f1f2f6;
+  margin-bottom: 2px;
+}
+.stat-bar-chart { width: 100%; height: auto; display: block; }
+.stat-bar-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-muted);
+  font-family: inherit;
+}
+.stat-bar-track { fill: var(--border); }
+.stat-bar-fill {
+  fill: var(--pri);
+  transition: fill 0.12s ease;
+}
+.stat-bar-row { cursor: pointer; outline: none; }
+.stat-bar-row:hover .stat-bar-fill,
+.stat-bar-row:focus .stat-bar-fill { fill: var(--accent); }
+.stat-bar-row:focus .stat-bar-track { stroke: var(--accent); stroke-width: 1.5; }
+.stat-bar-value {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-family: inherit;
+}
+.stat-chart-tooltip {
+  position: fixed;
+  z-index: 4000;
+  background: #1f2937;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  white-space: nowrap;
+}
+html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
+
 /* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
 .master-badge {
   font-size: 11px;
@@ -19996,7 +20657,7 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
   <div class="d-flex justify-content-between align-items-center mb-3">
     <div class="form-check">
       <input class="form-check-input" type="checkbox" id="lowStockOnlyCheck">
-      <label class="form-check-label small text-muted" for="lowStockOnlyCheck">재고 부족(0개)만 보기</label>
+      <label class="form-check-label small text-muted" for="lowStockOnlyCheck">안전재고 이하만 보기</label>
     </div>
     <span class="text-muted small">규격이 같은 부품은 한 행으로 묶여 표시됩니다. 행을 클릭하면 개별 부품별 재고를 수정할 수 있습니다.</span>
   </div>
@@ -20033,6 +20694,7 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
                 <th>부품이름</th>
                 <th>소속 유닛</th>
                 <th style="width:110px">재고 수량</th>
+                <th style="width:110px">안전재고</th>
                 <th>구매처</th>
                 <th>연락처</th>
                 <th style="width:100px">리드타임</th>
@@ -20095,13 +20757,14 @@ function groupBySpec(rows) {
     const key = p.spec || "";
     let g = bySpec.get(key);
     if (!g) {
-      g = { spec: p.spec, names: [], units: [], totalStock: 0, parts: [] };
+      g = { spec: p.spec, names: [], units: [], totalStock: 0, totalSafetyStock: 0, parts: [] };
       bySpec.set(key, g);
       groups.push(g);
     }
     if (!g.names.includes(p.name)) g.names.push(p.name);
     if (!g.units.includes(p.unit_name)) g.units.push(p.unit_name);
     g.totalStock += p.stock_qty || 0;
+    g.totalSafetyStock += p.safety_stock || 0;
     g.parts.push(p);
   }
   return groups;
@@ -20110,24 +20773,24 @@ function groupBySpec(rows) {
 function renderInventory() {
   const lowOnly = document.getElementById("lowStockOnlyCheck").checked;
   updateExportLink();
-  const groups = groupBySpec(allInventory).filter((g) => !lowOnly || g.totalStock <= 0);
+  const groups = groupBySpec(allInventory).filter((g) => !lowOnly || g.totalStock <= g.totalSafetyStock);
   const tbody = document.getElementById("inventoryBody");
   const empty = document.getElementById("inventoryEmpty");
   if (groups.length === 0) {
     tbody.innerHTML = "";
     empty.classList.remove("d-none");
-    empty.textContent = lowOnly ? "재고 부족 부품이 없습니다." : "등록된 부품이 없습니다.";
+    empty.textContent = lowOnly ? "안전재고 이하인 부품이 없습니다." : "등록된 부품이 없습니다.";
     return;
   }
   empty.classList.add("d-none");
   tbody.innerHTML = groups
     .map(
       (g, idx) => `
-    <tr data-group-idx="${idx}" class="inventory-group-row ${g.totalStock <= 0 ? "table-danger" : ""}" style="cursor:pointer">
+    <tr data-group-idx="${idx}" class="inventory-group-row ${g.totalStock <= g.totalSafetyStock ? "table-danger" : ""}" style="cursor:pointer">
       <td class="text-muted">${escapeHtml(g.spec)}</td>
       <td>${escapeHtml(g.names.join(", "))}</td>
       <td class="text-muted">${escapeHtml(g.units.join(", "))}</td>
-      <td class="fw-bold">${g.totalStock}</td>
+      <td class="fw-bold">${g.totalStock}${g.totalSafetyStock ? `<span class="text-muted fw-normal small"> / 안전 ${g.totalSafetyStock}</span>` : ""}</td>
     </tr>`
     )
     .join("");
@@ -20156,12 +20819,24 @@ function renderGroupModalBody(group) {
       <td>${escapeHtml(p.name)}</td>
       <td class="text-muted">${escapeHtml(p.unit_name)}</td>
       <td><input type="number" class="form-control form-control-sm stock-qty-input" data-id="${p.id}" value="${p.stock_qty || 0}" min="0" step="1"></td>
+      <td><input type="number" class="form-control form-control-sm safety-stock-input" data-id="${p.id}" value="${p.safety_stock || 0}" min="0" step="1"></td>
       <td class="text-muted">${escapeHtml(p.supplier)}</td>
       <td class="text-muted">${escapeHtml(p.supplier_contact)}</td>
       <td class="text-muted">${p.lead_time_days != null ? p.lead_time_days + "일" : "-"}</td>
     </tr>`
     )
     .join("");
+
+  function reloadAfterFieldChange(id, field, value) {
+    const entry = allInventory.find((p) => p.id === id);
+    if (entry) entry[field] = value;
+    renderInventory();
+    const group = groupBySpec(allInventory).find((g) => g.parts.some((p) => p.id === id));
+    if (group) {
+      document.getElementById("groupModalSpec").textContent = group.spec || "-";
+      renderGroupModalBody(group);
+    }
+  }
 
   tbody.querySelectorAll(".stock-qty-input").forEach((input) => {
     input.addEventListener("change", async () => {
@@ -20173,14 +20848,24 @@ function renderGroupModalBody(group) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ stock_qty }),
         });
-        const entry = allInventory.find((p) => p.id === id);
-        if (entry) entry.stock_qty = stock_qty;
-        renderInventory();
-        const group = groupBySpec(allInventory).find((g) => g.parts.some((p) => p.id === id));
-        if (group) {
-          document.getElementById("groupModalSpec").textContent = group.spec || "-";
-          renderGroupModalBody(group);
-        }
+        reloadAfterFieldChange(id, "stock_qty", stock_qty);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+
+  tbody.querySelectorAll(".safety-stock-input").forEach((input) => {
+    input.addEventListener("change", async () => {
+      const id = parseInt(input.dataset.id, 10);
+      const safety_stock = parseInt(input.value, 10) || 0;
+      try {
+        await fetchJson(`/api/parts/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ safety_stock }),
+        });
+        reloadAfterFieldChange(id, "safety_stock", safety_stock);
       } catch (err) {
         alert(err.message);
       }
@@ -20986,6 +21671,50 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
   align-items: center;
   justify-content: center;
 }
+
+/* ── 통계 인터랙티브 막대 차트 (상위 5건) ─────────────────────── */
+.stats-chart {
+  padding: 4px 18px 10px;
+  border-bottom: 1px solid #f1f2f6;
+  margin-bottom: 2px;
+}
+.stat-bar-chart { width: 100%; height: auto; display: block; }
+.stat-bar-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-muted);
+  font-family: inherit;
+}
+.stat-bar-track { fill: var(--border); }
+.stat-bar-fill {
+  fill: var(--pri);
+  transition: fill 0.12s ease;
+}
+.stat-bar-row { cursor: pointer; outline: none; }
+.stat-bar-row:hover .stat-bar-fill,
+.stat-bar-row:focus .stat-bar-fill { fill: var(--accent); }
+.stat-bar-row:focus .stat-bar-track { stroke: var(--accent); stroke-width: 1.5; }
+.stat-bar-value {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-family: inherit;
+}
+.stat-chart-tooltip {
+  position: fixed;
+  z-index: 4000;
+  background: #1f2937;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  white-space: nowrap;
+}
+html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
 
 /* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
 .master-badge {

@@ -22,6 +22,85 @@ function formatCycle(days, unit) {
   return `${days}일`;
 }
 
+// ── 통계 막대 차트 (규격/유닛 상위 5건, 순수 SVG로 그려서 별도 라이브러리 없이 동작) ──
+const CHART_W = 460;
+const CHART_LABEL_W = 108;
+const CHART_VALUE_W = 60;
+const CHART_ROW_H = 30;
+const CHART_BAR_H = 14;
+
+let chartTooltip = null;
+
+function ensureChartTooltip() {
+  if (chartTooltip) return chartTooltip;
+  chartTooltip = document.createElement("div");
+  chartTooltip.className = "stat-chart-tooltip d-none";
+  document.body.appendChild(chartTooltip);
+  return chartTooltip;
+}
+
+function showChartTooltip(evt, text) {
+  const tip = ensureChartTooltip();
+  tip.textContent = text;
+  tip.classList.remove("d-none");
+  positionChartTooltip(evt);
+}
+
+function positionChartTooltip(evt) {
+  if (!chartTooltip) return;
+  chartTooltip.style.left = `${evt.clientX + 14}px`;
+  chartTooltip.style.top = `${evt.clientY + 14}px`;
+}
+
+function hideChartTooltip() {
+  if (chartTooltip) chartTooltip.classList.add("d-none");
+}
+
+function renderBarChart(elId, rows, opts) {
+  const el = document.getElementById(elId);
+  const top = rows.slice(0, 5);
+  if (top.length === 0) {
+    el.innerHTML = "";
+    return;
+  }
+  const maxVal = Math.max(...top.map(opts.valueFn), 1);
+  const barMaxW = CHART_W - CHART_LABEL_W - CHART_VALUE_W - 16;
+  const height = top.length * CHART_ROW_H + 6;
+
+  const bars = top
+    .map((r, i) => {
+      const val = opts.valueFn(r);
+      const w = maxVal > 0 ? Math.max((val / maxVal) * barMaxW, val > 0 ? 4 : 0) : 0;
+      const y = i * CHART_ROW_H;
+      const rawLabel = opts.labelFn(r);
+      const label = rawLabel.length > 11 ? rawLabel.slice(0, 10) + "…" : rawLabel;
+      const valueText = opts.formatValue(val);
+      return `
+      <g class="stat-bar-row" data-idx="${i}" tabindex="0" role="button" aria-label="${escapeHtml(rawLabel)}: ${escapeHtml(valueText)}">
+        <text x="${CHART_LABEL_W - 8}" y="${y + CHART_BAR_H + 1}" text-anchor="end" class="stat-bar-label">${escapeHtml(label)}</text>
+        <rect x="${CHART_LABEL_W}" y="${y + 3}" width="${barMaxW}" height="${CHART_BAR_H}" rx="${CHART_BAR_H / 2}" class="stat-bar-track"></rect>
+        <rect x="${CHART_LABEL_W}" y="${y + 3}" width="${w}" height="${CHART_BAR_H}" rx="${CHART_BAR_H / 2}" class="stat-bar-fill"></rect>
+        <text x="${CHART_LABEL_W + barMaxW + 8}" y="${y + CHART_BAR_H + 1}" class="stat-bar-value">${escapeHtml(valueText)}</text>
+      </g>`;
+    })
+    .join("");
+
+  el.innerHTML = `<svg viewBox="0 0 ${CHART_W} ${height}" class="stat-bar-chart" role="img" aria-label="상위 ${top.length}건 막대 그래프">${bars}</svg>`;
+
+  top.forEach((r, i) => {
+    const row = el.querySelector(`[data-idx="${i}"]`);
+    if (!row) return;
+    const rawLabel = opts.labelFn(r);
+    const valueText = opts.formatValue(opts.valueFn(r));
+    row.addEventListener("mouseenter", (e) => showChartTooltip(e, `${rawLabel} · ${valueText}`));
+    row.addEventListener("mousemove", positionChartTooltip);
+    row.addEventListener("mouseleave", hideChartTooltip);
+    row.addEventListener("focus", (e) => showChartTooltip(e, `${rawLabel} · ${valueText}`));
+    row.addEventListener("blur", hideChartTooltip);
+    row.addEventListener("click", () => opts.onClick(r));
+  });
+}
+
 function currentPeriodParams() {
   const params = new URLSearchParams();
   selectedUnitNames.forEach((name) => params.append("unit_name", name));
@@ -45,6 +124,32 @@ async function loadStats() {
   renderPartSpecPanel("statsUsage", data.by_usage, (r) => `${r.usage_count}회 교체`);
   renderPartSpecPanel("statsCycle", data.by_short_cycle, (r) => formatCycle(r.min_cycle_days, r.min_cycle_unit) + " 주기");
   renderUnitPanel("statsPartCount", data.by_part_count, (r) => `${r.part_count}개`);
+
+  const goToSearch = (r) => { window.location.href = `/search?q=${encodeURIComponent(r.name)}`; };
+  renderBarChart("statsCostChart", data.by_cost, {
+    labelFn: (r) => r.name,
+    valueFn: (r) => r.total_cost,
+    formatValue: formatMoney,
+    onClick: goToSearch,
+  });
+  renderBarChart("statsUsageChart", data.by_usage, {
+    labelFn: (r) => r.name,
+    valueFn: (r) => r.usage_count,
+    formatValue: (v) => `${v}회`,
+    onClick: goToSearch,
+  });
+  renderBarChart("statsCycleChart", data.by_short_cycle, {
+    labelFn: (r) => r.name,
+    valueFn: (r) => r.min_cycle_days,
+    formatValue: (v) => `${v}일`,
+    onClick: goToSearch,
+  });
+  renderBarChart("statsPartCountChart", data.by_part_count, {
+    labelFn: (r) => `${r.equipment_name} ${r.unit_name}`,
+    valueFn: (r) => r.part_count,
+    formatValue: (v) => `${v}개`,
+    onClick: (r) => { window.location.href = `/unit/${r.unit_id}`; },
+  });
   document.getElementById("costSubtitle").textContent = data.period_active
     ? "(선택 기간 교체 이력 기준)"
     : "(교체 이력 있으면 실제 금액, 없으면 등록 금액)";

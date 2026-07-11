@@ -273,6 +273,7 @@ def init_db():
             width REAL DEFAULT 130,
             height REAL DEFAULT 110,
             stock_qty INTEGER DEFAULT 0,
+            safety_stock INTEGER DEFAULT 0,
             supplier TEXT,
             supplier_contact TEXT,
             lead_time_days INTEGER,
@@ -316,6 +317,7 @@ def init_db():
                 width REAL DEFAULT 130,
                 height REAL DEFAULT 110,
                 stock_qty INTEGER DEFAULT 0,
+                safety_stock INTEGER DEFAULT 0,
                 supplier TEXT,
                 supplier_contact TEXT,
                 lead_time_days INTEGER,
@@ -354,6 +356,9 @@ def init_db():
         c.execute("ALTER TABLE parts ADD COLUMN supplier_contact TEXT")
         c.execute("ALTER TABLE parts ADD COLUMN lead_time_days INTEGER")
         c.execute("UPDATE parts SET stock_qty = 0 WHERE stock_qty IS NULL")
+    if "safety_stock" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN safety_stock INTEGER DEFAULT 0")
+        c.execute("UPDATE parts SET safety_stock = 0 WHERE safety_stock IS NULL")
     if "deleted_at" not in existing_part_cols:
         c.execute("ALTER TABLE parts ADD COLUMN deleted_at TEXT")
     for unit_row in c.execute("SELECT DISTINCT unit_id FROM parts").fetchall():
@@ -603,15 +608,16 @@ def resolve_cycle(data, current_days=None, current_unit=None):
 def insert_part(conn, unit_id, name, spec="", cycle_days=None, cycle_unit="N/A", cost=0,
                  last_replaced_date=None, note="", memo="", drawing_data=None, icon="🔩",
                  pos_x=None, pos_y=None, width=130, height=110,
-                 stock_qty=0, supplier="", supplier_contact="", lead_time_days=None):
+                 stock_qty=0, safety_stock=0, supplier="", supplier_contact="", lead_time_days=None):
     if pos_x is None or pos_y is None:
         pos_x, pos_y = random.uniform(15, 85), random.uniform(20, 80)
     cur = conn.execute(
         """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, memo,
-           drawing_data, icon, pos_x, pos_y, width, height, stock_qty, supplier, supplier_contact, lead_time_days)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           drawing_data, icon, pos_x, pos_y, width, height, stock_qty, safety_stock, supplier, supplier_contact,
+           lead_time_days)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, memo, drawing_data, icon,
-         pos_x, pos_y, width, height, stock_qty, supplier, supplier_contact, lead_time_days),
+         pos_x, pos_y, width, height, stock_qty, safety_stock, supplier, supplier_contact, lead_time_days),
     )
     part_id = cur.lastrowid
     if last_replaced_date:
@@ -649,22 +655,25 @@ def apply_unit_parts_to_other_equipment(conn, unit_id):
                 conn.execute(
                     """UPDATE parts SET spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, memo = ?,
                        drawing_data = ?, icon = ?, pos_x = ?, pos_y = ?, width = ?, height = ?,
-                       stock_qty = ?, supplier = ?, supplier_contact = ?, lead_time_days = ? WHERE id = ?""",
+                       stock_qty = ?, safety_stock = ?, supplier = ?, supplier_contact = ?, lead_time_days = ?
+                       WHERE id = ?""",
                     (
                         mp["spec"], mp["cycle_days"], mp["cycle_unit"], mp["cost"], mp["note"], mp["memo"],
                         mp["drawing_data"], mp["icon"], mp["pos_x"], mp["pos_y"], mp["width"], mp["height"],
-                        mp["stock_qty"], mp["supplier"], mp["supplier_contact"], mp["lead_time_days"], ep["id"],
+                        mp["stock_qty"], mp["safety_stock"], mp["supplier"], mp["supplier_contact"],
+                        mp["lead_time_days"], ep["id"],
                     ),
                 )
             else:
                 conn.execute(
                     """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, note, memo, drawing_data,
-                       icon, pos_x, pos_y, width, height, stock_qty, supplier, supplier_contact, lead_time_days)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       icon, pos_x, pos_y, width, height, stock_qty, safety_stock, supplier, supplier_contact,
+                       lead_time_days)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         t["id"], mp["name"], mp["spec"], mp["cycle_days"], mp["cycle_unit"], mp["cost"],
                         mp["note"], mp["memo"], mp["drawing_data"], mp["icon"], mp["pos_x"], mp["pos_y"], mp["width"], mp["height"],
-                        mp["stock_qty"], mp["supplier"], mp["supplier_contact"], mp["lead_time_days"],
+                        mp["stock_qty"], mp["safety_stock"], mp["supplier"], mp["supplier_contact"], mp["lead_time_days"],
                     ),
                 )
         for name, ep in existing.items():
@@ -862,10 +871,10 @@ def build_mail_report_html():
     """메일 본문 HTML을 만든다.
     1번째: 사이트 접속 URL
     2번째: 횡전개 현황 (항목별 완료/미진행/전체/진행률)
-    3번째: 이벤트 알림 - 재고 1개 이하 발생 리스트, 전날(발송 기준) 교체 기록 리스트"""
+    3번째: 이벤트 알림 - 부품별로 설정한 안전재고 이하로 떨어진 리스트, 전날(발송 기준) 교체 기록 리스트"""
     conn = get_db()
     items = conn.execute("SELECT * FROM rollout_items ORDER BY id").fetchall()
-    low_stock = [p for p in get_inventory_rows(conn) if (p["stock_qty"] or 0) <= 1]
+    low_stock = [p for p in get_inventory_rows(conn) if (p["stock_qty"] or 0) <= (p["safety_stock"] or 0)]
     yesterday = (date.today() - timedelta(days=1)).isoformat()
     yesterday_history = conn.execute("""
         SELECT h.cost, p.name AS part_name, p.spec,
@@ -903,10 +912,11 @@ def build_mail_report_html():
             f"<tr><td style='{td}'>{html_lib.escape(p['name'])}</td>"
             f"<td style='{td}'>{html_lib.escape(p['spec'] or '')}</td>"
             f"<td style='{td}'>{html_lib.escape(p['unit_name'])}</td>"
-            f"<td style='{td};text-align:center;color:#c0392b;font-weight:bold'>{p['stock_qty'] or 0}</td></tr>"
+            f"<td style='{td};text-align:center;color:#c0392b;font-weight:bold'>{p['stock_qty'] or 0}</td>"
+            f"<td style='{td};text-align:center'>{p['safety_stock'] or 0}</td></tr>"
         )
     if not low_stock_rows:
-        low_stock_rows = f"<tr><td colspan='4' style='{td}'>재고 1개 이하 부품이 없습니다.</td></tr>"
+        low_stock_rows = f"<tr><td colspan='5' style='{td}'>안전재고 이하로 떨어진 부품이 없습니다.</td></tr>"
 
     history_rows = ""
     for h in yesterday_history:
@@ -929,10 +939,11 @@ def build_mail_report_html():
         f"<th style='{td}'>미진행</th><th style='{td}'>전체</th><th style='{td}'>진행률</th></tr>"
         f"{rollout_rows}</table>"
         f"<h3>이벤트 알림</h3>"
-        f"<p style='font-size:14px;margin-bottom:4px'><b>재고 1개 이하 발생</b></p>"
+        f"<p style='font-size:14px;margin-bottom:4px'><b>안전재고 이하 발생</b></p>"
         f"<table style='border-collapse:collapse;font-size:14px;margin-bottom:16px'>"
         f"<tr style='background:#f3f4f6'>"
-        f"<th style='{td}'>부품명</th><th style='{td}'>규격</th><th style='{td}'>소속 유닛</th><th style='{td}'>재고</th></tr>"
+        f"<th style='{td}'>부품명</th><th style='{td}'>규격</th><th style='{td}'>소속 유닛</th>"
+        f"<th style='{td}'>재고</th><th style='{td}'>안전재고</th></tr>"
         f"{low_stock_rows}</table>"
         f"<p style='font-size:14px;margin-bottom:4px'><b>전날({yesterday}) 교체 기록</b></p>"
         f"<table style='border-collapse:collapse;font-size:14px'>"
@@ -1213,7 +1224,7 @@ def get_inventory_rows(conn):
     규격이 같으면(부품 이름이 달라도) 나란히 묶여 보이도록 규격 기준으로 먼저 정렬하고,
     같은 규격 안에서는 소속 유닛 기준으로 정렬한다."""
     return conn.execute("""
-        SELECT p.id, p.name, p.spec, p.stock_qty, p.supplier, p.supplier_contact, p.lead_time_days,
+        SELECT p.id, p.name, p.spec, p.stock_qty, p.safety_stock, p.supplier, p.supplier_contact, p.lead_time_days,
                u.id AS unit_id, u.name AS unit_name
         FROM parts p
         JOIN units u ON p.unit_id = u.id
@@ -1238,14 +1249,14 @@ def export_inventory_csv():
     conn = get_db()
     rows = get_inventory_rows(conn)
     conn.close()
-    header = ["규격", "부품이름", "소속 유닛", "재고 수량", "구매처", "연락처", "리드타임(일)"]
+    header = ["규격", "부품이름", "소속 유닛", "재고 수량", "안전재고", "구매처", "연락처", "리드타임(일)"]
     data_rows = []
     for p in rows:
-        if low_only and (p["stock_qty"] or 0) > 0:
+        if low_only and (p["stock_qty"] or 0) > (p["safety_stock"] or 0):
             continue
         data_rows.append([
             p["spec"] or "", p["name"], p["unit_name"],
-            p["stock_qty"] or 0, p["supplier"] or "", p["supplier_contact"] or "",
+            p["stock_qty"] or 0, p["safety_stock"] or 0, p["supplier"] or "", p["supplier_contact"] or "",
             p["lead_time_days"] if p["lead_time_days"] is not None else "",
         ])
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1651,6 +1662,7 @@ def add_part(unit_id):
     width = data.get("width") or 130
     height = data.get("height") or 110
     stock_qty = int(data.get("stock_qty") or 0)
+    safety_stock = int(data.get("safety_stock") or 0)
     supplier = (data.get("supplier") or "").strip()
     supplier_contact = (data.get("supplier_contact") or "").strip()
     lead_time_days = data.get("lead_time_days")
@@ -1661,7 +1673,8 @@ def add_part(unit_id):
         conn, unit_id, name, spec=spec, cycle_days=cycle_days, cycle_unit=cycle_unit, cost=cost,
         last_replaced_date=last_replaced_date, note=note, memo=memo, drawing_data=drawing_data, icon=icon,
         pos_x=data.get("pos_x"), pos_y=data.get("pos_y"), width=width, height=height,
-        stock_qty=stock_qty, supplier=supplier, supplier_contact=supplier_contact, lead_time_days=lead_time_days,
+        stock_qty=stock_qty, safety_stock=safety_stock, supplier=supplier, supplier_contact=supplier_contact,
+        lead_time_days=lead_time_days,
     )
     log_activity(conn, "create", "part", part_id, name)
     conn.commit()
@@ -1891,6 +1904,7 @@ def update_part(part_id):
     width = data.get("width", part["width"])
     height = data.get("height", part["height"])
     stock_qty = int(data.get("stock_qty", part["stock_qty"]) or 0)
+    safety_stock = int(data.get("safety_stock", part["safety_stock"]) or 0)
     supplier = data.get("supplier", part["supplier"])
     supplier_contact = data.get("supplier_contact", part["supplier_contact"])
     lead_time_days = data.get("lead_time_days", part["lead_time_days"])
@@ -1903,9 +1917,9 @@ def update_part(part_id):
     conn.execute(
         """UPDATE parts SET name = ?, spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, memo = ?,
            drawing_data = ?, icon = ?, pos_x = ?, pos_y = ?, width = ?, height = ?,
-           stock_qty = ?, supplier = ?, supplier_contact = ?, lead_time_days = ? WHERE id = ?""",
+           stock_qty = ?, safety_stock = ?, supplier = ?, supplier_contact = ?, lead_time_days = ? WHERE id = ?""",
         (name, spec, cycle_days, cycle_unit, cost, note, memo, drawing_data, icon, pos_x, pos_y, width, height,
-         stock_qty, supplier, supplier_contact, lead_time_days, part_id),
+         stock_qty, safety_stock, supplier, supplier_contact, lead_time_days, part_id),
     )
     if meaningful_change:
         log_activity(conn, "update", "part", part_id, name, "부품 정보 수정")

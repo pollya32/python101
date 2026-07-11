@@ -242,15 +242,21 @@
               <input type="number" class="form-control" id="partEditStockQty" value="0" min="0" step="1">
             </div>
             <div class="col-6">
-              <label class="form-label">리드타임 (일)</label>
-              <input type="number" class="form-control" id="partEditLeadTime" min="0" step="1">
+              <label class="form-label">안전재고 (이하이면 부족 알림)</label>
+              <input type="number" class="form-control" id="partEditSafetyStock" value="0" min="0" step="1">
             </div>
           </div>
           <div class="row g-2 mt-1">
             <div class="col-6">
+              <label class="form-label">리드타임 (일)</label>
+              <input type="number" class="form-control" id="partEditLeadTime" min="0" step="1">
+            </div>
+            <div class="col-6">
               <label class="form-label">구매처</label>
               <input type="text" class="form-control" id="partEditSupplier" placeholder="예: OO상사">
             </div>
+          </div>
+          <div class="row g-2 mt-1">
             <div class="col-6">
               <label class="form-label">구매처 연락처</label>
               <input type="text" class="form-control" id="partEditSupplierContact" placeholder="예: 010-0000-0000">
