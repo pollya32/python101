@@ -68,6 +68,12 @@
 
 <main class="container-fluid py-4">
 
+  <div class="d-flex justify-content-center mb-3">
+    <button id="quickReplaceBtn" class="btn btn-sm btn-outline-primary">
+      <i class="bi bi-funnel"></i> 필터링 교체 등록
+    </button>
+  </div>
+
   <div class="legend mb-3">
     <span class="legend-item"><span class="dot dot-ok"></span> 정상</span>
     <span class="legend-item"><span class="dot dot-soon"></span> 교체 임박</span>
@@ -148,6 +154,45 @@
           </div>
           <div id="equipmentIconPicker" class="icon-picker"></div>
           <button type="submit" class="btn btn-primary w-100 mt-3">저장</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 필터링 교체 등록 모달 -->
+<div class="modal fade" id="quickReplaceModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-funnel"></i> 필터링 교체 등록</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="quickReplaceForm">
+          <div class="mb-2">
+            <label class="form-label">설비</label>
+            <select id="quickReplaceEquipment" class="form-select" required>
+              <option value="">선택하세요</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">유닛</label>
+            <select id="quickReplaceUnit" class="form-select" required disabled>
+              <option value="">먼저 설비를 선택하세요</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">부품</label>
+            <select id="quickReplacePart" class="form-select" required disabled>
+              <option value="">먼저 유닛을 선택하세요</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">교체일</label>
+            <input type="date" class="form-control" id="quickReplaceDate" required>
+          </div>
+          <button type="submit" class="btn btn-primary w-100 mt-2">등록</button>
         </form>
       </div>
     </div>

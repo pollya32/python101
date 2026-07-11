@@ -3835,6 +3835,12 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
 
 <main class="container-fluid py-4">
 
+  <div class="d-flex justify-content-center mb-3">
+    <button id="quickReplaceBtn" class="btn btn-sm btn-outline-primary">
+      <i class="bi bi-funnel"></i> 필터링 교체 등록
+    </button>
+  </div>
+
   <div class="legend mb-3">
     <span class="legend-item"><span class="dot dot-ok"></span> 정상</span>
     <span class="legend-item"><span class="dot dot-soon"></span> 교체 임박</span>
@@ -3921,6 +3927,45 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
   </div>
 </div>
 
+<!-- 필터링 교체 등록 모달 -->
+<div class="modal fade" id="quickReplaceModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-funnel"></i> 필터링 교체 등록</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="quickReplaceForm">
+          <div class="mb-2">
+            <label class="form-label">설비</label>
+            <select id="quickReplaceEquipment" class="form-select" required>
+              <option value="">선택하세요</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">유닛</label>
+            <select id="quickReplaceUnit" class="form-select" required disabled>
+              <option value="">먼저 설비를 선택하세요</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">부품</label>
+            <select id="quickReplacePart" class="form-select" required disabled>
+              <option value="">먼저 유닛을 선택하세요</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">교체일</label>
+            <input type="date" class="form-control" id="quickReplaceDate" required>
+          </div>
+          <button type="submit" class="btn btn-primary w-100 mt-2">등록</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- 비밀번호 변경 모달 -->
 <div class="modal fade" id="changePasswordModal" tabindex="-1">
   <div class="modal-dialog">
@@ -3950,7 +3995,9 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
 <script>
 let editMode = false;
 let equipmentEditModal;
+let quickReplaceModal;
 let allEquipments = [];
+let quickReplaceParts = [];
 
 const ICON_CHOICES = [
   "🏭", "⚙️", "🔧", "🔩", "🛠️", "🪛", "🔨", "📦",
@@ -4187,8 +4234,33 @@ function openEquipmentEditModal(eq) {
   equipmentEditModal.show();
 }
 
+function resetQuickReplaceSelect(selectEl, placeholder) {
+  selectEl.innerHTML = `<option value="">${placeholder}</option>`;
+  selectEl.disabled = true;
+}
+
+function openQuickReplaceModal() {
+  const equipmentSelect = document.getElementById("quickReplaceEquipment");
+  const unitSelect = document.getElementById("quickReplaceUnit");
+  const partSelect = document.getElementById("quickReplacePart");
+  equipmentSelect.innerHTML =
+    `<option value="">선택하세요</option>` +
+    allEquipments
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name, "ko"))
+      .map((eq) => `<option value="${eq.id}">${escapeHtml(eq.icon)} ${escapeHtml(eq.name)}</option>`)
+      .join("");
+  equipmentSelect.value = "";
+  resetQuickReplaceSelect(unitSelect, "먼저 설비를 선택하세요");
+  resetQuickReplaceSelect(partSelect, "먼저 유닛을 선택하세요");
+  quickReplaceParts = [];
+  document.getElementById("quickReplaceDate").value = new Date().toISOString().slice(0, 10);
+  quickReplaceModal.show();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   equipmentEditModal = new bootstrap.Modal(document.getElementById("equipmentEditModal"));
+  quickReplaceModal = new bootstrap.Modal(document.getElementById("quickReplaceModal"));
   const changePasswordModal = new bootstrap.Modal(document.getElementById("changePasswordModal"));
 
   tick();
@@ -4264,6 +4336,78 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       equipmentEditModal.hide();
       loadEquipments();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById("quickReplaceBtn").addEventListener("click", openQuickReplaceModal);
+
+  document.getElementById("quickReplaceEquipment").addEventListener("change", async (e) => {
+    const unitSelect = document.getElementById("quickReplaceUnit");
+    const partSelect = document.getElementById("quickReplacePart");
+    resetQuickReplaceSelect(partSelect, "먼저 유닛을 선택하세요");
+    quickReplaceParts = [];
+    const equipmentId = e.target.value;
+    if (!equipmentId) {
+      resetQuickReplaceSelect(unitSelect, "먼저 설비를 선택하세요");
+      return;
+    }
+    const units = await fetchJson(`/api/equipments/${equipmentId}/units`);
+    if (units.length === 0) {
+      resetQuickReplaceSelect(unitSelect, "등록된 유닛이 없습니다");
+      return;
+    }
+    unitSelect.innerHTML =
+      `<option value="">선택하세요</option>` +
+      units.map((u) => `<option value="${u.id}">${escapeHtml(u.icon)} ${escapeHtml(u.name)}</option>`).join("");
+    unitSelect.disabled = false;
+    unitSelect.value = "";
+  });
+
+  document.getElementById("quickReplaceUnit").addEventListener("change", async (e) => {
+    const partSelect = document.getElementById("quickReplacePart");
+    const unitId = e.target.value;
+    if (!unitId) {
+      resetQuickReplaceSelect(partSelect, "먼저 유닛을 선택하세요");
+      quickReplaceParts = [];
+      return;
+    }
+    quickReplaceParts = await fetchJson(`/api/units/${unitId}/parts`);
+    if (quickReplaceParts.length === 0) {
+      resetQuickReplaceSelect(partSelect, "등록된 부품이 없습니다");
+      return;
+    }
+    partSelect.innerHTML =
+      `<option value="">선택하세요</option>` +
+      quickReplaceParts
+        .map((p) => `<option value="${p.id}">${escapeHtml(p.icon)} ${escapeHtml(p.name)}${p.spec ? " (" + escapeHtml(p.spec) + ")" : ""}</option>`)
+        .join("");
+    partSelect.disabled = false;
+    partSelect.value = "";
+  });
+
+  document.getElementById("quickReplaceForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const partId = document.getElementById("quickReplacePart").value;
+    if (!partId) {
+      alert("부품을 선택하세요");
+      return;
+    }
+    const replacedDate = document.getElementById("quickReplaceDate").value;
+    const part = quickReplaceParts.find((p) => String(p.id) === partId);
+    try {
+      await fetchJson(`/api/parts/${partId}/replace`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          replaced_date: replacedDate,
+          cost: (part && part.cost) || 0,
+        }),
+      });
+      quickReplaceModal.hide();
+      loadEquipments();
+      alert("교체 이력이 등록되었습니다.");
     } catch (err) {
       alert(err.message);
     }
