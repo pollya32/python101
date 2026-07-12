@@ -3950,8 +3950,8 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
             </select>
           </div>
           <div class="mb-2">
-            <label class="form-label">부품</label>
-            <select id="quickReplacePart" class="form-select" required disabled>
+            <label class="form-label">부품 <span class="text-muted small">(Ctrl/Cmd + 클릭으로 여러 개 선택 가능)</span></label>
+            <select id="quickReplacePart" class="form-select" size="6" multiple required disabled>
               <option value="">먼저 유닛을 선택하세요</option>
             </select>
           </div>
@@ -4378,36 +4378,36 @@ document.addEventListener("DOMContentLoaded", () => {
       resetQuickReplaceSelect(partSelect, "등록된 부품이 없습니다");
       return;
     }
-    partSelect.innerHTML =
-      `<option value="">선택하세요</option>` +
-      quickReplaceParts
-        .map((p) => `<option value="${p.id}">${escapeHtml(p.icon)} ${escapeHtml(p.name)}${p.spec ? " (" + escapeHtml(p.spec) + ")" : ""}</option>`)
-        .join("");
+    partSelect.innerHTML = quickReplaceParts
+      .map((p) => `<option value="${p.id}">${escapeHtml(p.icon)} ${escapeHtml(p.name)}${p.spec ? " (" + escapeHtml(p.spec) + ")" : ""}</option>`)
+      .join("");
     partSelect.disabled = false;
-    partSelect.value = "";
   });
 
   document.getElementById("quickReplaceForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const partId = document.getElementById("quickReplacePart").value;
-    if (!partId) {
+    const partSelect = document.getElementById("quickReplacePart");
+    const partIds = Array.from(partSelect.selectedOptions).map((o) => o.value).filter(Boolean);
+    if (partIds.length === 0) {
       alert("부품을 선택하세요");
       return;
     }
     const replacedDate = document.getElementById("quickReplaceDate").value;
-    const part = quickReplaceParts.find((p) => String(p.id) === partId);
     try {
-      await fetchJson(`/api/parts/${partId}/replace`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          replaced_date: replacedDate,
-          cost: (part && part.cost) || 0,
-        }),
-      });
+      for (const partId of partIds) {
+        const part = quickReplaceParts.find((p) => String(p.id) === partId);
+        await fetchJson(`/api/parts/${partId}/replace`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            replaced_date: replacedDate,
+            cost: (part && part.cost) || 0,
+          }),
+        });
+      }
       quickReplaceModal.hide();
       loadEquipments();
-      alert("교체 이력이 등록되었습니다.");
+      alert(`${partIds.length}개 부품의 교체 이력이 등록되었습니다.`);
     } catch (err) {
       alert(err.message);
     }
