@@ -277,6 +277,7 @@ def init_db():
             supplier TEXT,
             supplier_contact TEXT,
             lead_time_days INTEGER,
+            local_only INTEGER DEFAULT 0,
             deleted_at TEXT,
             created_at TEXT DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
@@ -321,6 +322,7 @@ def init_db():
                 supplier TEXT,
                 supplier_contact TEXT,
                 lead_time_days INTEGER,
+                local_only INTEGER DEFAULT 0,
                 deleted_at TEXT,
                 created_at TEXT DEFAULT (datetime('now','localtime')),
                 FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
@@ -359,6 +361,9 @@ def init_db():
     if "safety_stock" not in existing_part_cols:
         c.execute("ALTER TABLE parts ADD COLUMN safety_stock INTEGER DEFAULT 0")
         c.execute("UPDATE parts SET safety_stock = 0 WHERE safety_stock IS NULL")
+    if "local_only" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN local_only INTEGER DEFAULT 0")
+        c.execute("UPDATE parts SET local_only = 0 WHERE local_only IS NULL")
     if "deleted_at" not in existing_part_cols:
         c.execute("ALTER TABLE parts ADD COLUMN deleted_at TEXT")
     for unit_row in c.execute("SELECT DISTINCT unit_id FROM parts").fetchall():
@@ -608,16 +613,17 @@ def resolve_cycle(data, current_days=None, current_unit=None):
 def insert_part(conn, unit_id, name, spec="", cycle_days=None, cycle_unit="N/A", cost=0,
                  last_replaced_date=None, note="", memo="", drawing_data=None, icon="🔩",
                  pos_x=None, pos_y=None, width=130, height=110,
-                 stock_qty=0, safety_stock=0, supplier="", supplier_contact="", lead_time_days=None):
+                 stock_qty=0, safety_stock=0, supplier="", supplier_contact="", lead_time_days=None,
+                 local_only=0):
     if pos_x is None or pos_y is None:
         pos_x, pos_y = random.uniform(15, 85), random.uniform(20, 80)
     cur = conn.execute(
         """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, memo,
            drawing_data, icon, pos_x, pos_y, width, height, stock_qty, safety_stock, supplier, supplier_contact,
-           lead_time_days)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           lead_time_days, local_only)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, memo, drawing_data, icon,
-         pos_x, pos_y, width, height, stock_qty, safety_stock, supplier, supplier_contact, lead_time_days),
+         pos_x, pos_y, width, height, stock_qty, safety_stock, supplier, supplier_contact, lead_time_days, local_only),
     )
     part_id = cur.lastrowid
     if last_replaced_date:
@@ -632,7 +638,9 @@ def apply_unit_parts_to_other_equipment(conn, unit_id):
     """기준 설비(TEAG01호기)의 특정 유닛에 등록된 부품 구성 전체를, 동일한 이름의 유닛을 가진
     나머지 설비에 일괄 동기화한다. 이름이 같은 부품은 규격/교체주기/비고/메모/도면/재고수량/구매처/
     리드타임/아이콘/위치/크기가 TEAG01호기 기준으로 갱신되고(재고는 전 설비가 동일하게 관리됨),
-    새 부품은 추가되며, 여기 없는 이름의 부품은 삭제된다(교체 이력도 함께 삭제)."""
+    새 부품은 추가되며, 여기 없는 이름의 부품은 삭제된다(교체 이력도 함께 삭제).
+    단, 각 설비에서 직접 등록한 독립 부품(local_only=1)은 동기화 대상에서 완전히 제외되어
+    갱신/삭제되지 않는다."""
     master_unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
     master_parts = conn.execute(
         "SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL ORDER BY id", (unit_id,)
@@ -647,7 +655,10 @@ def apply_unit_parts_to_other_equipment(conn, unit_id):
     for t in target_units:
         existing = {
             p["name"]: p
-            for p in conn.execute("SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL", (t["id"],)).fetchall()
+            for p in conn.execute(
+                "SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL AND (local_only IS NULL OR local_only = 0)",
+                (t["id"],),
+            ).fetchall()
         }
         for mp in master_parts:
             if mp["name"] in existing:
@@ -668,8 +679,8 @@ def apply_unit_parts_to_other_equipment(conn, unit_id):
                 conn.execute(
                     """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, note, memo, drawing_data,
                        icon, pos_x, pos_y, width, height, stock_qty, safety_stock, supplier, supplier_contact,
-                       lead_time_days)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       lead_time_days, local_only)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
                     (
                         t["id"], mp["name"], mp["spec"], mp["cycle_days"], mp["cycle_unit"], mp["cost"],
                         mp["note"], mp["memo"], mp["drawing_data"], mp["icon"], mp["pos_x"], mp["pos_y"], mp["width"], mp["height"],
@@ -1669,12 +1680,19 @@ def add_part(unit_id):
     lead_time_days = int(lead_time_days) if lead_time_days not in (None, "") else None
 
     conn = get_db()
+    unit_row = conn.execute("SELECT equipment_id FROM units WHERE id = ?", (unit_id,)).fetchone()
+    if not unit_row:
+        conn.close()
+        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
+    # 기준 설비(TEAG01)가 아닌 곳에서 직접 등록한 부품은 "독립 부품"으로 표시해, 기준 설비
+    # 기준의 재고/금액/구매처 동기화 및 "전체 설비에 적용" 시 삭제 대상에서 제외되도록 한다.
+    local_only = 1 if unit_row["equipment_id"] != MASTER_EQUIPMENT_ID else 0
     part_id = insert_part(
         conn, unit_id, name, spec=spec, cycle_days=cycle_days, cycle_unit=cycle_unit, cost=cost,
         last_replaced_date=last_replaced_date, note=note, memo=memo, drawing_data=drawing_data, icon=icon,
         pos_x=data.get("pos_x"), pos_y=data.get("pos_y"), width=width, height=height,
         stock_qty=stock_qty, safety_stock=safety_stock, supplier=supplier, supplier_contact=supplier_contact,
-        lead_time_days=lead_time_days,
+        lead_time_days=lead_time_days, local_only=local_only,
     )
     log_activity(conn, "create", "part", part_id, name)
     conn.commit()
@@ -1891,7 +1909,6 @@ def update_part(part_id):
     name = (data.get("name") or part["name"]).strip()
     spec = data.get("spec", part["spec"])
     cycle_days, cycle_unit = resolve_cycle(data, part["cycle_days"], part["cycle_unit"])
-    cost = data.get("cost", part["cost"])
     note = data.get("note", part["note"])
     memo = sanitize_rich_html(data.get("memo", part["memo"]))
     drawing_data = data.get("drawing_data", part["drawing_data"])
@@ -1903,12 +1920,25 @@ def update_part(part_id):
     pos_y = data.get("pos_y", part["pos_y"])
     width = data.get("width", part["width"])
     height = data.get("height", part["height"])
-    stock_qty = int(data.get("stock_qty", part["stock_qty"]) or 0)
-    safety_stock = int(data.get("safety_stock", part["safety_stock"]) or 0)
-    supplier = data.get("supplier", part["supplier"])
     supplier_contact = data.get("supplier_contact", part["supplier_contact"])
     lead_time_days = data.get("lead_time_days", part["lead_time_days"])
     lead_time_days = int(lead_time_days) if lead_time_days not in (None, "") else None
+
+    # 기준 설비(TEAG01)에서 동기화된 부품(local_only=0)은 재고수량/안전재고/금액/구매처가
+    # 기준 설비 값을 그대로 따라야 하므로, 기준 설비가 아닌 곳에서는 이 값들의 변경 요청을
+    # 무시한다. 각 설비에서 직접 등록한 독립 부품(local_only=1)은 그대로 자유롭게 수정 가능.
+    unit_row = conn.execute("SELECT equipment_id FROM units WHERE id = ?", (part["unit_id"],)).fetchone()
+    locked = bool(unit_row) and unit_row["equipment_id"] != MASTER_EQUIPMENT_ID and not part["local_only"]
+    if locked:
+        cost = part["cost"]
+        stock_qty = int(part["stock_qty"] or 0)
+        safety_stock = int(part["safety_stock"] or 0)
+        supplier = part["supplier"]
+    else:
+        cost = data.get("cost", part["cost"])
+        stock_qty = int(data.get("stock_qty", part["stock_qty"]) or 0)
+        safety_stock = int(data.get("safety_stock", part["safety_stock"]) or 0)
+        supplier = data.get("supplier", part["supplier"])
     meaningful_change = (
         name != part["name"] or spec != part["spec"] or cycle_days != part["cycle_days"]
         or cycle_unit != part["cycle_unit"] or cost != part["cost"] or note != part["note"]

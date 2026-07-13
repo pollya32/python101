@@ -555,14 +555,22 @@ function copyPart(part) {
     cost: part.cost,
     note: part.note,
     memo: part.memo,
+    drawing_data: part.drawing_data,
     icon: part.icon,
     width: part.width,
     height: part.height,
+    stock_qty: part.stock_qty,
+    safety_stock: part.safety_stock,
     supplier: part.supplier,
     supplier_contact: part.supplier_contact,
     lead_time_days: part.lead_time_days,
   };
-  localStorage.setItem(PART_CLIPBOARD_KEY, JSON.stringify(clipboard));
+  try {
+    localStorage.setItem(PART_CLIPBOARD_KEY, JSON.stringify(clipboard));
+  } catch (err) {
+    alert("부품 복사에 실패했습니다. 도면 등 데이터 용량이 너무 큽니다.");
+    return;
+  }
   updatePartPasteButton();
   alert(`"${part.name}" 부품을 복사했습니다.\n"붙여넣기" 버튼으로 동일한 부품을 만들 수 있습니다.`);
 }
@@ -601,9 +609,12 @@ async function pastePart() {
       cost: clipboard.cost,
       note: clipboard.note,
       memo: clipboard.memo,
+      drawing_data: clipboard.drawing_data,
       icon: clipboard.icon,
       width: clipboard.width,
       height: clipboard.height,
+      stock_qty: clipboard.stock_qty,
+      safety_stock: clipboard.safety_stock,
       supplier: clipboard.supplier,
       supplier_contact: clipboard.supplier_contact,
       lead_time_days: clipboard.lead_time_days,
@@ -802,6 +813,16 @@ function openPartEditModal(part) {
   document.getElementById("partEditLastDateWrap").classList.toggle("d-none", !!part);
   renderIconPicker("partIconPicker", "partEditIcon", icon);
   setDrawingPreview(part ? part.drawing_data || null : null);
+
+  // 기준 설비(TEAG01)에서 동기화된 부품은 비-기준 설비에서 재고/금액/구매처를 고쳐도
+  // 반영되지 않고 다음 "전체 설비에 적용" 시 덮어써지므로, 아예 수정 불가로 막는다.
+  // 각 설비에서 직접 등록한 독립 부품(local_only)은 자유롭게 수정 가능.
+  const locked = !!part && currentEquipmentId !== MASTER_EQUIPMENT_ID && !part.local_only;
+  ["partEditStockQty", "partEditSafetyStock", "partEditCost", "partEditSupplier"].forEach((id) => {
+    document.getElementById(id).disabled = locked;
+  });
+  document.getElementById("partLockedHint").classList.toggle("d-none", !locked);
+
   partEditModal.show();
 }
 
