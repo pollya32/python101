@@ -6352,11 +6352,28 @@ async function copyUnit(unit) {
       cycle_days: p.cycle_days,
       cycle_unit: p.cycle_unit,
       cost: p.cost,
+      last_replaced_date: p.last_replaced_date,
       note: p.note,
+      memo: p.memo,
+      drawing_data: p.drawing_data,
       icon: p.icon,
+      pos_x: p.pos_x,
+      pos_y: p.pos_y,
+      width: p.width,
+      height: p.height,
+      stock_qty: p.stock_qty,
+      safety_stock: p.safety_stock,
+      supplier: p.supplier,
+      supplier_contact: p.supplier_contact,
+      lead_time_days: p.lead_time_days,
     })),
   };
-  localStorage.setItem(UNIT_CLIPBOARD_KEY, JSON.stringify(clipboard));
+  try {
+    localStorage.setItem(UNIT_CLIPBOARD_KEY, JSON.stringify(clipboard));
+  } catch (err) {
+    alert("유닛 복사에 실패했습니다. 도면 등 데이터 용량이 너무 큽니다.");
+    return;
+  }
   updatePasteButton();
   alert(`"${unit.name}" 유닛을 복사했습니다. (부품 ${parts.length}개 포함)\n"붙여넣기" 버튼으로 동일한 유닛을 만들 수 있습니다.`);
 }
