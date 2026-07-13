@@ -511,6 +511,46 @@ def init_db():
             created_at TEXT DEFAULT (datetime('now','localtime'))
         )
     """)
+    # 기준 설비(TEAG01호기)의 유닛+부품 구성 전체를 스냅샷으로 저장해두는 백업 테이블.
+    # "모든 설비에 적용"은 이 스냅샷을 기준으로 동작해, 관리자가 BACKUP 버튼으로 확정한
+    # 구성만 배포되고 아직 백업하지 않은 실시간 편집 내용은 반영되지 않는다.
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS master_backup_units (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            icon TEXT,
+            color TEXT,
+            pos_x REAL,
+            pos_y REAL,
+            width REAL,
+            height REAL,
+            drawing_data TEXT
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS master_backup_parts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            unit_name TEXT NOT NULL,
+            name TEXT NOT NULL,
+            spec TEXT,
+            cycle_days INTEGER,
+            cycle_unit TEXT,
+            cost REAL,
+            note TEXT,
+            memo TEXT,
+            drawing_data TEXT,
+            icon TEXT,
+            pos_x REAL,
+            pos_y REAL,
+            width REAL,
+            height REAL,
+            stock_qty INTEGER,
+            safety_stock INTEGER,
+            supplier TEXT,
+            supplier_contact TEXT,
+            lead_time_days INTEGER
+        )
+    """)
     template_count = c.execute("SELECT COUNT(*) AS n FROM unit_templates").fetchone()["n"]
     if template_count == 0:
         for name, icon, color, pos_x, pos_y in DEFAULT_UNITS:
@@ -634,18 +674,111 @@ def insert_part(conn, unit_id, name, spec="", cycle_days=None, cycle_unit="N/A",
     return part_id
 
 
-def apply_unit_parts_to_other_equipment(conn, unit_id):
-    """기준 설비(TEAG01호기)의 특정 유닛에 등록된 부품 구성 전체를, 동일한 이름의 유닛을 가진
-    나머지 설비에 일괄 동기화한다. 이름이 같은 부품은 규격/교체주기/비고/메모/도면/재고수량/구매처/
-    리드타임/아이콘/위치/크기가 TEAG01호기 기준으로 갱신되고(재고는 전 설비가 동일하게 관리됨),
-    새 부품은 추가되며, 여기 없는 이름의 부품은 삭제된다(교체 이력도 함께 삭제).
-    단, 각 설비에서 직접 등록한 독립 부품(local_only=1)은 동기화 대상에서 완전히 제외되어
-    갱신/삭제되지 않는다."""
-    master_unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
-    master_parts = conn.execute(
-        "SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL ORDER BY id", (unit_id,)
+def get_master_backup_meta(conn):
+    backed_up_at = get_config(conn, "master_backup_at")
+    unit_count = conn.execute("SELECT COUNT(*) AS n FROM master_backup_units").fetchone()["n"]
+    part_count = conn.execute("SELECT COUNT(*) AS n FROM master_backup_parts").fetchone()["n"]
+    return {"backed_up_at": backed_up_at, "unit_count": unit_count, "part_count": part_count}
+
+
+def create_master_backup(conn):
+    """기준 설비(TEAG01호기)의 현재 유닛+부품 구성 전체를 스냅샷으로 저장한다(기존 백업은 덮어씀).
+    "모든 설비에 적용"/"전체 설비에 적용"은 이후 이 스냅샷을 기준으로 동작하므로, 백업 시점 이후의
+    TEAG01호기 실시간 변경 내용은 다시 BACKUP을 누르기 전까지 적용에 반영되지 않는다."""
+    units = conn.execute(
+        "SELECT * FROM units WHERE equipment_id = ? AND deleted_at IS NULL ORDER BY id", (MASTER_EQUIPMENT_ID,)
     ).fetchall()
-    master_names = {p["name"] for p in master_parts}
+    conn.execute("DELETE FROM master_backup_units")
+    conn.execute("DELETE FROM master_backup_parts")
+    part_count = 0
+    for u in units:
+        conn.execute(
+            "INSERT INTO master_backup_units (name, icon, color, pos_x, pos_y, width, height, drawing_data) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (u["name"], u["icon"], u["color"], u["pos_x"], u["pos_y"], u["width"], u["height"], u["drawing_data"]),
+        )
+        parts = conn.execute(
+            "SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL ORDER BY id", (u["id"],)
+        ).fetchall()
+        for p in parts:
+            conn.execute(
+                """INSERT INTO master_backup_parts (unit_name, name, spec, cycle_days, cycle_unit, cost, note, memo,
+                   drawing_data, icon, pos_x, pos_y, width, height, stock_qty, safety_stock, supplier,
+                   supplier_contact, lead_time_days)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (u["name"], p["name"], p["spec"], p["cycle_days"], p["cycle_unit"], p["cost"], p["note"], p["memo"],
+                 p["drawing_data"], p["icon"], p["pos_x"], p["pos_y"], p["width"], p["height"], p["stock_qty"],
+                 p["safety_stock"], p["supplier"], p["supplier_contact"], p["lead_time_days"]),
+            )
+            part_count += 1
+    set_config(conn, "master_backup_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    log_activity(conn, "backup", "master", None, "TEAG01호기", f"기준 설비 구성 백업 (유닛 {len(units)}개, 부품 {part_count}개)")
+    return len(units), part_count
+
+
+def sync_parts_from_backup_to_unit(conn, unit_name, target_unit_id):
+    """master_backup_parts에 저장된 unit_name의 부품 구성을 target_unit_id 유닛에 동기화한다.
+    이름이 같은 부품은 백업 시점 값으로 갱신되고, 새 부품은 추가되며, 백업에 없는 이름의 부품은
+    삭제된다(교체 이력도 함께 삭제). 단, 각 설비에서 직접 등록한 독립 부품(local_only=1)은
+    동기화 대상에서 완전히 제외되어 갱신/삭제되지 않는다."""
+    backup_parts = conn.execute(
+        "SELECT * FROM master_backup_parts WHERE unit_name = ? ORDER BY id", (unit_name,)
+    ).fetchall()
+    backup_names = {p["name"] for p in backup_parts}
+    existing = {
+        p["name"]: p
+        for p in conn.execute(
+            "SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL AND (local_only IS NULL OR local_only = 0)",
+            (target_unit_id,),
+        ).fetchall()
+    }
+    for bp in backup_parts:
+        if bp["name"] in existing:
+            ep = existing[bp["name"]]
+            conn.execute(
+                """UPDATE parts SET spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, memo = ?,
+                   drawing_data = ?, icon = ?, pos_x = ?, pos_y = ?, width = ?, height = ?,
+                   stock_qty = ?, safety_stock = ?, supplier = ?, supplier_contact = ?, lead_time_days = ?
+                   WHERE id = ?""",
+                (
+                    bp["spec"], bp["cycle_days"], bp["cycle_unit"], bp["cost"], bp["note"], bp["memo"],
+                    bp["drawing_data"], bp["icon"], bp["pos_x"], bp["pos_y"], bp["width"], bp["height"],
+                    bp["stock_qty"], bp["safety_stock"], bp["supplier"], bp["supplier_contact"],
+                    bp["lead_time_days"], ep["id"],
+                ),
+            )
+        else:
+            conn.execute(
+                """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, note, memo, drawing_data,
+                   icon, pos_x, pos_y, width, height, stock_qty, safety_stock, supplier, supplier_contact,
+                   lead_time_days, local_only)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
+                (
+                    target_unit_id, bp["name"], bp["spec"], bp["cycle_days"], bp["cycle_unit"], bp["cost"],
+                    bp["note"], bp["memo"], bp["drawing_data"], bp["icon"], bp["pos_x"], bp["pos_y"], bp["width"],
+                    bp["height"], bp["stock_qty"], bp["safety_stock"], bp["supplier"], bp["supplier_contact"],
+                    bp["lead_time_days"],
+                ),
+            )
+    for name, ep in existing.items():
+        if name not in backup_names:
+            conn.execute("DELETE FROM parts WHERE id = ?", (ep["id"],))
+    return len(backup_parts)
+
+
+def apply_unit_parts_to_other_equipment(conn, unit_id):
+    """기준 설비(TEAG01호기)의 특정 유닛에 대해 마지막으로 BACKUP한 부품 구성을, 동일한 이름의
+    유닛을 가진 나머지 설비에 일괄 동기화한다. 호출 전 해당 유닛 이름의 백업이 존재하는지 먼저
+    확인해야 한다(없으면 None을 반환)."""
+    master_unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
+    backup_exists = conn.execute(
+        "SELECT 1 FROM master_backup_units WHERE name = ?", (master_unit["name"],)
+    ).fetchone()
+    if not backup_exists:
+        return None
+    backup_part_count = conn.execute(
+        "SELECT COUNT(*) AS n FROM master_backup_parts WHERE unit_name = ?", (master_unit["name"],)
+    ).fetchone()["n"]
 
     target_units = conn.execute(
         "SELECT id FROM units WHERE name = ? AND equipment_id != ? AND deleted_at IS NULL",
@@ -653,45 +786,9 @@ def apply_unit_parts_to_other_equipment(conn, unit_id):
     ).fetchall()
 
     for t in target_units:
-        existing = {
-            p["name"]: p
-            for p in conn.execute(
-                "SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL AND (local_only IS NULL OR local_only = 0)",
-                (t["id"],),
-            ).fetchall()
-        }
-        for mp in master_parts:
-            if mp["name"] in existing:
-                ep = existing[mp["name"]]
-                conn.execute(
-                    """UPDATE parts SET spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, memo = ?,
-                       drawing_data = ?, icon = ?, pos_x = ?, pos_y = ?, width = ?, height = ?,
-                       stock_qty = ?, safety_stock = ?, supplier = ?, supplier_contact = ?, lead_time_days = ?
-                       WHERE id = ?""",
-                    (
-                        mp["spec"], mp["cycle_days"], mp["cycle_unit"], mp["cost"], mp["note"], mp["memo"],
-                        mp["drawing_data"], mp["icon"], mp["pos_x"], mp["pos_y"], mp["width"], mp["height"],
-                        mp["stock_qty"], mp["safety_stock"], mp["supplier"], mp["supplier_contact"],
-                        mp["lead_time_days"], ep["id"],
-                    ),
-                )
-            else:
-                conn.execute(
-                    """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, note, memo, drawing_data,
-                       icon, pos_x, pos_y, width, height, stock_qty, safety_stock, supplier, supplier_contact,
-                       lead_time_days, local_only)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
-                    (
-                        t["id"], mp["name"], mp["spec"], mp["cycle_days"], mp["cycle_unit"], mp["cost"],
-                        mp["note"], mp["memo"], mp["drawing_data"], mp["icon"], mp["pos_x"], mp["pos_y"], mp["width"], mp["height"],
-                        mp["stock_qty"], mp["safety_stock"], mp["supplier"], mp["supplier_contact"], mp["lead_time_days"],
-                    ),
-                )
-        for name, ep in existing.items():
-            if name not in master_names:
-                conn.execute("DELETE FROM parts WHERE id = ?", (ep["id"],))
+        sync_parts_from_backup_to_unit(conn, master_unit["name"], t["id"])
 
-    return len(target_units), len(master_parts)
+    return len(target_units), backup_part_count
 
 
 def units_with_status_bulk(conn, units):
@@ -1711,7 +1808,11 @@ def apply_unit_parts(unit_id):
     if unit["equipment_id"] != MASTER_EQUIPMENT_ID:
         conn.close()
         return jsonify({"error": "기준 설비(TEAG01호기)의 유닛에서만 사용할 수 있습니다"}), 400
-    equipment_count, part_count = apply_unit_parts_to_other_equipment(conn, unit_id)
+    result = apply_unit_parts_to_other_equipment(conn, unit_id)
+    if result is None:
+        conn.close()
+        return jsonify({"error": "백업된 구성이 없습니다. 먼저 기본 유닛 구성 페이지에서 BACKUP을 진행해주세요."}), 400
+    equipment_count, part_count = result
     conn.commit()
     conn.close()
     return jsonify({"ok": True, "equipment_count": equipment_count, "part_count": part_count})
@@ -2159,11 +2260,17 @@ def delete_unit_template(template_id):
 
 @app.route("/api/unit-templates/apply", methods=["POST"])
 def apply_unit_templates():
+    """마지막으로 BACKUP한 기준 설비(TEAG01호기)의 유닛+부품 구성 스냅샷을 20개 설비 전체에
+    일괄 반영한다(아래 "기본 유닛 구성" 캔버스의 템플릿이 아니라, BACKUP 스냅샷을 기준으로 동작한다)."""
     conn = get_db()
-    templates = conn.execute("SELECT * FROM unit_templates ORDER BY id").fetchall()
+    backup_units = conn.execute("SELECT * FROM master_backup_units ORDER BY id").fetchall()
+    if not backup_units:
+        conn.close()
+        return jsonify({"error": "백업된 구성이 없습니다. 먼저 BACKUP 버튼으로 기준 설비 구성을 백업해주세요."}), 400
     equipments = conn.execute("SELECT id FROM equipments WHERE deleted_at IS NULL").fetchall()
-    template_names = {t["name"] for t in templates}
+    backup_names = {u["name"] for u in backup_units}
 
+    total_parts = 0
     for eq in equipments:
         existing = {
             u["name"]: u
@@ -2171,25 +2278,52 @@ def apply_unit_templates():
                 "SELECT * FROM units WHERE equipment_id = ? AND deleted_at IS NULL", (eq["id"],)
             ).fetchall()
         }
-        for t in templates:
-            if t["name"] in existing:
-                u = existing[t["name"]]
+        for bu in backup_units:
+            if bu["name"] in existing:
+                u = existing[bu["name"]]
+                target_unit_id = u["id"]
                 conn.execute(
-                    "UPDATE units SET icon = ?, color = ?, pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?",
-                    (t["icon"], t["color"], t["pos_x"], t["pos_y"], t["width"], t["height"], u["id"]),
+                    "UPDATE units SET icon = ?, color = ?, pos_x = ?, pos_y = ?, width = ?, height = ?, "
+                    "drawing_data = ? WHERE id = ?",
+                    (bu["icon"], bu["color"], bu["pos_x"], bu["pos_y"], bu["width"], bu["height"],
+                     bu["drawing_data"], target_unit_id),
                 )
             else:
-                conn.execute(
-                    "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (eq["id"], t["name"], t["icon"], t["color"], t["pos_x"], t["pos_y"], t["width"], t["height"]),
+                cur = conn.execute(
+                    "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y, width, height, drawing_data) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (eq["id"], bu["name"], bu["icon"], bu["color"], bu["pos_x"], bu["pos_y"], bu["width"],
+                     bu["height"], bu["drawing_data"]),
                 )
+                target_unit_id = cur.lastrowid
+            total_parts += sync_parts_from_backup_to_unit(conn, bu["name"], target_unit_id)
         for name, u in existing.items():
-            if name not in template_names:
+            if name not in backup_names:
                 conn.execute("DELETE FROM units WHERE id = ?", (u["id"],))
 
     conn.commit()
     conn.close()
-    return jsonify({"ok": True, "equipment_count": len(equipments), "unit_count": len(templates)})
+    return jsonify({
+        "ok": True, "equipment_count": len(equipments), "unit_count": len(backup_units), "part_count": total_parts,
+    })
+
+
+@app.route("/api/master-backup")
+def get_master_backup():
+    conn = get_db()
+    meta = get_master_backup_meta(conn)
+    conn.close()
+    return jsonify(meta)
+
+
+@app.route("/api/master-backup", methods=["POST"])
+def make_master_backup():
+    conn = get_db()
+    create_master_backup(conn)
+    conn.commit()
+    meta = get_master_backup_meta(conn)
+    conn.close()
+    return jsonify(meta)
 
 
 @app.route("/api/alerts")

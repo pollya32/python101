@@ -19,6 +19,10 @@
   </div>
   <div class="d-flex align-items-center gap-2">
     <span id="clock" class="clock"></span>
+    <span id="masterBackupStatus" class="small text-muted"></span>
+    <button id="backupMasterBtn" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-shield-check"></i> BACKUP
+    </button>
     <button id="applyBtn" class="btn btn-sm btn-warning">
       <i class="bi bi-cloud-arrow-up"></i> 모든 설비에 적용
     </button>
@@ -28,8 +32,10 @@
 <main class="container-fluid py-4">
 
   <p class="text-muted small mb-3">
-    여기서 구성한 유닛(이름·아이콘·색상·위치·크기)은 <strong>모든 설비에 공통으로 적용</strong>되는 기본 템플릿입니다.
-    유닛을 자유롭게 추가/편집/삭제/드래그 배치한 뒤 "모든 설비에 적용" 버튼을 눌러야 실제 설비 페이지에 반영됩니다.
+    <strong>BACKUP</strong> 버튼을 누르면 기준 설비(TEAG01호기)의 현재 유닛 구성과 그 안의 부품 정보
+    전체(규격·주기·금액·재고·도면 등)가 스냅샷으로 저장됩니다. <strong>"모든 설비에 적용"</strong>은
+    아래 캔버스의 템플릿이 아니라 <strong>마지막으로 BACKUP한 스냅샷</strong>을 20개 설비 전체에 그대로
+    반영합니다(각 설비에서 직접 등록한 독립 부품은 영향받지 않습니다).
   </p>
 
   <div id="templateFrame" class="equipment-frame">

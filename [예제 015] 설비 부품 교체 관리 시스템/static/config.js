@@ -309,6 +309,16 @@ function openUnitEditModal(template) {
   unitEditModal.show();
 }
 
+async function loadMasterBackupStatus() {
+  const meta = await fetchJson("/api/master-backup");
+  const el = document.getElementById("masterBackupStatus");
+  if (meta.backed_up_at) {
+    el.textContent = `마지막 백업: ${meta.backed_up_at} (유닛 ${meta.unit_count}개, 부품 ${meta.part_count}개)`;
+  } else {
+    el.textContent = "백업된 구성이 없습니다";
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   unitEditModal = new bootstrap.Modal(document.getElementById("unitEditModal"));
 
@@ -316,21 +326,39 @@ document.addEventListener("DOMContentLoaded", () => {
   setInterval(tick, 1000);
   loadTemplates();
   updatePasteButton();
+  loadMasterBackupStatus();
 
   document.getElementById("addUnitBtn").addEventListener("click", () => openUnitEditModal(null));
   document.getElementById("pasteUnitBtn").addEventListener("click", pasteUnit);
 
+  document.getElementById("backupMasterBtn").addEventListener("click", async () => {
+    const ok = confirm(
+      "기준 설비(TEAG01호기)의 현재 유닛 구성과 그 안의 모든 부품 정보를 백업합니다.\n" +
+      "기존에 백업된 내용이 있다면 덮어씁니다.\n\n" +
+      "계속하시겠습니까?"
+    );
+    if (!ok) return;
+    try {
+      const meta = await fetchJson("/api/master-backup", { method: "POST" });
+      await loadMasterBackupStatus();
+      alert(`백업이 완료되었습니다. (유닛 ${meta.unit_count}개, 부품 ${meta.part_count}개)`);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
   document.getElementById("applyBtn").addEventListener("click", async () => {
     const ok = confirm(
-      "현재 기본 유닛 구성을 20개 설비 전체에 적용합니다.\n" +
-      "- 이름이 같은 유닛은 위치/아이콘/색상이 이 구성대로 갱신됩니다.\n" +
-      "- 여기 없는 이름의 유닛은 각 설비에서 삭제되며, 등록된 부품/이력도 함께 삭제됩니다.\n\n" +
+      "마지막으로 BACKUP한 기준 설비(TEAG01호기) 구성을 20개 설비 전체에 적용합니다.\n" +
+      "- 이름이 같은 유닛/부품은 백업된 값으로 갱신됩니다.\n" +
+      "- 백업에 없는 이름의 유닛/부품은 각 설비에서 삭제되며, 등록된 이력도 함께 삭제됩니다.\n" +
+      "- 각 설비에서 직접 등록한 독립 부품은 영향받지 않습니다.\n\n" +
       "계속하시겠습니까?"
     );
     if (!ok) return;
     try {
       const result = await fetchJson("/api/unit-templates/apply", { method: "POST" });
-      alert(`설비 ${result.equipment_count}대에 유닛 구성(${result.unit_count}개)을 적용했습니다.`);
+      alert(`설비 ${result.equipment_count}대에 유닛 구성(${result.unit_count}개)/부품(${result.part_count}개)을 적용했습니다.`);
     } catch (err) {
       alert(err.message);
     }
