@@ -1109,25 +1109,43 @@ def _mail_section_replace_needed(conn):
 
 
 def _mail_section_low_stock(conn):
+    """규격이 같으면(부품명/소속 유닛이 달라도) 한 행으로 묶어서 보여준다. 유닛별로 재고/안전재고
+    수치가 다를 수 있으므로 합산하지 않고 평균값으로 표시한다."""
     td = MAIL_REPORT_TD_STYLE
     low_stock = [p for p in get_inventory_rows(conn) if (p["stock_qty"] or 0) <= (p["safety_stock"] or 0)]
-    rows = ""
+    groups = {}
+    order = []
     for p in low_stock:
+        key = p["spec"] or ""
+        if key not in groups:
+            groups[key] = {"spec": key, "items": [], "stock_total": 0, "safety_total": 0, "count": 0}
+            order.append(key)
+        g = groups[key]
+        g["items"].append(f"{p['name']} ({p['unit_name']})")
+        g["stock_total"] += p["stock_qty"] or 0
+        g["safety_total"] += p["safety_stock"] or 0
+        g["count"] += 1
+
+    rows = ""
+    for key in order:
+        g = groups[key]
+        avg_stock = round(g["stock_total"] / g["count"], 1)
+        avg_safety = round(g["safety_total"] / g["count"], 1)
+        items_html = "<br>".join(html_lib.escape(i) for i in g["items"])
         rows += (
-            f"<tr><td style='{td}'>{html_lib.escape(p['name'])}</td>"
-            f"<td style='{td}'>{html_lib.escape(p['spec'] or '')}</td>"
-            f"<td style='{td}'>{html_lib.escape(p['unit_name'])}</td>"
-            f"<td style='{td};text-align:center;color:#c0392b;font-weight:bold'>{p['stock_qty'] or 0}</td>"
-            f"<td style='{td};text-align:center'>{p['safety_stock'] or 0}</td></tr>"
+            f"<tr><td style='{td}'>{html_lib.escape(g['spec'])}</td>"
+            f"<td style='{td}'>{items_html}</td>"
+            f"<td style='{td};text-align:center;color:#c0392b;font-weight:bold'>{avg_stock}</td>"
+            f"<td style='{td};text-align:center'>{avg_safety}</td></tr>"
         )
     if not rows:
-        rows = f"<tr><td colspan='5' style='{td}'>안전재고 이하로 떨어진 부품이 없습니다.</td></tr>"
+        rows = f"<tr><td colspan='4' style='{td}'>안전재고 이하로 떨어진 부품이 없습니다.</td></tr>"
     return (
         f"<h3>재고 (안전재고 이하)</h3>"
         f"<table style='border-collapse:collapse;font-size:14px;margin-bottom:20px'>"
         f"<tr style='background:#f3f4f6'>"
-        f"<th style='{td}'>부품명</th><th style='{td}'>규격</th><th style='{td}'>소속 유닛</th>"
-        f"<th style='{td}'>재고</th><th style='{td}'>안전재고</th></tr>"
+        f"<th style='{td}'>규격</th><th style='{td}'>부품명 (소속 유닛)</th>"
+        f"<th style='{td}'>현재 재고 (평균)</th><th style='{td}'>안전재고 기준 (평균)</th></tr>"
         f"{rows}</table>"
     )
 
