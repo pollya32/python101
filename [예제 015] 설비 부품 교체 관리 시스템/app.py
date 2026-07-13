@@ -3,6 +3,7 @@ import sqlite3
 import os
 import csv
 import io
+import json
 import random
 import re
 import secrets
@@ -975,14 +976,137 @@ def rollout_progress_from_html(data_html):
     return done, pending
 
 
-def build_mail_report_html():
-    """메일 본문 HTML을 만든다.
-    1번째: 사이트 접속 URL
-    2번째: 횡전개 현황 (항목별 완료/미진행/전체/진행률)
-    3번째: 이벤트 알림 - 부품별로 설정한 안전재고 이하로 떨어진 리스트, 전날(발송 기준) 교체 기록 리스트"""
-    conn = get_db()
+MAIL_REPORT_SECTION_KEYS = ["site_url", "rollout", "replace_needed", "low_stock", "history"]
+MAIL_REPORT_SECTION_LABELS = {
+    "site_url": "사이트 접속 주소",
+    "rollout": "횡전개 현황",
+    "replace_needed": "교체 필요 리스트 (교체 임박·필요)",
+    "low_stock": "재고 (안전재고 이하)",
+    "history": "부품 교체 기록 (전날)",
+}
+MAIL_REPORT_TD_STYLE = "border:1px solid #ccc;padding:6px 12px"
+
+
+def get_mail_report_sections(conn):
+    """메일 리포트에 포함할 섹션과 순서 설정을 반환한다. 저장된 값이 없거나(최초 사용) 새로
+    추가된 섹션이 저장값에 빠져 있으면, 그 섹션은 목록 뒤에 활성 상태로 보완해 반환한다."""
+    raw = get_config(conn, "mail_report_sections")
+    try:
+        saved = json.loads(raw) if raw else []
+    except ValueError:
+        saved = []
+    sections = [
+        {"key": s["key"], "enabled": bool(s.get("enabled", True))}
+        for s in saved
+        if isinstance(s, dict) and s.get("key") in MAIL_REPORT_SECTION_KEYS
+    ]
+    seen = {s["key"] for s in sections}
+    for key in MAIL_REPORT_SECTION_KEYS:
+        if key not in seen:
+            sections.append({"key": key, "enabled": True})
+    return sections
+
+
+def set_mail_report_sections(conn, sections):
+    cleaned = []
+    seen = set()
+    for s in sections or []:
+        key = s.get("key") if isinstance(s, dict) else None
+        if key in MAIL_REPORT_SECTION_KEYS and key not in seen:
+            cleaned.append({"key": key, "enabled": bool(s.get("enabled", True))})
+            seen.add(key)
+    for key in MAIL_REPORT_SECTION_KEYS:
+        if key not in seen:
+            cleaned.append({"key": key, "enabled": True})
+    set_config(conn, "mail_report_sections", json.dumps(cleaned, ensure_ascii=False))
+    return cleaned
+
+
+def _mail_section_site_url(conn):
+    site_url = f"http://{get_lan_ip()}:5000"
+    return f"<p style='font-size:14px'>사이트 접속: <a href='{site_url}'>{site_url}</a></p>"
+
+
+def _mail_section_rollout(conn):
+    td = MAIL_REPORT_TD_STYLE
     items = conn.execute("SELECT * FROM rollout_items ORDER BY id").fetchall()
+    rows = ""
+    for it in items:
+        done, pending = rollout_progress_from_html(it["data_html"])
+        total = done + pending
+        pct = round(done / total * 100) if total else 0
+        rows += (
+            f"<tr><td style='{td}'>{html_lib.escape(it['title'])}</td>"
+            f"<td style='{td};text-align:center'>{done}</td>"
+            f"<td style='{td};text-align:center'>{pending}</td>"
+            f"<td style='{td};text-align:center'>{total}</td>"
+            f"<td style='{td};text-align:center;font-weight:bold'>{pct}%</td></tr>"
+        )
+    if not rows:
+        rows = f"<tr><td colspan='5' style='{td}'>등록된 횡전개 항목이 없습니다.</td></tr>"
+    return (
+        f"<h3>횡전개 현황</h3>"
+        f"<table style='border-collapse:collapse;font-size:14px;margin-bottom:20px'>"
+        f"<tr style='background:#f3f4f6'>"
+        f"<th style='{td}'>횡전개 항목</th><th style='{td}'>완료</th>"
+        f"<th style='{td}'>미진행</th><th style='{td}'>전체</th><th style='{td}'>진행률</th></tr>"
+        f"{rows}</table>"
+    )
+
+
+def _mail_section_replace_needed(conn):
+    td = MAIL_REPORT_TD_STYLE
+    alert_parts = get_alert_parts()
+    rows = ""
+    for p in alert_parts:
+        days_text = f"{abs(p['days_left'])}일 초과" if p["status"] == "overdue" else f"{p['days_left']}일 남음"
+        color = "#c0392b" if p["status"] == "overdue" else "#d97706"
+        rows += (
+            f"<tr><td style='{td}'>{html_lib.escape(p['equipment_name'])}</td>"
+            f"<td style='{td}'>{html_lib.escape(p['unit_name'])}</td>"
+            f"<td style='{td}'>{html_lib.escape(p['name'])}</td>"
+            f"<td style='{td}'>{html_lib.escape(p.get('spec') or '')}</td>"
+            f"<td style='{td};text-align:center;color:{color};font-weight:bold'>{html_lib.escape(p['label'])}</td>"
+            f"<td style='{td};text-align:center'>{days_text}</td></tr>"
+        )
+    if not rows:
+        rows = f"<tr><td colspan='6' style='{td}'>교체 임박/필요 부품이 없습니다.</td></tr>"
+    return (
+        f"<h3>교체 필요 리스트</h3>"
+        f"<table style='border-collapse:collapse;font-size:14px;margin-bottom:20px'>"
+        f"<tr style='background:#f3f4f6'>"
+        f"<th style='{td}'>설비</th><th style='{td}'>유닛</th><th style='{td}'>부품</th>"
+        f"<th style='{td}'>규격</th><th style='{td}'>상태</th><th style='{td}'>잔여</th></tr>"
+        f"{rows}</table>"
+    )
+
+
+def _mail_section_low_stock(conn):
+    td = MAIL_REPORT_TD_STYLE
     low_stock = [p for p in get_inventory_rows(conn) if (p["stock_qty"] or 0) <= (p["safety_stock"] or 0)]
+    rows = ""
+    for p in low_stock:
+        rows += (
+            f"<tr><td style='{td}'>{html_lib.escape(p['name'])}</td>"
+            f"<td style='{td}'>{html_lib.escape(p['spec'] or '')}</td>"
+            f"<td style='{td}'>{html_lib.escape(p['unit_name'])}</td>"
+            f"<td style='{td};text-align:center;color:#c0392b;font-weight:bold'>{p['stock_qty'] or 0}</td>"
+            f"<td style='{td};text-align:center'>{p['safety_stock'] or 0}</td></tr>"
+        )
+    if not rows:
+        rows = f"<tr><td colspan='5' style='{td}'>안전재고 이하로 떨어진 부품이 없습니다.</td></tr>"
+    return (
+        f"<h3>재고 (안전재고 이하)</h3>"
+        f"<table style='border-collapse:collapse;font-size:14px;margin-bottom:20px'>"
+        f"<tr style='background:#f3f4f6'>"
+        f"<th style='{td}'>부품명</th><th style='{td}'>규격</th><th style='{td}'>소속 유닛</th>"
+        f"<th style='{td}'>재고</th><th style='{td}'>안전재고</th></tr>"
+        f"{rows}</table>"
+    )
+
+
+def _mail_section_history(conn):
+    td = MAIL_REPORT_TD_STYLE
     yesterday = (date.today() - timedelta(days=1)).isoformat()
     yesterday_history = conn.execute("""
         SELECT h.cost, p.name AS part_name, p.spec,
@@ -994,72 +1118,48 @@ def build_mail_report_html():
         WHERE h.replaced_date = ?
         ORDER BY e.id, u.id, p.id
     """, (yesterday,)).fetchall()
-    conn.close()
-
-    td = "border:1px solid #ccc;padding:6px 12px"
-    site_url = f"http://{get_lan_ip()}:5000"
-
-    rollout_rows = ""
-    for it in items:
-        done, pending = rollout_progress_from_html(it["data_html"])
-        total = done + pending
-        pct = round(done / total * 100) if total else 0
-        rollout_rows += (
-            f"<tr><td style='{td}'>{html_lib.escape(it['title'])}</td>"
-            f"<td style='{td};text-align:center'>{done}</td>"
-            f"<td style='{td};text-align:center'>{pending}</td>"
-            f"<td style='{td};text-align:center'>{total}</td>"
-            f"<td style='{td};text-align:center;font-weight:bold'>{pct}%</td></tr>"
-        )
-    if not rollout_rows:
-        rollout_rows = f"<tr><td colspan='5' style='{td}'>등록된 횡전개 항목이 없습니다.</td></tr>"
-
-    low_stock_rows = ""
-    for p in low_stock:
-        low_stock_rows += (
-            f"<tr><td style='{td}'>{html_lib.escape(p['name'])}</td>"
-            f"<td style='{td}'>{html_lib.escape(p['spec'] or '')}</td>"
-            f"<td style='{td}'>{html_lib.escape(p['unit_name'])}</td>"
-            f"<td style='{td};text-align:center;color:#c0392b;font-weight:bold'>{p['stock_qty'] or 0}</td>"
-            f"<td style='{td};text-align:center'>{p['safety_stock'] or 0}</td></tr>"
-        )
-    if not low_stock_rows:
-        low_stock_rows = f"<tr><td colspan='5' style='{td}'>안전재고 이하로 떨어진 부품이 없습니다.</td></tr>"
-
-    history_rows = ""
+    rows = ""
     for h in yesterday_history:
-        history_rows += (
+        rows += (
             f"<tr><td style='{td}'>{html_lib.escape(h['equipment_name'])}</td>"
             f"<td style='{td}'>{html_lib.escape(h['unit_name'])}</td>"
             f"<td style='{td}'>{html_lib.escape(h['part_name'])}</td>"
             f"<td style='{td}'>{html_lib.escape(h['spec'] or '')}</td>"
             f"<td style='{td};text-align:right'>{h['cost'] or 0:,.0f}원</td></tr>"
         )
-    if not history_rows:
-        history_rows = f"<tr><td colspan='5' style='{td}'>{yesterday} 교체 기록이 없습니다.</td></tr>"
-
+    if not rows:
+        rows = f"<tr><td colspan='5' style='{td}'>{yesterday} 교체 기록이 없습니다.</td></tr>"
     return (
-        f"<p style='font-size:14px'>사이트 접속: <a href='{site_url}'>{site_url}</a></p>"
-        f"<h3>횡전개 현황</h3>"
+        f"<h3>부품 교체 기록 ({yesterday})</h3>"
         f"<table style='border-collapse:collapse;font-size:14px;margin-bottom:20px'>"
-        f"<tr style='background:#f3f4f6'>"
-        f"<th style='{td}'>횡전개 항목</th><th style='{td}'>완료</th>"
-        f"<th style='{td}'>미진행</th><th style='{td}'>전체</th><th style='{td}'>진행률</th></tr>"
-        f"{rollout_rows}</table>"
-        f"<h3>이벤트 알림</h3>"
-        f"<p style='font-size:14px;margin-bottom:4px'><b>안전재고 이하 발생</b></p>"
-        f"<table style='border-collapse:collapse;font-size:14px;margin-bottom:16px'>"
-        f"<tr style='background:#f3f4f6'>"
-        f"<th style='{td}'>부품명</th><th style='{td}'>규격</th><th style='{td}'>소속 유닛</th>"
-        f"<th style='{td}'>재고</th><th style='{td}'>안전재고</th></tr>"
-        f"{low_stock_rows}</table>"
-        f"<p style='font-size:14px;margin-bottom:4px'><b>전날({yesterday}) 교체 기록</b></p>"
-        f"<table style='border-collapse:collapse;font-size:14px'>"
         f"<tr style='background:#f3f4f6'>"
         f"<th style='{td}'>설비</th><th style='{td}'>유닛</th><th style='{td}'>부품</th>"
         f"<th style='{td}'>규격</th><th style='{td}'>금액</th></tr>"
-        f"{history_rows}</table>"
+        f"{rows}</table>"
     )
+
+
+MAIL_REPORT_BUILDERS = {
+    "site_url": _mail_section_site_url,
+    "rollout": _mail_section_rollout,
+    "replace_needed": _mail_section_replace_needed,
+    "low_stock": _mail_section_low_stock,
+    "history": _mail_section_history,
+}
+
+
+def build_mail_report_html():
+    """메일 본문 HTML을 만든다. 포함할 섹션과 순서는 메일 설정에서 사용자가 지정한 대로 따른다
+    (기본값: 사이트 접속 주소 → 횡전개 현황 → 교체 필요 리스트 → 재고 → 부품 교체 기록, 전체 포함)."""
+    conn = get_db()
+    sections = get_mail_report_sections(conn)
+    html_parts = [
+        MAIL_REPORT_BUILDERS[s["key"]](conn)
+        for s in sections
+        if s.get("enabled") and s["key"] in MAIL_REPORT_BUILDERS
+    ]
+    conn.close()
+    return "".join(html_parts)
 
 
 def send_status_mail():
@@ -1426,6 +1526,18 @@ def api_mail_schedule():
     t = get_config(conn, "mail_schedule_time") or ""
     conn.close()
     return jsonify({"time": t})
+
+
+@app.route("/api/mail/report-sections", methods=["GET", "PUT"])
+def api_mail_report_sections():
+    conn = get_db()
+    if request.method == "PUT":
+        sections = set_mail_report_sections(conn, (request.get_json() or {}).get("sections"))
+        conn.commit()
+    else:
+        sections = get_mail_report_sections(conn)
+    conn.close()
+    return jsonify({"sections": sections, "labels": MAIL_REPORT_SECTION_LABELS})
 
 
 @app.route("/rollout")

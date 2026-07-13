@@ -455,10 +455,73 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("mailScheduleTime").value = data.time || "";
   }
 
+  let mailReportSections = [];
+  let mailReportLabels = {};
+
+  function renderMailReportSections() {
+    const ul = document.getElementById("mailReportSectionList");
+    ul.innerHTML = mailReportSections
+      .map(
+        (s, i) => `
+      <li class="list-group-item d-flex align-items-center gap-2" data-idx="${i}">
+        <div class="form-check mb-0 flex-grow-1">
+          <input class="form-check-input mail-section-check" type="checkbox" id="mailSection${i}" ${s.enabled ? "checked" : ""}>
+          <label class="form-check-label" for="mailSection${i}">${escapeHtml(mailReportLabels[s.key] || s.key)}</label>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary mail-section-up" title="위로" ${i === 0 ? "disabled" : ""}>
+          <i class="bi bi-arrow-up"></i>
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary mail-section-down" title="아래로" ${i === mailReportSections.length - 1 ? "disabled" : ""}>
+          <i class="bi bi-arrow-down"></i>
+        </button>
+      </li>`
+      )
+      .join("");
+
+    ul.querySelectorAll(".mail-section-check").forEach((cb, i) => {
+      cb.addEventListener("change", () => {
+        mailReportSections[i].enabled = cb.checked;
+        saveMailReportSections();
+      });
+    });
+    ul.querySelectorAll(".mail-section-up").forEach((btn, i) => {
+      btn.addEventListener("click", () => {
+        if (i === 0) return;
+        [mailReportSections[i - 1], mailReportSections[i]] = [mailReportSections[i], mailReportSections[i - 1]];
+        renderMailReportSections();
+        saveMailReportSections();
+      });
+    });
+    ul.querySelectorAll(".mail-section-down").forEach((btn, i) => {
+      btn.addEventListener("click", () => {
+        if (i === mailReportSections.length - 1) return;
+        [mailReportSections[i + 1], mailReportSections[i]] = [mailReportSections[i], mailReportSections[i + 1]];
+        renderMailReportSections();
+        saveMailReportSections();
+      });
+    });
+  }
+
+  async function saveMailReportSections() {
+    await fetchJson("/api/mail/report-sections", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sections: mailReportSections.map(({ key, enabled }) => ({ key, enabled })) }),
+    });
+  }
+
+  async function loadMailReportSections() {
+    const data = await fetchJson("/api/mail/report-sections");
+    mailReportSections = data.sections;
+    mailReportLabels = data.labels;
+    renderMailReportSections();
+  }
+
   document.getElementById("mailBtn").addEventListener("click", () => {
     statusMsg.textContent = "";
     loadRecipients();
     loadSchedule();
+    loadMailReportSections();
     mailModal.show();
   });
 
