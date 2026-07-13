@@ -546,7 +546,7 @@ function partShapeHtml(p) {
 
 const PART_CLIPBOARD_KEY = "partClipboard";
 
-function copyPart(part) {
+async function copyPart(part) {
   const clipboard = {
     name: part.name,
     spec: part.spec,
@@ -566,34 +566,32 @@ function copyPart(part) {
     lead_time_days: part.lead_time_days,
   };
   try {
-    localStorage.setItem(PART_CLIPBOARD_KEY, JSON.stringify(clipboard));
+    await idbClipboardSet(PART_CLIPBOARD_KEY, clipboard);
   } catch (err) {
-    alert("부품 복사에 실패했습니다. 도면 등 데이터 용량이 너무 큽니다.");
+    alert("부품 복사에 실패했습니다: " + err.message);
     return;
   }
-  updatePartPasteButton();
+  await updatePartPasteButton();
   alert(`"${part.name}" 부품을 복사했습니다.\n"붙여넣기" 버튼으로 동일한 부품을 만들 수 있습니다.`);
 }
 
-function getPartClipboard() {
-  const raw = localStorage.getItem(PART_CLIPBOARD_KEY);
-  if (!raw) return null;
+async function getPartClipboard() {
   try {
-    return JSON.parse(raw);
+    return await idbClipboardGet(PART_CLIPBOARD_KEY);
   } catch {
     return null;
   }
 }
 
-function updatePartPasteButton() {
-  const clipboard = getPartClipboard();
+async function updatePartPasteButton() {
+  const clipboard = await getPartClipboard();
   const btn = document.getElementById("pastePartBtn");
   btn.classList.toggle("d-none", !editMode || !clipboard);
   if (clipboard) btn.title = `"${clipboard.name}" 붙여넣기`;
 }
 
 async function pastePart() {
-  const clipboard = getPartClipboard();
+  const clipboard = await getPartClipboard();
   if (!clipboard) {
     alert("복사된 부품이 없습니다. 먼저 부품의 복사 아이콘을 눌러주세요.");
     return;

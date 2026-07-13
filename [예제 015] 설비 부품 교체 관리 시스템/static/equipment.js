@@ -573,34 +573,32 @@ async function copyUnit(unit) {
     })),
   };
   try {
-    localStorage.setItem(UNIT_CLIPBOARD_KEY, JSON.stringify(clipboard));
+    await idbClipboardSet(UNIT_CLIPBOARD_KEY, clipboard);
   } catch (err) {
-    alert("유닛 복사에 실패했습니다. 도면 등 데이터 용량이 너무 큽니다.");
+    alert("유닛 복사에 실패했습니다: " + err.message);
     return;
   }
-  updatePasteButton();
+  await updatePasteButton();
   alert(`"${unit.name}" 유닛을 복사했습니다. (부품 ${parts.length}개 포함)\n"붙여넣기" 버튼으로 동일한 유닛을 만들 수 있습니다.`);
 }
 
-function getUnitClipboard() {
-  const raw = localStorage.getItem(UNIT_CLIPBOARD_KEY);
-  if (!raw) return null;
+async function getUnitClipboard() {
   try {
-    return JSON.parse(raw);
+    return await idbClipboardGet(UNIT_CLIPBOARD_KEY);
   } catch {
     return null;
   }
 }
 
-function updatePasteButton() {
-  const clipboard = getUnitClipboard();
+async function updatePasteButton() {
+  const clipboard = await getUnitClipboard();
   const btn = document.getElementById("pasteUnitBtn");
   btn.classList.toggle("d-none", !editMode || !clipboard);
   if (clipboard) btn.title = `"${clipboard.name}" 붙여넣기 (부품 ${clipboard.parts.length}개 포함)`;
 }
 
 async function pasteUnit() {
-  const clipboard = getUnitClipboard();
+  const clipboard = await getUnitClipboard();
   if (!clipboard) {
     alert("복사된 유닛이 없습니다. 먼저 유닛의 복사 아이콘을 눌러주세요.");
     return;

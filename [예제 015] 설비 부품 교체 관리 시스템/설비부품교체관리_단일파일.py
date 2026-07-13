@@ -6154,6 +6154,52 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
 <script>const EQUIPMENT_ID = __EQUIPMENT_ID__;</script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+// 유닛/부품 복사-붙여넣기 클립보드 저장소 (IndexedDB 기반).
+// localStorage(브라우저당 5~10MB)와 달리 용량 제한이 훨씬 커서, 도면 이미지가 포함된
+// 유닛/부품을 여러 개 복사해도 용량 초과로 실패하지 않는다.
+const IDB_CLIPBOARD_DB = "equipmentAppClipboard";
+const IDB_CLIPBOARD_STORE = "clipboard";
+
+function idbClipboardOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_CLIPBOARD_DB, 1);
+    req.onupgradeneeded = () => {
+      req.result.createObjectStore(IDB_CLIPBOARD_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbClipboardSet(key, value) {
+  const db = await idbClipboardOpen();
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_CLIPBOARD_STORE, "readwrite");
+      tx.objectStore(IDB_CLIPBOARD_STORE).put(value, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function idbClipboardGet(key) {
+  const db = await idbClipboardOpen();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_CLIPBOARD_STORE, "readonly");
+      const req = tx.objectStore(IDB_CLIPBOARD_STORE).get(key);
+      req.onsuccess = () => resolve(req.result ?? null);
+      req.onerror = () => reject(req.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+</script>
+<script>
 let editMode = false;
 let unitEditModal, equipmentInfoModal, unitDrawingModal;
 let currentEquipmentData = null;
@@ -6729,34 +6775,32 @@ async function copyUnit(unit) {
     })),
   };
   try {
-    localStorage.setItem(UNIT_CLIPBOARD_KEY, JSON.stringify(clipboard));
+    await idbClipboardSet(UNIT_CLIPBOARD_KEY, clipboard);
   } catch (err) {
-    alert("유닛 복사에 실패했습니다. 도면 등 데이터 용량이 너무 큽니다.");
+    alert("유닛 복사에 실패했습니다: " + err.message);
     return;
   }
-  updatePasteButton();
+  await updatePasteButton();
   alert(`"${unit.name}" 유닛을 복사했습니다. (부품 ${parts.length}개 포함)\n"붙여넣기" 버튼으로 동일한 유닛을 만들 수 있습니다.`);
 }
 
-function getUnitClipboard() {
-  const raw = localStorage.getItem(UNIT_CLIPBOARD_KEY);
-  if (!raw) return null;
+async function getUnitClipboard() {
   try {
-    return JSON.parse(raw);
+    return await idbClipboardGet(UNIT_CLIPBOARD_KEY);
   } catch {
     return null;
   }
 }
 
-function updatePasteButton() {
-  const clipboard = getUnitClipboard();
+async function updatePasteButton() {
+  const clipboard = await getUnitClipboard();
   const btn = document.getElementById("pasteUnitBtn");
   btn.classList.toggle("d-none", !editMode || !clipboard);
   if (clipboard) btn.title = `"${clipboard.name}" 붙여넣기 (부품 ${clipboard.parts.length}개 포함)`;
 }
 
 async function pasteUnit() {
-  const clipboard = getUnitClipboard();
+  const clipboard = await getUnitClipboard();
   if (!clipboard) {
     alert("복사된 유닛이 없습니다. 먼저 유닛의 복사 아이콘을 눌러주세요.");
     return;
@@ -8366,6 +8410,52 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
 <script>const UNIT_ID = __UNIT_ID__;</script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+// 유닛/부품 복사-붙여넣기 클립보드 저장소 (IndexedDB 기반).
+// localStorage(브라우저당 5~10MB)와 달리 용량 제한이 훨씬 커서, 도면 이미지가 포함된
+// 유닛/부품을 여러 개 복사해도 용량 초과로 실패하지 않는다.
+const IDB_CLIPBOARD_DB = "equipmentAppClipboard";
+const IDB_CLIPBOARD_STORE = "clipboard";
+
+function idbClipboardOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_CLIPBOARD_DB, 1);
+    req.onupgradeneeded = () => {
+      req.result.createObjectStore(IDB_CLIPBOARD_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbClipboardSet(key, value) {
+  const db = await idbClipboardOpen();
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_CLIPBOARD_STORE, "readwrite");
+      tx.objectStore(IDB_CLIPBOARD_STORE).put(value, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function idbClipboardGet(key) {
+  const db = await idbClipboardOpen();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_CLIPBOARD_STORE, "readonly");
+      const req = tx.objectStore(IDB_CLIPBOARD_STORE).get(key);
+      req.onsuccess = () => resolve(req.result ?? null);
+      req.onerror = () => reject(req.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+</script>
+<script>
 let editMode = false;
 let currentPartId = null;
 let partDetailModal, replaceModal, historyModal, partEditModal, drawingModal;
@@ -8914,7 +9004,7 @@ function partShapeHtml(p) {
 
 const PART_CLIPBOARD_KEY = "partClipboard";
 
-function copyPart(part) {
+async function copyPart(part) {
   const clipboard = {
     name: part.name,
     spec: part.spec,
@@ -8934,34 +9024,32 @@ function copyPart(part) {
     lead_time_days: part.lead_time_days,
   };
   try {
-    localStorage.setItem(PART_CLIPBOARD_KEY, JSON.stringify(clipboard));
+    await idbClipboardSet(PART_CLIPBOARD_KEY, clipboard);
   } catch (err) {
-    alert("부품 복사에 실패했습니다. 도면 등 데이터 용량이 너무 큽니다.");
+    alert("부품 복사에 실패했습니다: " + err.message);
     return;
   }
-  updatePartPasteButton();
+  await updatePartPasteButton();
   alert(`"${part.name}" 부품을 복사했습니다.\n"붙여넣기" 버튼으로 동일한 부품을 만들 수 있습니다.`);
 }
 
-function getPartClipboard() {
-  const raw = localStorage.getItem(PART_CLIPBOARD_KEY);
-  if (!raw) return null;
+async function getPartClipboard() {
   try {
-    return JSON.parse(raw);
+    return await idbClipboardGet(PART_CLIPBOARD_KEY);
   } catch {
     return null;
   }
 }
 
-function updatePartPasteButton() {
-  const clipboard = getPartClipboard();
+async function updatePartPasteButton() {
+  const clipboard = await getPartClipboard();
   const btn = document.getElementById("pastePartBtn");
   btn.classList.toggle("d-none", !editMode || !clipboard);
   if (clipboard) btn.title = `"${clipboard.name}" 붙여넣기`;
 }
 
 async function pastePart() {
-  const clipboard = getPartClipboard();
+  const clipboard = await getPartClipboard();
   if (!clipboard) {
     alert("복사된 부품이 없습니다. 먼저 부품의 복사 아이콘을 눌러주세요.");
     return;
