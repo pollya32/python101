@@ -530,7 +530,7 @@ function partShapeHtml(p) {
       <span class="unit-status-dot dot-${p.status}"></span>
       <div class="unit-icon-wrap">
         <span class="unit-icon">${p.icon}</span>
-        ${p.drawing_data ? `<button type="button" class="unit-drawing-btn" title="도면 보기"><i class="bi bi-image"></i></button>` : ""}
+        ${p.has_drawing ? `<button type="button" class="unit-drawing-btn" title="도면 보기"><i class="bi bi-image"></i></button>` : ""}
       </div>
       <div class="unit-name">${escapeHtml(p.name)}</div>
       <div class="unit-part-count">${p.label || statusLabel[p.status]}</div>
@@ -547,6 +547,12 @@ function partShapeHtml(p) {
 const PART_CLIPBOARD_KEY = "partClipboard";
 
 async function copyPart(part) {
+  // 목록 조회에는 도면 원본이 빠져있으므로(용량 절약), 복사할 때만 그 부품의 도면을 따로 가져온다.
+  let drawingData = null;
+  if (part.has_drawing) {
+    const res = await fetchJson(`/api/parts/${part.id}/drawing`);
+    drawingData = res.drawing_data;
+  }
   const clipboard = {
     name: part.name,
     spec: part.spec,
@@ -555,7 +561,7 @@ async function copyPart(part) {
     cost: part.cost,
     note: part.note,
     memo: part.memo,
-    drawing_data: part.drawing_data,
+    drawing_data: drawingData,
     icon: part.icon,
     width: part.width,
     height: part.height,
@@ -721,7 +727,7 @@ function openPartDetailModal(partId) {
   renderPartMemoView(p.memo);
   document.getElementById("partDetailMemoEdit").innerHTML = p.memo || "";
   setPartMemoEditing(false);
-  document.getElementById("partDetailDrawingBtn").classList.toggle("d-none", !p.drawing_data);
+  document.getElementById("partDetailDrawingBtn").classList.toggle("d-none", !p.has_drawing);
   partDetailModal.show();
 }
 
@@ -745,11 +751,12 @@ function setPartMemoEditing(editing) {
   if (editing) document.getElementById("partDetailMemoEdit").focus();
 }
 
-function openDrawingModal() {
+async function openDrawingModal() {
   const p = currentParts.find((x) => x.id === currentPartId);
-  if (!p || !p.drawing_data) return;
+  if (!p || !p.has_drawing) return;
+  const res = await fetchJson(`/api/parts/${p.id}/drawing`);
   document.getElementById("drawingModalTitle").textContent = `도면 - ${p.name}`;
-  document.getElementById("drawingModalImg").src = p.drawing_data;
+  document.getElementById("drawingModalImg").src = res.drawing_data;
   drawingModal.show();
 }
 
@@ -788,7 +795,7 @@ async function openHistoryModal() {
   historyModal.show();
 }
 
-function openPartEditModal(part) {
+async function openPartEditModal(part) {
   document.getElementById("partEditTitle").textContent = part ? "부품 편집" : "부품 추가";
   document.getElementById("partEditId").value = part ? part.id : "";
   document.getElementById("partEditName").value = part ? part.name : "";
@@ -810,7 +817,15 @@ function openPartEditModal(part) {
   document.getElementById("partEditLastDate").value = "";
   document.getElementById("partEditLastDateWrap").classList.toggle("d-none", !!part);
   renderIconPicker("partIconPicker", "partEditIcon", icon);
-  setDrawingPreview(part ? part.drawing_data || null : null);
+  // 목록 조회에는 도면 원본이 빠져있으므로(용량 절약), 편집창을 열 때만 그 부품의 도면을 따로 가져온다.
+  // (여기서 기존 도면을 currentPartDrawingData에 채워 넣지 않으면, 도면을 건드리지 않고 저장할 때
+  //  기존 도면이 빈 값으로 덮어써진다.)
+  let drawingData = null;
+  if (part && part.has_drawing) {
+    const res = await fetchJson(`/api/parts/${part.id}/drawing`);
+    drawingData = res.drawing_data;
+  }
+  setDrawingPreview(drawingData);
 
   // 기준 설비(TEAG01)에서 동기화된 부품은 비-기준 설비에서 재고/금액/구매처를 고쳐도
   // 반영되지 않고 다음 "전체 설비에 적용" 시 덮어써지므로, 아예 수정 불가로 막는다.

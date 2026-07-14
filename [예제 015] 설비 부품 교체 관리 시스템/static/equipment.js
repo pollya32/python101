@@ -488,7 +488,7 @@ function unitCardHtml(u) {
         <span class="unit-icon">${u.icon}</span>
         ${u.soon_count > 0 ? `<span class="soon-badge" title="교체 임박 부품 ${u.soon_count}건">${u.soon_count}</span>` : ""}
         ${u.overdue_count > 0 ? `<span class="overdue-badge" title="교체 필요 부품 ${u.overdue_count}건">${u.overdue_count}</span>` : ""}
-        ${u.drawing_data ? `<button type="button" class="unit-drawing-btn" title="도면 보기"><i class="bi bi-image"></i></button>` : ""}
+        ${u.has_drawing ? `<button type="button" class="unit-drawing-btn" title="도면 보기"><i class="bi bi-image"></i></button>` : ""}
       </div>
       <div class="unit-name">${escapeHtml(u.name)}</div>
       <div class="unit-part-count">${u.part_count}개 부품 등록</div>
@@ -543,7 +543,8 @@ function setNotesEditing(editing) {
 const UNIT_CLIPBOARD_KEY = "unitClipboard";
 
 async function copyUnit(unit) {
-  const parts = await fetchJson(`/api/units/${unit.id}/parts`);
+  // 도면 원본까지 포함해서 복사해야 하므로 include_drawings=1로 명시 요청한다.
+  const parts = await fetchJson(`/api/units/${unit.id}/parts?include_drawings=1`);
   const clipboard = {
     name: unit.name,
     icon: unit.icon,
@@ -624,7 +625,7 @@ async function pasteUnit() {
   loadUnits();
 }
 
-function openUnitEditModal(unit) {
+async function openUnitEditModal(unit) {
   document.getElementById("unitEditTitle").textContent = unit ? "유닛 편집" : "유닛 추가";
   document.getElementById("unitEditId").value = unit ? unit.id : "";
   document.getElementById("unitEditName").value = unit ? unit.name : "";
@@ -632,7 +633,13 @@ function openUnitEditModal(unit) {
   document.getElementById("unitEditIcon").value = icon;
   document.getElementById("unitEditColor").value = unit ? unit.color : "#1a3a5c";
   renderIconPicker("unitIconPicker", "unitEditIcon", icon);
-  setUnitDrawingPreview(unit ? unit.drawing_data || null : null);
+  // 목록 조회에는 도면 원본이 빠져있으므로(용량 절약), 편집창을 열 때만 그 유닛의 도면을 따로 가져온다.
+  let drawingData = null;
+  if (unit && unit.has_drawing) {
+    const res = await fetchJson(`/api/units/${unit.id}/drawing`);
+    drawingData = res.drawing_data;
+  }
+  setUnitDrawingPreview(drawingData);
   unitEditModal.show();
 }
 
@@ -678,10 +685,11 @@ function handleUnitDrawingPaste(e) {
   }
 }
 
-function openUnitDrawingModal(unit) {
-  if (!unit || !unit.drawing_data) return;
+async function openUnitDrawingModal(unit) {
+  if (!unit || !unit.has_drawing) return;
+  const res = await fetchJson(`/api/units/${unit.id}/drawing`);
   document.getElementById("unitDrawingModalTitle").textContent = `도면 - ${unit.name}`;
-  document.getElementById("unitDrawingModalImg").src = unit.drawing_data;
+  document.getElementById("unitDrawingModalImg").src = res.drawing_data;
   unitDrawingModal.show();
 }
 

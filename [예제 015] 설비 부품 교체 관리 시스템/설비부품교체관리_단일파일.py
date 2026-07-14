@@ -657,9 +657,14 @@ def part_status(cycle_days, last_replaced_date):
     }
 
 
-def serialize_part(row):
+def serialize_part(row, include_drawing=False):
+    """목록 응답에는 도면 원본(최대 8MB) 대신 has_drawing 여부만 포함한다.
+    실제 도면은 사용자가 도면 보기/편집을 열 때 /api/parts/<id>/drawing로 그때 가져온다."""
     info = part_status(row["cycle_days"], row["last_replaced_date"])
     d = dict(row)
+    d["has_drawing"] = bool(d.get("drawing_data"))
+    if not include_drawing:
+        d.pop("drawing_data", None)
     d.update(info)
     return d
 
@@ -851,6 +856,8 @@ def units_with_status_bulk(conn, units):
         else:
             overall = "empty"
         d = dict(u)
+        # 유닛 목록 응답에도 도면 원본 대신 has_drawing 여부만 포함한다 (지연 로딩).
+        d["has_drawing"] = bool(d.pop("drawing_data", None))
         d["part_count"] = len(parts)
         d["overall_status"] = overall
         d["overdue_count"] = statuses.count("overdue")
@@ -1835,6 +1842,7 @@ def add_unit(equipment_id):
     conn.commit()
     conn.close()
     d = dict(unit)
+    d["has_drawing"] = bool(d.pop("drawing_data", None))
     d["part_count"] = 0
     d["overall_status"] = "empty"
     return jsonify(d), 201
@@ -1909,7 +1917,29 @@ def list_parts(unit_id):
         "SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL ORDER BY id", (unit_id,)
     ).fetchall()
     conn.close()
-    return jsonify([serialize_part(r) for r in rows])
+    # 유닛 복사(전체 부품 도면 포함) 등 도면 원본이 실제로 필요한 경우에만 include_drawings=1로 요청한다.
+    include_drawing = request.args.get("include_drawings") == "1"
+    return jsonify([serialize_part(r, include_drawing=include_drawing) for r in rows])
+
+
+@app.route("/api/parts/<int:part_id>/drawing")
+def get_part_drawing(part_id):
+    conn = get_db()
+    row = conn.execute("SELECT drawing_data FROM parts WHERE id = ?", (part_id,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({"error": "부품을 찾을 수 없습니다"}), 404
+    return jsonify({"drawing_data": row["drawing_data"]})
+
+
+@app.route("/api/units/<int:unit_id>/drawing")
+def get_unit_drawing(unit_id):
+    conn = get_db()
+    row = conn.execute("SELECT drawing_data FROM units WHERE id = ?", (unit_id,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
+    return jsonify({"drawing_data": row["drawing_data"]})
 
 
 @app.route("/api/units/<int:unit_id>/parts", methods=["POST"])
@@ -6694,7 +6724,7 @@ function unitCardHtml(u) {
         <span class="unit-icon">${u.icon}</span>
         ${u.soon_count > 0 ? `<span class="soon-badge" title="교체 임박 부품 ${u.soon_count}건">${u.soon_count}</span>` : ""}
         ${u.overdue_count > 0 ? `<span class="overdue-badge" title="교체 필요 부품 ${u.overdue_count}건">${u.overdue_count}</span>` : ""}
-        ${u.drawing_data ? `<button type="button" class="unit-drawing-btn" title="도면 보기"><i class="bi bi-image"></i></button>` : ""}
+        ${u.has_drawing ? `<button type="button" class="unit-drawing-btn" title="도면 보기"><i class="bi bi-image"></i></button>` : ""}
       </div>
       <div class="unit-name">${escapeHtml(u.name)}</div>
       <div class="unit-part-count">${u.part_count}개 부품 등록</div>
@@ -6749,7 +6779,8 @@ function setNotesEditing(editing) {
 const UNIT_CLIPBOARD_KEY = "unitClipboard";
 
 async function copyUnit(unit) {
-  const parts = await fetchJson(`/api/units/${unit.id}/parts`);
+  // 도면 원본까지 포함해서 복사해야 하므로 include_drawings=1로 명시 요청한다.
+  const parts = await fetchJson(`/api/units/${unit.id}/parts?include_drawings=1`);
   const clipboard = {
     name: unit.name,
     icon: unit.icon,
@@ -6830,7 +6861,7 @@ async function pasteUnit() {
   loadUnits();
 }
 
-function openUnitEditModal(unit) {
+async function openUnitEditModal(unit) {
   document.getElementById("unitEditTitle").textContent = unit ? "유닛 편집" : "유닛 추가";
   document.getElementById("unitEditId").value = unit ? unit.id : "";
   document.getElementById("unitEditName").value = unit ? unit.name : "";
@@ -6838,7 +6869,13 @@ function openUnitEditModal(unit) {
   document.getElementById("unitEditIcon").value = icon;
   document.getElementById("unitEditColor").value = unit ? unit.color : "#1a3a5c";
   renderIconPicker("unitIconPicker", "unitEditIcon", icon);
-  setUnitDrawingPreview(unit ? unit.drawing_data || null : null);
+  // 목록 조회에는 도면 원본이 빠져있으므로(용량 절약), 편집창을 열 때만 그 유닛의 도면을 따로 가져온다.
+  let drawingData = null;
+  if (unit && unit.has_drawing) {
+    const res = await fetchJson(`/api/units/${unit.id}/drawing`);
+    drawingData = res.drawing_data;
+  }
+  setUnitDrawingPreview(drawingData);
   unitEditModal.show();
 }
 
@@ -6884,10 +6921,11 @@ function handleUnitDrawingPaste(e) {
   }
 }
 
-function openUnitDrawingModal(unit) {
-  if (!unit || !unit.drawing_data) return;
+async function openUnitDrawingModal(unit) {
+  if (!unit || !unit.has_drawing) return;
+  const res = await fetchJson(`/api/units/${unit.id}/drawing`);
   document.getElementById("unitDrawingModalTitle").textContent = `도면 - ${unit.name}`;
-  document.getElementById("unitDrawingModalImg").src = unit.drawing_data;
+  document.getElementById("unitDrawingModalImg").src = res.drawing_data;
   unitDrawingModal.show();
 }
 
@@ -8992,7 +9030,7 @@ function partShapeHtml(p) {
       <span class="unit-status-dot dot-${p.status}"></span>
       <div class="unit-icon-wrap">
         <span class="unit-icon">${p.icon}</span>
-        ${p.drawing_data ? `<button type="button" class="unit-drawing-btn" title="도면 보기"><i class="bi bi-image"></i></button>` : ""}
+        ${p.has_drawing ? `<button type="button" class="unit-drawing-btn" title="도면 보기"><i class="bi bi-image"></i></button>` : ""}
       </div>
       <div class="unit-name">${escapeHtml(p.name)}</div>
       <div class="unit-part-count">${p.label || statusLabel[p.status]}</div>
@@ -9009,6 +9047,12 @@ function partShapeHtml(p) {
 const PART_CLIPBOARD_KEY = "partClipboard";
 
 async function copyPart(part) {
+  // 목록 조회에는 도면 원본이 빠져있으므로(용량 절약), 복사할 때만 그 부품의 도면을 따로 가져온다.
+  let drawingData = null;
+  if (part.has_drawing) {
+    const res = await fetchJson(`/api/parts/${part.id}/drawing`);
+    drawingData = res.drawing_data;
+  }
   const clipboard = {
     name: part.name,
     spec: part.spec,
@@ -9017,7 +9061,7 @@ async function copyPart(part) {
     cost: part.cost,
     note: part.note,
     memo: part.memo,
-    drawing_data: part.drawing_data,
+    drawing_data: drawingData,
     icon: part.icon,
     width: part.width,
     height: part.height,
@@ -9183,7 +9227,7 @@ function openPartDetailModal(partId) {
   renderPartMemoView(p.memo);
   document.getElementById("partDetailMemoEdit").innerHTML = p.memo || "";
   setPartMemoEditing(false);
-  document.getElementById("partDetailDrawingBtn").classList.toggle("d-none", !p.drawing_data);
+  document.getElementById("partDetailDrawingBtn").classList.toggle("d-none", !p.has_drawing);
   partDetailModal.show();
 }
 
@@ -9207,11 +9251,12 @@ function setPartMemoEditing(editing) {
   if (editing) document.getElementById("partDetailMemoEdit").focus();
 }
 
-function openDrawingModal() {
+async function openDrawingModal() {
   const p = currentParts.find((x) => x.id === currentPartId);
-  if (!p || !p.drawing_data) return;
+  if (!p || !p.has_drawing) return;
+  const res = await fetchJson(`/api/parts/${p.id}/drawing`);
   document.getElementById("drawingModalTitle").textContent = `도면 - ${p.name}`;
-  document.getElementById("drawingModalImg").src = p.drawing_data;
+  document.getElementById("drawingModalImg").src = res.drawing_data;
   drawingModal.show();
 }
 
@@ -9250,7 +9295,7 @@ async function openHistoryModal() {
   historyModal.show();
 }
 
-function openPartEditModal(part) {
+async function openPartEditModal(part) {
   document.getElementById("partEditTitle").textContent = part ? "부품 편집" : "부품 추가";
   document.getElementById("partEditId").value = part ? part.id : "";
   document.getElementById("partEditName").value = part ? part.name : "";
@@ -9272,7 +9317,15 @@ function openPartEditModal(part) {
   document.getElementById("partEditLastDate").value = "";
   document.getElementById("partEditLastDateWrap").classList.toggle("d-none", !!part);
   renderIconPicker("partIconPicker", "partEditIcon", icon);
-  setDrawingPreview(part ? part.drawing_data || null : null);
+  // 목록 조회에는 도면 원본이 빠져있으므로(용량 절약), 편집창을 열 때만 그 부품의 도면을 따로 가져온다.
+  // (여기서 기존 도면을 currentPartDrawingData에 채워 넣지 않으면, 도면을 건드리지 않고 저장할 때
+  //  기존 도면이 빈 값으로 덮어써진다.)
+  let drawingData = null;
+  if (part && part.has_drawing) {
+    const res = await fetchJson(`/api/parts/${part.id}/drawing`);
+    drawingData = res.drawing_data;
+  }
+  setDrawingPreview(drawingData);
 
   // 기준 설비(TEAG01)에서 동기화된 부품은 비-기준 설비에서 재고/금액/구매처를 고쳐도
   // 반영되지 않고 다음 "전체 설비에 적용" 시 덮어써지므로, 아예 수정 불가로 막는다.
