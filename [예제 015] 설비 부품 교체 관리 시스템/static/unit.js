@@ -851,6 +851,9 @@ document.addEventListener("DOMContentLoaded", () => {
   loadUnitHeader();
   loadParts();
   loadNotes();
+  fetchJson("/api/master-equipment-name").then((res) => {
+    document.getElementById("masterEquipmentName").textContent = res.name;
+  });
   attachRichPasteHandler(document.getElementById("partEditMemo"));
   attachTableEditToolbar(document.getElementById("partEditMemo"));
   document.getElementById("partEditCycleUnit").addEventListener("change", updateCycleInputState);

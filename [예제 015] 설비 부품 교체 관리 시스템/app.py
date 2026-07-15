@@ -681,6 +681,11 @@ def insert_part(conn, unit_id, name, spec="", cycle_days=None, cycle_unit="N/A",
     return part_id
 
 
+def get_master_equipment_name(conn):
+    row = conn.execute("SELECT name FROM equipments WHERE id = ?", (MASTER_EQUIPMENT_ID,)).fetchone()
+    return row["name"] if row else "기준 설비"
+
+
 def get_master_backup_meta(conn):
     backed_up_at = get_config(conn, "master_backup_at")
     unit_count = conn.execute("SELECT COUNT(*) AS n FROM master_backup_units").fetchone()["n"]
@@ -719,7 +724,10 @@ def create_master_backup(conn):
             )
             part_count += 1
     set_config(conn, "master_backup_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    log_activity(conn, "backup", "master", None, "TEAG01호기", f"기준 설비 구성 백업 (유닛 {len(units)}개, 부품 {part_count}개)")
+    log_activity(
+        conn, "backup", "master", None, get_master_equipment_name(conn),
+        f"기준 설비 구성 백업 (유닛 {len(units)}개, 부품 {part_count}개)",
+    )
     return len(units), part_count
 
 
@@ -1984,8 +1992,9 @@ def apply_unit_parts(unit_id):
         conn.close()
         return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
     if unit["equipment_id"] != MASTER_EQUIPMENT_ID:
+        master_name = get_master_equipment_name(conn)
         conn.close()
-        return jsonify({"error": "기준 설비(TEAG01호기)의 유닛에서만 사용할 수 있습니다"}), 400
+        return jsonify({"error": f"기준 설비({master_name})의 유닛에서만 사용할 수 있습니다"}), 400
     result = apply_unit_parts_to_other_equipment(conn, unit_id)
     if result is None:
         conn.close()
@@ -2484,6 +2493,14 @@ def apply_unit_templates():
     return jsonify({
         "ok": True, "equipment_count": len(equipments), "unit_count": len(backup_units), "part_count": total_parts,
     })
+
+
+@app.route("/api/master-equipment-name")
+def api_master_equipment_name():
+    conn = get_db()
+    name = get_master_equipment_name(conn)
+    conn.close()
+    return jsonify({"id": MASTER_EQUIPMENT_ID, "name": name})
 
 
 @app.route("/api/master-backup")

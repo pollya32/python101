@@ -708,6 +708,11 @@ def insert_part(conn, unit_id, name, spec="", cycle_days=None, cycle_unit="N/A",
     return part_id
 
 
+def get_master_equipment_name(conn):
+    row = conn.execute("SELECT name FROM equipments WHERE id = ?", (MASTER_EQUIPMENT_ID,)).fetchone()
+    return row["name"] if row else "기준 설비"
+
+
 def get_master_backup_meta(conn):
     backed_up_at = get_config(conn, "master_backup_at")
     unit_count = conn.execute("SELECT COUNT(*) AS n FROM master_backup_units").fetchone()["n"]
@@ -746,7 +751,10 @@ def create_master_backup(conn):
             )
             part_count += 1
     set_config(conn, "master_backup_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    log_activity(conn, "backup", "master", None, "TEAG01호기", f"기준 설비 구성 백업 (유닛 {len(units)}개, 부품 {part_count}개)")
+    log_activity(
+        conn, "backup", "master", None, get_master_equipment_name(conn),
+        f"기준 설비 구성 백업 (유닛 {len(units)}개, 부품 {part_count}개)",
+    )
     return len(units), part_count
 
 
@@ -2011,8 +2019,9 @@ def apply_unit_parts(unit_id):
         conn.close()
         return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
     if unit["equipment_id"] != MASTER_EQUIPMENT_ID:
+        master_name = get_master_equipment_name(conn)
         conn.close()
-        return jsonify({"error": "기준 설비(TEAG01호기)의 유닛에서만 사용할 수 있습니다"}), 400
+        return jsonify({"error": f"기준 설비({master_name})의 유닛에서만 사용할 수 있습니다"}), 400
     result = apply_unit_parts_to_other_equipment(conn, unit_id)
     if result is None:
         conn.close()
@@ -2511,6 +2520,14 @@ def apply_unit_templates():
     return jsonify({
         "ok": True, "equipment_count": len(equipments), "unit_count": len(backup_units), "part_count": total_parts,
     })
+
+
+@app.route("/api/master-equipment-name")
+def api_master_equipment_name():
+    conn = get_db()
+    name = get_master_equipment_name(conn)
+    conn.close()
+    return jsonify({"id": MASTER_EQUIPMENT_ID, "name": name})
 
 
 @app.route("/api/master-backup")
@@ -8394,7 +8411,7 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
             </div>
           </div>
           <div id="partLockedHint" class="master-hint d-none mt-1">
-            <i class="bi bi-lock-fill"></i> 재고 수량 · 안전재고 · 금액 · 구매처는 기준 설비(TEAG01호기)에서만 수정할 수 있습니다.
+            <i class="bi bi-lock-fill"></i> 재고 수량 · 안전재고 · 금액 · 구매처는 기준 설비(<span id="masterEquipmentName">TEAG01호기</span>)에서만 수정할 수 있습니다.
           </div>
           <div class="row g-2 mt-1">
             <div class="col-6">
@@ -9366,6 +9383,9 @@ document.addEventListener("DOMContentLoaded", () => {
   loadUnitHeader();
   loadParts();
   loadNotes();
+  fetchJson("/api/master-equipment-name").then((res) => {
+    document.getElementById("masterEquipmentName").textContent = res.name;
+  });
   attachRichPasteHandler(document.getElementById("partEditMemo"));
   attachTableEditToolbar(document.getElementById("partEditMemo"));
   document.getElementById("partEditCycleUnit").addEventListener("change", updateCycleInputState);
@@ -10691,7 +10711,7 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
 <main class="container-fluid py-4">
 
   <p class="text-muted small mb-3">
-    <strong>BACKUP</strong> 버튼을 누르면 기준 설비(TEAG01호기)의 현재 유닛 구성과 그 안의 부품 정보
+    <strong>BACKUP</strong> 버튼을 누르면 기준 설비(<span id="masterEquipmentName">TEAG01호기</span>)의 현재 유닛 구성과 그 안의 부품 정보
     전체(규격·주기·금액·재고·도면 등)가 스냅샷으로 저장됩니다. <strong>"모든 설비에 적용"</strong>은
     아래 캔버스의 템플릿이 아니라 <strong>마지막으로 BACKUP한 스냅샷</strong>을 20개 설비 전체에 그대로
     반영합니다(각 설비에서 직접 등록한 독립 부품은 영향받지 않습니다).
@@ -10748,6 +10768,7 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 let unitEditModal;
+let masterEquipmentName = "기준 설비";
 
 const ICON_CHOICES = [
   "⚙️", "🔧", "🔩", "🛠️", "🪛", "🔨", "📦", "🖥️",
@@ -11058,6 +11079,12 @@ function openUnitEditModal(template) {
   unitEditModal.show();
 }
 
+async function loadMasterEquipmentName() {
+  const res = await fetchJson("/api/master-equipment-name");
+  masterEquipmentName = res.name;
+  document.getElementById("masterEquipmentName").textContent = res.name;
+}
+
 async function loadMasterBackupStatus() {
   const meta = await fetchJson("/api/master-backup");
   const el = document.getElementById("masterBackupStatus");
@@ -11075,6 +11102,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setInterval(tick, 1000);
   loadTemplates();
   updatePasteButton();
+  loadMasterEquipmentName();
   loadMasterBackupStatus();
 
   document.getElementById("addUnitBtn").addEventListener("click", () => openUnitEditModal(null));
@@ -11082,7 +11110,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("backupMasterBtn").addEventListener("click", async () => {
     const ok = confirm(
-      "기준 설비(TEAG01호기)의 현재 유닛 구성과 그 안의 모든 부품 정보를 백업합니다.\n" +
+      `기준 설비(${masterEquipmentName})의 현재 유닛 구성과 그 안의 모든 부품 정보를 백업합니다.\n` +
       "기존에 백업된 내용이 있다면 덮어씁니다.\n\n" +
       "계속하시겠습니까?"
     );
@@ -11098,7 +11126,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("applyBtn").addEventListener("click", async () => {
     const ok = confirm(
-      "마지막으로 BACKUP한 기준 설비(TEAG01호기) 구성을 20개 설비 전체에 적용합니다.\n" +
+      `마지막으로 BACKUP한 기준 설비(${masterEquipmentName}) 구성을 20개 설비 전체에 적용합니다.\n` +
       "- 이름이 같은 유닛/부품은 백업된 값으로 갱신됩니다.\n" +
       "- 백업에 없는 이름의 유닛/부품은 각 설비에서 삭제되며, 등록된 이력도 함께 삭제됩니다.\n" +
       "- 각 설비에서 직접 등록한 독립 부품은 영향받지 않습니다.\n\n" +
@@ -17381,7 +17409,7 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
   <div class="d-flex align-items-center gap-2">
     <a href="/" class="btn btn-sm btn-outline-light"><i class="bi bi-arrow-left"></i> 대시보드</a>
     <i class="bi bi-stack"></i>
-    <h1>부품 일괄 등록 <span class="master-badge">기준 설비: TEAG01호기</span></h1>
+    <h1>부품 일괄 등록 <span class="master-badge">기준 설비: <span id="masterEquipmentName">TEAG01호기</span></span></h1>
   </div>
   <div class="d-flex align-items-center gap-2">
     <span id="clock" class="clock"></span>
@@ -17667,6 +17695,9 @@ document.addEventListener("DOMContentLoaded", () => {
   tick();
   setInterval(tick, 1000);
   loadEntries();
+  fetchJson("/api/master-equipment-name").then((res) => {
+    document.getElementById("masterEquipmentName").textContent = res.name;
+  });
 
   document.getElementById("applyPasteBtn").addEventListener("click", async () => {
     const text = document.getElementById("pasteArea").value;

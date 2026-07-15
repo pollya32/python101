@@ -226,6 +226,9 @@ document.addEventListener("DOMContentLoaded", () => {
   tick();
   setInterval(tick, 1000);
   loadEntries();
+  fetchJson("/api/master-equipment-name").then((res) => {
+    document.getElementById("masterEquipmentName").textContent = res.name;
+  });
 
   document.getElementById("applyPasteBtn").addEventListener("click", async () => {
     const text = document.getElementById("pasteArea").value;

@@ -1,4 +1,5 @@
 let unitEditModal;
+let masterEquipmentName = "기준 설비";
 
 const ICON_CHOICES = [
   "⚙️", "🔧", "🔩", "🛠️", "🪛", "🔨", "📦", "🖥️",
@@ -309,6 +310,12 @@ function openUnitEditModal(template) {
   unitEditModal.show();
 }
 
+async function loadMasterEquipmentName() {
+  const res = await fetchJson("/api/master-equipment-name");
+  masterEquipmentName = res.name;
+  document.getElementById("masterEquipmentName").textContent = res.name;
+}
+
 async function loadMasterBackupStatus() {
   const meta = await fetchJson("/api/master-backup");
   const el = document.getElementById("masterBackupStatus");
@@ -326,6 +333,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setInterval(tick, 1000);
   loadTemplates();
   updatePasteButton();
+  loadMasterEquipmentName();
   loadMasterBackupStatus();
 
   document.getElementById("addUnitBtn").addEventListener("click", () => openUnitEditModal(null));
@@ -333,7 +341,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("backupMasterBtn").addEventListener("click", async () => {
     const ok = confirm(
-      "기준 설비(TEAG01호기)의 현재 유닛 구성과 그 안의 모든 부품 정보를 백업합니다.\n" +
+      `기준 설비(${masterEquipmentName})의 현재 유닛 구성과 그 안의 모든 부품 정보를 백업합니다.\n` +
       "기존에 백업된 내용이 있다면 덮어씁니다.\n\n" +
       "계속하시겠습니까?"
     );
@@ -349,7 +357,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("applyBtn").addEventListener("click", async () => {
     const ok = confirm(
-      "마지막으로 BACKUP한 기준 설비(TEAG01호기) 구성을 20개 설비 전체에 적용합니다.\n" +
+      `마지막으로 BACKUP한 기준 설비(${masterEquipmentName}) 구성을 20개 설비 전체에 적용합니다.\n` +
       "- 이름이 같은 유닛/부품은 백업된 값으로 갱신됩니다.\n" +
       "- 백업에 없는 이름의 유닛/부품은 각 설비에서 삭제되며, 등록된 이력도 함께 삭제됩니다.\n" +
       "- 각 설비에서 직접 등록한 독립 부품은 영향받지 않습니다.\n\n" +
