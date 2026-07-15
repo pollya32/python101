@@ -1240,11 +1240,23 @@ def send_status_mail():
         return False, f"메일 발송 실패: {e}"
 
 
+PART_COLS_SANS_DRAWING = (
+    "p.id, p.unit_id, p.name, p.spec, p.cycle_days, p.cycle_unit, p.cost, p.last_replaced_date, "
+    "p.note, p.memo, p.icon, p.pos_x, p.pos_y, p.width, p.height, p.stock_qty, p.safety_stock, "
+    "p.supplier, p.supplier_contact, p.lead_time_days, p.local_only, p.deleted_at, p.created_at"
+)
+UNIT_COLS_SANS_DRAWING = (
+    "u.id, u.equipment_id, u.name, u.icon, u.color, u.pos_x, u.pos_y, u.width, u.height, "
+    "u.deleted_at, u.created_at"
+)
+
+
 def get_alert_parts():
-    """모든 설비를 통틀어 교체 필요/임박 상태인 부품 목록 (경과가 급한 순)"""
+    """모든 설비를 통틀어 교체 필요/임박 상태인 부품 목록 (경과가 급한 순).
+    화면에 도면을 표시하지 않으므로, 용량이 큰 drawing_data는 조회하지 않는다."""
     conn = get_db()
-    rows = conn.execute("""
-        SELECT p.*, u.id AS unit_id, u.name AS unit_name,
+    rows = conn.execute(f"""
+        SELECT {PART_COLS_SANS_DRAWING}, u.id AS unit_id, u.name AS unit_name,
                e.id AS equipment_id, e.name AS equipment_name, e.icon AS equipment_icon
         FROM parts p
         JOIN units u ON p.unit_id = u.id
@@ -1264,11 +1276,12 @@ def get_alert_parts():
 
 
 def search_parts(query, status=None, equipment_id=None):
-    """부품명/규격으로 모든 설비를 통틀어 검색 (상태/설비로 추가 필터링 가능)"""
+    """부품명/규격으로 모든 설비를 통틀어 검색 (상태/설비로 추가 필터링 가능).
+    검색 결과 화면은 도면을 표시하지 않으므로 drawing_data는 조회하지 않는다."""
     conn = get_db()
     like = f"%{query}%"
-    sql = """
-        SELECT p.*, u.id AS unit_id, u.name AS unit_name,
+    sql = f"""
+        SELECT {PART_COLS_SANS_DRAWING}, u.id AS unit_id, u.name AS unit_name,
                e.id AS equipment_id, e.name AS equipment_name, e.icon AS equipment_icon
         FROM parts p
         JOIN units u ON p.unit_id = u.id
@@ -1305,8 +1318,8 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
     사용량은 항상 실제 교체 이력 기준이다.
     교체주기는 항상 현재 부품 구성 기준으로 계산하되, 주기가 없는(N/A) 부품은 제외한다."""
     period_filter = bool(start_date or end_date)
-    query = """
-        SELECT p.*, u.name AS unit_name, e.id AS equipment_id
+    query = f"""
+        SELECT {PART_COLS_SANS_DRAWING}, u.name AS unit_name, e.id AS equipment_id
         FROM parts p
         JOIN units u ON p.unit_id = u.id
         JOIN equipments e ON u.equipment_id = e.id
@@ -2808,15 +2821,16 @@ def api_trash():
     """).fetchall()
     # 소속 설비/유닛이 함께 삭제된(연쇄 삭제된) 항목은 부모를 복원하면 같이 복원되므로
     # 여기서는 "단독으로" 삭제된 유닛/부품만 보여준다 (부모는 살아있는데 이것만 삭제된 경우).
-    units = conn.execute("""
-        SELECT u.*, e.name AS equipment_name
+    # 휴지통 화면은 도면을 표시하지 않으므로 drawing_data는 조회하지 않는다.
+    units = conn.execute(f"""
+        SELECT {UNIT_COLS_SANS_DRAWING}, e.name AS equipment_name
         FROM units u
         JOIN equipments e ON u.equipment_id = e.id
         WHERE u.deleted_at IS NOT NULL AND e.deleted_at IS NULL
         ORDER BY u.deleted_at DESC
     """).fetchall()
-    parts = conn.execute("""
-        SELECT p.*, u.name AS unit_name, e.name AS equipment_name
+    parts = conn.execute(f"""
+        SELECT {PART_COLS_SANS_DRAWING}, u.name AS unit_name, e.name AS equipment_name
         FROM parts p
         JOIN units u ON p.unit_id = u.id
         JOIN equipments e ON u.equipment_id = e.id
