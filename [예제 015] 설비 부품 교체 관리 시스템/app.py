@@ -630,9 +630,14 @@ def part_status(cycle_days, last_replaced_date):
     }
 
 
-def serialize_part(row):
+def serialize_part(row, include_drawing=False):
+    """목록 응답에는 도면 원본(최대 8MB) 대신 has_drawing 여부만 포함한다.
+    실제 도면은 사용자가 도면 보기/편집을 열 때 /api/parts/<id>/drawing로 그때 가져온다."""
     info = part_status(row["cycle_days"], row["last_replaced_date"])
     d = dict(row)
+    d["has_drawing"] = bool(d.get("drawing_data"))
+    if not include_drawing:
+        d.pop("drawing_data", None)
     d.update(info)
     return d
 
@@ -794,13 +799,16 @@ def apply_unit_parts_to_other_equipment(conn, unit_id):
 
 def units_with_status_bulk(conn, units):
     """유닛 여러 개의 상태/부품수를 부품 테이블 조회 1번으로 한꺼번에 계산한다
-    (유닛마다 따로 쿼리를 날리는 N+1 패턴을 피하기 위함)."""
+    (유닛마다 따로 쿼리를 날리는 N+1 패턴을 피하기 위함).
+    상태 계산에는 cycle_days/last_replaced_date만 필요하므로, 용량이 큰 drawing_data 등은
+    조회하지 않아 도면이 많아져도 이 조회 자체는 느려지지 않는다."""
     if not units:
         return []
     unit_ids = [u["id"] for u in units]
     placeholders = ",".join("?" for _ in unit_ids)
     all_parts = conn.execute(
-        f"SELECT * FROM parts WHERE unit_id IN ({placeholders}) AND deleted_at IS NULL", unit_ids
+        f"SELECT id, unit_id, cycle_days, last_replaced_date FROM parts "
+        f"WHERE unit_id IN ({placeholders}) AND deleted_at IS NULL", unit_ids
     ).fetchall()
     parts_by_unit = {}
     for p in all_parts:
@@ -821,6 +829,8 @@ def units_with_status_bulk(conn, units):
         else:
             overall = "empty"
         d = dict(u)
+        # 유닛 목록 응답에도 도면 원본 대신 has_drawing 여부만 포함한다 (지연 로딩).
+        d["has_drawing"] = bool(d.pop("drawing_data", None))
         d["part_count"] = len(parts)
         d["overall_status"] = overall
         d["overdue_count"] = statuses.count("overdue")
@@ -856,13 +866,14 @@ def calc_setup_runtime(setup_date):
 
 def equipments_with_status_bulk(conn, equipments):
     """설비 여러 개의 상태/유닛수를 유닛+부품 조회 2번으로 한꺼번에 계산한다
-    (설비마다, 유닛마다 따로 쿼리를 날리는 N+1 패턴을 피하기 위함)."""
+    (설비마다, 유닛마다 따로 쿼리를 날리는 N+1 패턴을 피하기 위함).
+    이 집계 결과에는 유닛의 이름/아이콘/도면 등은 쓰이지 않으므로 id/equipment_id만 조회한다."""
     if not equipments:
         return []
     eq_ids = [e["id"] for e in equipments]
     placeholders = ",".join("?" for _ in eq_ids)
     all_units = conn.execute(
-        f"SELECT * FROM units WHERE equipment_id IN ({placeholders}) AND deleted_at IS NULL", eq_ids
+        f"SELECT id, equipment_id FROM units WHERE equipment_id IN ({placeholders}) AND deleted_at IS NULL", eq_ids
     ).fetchall()
     unit_statuses_all = units_with_status_bulk(conn, all_units)
     units_by_equipment = {}
@@ -1817,6 +1828,7 @@ def add_unit(equipment_id):
     conn.commit()
     conn.close()
     d = dict(unit)
+    d["has_drawing"] = bool(d.pop("drawing_data", None))
     d["part_count"] = 0
     d["overall_status"] = "empty"
     return jsonify(d), 201
@@ -1891,7 +1903,29 @@ def list_parts(unit_id):
         "SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL ORDER BY id", (unit_id,)
     ).fetchall()
     conn.close()
-    return jsonify([serialize_part(r) for r in rows])
+    # 유닛 복사(전체 부품 도면 포함) 등 도면 원본이 실제로 필요한 경우에만 include_drawings=1로 요청한다.
+    include_drawing = request.args.get("include_drawings") == "1"
+    return jsonify([serialize_part(r, include_drawing=include_drawing) for r in rows])
+
+
+@app.route("/api/parts/<int:part_id>/drawing")
+def get_part_drawing(part_id):
+    conn = get_db()
+    row = conn.execute("SELECT drawing_data FROM parts WHERE id = ?", (part_id,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({"error": "부품을 찾을 수 없습니다"}), 404
+    return jsonify({"drawing_data": row["drawing_data"]})
+
+
+@app.route("/api/units/<int:unit_id>/drawing")
+def get_unit_drawing(unit_id):
+    conn = get_db()
+    row = conn.execute("SELECT drawing_data FROM units WHERE id = ?", (unit_id,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
+    return jsonify({"drawing_data": row["drawing_data"]})
 
 
 @app.route("/api/units/<int:unit_id>/parts", methods=["POST"])
