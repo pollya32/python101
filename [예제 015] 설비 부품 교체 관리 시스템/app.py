@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, jsonify, send_file, Response, session, redirect, url_for
 import sqlite3
 import os
+import sys
 import csv
 import io
 import json
@@ -2975,15 +2976,23 @@ def mail_scheduler_loop():
 
 
 if __name__ == "__main__":
+    # 같은 컴퓨터에서 다른 설비군을 위해 이 프로그램 폴더를 통째로 복사해 두 번째 인스턴스를
+    # 띄울 때, 소스 코드를 고치지 않고도 포트를 바꿀 수 있도록 실행 인자/환경변수로 받는다.
+    # 우선순위: 실행 인자(python app.py 5001) > 환경변수(PORT) > 기본값 5000.
+    if len(sys.argv) > 1:
+        PORT = int(sys.argv[1])
+    else:
+        PORT = int(os.environ.get("PORT", 5000))
+
     init_db()
     _conn = get_db()
     app.secret_key = get_config(_conn, "secret_key")
     _conn.close()
     lan_ip = get_lan_ip()
     print("설비 부품 교체 관리 시스템 시작!")
-    print(f"  이 컴퓨터에서 접속: http://localhost:5000")
-    print(f"  같은 네트워크의 다른 사람 접속: http://{lan_ip}:5000")
+    print(f"  이 컴퓨터에서 접속: http://localhost:{PORT}")
+    print(f"  같은 네트워크의 다른 사람 접속: http://{lan_ip}:{PORT}")
     print("  (다른 사람이 접속 안 되면 Windows 방화벽에서 Python 허용 여부를 확인하세요)")
     print(f"  최초 접속 비밀번호: {DEFAULT_PASSWORD} (로그인 후 반드시 변경해주세요)")
     threading.Thread(target=mail_scheduler_loop, daemon=True).start()
-    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
+    app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
