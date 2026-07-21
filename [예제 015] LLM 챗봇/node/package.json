@@ -1,0 +1,20 @@
+{
+  "name": "llm-chatbot-ts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "chat": "tsx src/chatbot.ts",
+    "server": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.70.0",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.11.0"
+  }
+}
