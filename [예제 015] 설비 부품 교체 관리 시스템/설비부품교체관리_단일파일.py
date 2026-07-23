@@ -1406,9 +1406,11 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
             "avg_actual_interval_days": None,
         }
 
-    # 구매(예상) 금액은 기준 설비에 등록된 값만 쓴다.
+    # 구매(예상) 금액은 기준 설비에 등록된 값 하나만 쓴다. 같은 부품명+규격이 기준 설비 안의
+    # 서로 다른 유닛에 각각 등록되어 있어도(예: "오링"이 여러 유닛에 쓰이는 경우), 그건 부품
+    # 단가가 여러 번인 게 아니라 같은 단가가 여러 곳에 설치된 것이므로 합산하면 안 된다.
     purchase_rows = conn.execute(f"""
-        SELECT p.name AS name, COALESCE(p.spec, '') AS spec, SUM(p.cost) AS purchase_cost
+        SELECT p.name AS name, COALESCE(p.spec, '') AS spec, MAX(p.cost) AS purchase_cost
         FROM parts p
         JOIN units u ON p.unit_id = u.id
         WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND u.equipment_id = ?
@@ -1418,7 +1420,7 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
     for r in purchase_rows:
         key = (r["name"], r["spec"])
         if key in groups:
-            groups[key]["purchase_cost"] += r["purchase_cost"] or 0
+            groups[key]["purchase_cost"] = r["purchase_cost"] or 0
 
     # 실제 평균 교체 간격: 같은 부품(part_id)의 교체 이력을 날짜순으로 나란히 두고(LAG 윈도우
     # 함수) 바로 앞 교체일과의 일수 차이를 구한 뒤, 규격별로 평균낸다. 교체 이력이 1건뿐이면
