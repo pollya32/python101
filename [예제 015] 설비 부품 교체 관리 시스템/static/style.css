@@ -728,6 +728,9 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 @media (max-width: 900px) {
   .stats-grid { grid-template-columns: 1fr; }
 }
+.stats-panel.stats-panel-wide {
+  grid-column: 1 / -1;
+}
 .stats-panel {
   background: var(--surface);
   border: 1px solid var(--border);

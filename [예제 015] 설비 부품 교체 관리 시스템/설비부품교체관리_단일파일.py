@@ -1336,7 +1336,12 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
     - replacement_cost_total: 실제 교체 이력(replacement_history)에 기록된 금액의 합. 기간
       필터가 있으면 해당 기간에 발생한 교체 기록만 합산한다.
     사용량은 항상 실제 교체 이력 기준이다.
-    교체주기는 항상 현재 부품 구성 기준으로 계산하되, 주기가 없는(N/A) 부품은 제외한다.
+    교체주기도 두 가지를 따로 계산한다.
+    - min_cycle_days/min_cycle_unit: 현재 부품 구성에 등록된 표준주기 중 가장 짧은 값(항상
+      전체 기준, 기간 필터와 무관).
+    - avg_actual_interval_days: 실제 교체 이력에서 같은 부품이 연속으로 교체된 간격(일수)의
+      평균. 표준주기와 마찬가지로 항상 전체 이력 기준으로 계산하며, 교체 이력이 2회 미만인
+      부품(간격을 계산할 짝이 없는 경우)은 집계에서 제외된다.
 
     (성능: 등록된 부품 수가 늘어날수록 이 조회가 느려지는 것을 막기 위해, 개별 부품 행을
     전부 파이썬으로 가져와 순회하는 대신 규격별 집계를 SQLite의 GROUP BY로 DB 단에서
@@ -1377,6 +1382,7 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
             "usage_count": 0,
             "min_cycle_days": r["min_cycle_days"],
             "min_cycle_unit": r["min_cycle_unit"] if r["min_cycle_days"] is not None else "일",
+            "avg_actual_interval_days": None,
         }
 
     # 구매(예상) 금액은 기준 설비에 등록된 값만 쓴다.
@@ -1392,6 +1398,31 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
         key = (r["name"], r["spec"])
         if key in groups:
             groups[key]["purchase_cost"] += r["purchase_cost"] or 0
+
+    # 실제 평균 교체 간격: 같은 부품(part_id)의 교체 이력을 날짜순으로 나란히 두고(LAG 윈도우
+    # 함수) 바로 앞 교체일과의 일수 차이를 구한 뒤, 규격별로 평균낸다. 교체 이력이 1건뿐이면
+    # 간격을 계산할 짝이 없어 자동으로 제외된다.
+    interval_rows = conn.execute(f"""
+        WITH ordered_hist AS (
+            SELECT h.part_id, h.replaced_date,
+                   p.name AS name, COALESCE(p.spec, '') AS spec,
+                   LAG(h.replaced_date) OVER (PARTITION BY h.part_id ORDER BY h.replaced_date) AS prev_date
+            FROM replacement_history h
+            JOIN parts p ON h.part_id = p.id
+            JOIN units u ON p.unit_id = u.id
+            JOIN equipments e ON u.equipment_id = e.id
+            WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
+            {unit_filter_sql}
+        )
+        SELECT name, spec, AVG(julianday(replaced_date) - julianday(prev_date)) AS avg_actual_interval_days
+        FROM ordered_hist
+        WHERE prev_date IS NOT NULL
+        GROUP BY name, spec
+    """, unit_filter_params).fetchall()
+    for r in interval_rows:
+        key = (r["name"], r["spec"])
+        if key in groups and r["avg_actual_interval_days"] is not None:
+            groups[key]["avg_actual_interval_days"] = round(r["avg_actual_interval_days"], 1)
 
     # 실제 교체 이력의 사용횟수/금액은 이력 테이블과 부품을 직접 JOIN해서 규격별로 합산한다.
     hist_sql = f"""
@@ -2601,7 +2632,7 @@ def api_search():
 
 
 def build_stats_payload(conn, unit_names, start_date=None, end_date=None):
-    """부품 규격 기준(금액순/사용량 많은순/교체주기 짧은순)과 유닛 기준(부품수 많은순) 통계를 함께 만든다."""
+    """부품 규격 기준(금액순/사용량 많은순/교체주기 짧은순) 통계를 만든다."""
     period_active = bool(start_date or end_date)
     spec_rows = get_part_spec_stats(conn, unit_names, start_date=start_date, end_date=end_date)
     # 순위는 실제 교체 이력 금액 합산(replacement_cost_total) 기준으로만 매긴다. 구매 금액은
@@ -2613,26 +2644,13 @@ def build_stats_payload(conn, unit_names, start_date=None, end_date=None):
         key=lambda r: r["replacement_cost_total"], reverse=True
     )
     by_usage = sorted(spec_rows, key=lambda r: r["usage_count"], reverse=True)
+    # 순위는 실제 평균 교체 간격(avg_actual_interval_days) 기준으로만 매긴다. 표준주기는
+    # 별도 항목으로 항상 같이 보여준다. 실제 이력이 2회 미만이라 간격을 계산할 수 없는
+    # 부품은 목록에서 제외한다.
     by_short_cycle = sorted(
-        (r for r in spec_rows if r["min_cycle_days"] is not None), key=lambda r: r["min_cycle_days"]
+        (r for r in spec_rows if r["avg_actual_interval_days"] is not None),
+        key=lambda r: r["avg_actual_interval_days"]
     )
-
-    unit_query = """
-        SELECT u.id AS unit_id, u.name AS unit_name, u.icon AS unit_icon,
-               e.id AS equipment_id, e.name AS equipment_name, e.icon AS equipment_icon,
-               (SELECT COUNT(*) FROM parts p WHERE p.unit_id = u.id AND p.deleted_at IS NULL) AS part_count
-        FROM units u
-        JOIN equipments e ON u.equipment_id = e.id
-        WHERE u.deleted_at IS NULL AND e.deleted_at IS NULL
-    """
-    params = []
-    if unit_names:
-        placeholders = ",".join("?" for _ in unit_names)
-        unit_query += f" AND u.name IN ({placeholders})"
-        params = unit_names
-    unit_query += " ORDER BY u.id"
-    unit_rows = [dict(r) for r in conn.execute(unit_query, params).fetchall()]
-    by_part_count = sorted(unit_rows, key=lambda r: r["part_count"], reverse=True)
 
     all_unit_names = [
         r["name"] for r in conn.execute(
@@ -2644,7 +2662,6 @@ def build_stats_payload(conn, unit_names, start_date=None, end_date=None):
         "by_cost": by_cost,
         "by_usage": by_usage,
         "by_short_cycle": by_short_cycle,
-        "by_part_count": by_part_count,
         "unit_names": all_unit_names,
         "period_active": bool(start_date or end_date),
     }
@@ -2699,19 +2716,13 @@ def export_stats_csv():
         ])
     writer.writerow([])
 
-    writer.writerow(["[교체 주기 짧은순 (부품 규격 기준)]"])
-    writer.writerow(["순위", "부품명", "규격", "교체 주기", "등록 수"])
+    writer.writerow(["[교체 주기 짧은순 (부품 규격 기준, 실제 평균 교체 간격 기준 정렬)]"])
+    writer.writerow(["순위", "부품명", "규격", "표준주기", "실제 평균 교체 간격", "등록 수"])
     for i, r in enumerate(payload["by_short_cycle"], 1):
         writer.writerow([
             i, r["name"], r["spec"], format_cycle_for_export(r["min_cycle_days"], r["min_cycle_unit"]),
-            r["instance_count"],
+            f'{r["avg_actual_interval_days"]}일', r["instance_count"],
         ])
-    writer.writerow([])
-
-    writer.writerow(["[부품수 많은순 (유닛 기준)]"])
-    writer.writerow(["순위", "설비", "유닛", "부품수"])
-    for i, r in enumerate(payload["by_part_count"], 1):
-        writer.writerow([i, r["equipment_name"], r["unit_name"], r["part_count"]])
 
     data = "﻿" + buf.getvalue()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -2727,7 +2738,7 @@ def export_stats_csv():
 
 
 def build_stats_pptx(payload, unit_names):
-    """조건별(금액순/사용량순/교체주기순/부품수순) TOP 5를 표+막대 그래프로 함께 보여주는
+    """조건별(금액순/사용량순/교체주기순) TOP 5를 표+막대 그래프로 함께 보여주는
     보고서 형태의 PPT를 생성한다."""
     prs = Presentation()
     prs.slide_width = Inches(13.333)
@@ -2827,28 +2838,18 @@ def build_stats_pptx(payload, unit_names):
 
     by_short5 = payload["by_short_cycle"][:5]
     add_report_slide(
-        "교체 주기 짧은순 TOP 5 (부품 규격 기준)",
-        ["순위", "부품명", "규격", "교체 주기", "등록 수"],
+        "교체 주기 짧은순 TOP 5 (부품 규격 기준, 실제 평균 교체 간격 기준 정렬)",
+        ["순위", "부품명", "규격", "표준주기", "실제 평균 교체 간격(일)", "등록 수"],
         [
-            [i, r["name"], r["spec"], format_cycle_for_export(r["min_cycle_days"], r["min_cycle_unit"]), r["instance_count"]]
+            [
+                i, r["name"], r["spec"], format_cycle_for_export(r["min_cycle_days"], r["min_cycle_unit"]),
+                r["avg_actual_interval_days"], r["instance_count"],
+            ]
             for i, r in enumerate(by_short5, 1)
         ],
         [chart_label(r) for r in by_short5],
-        [r["min_cycle_days"] for r in by_short5],
-        "교체 주기(일)",
-    )
-
-    by_part5 = payload["by_part_count"][:5]
-    add_report_slide(
-        "부품수 많은순 TOP 5 (유닛 기준)",
-        ["순위", "설비", "유닛", "부품수"],
-        [
-            [i, r["equipment_name"], r["unit_name"], r["part_count"]]
-            for i, r in enumerate(by_part5, 1)
-        ],
-        [f'{r["equipment_name"]} {r["unit_name"]}' for r in by_part5],
-        [r["part_count"] for r in by_part5],
-        "부품수",
+        [r["avg_actual_interval_days"] for r in by_short5],
+        "실제 평균 교체 간격(일)",
     )
 
     buf = io.BytesIO()
@@ -3793,6 +3794,9 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 }
 @media (max-width: 900px) {
   .stats-grid { grid-template-columns: 1fr; }
+}
+.stats-panel.stats-panel-wide {
+  grid-column: 1 / -1;
 }
 .stats-panel {
   background: var(--surface);
@@ -5714,6 +5718,9 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 }
 @media (max-width: 900px) {
   .stats-grid { grid-template-columns: 1fr; }
+}
+.stats-panel.stats-panel-wide {
+  grid-column: 1 / -1;
 }
 .stats-panel {
   background: var(--surface);
@@ -7855,6 +7862,9 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 }
 @media (max-width: 900px) {
   .stats-grid { grid-template-columns: 1fr; }
+}
+.stats-panel.stats-panel-wide {
+  grid-column: 1 / -1;
 }
 .stats-panel {
   background: var(--surface);
@@ -10346,6 +10356,9 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 @media (max-width: 900px) {
   .stats-grid { grid-template-columns: 1fr; }
 }
+.stats-panel.stats-panel-wide {
+  grid-column: 1 / -1;
+}
 .stats-panel {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -11951,6 +11964,9 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 @media (max-width: 900px) {
   .stats-grid { grid-template-columns: 1fr; }
 }
+.stats-panel.stats-panel-wide {
+  grid-column: 1 / -1;
+}
 .stats-panel {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -13164,6 +13180,9 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 }
 @media (max-width: 900px) {
   .stats-grid { grid-template-columns: 1fr; }
+}
+.stats-panel.stats-panel-wide {
+  grid-column: 1 / -1;
 }
 .stats-panel {
   background: var(--surface);
@@ -14437,6 +14456,9 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 @media (max-width: 900px) {
   .stats-grid { grid-template-columns: 1fr; }
 }
+.stats-panel.stats-panel-wide {
+  grid-column: 1 / -1;
+}
 .stats-panel {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -14867,15 +14889,10 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
       <div id="statsUsageChart" class="stats-chart"></div>
       <div id="statsUsage" class="stats-list"></div>
     </div>
-    <div class="stats-panel">
-      <h6><i class="bi bi-hourglass-split"></i> 교체 주기 짧은순 <span class="stats-subtitle">(부품 규격 기준)</span></h6>
+    <div class="stats-panel stats-panel-wide">
+      <h6><i class="bi bi-hourglass-split"></i> 교체 주기 짧은순 <span class="stats-subtitle">(실제 평균 교체 간격 기준 정렬 · 표준주기도 함께 표시)</span></h6>
       <div id="statsCycleChart" class="stats-chart"></div>
       <div id="statsCycle" class="stats-list"></div>
-    </div>
-    <div class="stats-panel">
-      <h6><i class="bi bi-box-seam"></i> 부품수 많은순 <span class="stats-subtitle">(유닛 기준)</span></h6>
-      <div id="statsPartCountChart" class="stats-chart"></div>
-      <div id="statsPartCount" class="stats-list"></div>
     </div>
   </div>
 
@@ -14901,6 +14918,9 @@ function formatMoney(v) {
 }
 
 function formatCycle(days, unit) {
+  if (days === null || days === undefined) {
+    return "미등록";
+  }
   if (unit === "년") {
     return `${Math.round((days / 365) * 100) / 100}년`;
   }
@@ -15010,8 +15030,10 @@ async function loadStats() {
     (r) => `구매금액 ${formatMoney(r.purchase_cost)} · 교체 합산 ${formatMoney(r.replacement_cost_total)}`
   );
   renderPartSpecPanel("statsUsage", data.by_usage, (r) => `${r.usage_count}회 교체`);
-  renderPartSpecPanel("statsCycle", data.by_short_cycle, (r) => formatCycle(r.min_cycle_days, r.min_cycle_unit) + " 주기");
-  renderUnitPanel("statsPartCount", data.by_part_count, (r) => `${r.part_count}개`);
+  renderPartSpecPanel(
+    "statsCycle", data.by_short_cycle,
+    (r) => `표준주기 ${formatCycle(r.min_cycle_days, r.min_cycle_unit)} · 실제 평균 ${r.avg_actual_interval_days}일`
+  );
 
   const goToSearch = (r) => { window.location.href = `/search?q=${encodeURIComponent(r.name)}`; };
   renderBarChart("statsCostChart", data.by_cost, {
@@ -15028,15 +15050,9 @@ async function loadStats() {
   });
   renderBarChart("statsCycleChart", data.by_short_cycle, {
     labelFn: (r) => r.name,
-    valueFn: (r) => r.min_cycle_days,
+    valueFn: (r) => r.avg_actual_interval_days,
     formatValue: (v) => `${v}일`,
     onClick: goToSearch,
-  });
-  renderBarChart("statsPartCountChart", data.by_part_count, {
-    labelFn: (r) => `${r.equipment_name} ${r.unit_name}`,
-    valueFn: (r) => r.part_count,
-    formatValue: (v) => `${v}개`,
-    onClick: (r) => { window.location.href = `/unit/${r.unit_id}`; },
   });
   document.getElementById("costSubtitle").textContent = data.period_active
     ? "(선택 기간 교체 이력 금액 합산 기준 정렬 · 구매금액도 함께 표시)"
@@ -15072,36 +15088,6 @@ function renderPartSpecPanel(elId, rows, metricText) {
     const row = el.querySelector(`[data-row-idx="${i}"]`);
     row.addEventListener("click", () => {
       window.location.href = `/search?q=${encodeURIComponent(r.name)}`;
-    });
-  });
-}
-
-function renderUnitPanel(elId, rows, metricText) {
-  const el = document.getElementById(elId);
-  if (rows.length === 0) {
-    el.innerHTML = `<p class="text-muted text-center py-4 mb-0">데이터가 없습니다.</p>`;
-    return;
-  }
-  el.innerHTML = rows
-    .map(
-      (r, i) => `
-    <div class="stats-row" data-unit-id="${r.unit_id}">
-      <span class="stats-rank">${i + 1}</span>
-      <div class="alert-main">
-        <div class="alert-title">
-          <span>${r.equipment_icon}</span> ${escapeHtml(r.equipment_name)}
-          <span class="alert-sep">›</span> ${r.unit_icon} ${escapeHtml(r.unit_name)}
-        </div>
-        <div class="alert-meta">${metricText(r)}</div>
-      </div>
-      <i class="bi bi-chevron-right alert-chevron"></i>
-    </div>`
-    )
-    .join("");
-  rows.forEach((r) => {
-    const row = el.querySelector(`[data-unit-id="${r.unit_id}"]`);
-    row.addEventListener("click", () => {
-      window.location.href = `/unit/${r.unit_id}`;
     });
   });
 }
@@ -15914,6 +15900,9 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 }
 @media (max-width: 900px) {
   .stats-grid { grid-template-columns: 1fr; }
+}
+.stats-panel.stats-panel-wide {
+  grid-column: 1 / -1;
 }
 .stats-panel {
   background: var(--surface);
@@ -17063,6 +17052,9 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 }
 @media (max-width: 900px) {
   .stats-grid { grid-template-columns: 1fr; }
+}
+.stats-panel.stats-panel-wide {
+  grid-column: 1 / -1;
 }
 .stats-panel {
   background: var(--surface);
@@ -18517,6 +18509,9 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 @media (max-width: 900px) {
   .stats-grid { grid-template-columns: 1fr; }
 }
+.stats-panel.stats-panel-wide {
+  grid-column: 1 / -1;
+}
 .stats-panel {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -19835,6 +19830,9 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 @media (max-width: 900px) {
   .stats-grid { grid-template-columns: 1fr; }
 }
+.stats-panel.stats-panel-wide {
+  grid-column: 1 / -1;
+}
 .stats-panel {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -21068,6 +21066,9 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 }
 @media (max-width: 900px) {
   .stats-grid { grid-template-columns: 1fr; }
+}
+.stats-panel.stats-panel-wide {
+  grid-column: 1 / -1;
 }
 .stats-panel {
   background: var(--surface);
@@ -22435,6 +22436,9 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 }
 @media (max-width: 900px) {
   .stats-grid { grid-template-columns: 1fr; }
+}
+.stats-panel.stats-panel-wide {
+  grid-column: 1 / -1;
 }
 .stats-panel {
   background: var(--surface);

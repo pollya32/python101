@@ -16,6 +16,9 @@ function formatMoney(v) {
 }
 
 function formatCycle(days, unit) {
+  if (days === null || days === undefined) {
+    return "미등록";
+  }
   if (unit === "년") {
     return `${Math.round((days / 365) * 100) / 100}년`;
   }
@@ -125,8 +128,10 @@ async function loadStats() {
     (r) => `구매금액 ${formatMoney(r.purchase_cost)} · 교체 합산 ${formatMoney(r.replacement_cost_total)}`
   );
   renderPartSpecPanel("statsUsage", data.by_usage, (r) => `${r.usage_count}회 교체`);
-  renderPartSpecPanel("statsCycle", data.by_short_cycle, (r) => formatCycle(r.min_cycle_days, r.min_cycle_unit) + " 주기");
-  renderUnitPanel("statsPartCount", data.by_part_count, (r) => `${r.part_count}개`);
+  renderPartSpecPanel(
+    "statsCycle", data.by_short_cycle,
+    (r) => `표준주기 ${formatCycle(r.min_cycle_days, r.min_cycle_unit)} · 실제 평균 ${r.avg_actual_interval_days}일`
+  );
 
   const goToSearch = (r) => { window.location.href = `/search?q=${encodeURIComponent(r.name)}`; };
   renderBarChart("statsCostChart", data.by_cost, {
@@ -143,15 +148,9 @@ async function loadStats() {
   });
   renderBarChart("statsCycleChart", data.by_short_cycle, {
     labelFn: (r) => r.name,
-    valueFn: (r) => r.min_cycle_days,
+    valueFn: (r) => r.avg_actual_interval_days,
     formatValue: (v) => `${v}일`,
     onClick: goToSearch,
-  });
-  renderBarChart("statsPartCountChart", data.by_part_count, {
-    labelFn: (r) => `${r.equipment_name} ${r.unit_name}`,
-    valueFn: (r) => r.part_count,
-    formatValue: (v) => `${v}개`,
-    onClick: (r) => { window.location.href = `/unit/${r.unit_id}`; },
   });
   document.getElementById("costSubtitle").textContent = data.period_active
     ? "(선택 기간 교체 이력 금액 합산 기준 정렬 · 구매금액도 함께 표시)"
@@ -187,36 +186,6 @@ function renderPartSpecPanel(elId, rows, metricText) {
     const row = el.querySelector(`[data-row-idx="${i}"]`);
     row.addEventListener("click", () => {
       window.location.href = `/search?q=${encodeURIComponent(r.name)}`;
-    });
-  });
-}
-
-function renderUnitPanel(elId, rows, metricText) {
-  const el = document.getElementById(elId);
-  if (rows.length === 0) {
-    el.innerHTML = `<p class="text-muted text-center py-4 mb-0">데이터가 없습니다.</p>`;
-    return;
-  }
-  el.innerHTML = rows
-    .map(
-      (r, i) => `
-    <div class="stats-row" data-unit-id="${r.unit_id}">
-      <span class="stats-rank">${i + 1}</span>
-      <div class="alert-main">
-        <div class="alert-title">
-          <span>${r.equipment_icon}</span> ${escapeHtml(r.equipment_name)}
-          <span class="alert-sep">›</span> ${r.unit_icon} ${escapeHtml(r.unit_name)}
-        </div>
-        <div class="alert-meta">${metricText(r)}</div>
-      </div>
-      <i class="bi bi-chevron-right alert-chevron"></i>
-    </div>`
-    )
-    .join("");
-  rows.forEach((r) => {
-    const row = el.querySelector(`[data-unit-id="${r.unit_id}"]`);
-    row.addEventListener("click", () => {
-      window.location.href = `/unit/${r.unit_id}`;
     });
   });
 }
