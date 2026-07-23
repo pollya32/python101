@@ -285,6 +285,30 @@ document.addEventListener("DOMContentLoaded", () => {
       alert(err.message);
     }
   });
+  document.getElementById("vacuumBtn").addEventListener("click", async () => {
+    const ok = confirm(
+      "도면 교체·영구 삭제 등으로 안 쓰는 공간을 정리해 DB 파일 용량을 줄입니다.\n" +
+      "데이터 내용은 바뀌지 않으며, 파일 크기에 따라 시간이 다소 걸릴 수 있습니다.\n\n" +
+      "계속하시겠습니까?"
+    );
+    if (!ok) return;
+    const btn = document.getElementById("vacuumBtn");
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<i class="bi bi-hourglass-split"></i> 최적화 중...`;
+    try {
+      const result = await fetchJson("/api/vacuum", { method: "POST" });
+      alert(
+        `DB 최적화가 완료되었습니다.\n${result.before_mb}MB → ${result.after_mb}MB` +
+        (result.freed_mb > 0 ? ` (${result.freed_mb}MB 절약)` : "")
+      );
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  });
   document.getElementById("changePasswordForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     try {

@@ -97,6 +97,16 @@ def get_db():
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
+    # 오래되거나 느린(특히 HDD) 컴퓨터에서도 버벅이지 않도록 SQLite 연결 설정을 조정한다.
+    # - synchronous=NORMAL: WAL 모드에서는 안전성 손해 없이 매 쓰기마다의 fsync 비용을 줄여준다.
+    # - temp_store=MEMORY: 정렬/집계(GROUP BY 등)의 임시 데이터를 디스크 파일 대신 메모리에 둔다.
+    # - cache_size: 기본값(약 2MB)보다 넉넉하게 잡아, 같은 요청 안의 여러 쿼리가 페이지를 다시
+    #   읽지 않도록 한다.
+    # - mmap_size: 파일 읽기를 메모리 매핑으로 처리해 일반 read() 호출보다 빠르게 한다.
+    conn.execute("PRAGMA synchronous = NORMAL")
+    conn.execute("PRAGMA temp_store = MEMORY")
+    conn.execute("PRAGMA cache_size = -20000")
+    conn.execute("PRAGMA mmap_size = 134217728")
     return conn
 
 
@@ -2630,6 +2640,38 @@ def make_master_backup():
     return jsonify(meta)
 
 
+@app.route("/api/vacuum", methods=["POST"])
+def api_vacuum():
+    """도면 교체·영구 삭제 등으로 안 쓰게 된 공간은 SQLite가 자동으로 파일에서 돌려주지
+    않고 재사용 대기 상태로만 남겨둔다. VACUUM으로 DB 파일을 다시 정리해 실제 용량을
+    줄인다. 시간이 걸릴 수 있어 사용자가 직접 원할 때 눌러서 실행한다."""
+    before_size = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
+    conn = get_db()
+    try:
+        conn.execute("VACUUM")
+    except sqlite3.Error as e:
+        conn.close()
+        return jsonify({"error": f"DB 최적화 중 오류가 발생했습니다: {e}"}), 500
+    conn.commit()
+    conn.close()
+    # VACUUM으로 줄어든 실제 파일 크기는 커넥션을 완전히 닫아야 파일 시스템에 반영되므로,
+    # close() 이후에 다시 측정한다.
+    after_size = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
+    log_conn = get_db()
+    log_activity(
+        log_conn, "vacuum", "db", None, "DB 최적화",
+        f"{before_size / 1024 / 1024:.1f}MB → {after_size / 1024 / 1024:.1f}MB",
+    )
+    log_conn.commit()
+    log_conn.close()
+    return jsonify({
+        "ok": True,
+        "before_mb": round(before_size / 1024 / 1024, 1),
+        "after_mb": round(after_size / 1024 / 1024, 1),
+        "freed_mb": round((before_size - after_size) / 1024 / 1024, 1),
+    })
+
+
 @app.route("/api/alerts")
 def api_alerts():
     return jsonify(get_alert_parts())
@@ -4241,6 +4283,9 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
     <button id="backupBtn" class="btn btn-sm btn-outline-light">
       <i class="bi bi-download"></i> DB 백업
     </button>
+    <button id="vacuumBtn" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-hdd"></i> DB 최적화
+    </button>
     <button id="addEquipmentBtn" class="btn btn-sm btn-outline-light">
       <i class="bi bi-plus-lg"></i> 설비 추가
     </button>
@@ -4710,6 +4755,30 @@ document.addEventListener("DOMContentLoaded", () => {
       alert(`백업이 저장되었습니다.\n${result.path}`);
     } catch (err) {
       alert(err.message);
+    }
+  });
+  document.getElementById("vacuumBtn").addEventListener("click", async () => {
+    const ok = confirm(
+      "도면 교체·영구 삭제 등으로 안 쓰는 공간을 정리해 DB 파일 용량을 줄입니다.\n" +
+      "데이터 내용은 바뀌지 않으며, 파일 크기에 따라 시간이 다소 걸릴 수 있습니다.\n\n" +
+      "계속하시겠습니까?"
+    );
+    if (!ok) return;
+    const btn = document.getElementById("vacuumBtn");
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<i class="bi bi-hourglass-split"></i> 최적화 중...`;
+    try {
+      const result = await fetchJson("/api/vacuum", { method: "POST" });
+      alert(
+        `DB 최적화가 완료되었습니다.\n${result.before_mb}MB → ${result.after_mb}MB` +
+        (result.freed_mb > 0 ? ` (${result.freed_mb}MB 절약)` : "")
+      );
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
     }
   });
   document.getElementById("changePasswordForm").addEventListener("submit", async (e) => {
