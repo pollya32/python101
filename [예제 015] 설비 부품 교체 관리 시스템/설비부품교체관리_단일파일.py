@@ -1333,69 +1333,94 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
     없는데 교체 이력이 아직 없는 부품은 등록된 금액(예상 비용)을 대신 사용한다(설치만 해두고
     아직 한 번도 교체하지 않은 부품이 금액순 집계에서 통째로 사라지는 것을 막기 위함). 이때
     부품은 전 설비에 동일하게 동기화되어 있으므로, 등록된 금액은 유닛별로 합산하지 않고
-    기준 설비(TEAG01호기)에 등록된 값 하나만 사용한다.
+    기준 설비(TEAG01호기)에 등록된 값만 사용한다.
     기간 필터가 있으면 해당 기간에 실제로 발생한 교체 기록의 금액만 집계한다.
     사용량은 항상 실제 교체 이력 기준이다.
-    교체주기는 항상 현재 부품 구성 기준으로 계산하되, 주기가 없는(N/A) 부품은 제외한다."""
+    교체주기는 항상 현재 부품 구성 기준으로 계산하되, 주기가 없는(N/A) 부품은 제외한다.
+
+    (성능: 등록된 부품 수가 늘어날수록 이 조회가 느려지는 것을 막기 위해, 개별 부품 행을
+    전부 파이썬으로 가져와 순회하는 대신 규격별 집계를 SQLite의 GROUP BY로 DB 단에서
+    끝낸다. 교체 이력 금액도 이력 테이블과 직접 JOIN해서 규격별로 바로 합산하므로, 결과
+    행 수가 "전체 부품 수"가 아니라 "고유 규격 수"와 "교체 이력 건수"에 비례하게 된다.)"""
     period_filter = bool(start_date or end_date)
-    query = f"""
-        SELECT {PART_COLS_SANS_DRAWING}, u.name AS unit_name, e.id AS equipment_id
+
+    unit_filter_sql = ""
+    unit_filter_params = []
+    if unit_names:
+        placeholders = ",".join("?" for _ in unit_names)
+        unit_filter_sql = f" AND u.name IN ({placeholders})"
+        unit_filter_params = list(unit_names)
+
+    # 규격별 설치 대수/최소 교체주기. SQLite는 쿼리에 min()/max()가 하나뿐이면 그 값을
+    # 낸 행의 다른 bare 컬럼도 그대로 돌려주므로, cycle_unit도 min_cycle_days와 같은 행
+    # 기준으로 바로 얻을 수 있다.
+    agg_rows = conn.execute(f"""
+        SELECT p.name AS name, COALESCE(p.spec, '') AS spec,
+               COUNT(*) AS instance_count,
+               MIN(p.cycle_days) AS min_cycle_days,
+               p.cycle_unit AS min_cycle_unit
         FROM parts p
         JOIN units u ON p.unit_id = u.id
         JOIN equipments e ON u.equipment_id = e.id
         WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
-    """
-    params = []
-    if unit_names:
-        placeholders = ",".join("?" for _ in unit_names)
-        query += f" AND u.name IN ({placeholders})"
-        params = list(unit_names)
-    parts = conn.execute(query, params).fetchall()
-
-    # 그룹마다 따로 교체 이력을 조회하는 대신, 관련된 모든 부품의 이력을 한 번에 가져와
-    # part_id 기준으로 집계해둔다 (N+1 쿼리 방지).
-    hist_by_part = {}
-    part_ids = [p["id"] for p in parts]
-    if part_ids:
-        placeholders = ",".join("?" for _ in part_ids)
-        hist_query = f"SELECT part_id, cost FROM replacement_history WHERE part_id IN ({placeholders})"
-        hist_params = list(part_ids)
-        if start_date:
-            hist_query += " AND replaced_date >= ?"
-            hist_params.append(start_date)
-        if end_date:
-            hist_query += " AND replaced_date <= ?"
-            hist_params.append(end_date)
-        for h in conn.execute(hist_query, hist_params).fetchall():
-            entry = hist_by_part.setdefault(h["part_id"], {"n": 0, "total": 0})
-            entry["n"] += 1
-            entry["total"] += h["cost"] or 0
+        {unit_filter_sql}
+        GROUP BY p.name, COALESCE(p.spec, '')
+    """, unit_filter_params).fetchall()
 
     groups = {}
-    for p in parts:
-        key = (p["name"], p["spec"] or "")
-        g = groups.get(key)
-        if g is None:
-            g = {
-                "name": p["name"],
-                "spec": p["spec"] or "",
-                "total_cost": 0,
-                "instance_count": 0,
-                "usage_count": 0,
-                "min_cycle_days": None,
-                "min_cycle_unit": "일",
-            }
-            groups[key] = g
-        g["instance_count"] += 1
-        if p["cycle_days"] is not None and (g["min_cycle_days"] is None or p["cycle_days"] < g["min_cycle_days"]):
-            g["min_cycle_days"] = p["cycle_days"]
-            g["min_cycle_unit"] = p["cycle_unit"]
-        hist = hist_by_part.get(p["id"], {"n": 0, "total": 0})
-        g["usage_count"] += hist["n"]
-        if hist["n"] > 0:
-            g["total_cost"] += hist["total"]
-        elif not period_filter and p["equipment_id"] == MASTER_EQUIPMENT_ID:
-            g["total_cost"] += p["cost"] or 0
+    for r in agg_rows:
+        key = (r["name"], r["spec"])
+        groups[key] = {
+            "name": r["name"],
+            "spec": r["spec"],
+            "total_cost": 0,
+            "instance_count": r["instance_count"],
+            "usage_count": 0,
+            "min_cycle_days": r["min_cycle_days"],
+            "min_cycle_unit": r["min_cycle_unit"] if r["min_cycle_days"] is not None else "일",
+        }
+
+    # 교체 이력이 아직 없는 부품의 예상 비용(등록 금액)은 기준 설비에 등록된 값만 사용한다.
+    if not period_filter:
+        master_rows = conn.execute(f"""
+            SELECT p.name AS name, COALESCE(p.spec, '') AS spec, SUM(p.cost) AS master_cost
+            FROM parts p
+            JOIN units u ON p.unit_id = u.id
+            WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND u.equipment_id = ?
+              AND NOT EXISTS (SELECT 1 FROM replacement_history h WHERE h.part_id = p.id)
+              {unit_filter_sql}
+            GROUP BY p.name, COALESCE(p.spec, '')
+        """, [MASTER_EQUIPMENT_ID] + unit_filter_params).fetchall()
+        for r in master_rows:
+            key = (r["name"], r["spec"])
+            if key in groups:
+                groups[key]["total_cost"] += r["master_cost"] or 0
+
+    # 실제 교체 이력의 사용횟수/금액은 이력 테이블과 부품을 직접 JOIN해서 규격별로 합산한다.
+    hist_sql = f"""
+        SELECT p.name AS name, COALESCE(p.spec, '') AS spec,
+               COUNT(*) AS usage_count, SUM(h.cost) AS total_cost
+        FROM replacement_history h
+        JOIN parts p ON h.part_id = p.id
+        JOIN units u ON p.unit_id = u.id
+        JOIN equipments e ON u.equipment_id = e.id
+        WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
+        {unit_filter_sql}
+    """
+    hist_params = list(unit_filter_params)
+    if start_date:
+        hist_sql += " AND h.replaced_date >= ?"
+        hist_params.append(start_date)
+    if end_date:
+        hist_sql += " AND h.replaced_date <= ?"
+        hist_params.append(end_date)
+    hist_sql += " GROUP BY p.name, COALESCE(p.spec, '')"
+
+    for r in conn.execute(hist_sql, hist_params).fetchall():
+        key = (r["name"], r["spec"])
+        if key in groups:
+            groups[key]["usage_count"] = r["usage_count"]
+            groups[key]["total_cost"] += r["total_cost"] or 0
 
     return list(groups.values())
 
