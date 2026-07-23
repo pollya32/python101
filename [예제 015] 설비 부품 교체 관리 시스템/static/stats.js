@@ -120,7 +120,10 @@ async function loadStats() {
   }
   const data = await res.json();
   renderUnitFilter(data.unit_names);
-  renderPartSpecPanel("statsCost", data.by_cost, (r) => formatMoney(r.total_cost));
+  renderPartSpecPanel(
+    "statsCost", data.by_cost,
+    (r) => `구매금액 ${formatMoney(r.purchase_cost)} · 교체 합산 ${formatMoney(r.replacement_cost_total)}`
+  );
   renderPartSpecPanel("statsUsage", data.by_usage, (r) => `${r.usage_count}회 교체`);
   renderPartSpecPanel("statsCycle", data.by_short_cycle, (r) => formatCycle(r.min_cycle_days, r.min_cycle_unit) + " 주기");
   renderUnitPanel("statsPartCount", data.by_part_count, (r) => `${r.part_count}개`);
@@ -128,7 +131,7 @@ async function loadStats() {
   const goToSearch = (r) => { window.location.href = `/search?q=${encodeURIComponent(r.name)}`; };
   renderBarChart("statsCostChart", data.by_cost, {
     labelFn: (r) => r.name,
-    valueFn: (r) => r.total_cost,
+    valueFn: (r) => r.replacement_cost_total,
     formatValue: formatMoney,
     onClick: goToSearch,
   });
@@ -151,8 +154,8 @@ async function loadStats() {
     onClick: (r) => { window.location.href = `/unit/${r.unit_id}`; },
   });
   document.getElementById("costSubtitle").textContent = data.period_active
-    ? "(선택 기간 교체 이력 기준)"
-    : "(교체 이력 있으면 실제 금액, 없으면 등록 금액)";
+    ? "(선택 기간 교체 이력 금액 합산 기준 정렬 · 구매금액도 함께 표시)"
+    : "(교체 이력 금액 합산 기준 정렬 · 구매금액도 함께 표시)";
   document.getElementById("usageSubtitle").textContent = data.period_active ? "(선택 기간 교체 이력 기준)" : "(전체 교체 이력 기준)";
   document.getElementById("clearPeriodBtn").classList.toggle("d-none", !data.period_active);
   updateExportLinks();

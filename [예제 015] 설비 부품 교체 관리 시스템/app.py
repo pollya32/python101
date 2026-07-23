@@ -1302,12 +1302,12 @@ def search_parts(query, status=None, equipment_id=None):
 
 def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
     """부품명+규격을 기준으로 시스템 전체(선택된 유닛 이름으로 범위 제한 가능)를 집계한다.
-    금액은 실제 교체 이력(replacement_history)이 있으면 그 금액을 사용하고, 기간 필터가
-    없는데 교체 이력이 아직 없는 부품은 등록된 금액(예상 비용)을 대신 사용한다(설치만 해두고
-    아직 한 번도 교체하지 않은 부품이 금액순 집계에서 통째로 사라지는 것을 막기 위함). 이때
-    부품은 전 설비에 동일하게 동기화되어 있으므로, 등록된 금액은 유닛별로 합산하지 않고
-    기준 설비(TEAG01호기)에 등록된 값만 사용한다.
-    기간 필터가 있으면 해당 기간에 실제로 발생한 교체 기록의 금액만 집계한다.
+    금액은 두 가지를 따로 계산한다.
+    - purchase_cost: 기준 설비(TEAG01호기)에 등록된 구매(예상) 금액. 부품은 전 설비에 동일하게
+      동기화되어 있으므로 유닛별로 합산하지 않고 기준 설비에 등록된 값만 쓰며, 교체 이력이
+      있는지 여부/기간 필터와 무관하게 항상 계산한다.
+    - replacement_cost_total: 실제 교체 이력(replacement_history)에 기록된 금액의 합. 기간
+      필터가 있으면 해당 기간에 발생한 교체 기록만 합산한다.
     사용량은 항상 실제 교체 이력 기준이다.
     교체주기는 항상 현재 부품 구성 기준으로 계산하되, 주기가 없는(N/A) 부품은 제외한다.
 
@@ -1315,8 +1315,6 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
     전부 파이썬으로 가져와 순회하는 대신 규격별 집계를 SQLite의 GROUP BY로 DB 단에서
     끝낸다. 교체 이력 금액도 이력 테이블과 직접 JOIN해서 규격별로 바로 합산하므로, 결과
     행 수가 "전체 부품 수"가 아니라 "고유 규격 수"와 "교체 이력 건수"에 비례하게 된다.)"""
-    period_filter = bool(start_date or end_date)
-
     unit_filter_sql = ""
     unit_filter_params = []
     if unit_names:
@@ -1346,33 +1344,32 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
         groups[key] = {
             "name": r["name"],
             "spec": r["spec"],
-            "total_cost": 0,
+            "purchase_cost": 0,
+            "replacement_cost_total": 0,
             "instance_count": r["instance_count"],
             "usage_count": 0,
             "min_cycle_days": r["min_cycle_days"],
             "min_cycle_unit": r["min_cycle_unit"] if r["min_cycle_days"] is not None else "일",
         }
 
-    # 교체 이력이 아직 없는 부품의 예상 비용(등록 금액)은 기준 설비에 등록된 값만 사용한다.
-    if not period_filter:
-        master_rows = conn.execute(f"""
-            SELECT p.name AS name, COALESCE(p.spec, '') AS spec, SUM(p.cost) AS master_cost
-            FROM parts p
-            JOIN units u ON p.unit_id = u.id
-            WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND u.equipment_id = ?
-              AND NOT EXISTS (SELECT 1 FROM replacement_history h WHERE h.part_id = p.id)
-              {unit_filter_sql}
-            GROUP BY p.name, COALESCE(p.spec, '')
-        """, [MASTER_EQUIPMENT_ID] + unit_filter_params).fetchall()
-        for r in master_rows:
-            key = (r["name"], r["spec"])
-            if key in groups:
-                groups[key]["total_cost"] += r["master_cost"] or 0
+    # 구매(예상) 금액은 기준 설비에 등록된 값만 쓴다.
+    purchase_rows = conn.execute(f"""
+        SELECT p.name AS name, COALESCE(p.spec, '') AS spec, SUM(p.cost) AS purchase_cost
+        FROM parts p
+        JOIN units u ON p.unit_id = u.id
+        WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND u.equipment_id = ?
+          {unit_filter_sql}
+        GROUP BY p.name, COALESCE(p.spec, '')
+    """, [MASTER_EQUIPMENT_ID] + unit_filter_params).fetchall()
+    for r in purchase_rows:
+        key = (r["name"], r["spec"])
+        if key in groups:
+            groups[key]["purchase_cost"] += r["purchase_cost"] or 0
 
     # 실제 교체 이력의 사용횟수/금액은 이력 테이블과 부품을 직접 JOIN해서 규격별로 합산한다.
     hist_sql = f"""
         SELECT p.name AS name, COALESCE(p.spec, '') AS spec,
-               COUNT(*) AS usage_count, SUM(h.cost) AS total_cost
+               COUNT(*) AS usage_count, SUM(h.cost) AS replacement_cost_total
         FROM replacement_history h
         JOIN parts p ON h.part_id = p.id
         JOIN units u ON p.unit_id = u.id
@@ -1393,7 +1390,7 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
         key = (r["name"], r["spec"])
         if key in groups:
             groups[key]["usage_count"] = r["usage_count"]
-            groups[key]["total_cost"] += r["total_cost"] or 0
+            groups[key]["replacement_cost_total"] = r["replacement_cost_total"] or 0
 
     return list(groups.values())
 
@@ -2580,11 +2577,13 @@ def build_stats_payload(conn, unit_names, start_date=None, end_date=None):
     """부품 규격 기준(금액순/사용량 많은순/교체주기 짧은순)과 유닛 기준(부품수 많은순) 통계를 함께 만든다."""
     period_active = bool(start_date or end_date)
     spec_rows = get_part_spec_stats(conn, unit_names, start_date=start_date, end_date=end_date)
-    # 기간 필터가 없으면 아직 교체 이력이 없는 부품도 등록된 금액으로 집계되므로(get_part_spec_stats
-    # 참고) 전부 보여준다. 기간 필터가 있으면 그 기간에 실제 교체 기록이 있는 부품만 보여준다.
+    # 순위는 실제 교체 이력 금액 합산(replacement_cost_total) 기준으로만 매긴다. 구매 금액은
+    # 별도 항목으로 항상 같이 보여준다. 기간 필터가 없으면 아직 교체하지 않은 부품도 구매
+    # 금액을 볼 수 있게 전부 보여주고, 기간 필터가 있으면 그 기간에 실제 교체 기록이 있는
+    # 부품만 보여준다.
     by_cost = sorted(
         (r for r in spec_rows if period_active is False or r["usage_count"] > 0),
-        key=lambda r: r["total_cost"], reverse=True
+        key=lambda r: r["replacement_cost_total"], reverse=True
     )
     by_usage = sorted(spec_rows, key=lambda r: r["usage_count"], reverse=True)
     by_short_cycle = sorted(
@@ -2655,16 +2654,22 @@ def export_stats_csv():
     buf = io.StringIO()
     writer = csv.writer(buf)
 
-    writer.writerow(["[금액순 (부품 규격 기준)]"])
-    writer.writerow(["순위", "부품명", "규격", "총 금액", "등록 수", "교체 횟수"])
+    writer.writerow(["[금액순 (부품 규격 기준, 교체 이력 금액 합산 기준 정렬)]"])
+    writer.writerow(["순위", "부품명", "규격", "구매금액", "교체 이력 금액 합산", "등록 수", "교체 횟수"])
     for i, r in enumerate(payload["by_cost"], 1):
-        writer.writerow([i, r["name"], r["spec"], r["total_cost"], r["instance_count"], r["usage_count"]])
+        writer.writerow([
+            i, r["name"], r["spec"], r["purchase_cost"], r["replacement_cost_total"],
+            r["instance_count"], r["usage_count"],
+        ])
     writer.writerow([])
 
     writer.writerow(["[사용량 많은순 (부품 규격 기준)]"])
-    writer.writerow(["순위", "부품명", "규격", "교체 횟수", "등록 수", "총 금액"])
+    writer.writerow(["순위", "부품명", "규격", "교체 횟수", "등록 수", "구매금액", "교체 이력 금액 합산"])
     for i, r in enumerate(payload["by_usage"], 1):
-        writer.writerow([i, r["name"], r["spec"], r["usage_count"], r["instance_count"], r["total_cost"]])
+        writer.writerow([
+            i, r["name"], r["spec"], r["usage_count"], r["instance_count"],
+            r["purchase_cost"], r["replacement_cost_total"],
+        ])
     writer.writerow([])
 
     writer.writerow(["[교체 주기 짧은순 (부품 규격 기준)]"])
@@ -2762,24 +2767,30 @@ def build_stats_pptx(payload, unit_names):
 
     by_cost5 = payload["by_cost"][:5]
     add_report_slide(
-        "금액순 TOP 5 (부품 규격 기준)",
-        ["순위", "부품명", "규격", "총 금액(원)", "등록 수", "교체 횟수"],
+        "금액순 TOP 5 (부품 규격 기준, 교체 이력 금액 합산 기준 정렬)",
+        ["순위", "부품명", "규격", "구매금액(원)", "교체 이력 금액 합산(원)", "등록 수", "교체 횟수"],
         [
-            [i, r["name"], r["spec"], f'{r["total_cost"]:,.0f}', r["instance_count"], r["usage_count"]]
+            [
+                i, r["name"], r["spec"], f'{r["purchase_cost"]:,.0f}', f'{r["replacement_cost_total"]:,.0f}',
+                r["instance_count"], r["usage_count"],
+            ]
             for i, r in enumerate(by_cost5, 1)
         ],
         [chart_label(r) for r in by_cost5],
-        [r["total_cost"] for r in by_cost5],
-        "총 금액(원)",
+        [r["replacement_cost_total"] for r in by_cost5],
+        "교체 이력 금액 합산(원)",
         number_format="#,##0",
     )
 
     by_usage5 = payload["by_usage"][:5]
     add_report_slide(
         "사용량 많은순 TOP 5 (부품 규격 기준)",
-        ["순위", "부품명", "규격", "교체 횟수", "등록 수", "총 금액(원)"],
+        ["순위", "부품명", "규격", "교체 횟수", "등록 수", "구매금액(원)", "교체 이력 금액 합산(원)"],
         [
-            [i, r["name"], r["spec"], r["usage_count"], r["instance_count"], f'{r["total_cost"]:,.0f}']
+            [
+                i, r["name"], r["spec"], r["usage_count"], r["instance_count"],
+                f'{r["purchase_cost"]:,.0f}', f'{r["replacement_cost_total"]:,.0f}',
+            ]
             for i, r in enumerate(by_usage5, 1)
         ],
         [chart_label(r) for r in by_usage5],
