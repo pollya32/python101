@@ -633,10 +633,15 @@ def part_status(cycle_days, last_replaced_date):
 
 def serialize_part(row, include_drawing=False):
     """목록 응답에는 도면 원본(최대 8MB) 대신 has_drawing 여부만 포함한다.
-    실제 도면은 사용자가 도면 보기/편집을 열 때 /api/parts/<id>/drawing로 그때 가져온다."""
+    실제 도면은 사용자가 도면 보기/편집을 열 때 /api/parts/<id>/drawing로 그때 가져온다.
+    호출부가 이미 SQL에서 has_drawing을 계산해 넘긴 경우(도면 원본을 아예 조회하지 않은
+    경우) 그 값을 그대로 쓰고, drawing_data를 통째로 가져온 경우에는 여기서 계산한다."""
     info = part_status(row["cycle_days"], row["last_replaced_date"])
     d = dict(row)
-    d["has_drawing"] = bool(d.get("drawing_data"))
+    if "has_drawing" in d:
+        d["has_drawing"] = bool(d["has_drawing"])
+    else:
+        d["has_drawing"] = bool(d.get("drawing_data"))
     if not include_drawing:
         d.pop("drawing_data", None)
     d.update(info)
@@ -839,7 +844,13 @@ def units_with_status_bulk(conn, units):
             overall = "empty"
         d = dict(u)
         # 유닛 목록 응답에도 도면 원본 대신 has_drawing 여부만 포함한다 (지연 로딩).
-        d["has_drawing"] = bool(d.pop("drawing_data", None))
+        # 호출부가 이미 has_drawing을 SQL에서 계산해 넘겼으면 그 값을 쓰고, drawing_data를
+        # 통째로 가져온 경우(과거 호출부와의 호환)에는 여기서 계산해서 뺀다.
+        if "has_drawing" in d:
+            d["has_drawing"] = bool(d["has_drawing"])
+            d.pop("drawing_data", None)
+        else:
+            d["has_drawing"] = bool(d.pop("drawing_data", None))
         d["part_count"] = len(parts)
         d["overall_status"] = overall
         d["overdue_count"] = statuses.count("overdue")
@@ -1852,8 +1863,13 @@ def delete_equipment(equipment_id):
 @app.route("/api/equipments/<int:equipment_id>/units")
 def list_units(equipment_id):
     conn = get_db()
+    # drawing_data는 최대 8MB까지 저장되므로, 여기서 SELECT * 로 통째로 읽어오면 화면에는
+    # has_drawing 여부만 필요한데도 매번 원본을 통째로 읽고 버리게 된다. 도면 유무만
+    # 계산되는 컬럼(has_drawing)으로 대신 가져온다.
     units = conn.execute(
-        "SELECT * FROM units WHERE equipment_id = ? AND deleted_at IS NULL ORDER BY id", (equipment_id,)
+        f"SELECT {UNIT_COLS_SANS_DRAWING}, "
+        f"(u.drawing_data IS NOT NULL AND u.drawing_data != '') AS has_drawing "
+        f"FROM units u WHERE u.equipment_id = ? AND u.deleted_at IS NULL ORDER BY u.id", (equipment_id,)
     ).fetchall()
     result = units_with_status_bulk(conn, units)
     conn.close()
@@ -1899,8 +1915,12 @@ def add_unit(equipment_id):
 @app.route("/api/units/<int:unit_id>")
 def get_unit(unit_id):
     conn = get_db()
+    # 유닛 상세 페이지를 열 때마다 호출되므로, 여기서도 도면 원본(최대 8MB) 대신
+    # has_drawing 여부만 가져온다. 도면은 실제로 열 때 /api/units/<id>/drawing로 가져온다.
     unit = conn.execute(
-        "SELECT * FROM units WHERE id = ? AND deleted_at IS NULL", (unit_id,)
+        f"SELECT {UNIT_COLS_SANS_DRAWING}, "
+        f"(u.drawing_data IS NOT NULL AND u.drawing_data != '') AS has_drawing "
+        f"FROM units u WHERE u.id = ? AND u.deleted_at IS NULL", (unit_id,)
     ).fetchone()
     if not unit:
         conn.close()
@@ -1961,12 +1981,21 @@ def delete_unit(unit_id):
 @app.route("/api/units/<int:unit_id>/parts")
 def list_parts(unit_id):
     conn = get_db()
-    rows = conn.execute(
-        "SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL ORDER BY id", (unit_id,)
-    ).fetchall()
-    conn.close()
     # 유닛 복사(전체 부품 도면 포함) 등 도면 원본이 실제로 필요한 경우에만 include_drawings=1로 요청한다.
+    # 그 외(유닛 상세 페이지를 열 때 등 대부분의 경우)에는 도면 원본을 DB에서부터 읽지 않도록
+    # has_drawing 여부만 계산해서 가져온다 (부품이 많고 도면이 클수록 효과가 크다).
     include_drawing = request.args.get("include_drawings") == "1"
+    if include_drawing:
+        rows = conn.execute(
+            "SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL ORDER BY id", (unit_id,)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            f"SELECT {PART_COLS_SANS_DRAWING}, "
+            f"(p.drawing_data IS NOT NULL AND p.drawing_data != '') AS has_drawing "
+            f"FROM parts p WHERE p.unit_id = ? AND p.deleted_at IS NULL ORDER BY p.id", (unit_id,)
+        ).fetchall()
+    conn.close()
     return jsonify([serialize_part(r, include_drawing=include_drawing) for r in rows])
 
 
