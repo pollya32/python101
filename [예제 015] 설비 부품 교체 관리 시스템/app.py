@@ -3,6 +3,7 @@ import sqlite3
 import os
 import sys
 import csv
+import hashlib
 import io
 import json
 import random
@@ -42,6 +43,44 @@ MAIL_SYSTEM_ID = "XXXXXXXXXXXXXX"                # ← 실제 System-ID 값으�
 MAIL_SUBJECT = "[부품관리] TES 설비 부품 현황"
 # ════════════════════════════════════════════════════════════════════
 MAX_DRAWING_DATA_LEN = 8 * 1024 * 1024  # 도면 이미지(base64 data URL) 최대 길이, 원본 파일 약 5MB에 해당
+
+
+def store_drawing_blob(conn, data):
+    """도면 data URL을 drawing_blobs 테이블에 내용(해시) 기준으로 중복 없이 저장하고,
+    units/parts 컬럼에 넣을 해시 참조를 반환한다. "모든 설비에 적용"으로 20개 설비에
+    같은 도면이 그대로 복제되어도, 실제 원본은 여기 한 번만 저장된다."""
+    if not data:
+        return None
+    digest = hashlib.sha256(data.encode("utf-8")).hexdigest()
+    if not conn.execute("SELECT 1 FROM drawing_blobs WHERE hash = ?", (digest,)).fetchone():
+        conn.execute("INSERT INTO drawing_blobs (hash, data) VALUES (?, ?)", (digest, data))
+    return digest
+
+
+def load_drawing_blob(conn, hash_ref):
+    """해시 참조로부터 실제 도면 data URL을 가져온다."""
+    if not hash_ref:
+        return None
+    row = conn.execute("SELECT data FROM drawing_blobs WHERE hash = ?", (hash_ref,)).fetchone()
+    return row["data"] if row else None
+
+
+def cleanup_orphaned_drawing_blobs(conn):
+    """어느 유닛/부품(휴지통에 있는 것 포함, 마스터 백업 포함)에서도 더 이상 참조하지 않는
+    drawing_blobs 행을 정리한다. 부품/유닛을 지우거나 도면을 바꿔도 그때그때 지우지 않고,
+    DB 최적화(VACUUM) 시점에 한 번에 정리한다."""
+    used_hashes = set()
+    for table in ("units", "parts", "master_backup_units", "master_backup_parts"):
+        for row in conn.execute(
+            f"SELECT DISTINCT drawing_data FROM {table} WHERE drawing_data IS NOT NULL AND drawing_data != ''"
+        ).fetchall():
+            used_hashes.add(row[0])
+    all_hashes = [r["hash"] for r in conn.execute("SELECT hash FROM drawing_blobs").fetchall()]
+    orphaned = [h for h in all_hashes if h not in used_hashes]
+    if orphaned:
+        placeholders = ",".join("?" for _ in orphaned)
+        conn.execute(f"DELETE FROM drawing_blobs WHERE hash IN ({placeholders})", orphaned)
+    return len(orphaned)
 
 
 def dashboard_grid_pos(index, cols=5):
@@ -608,6 +647,29 @@ def init_db():
             )
         c.execute("INSERT INTO app_config (key, value) VALUES ('memo_rich_migrated_v1', '1')")
 
+    # 도면 원본을 부품/유닛 테이블에 직접 저장하면, "모든 설비에 적용"으로 20개 설비에
+    # 동일한 도면이 그대로 복제되어 같은 이미지가 여러 번 중복 저장된다. 도면 원본은
+    # 내용(해시) 기준으로 이 테이블에 한 번만 저장하고, units/parts의 drawing_data 컬럼에는
+    # 그 해시 참조만 남긴다.
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS drawing_blobs (
+            hash TEXT PRIMARY KEY,
+            data TEXT NOT NULL
+        )
+    """)
+    # 이 기능 도입 전에 저장된 도면 원본(raw data URL)을 drawing_blobs로 옮기고, 각 테이블의
+    # drawing_data는 해시 참조로 바꾼다(최초 1회만 수행). 해시 참조로 이미 바뀐 값은
+    # "data:"로 시작하지 않으므로 다시 걸리지 않는다.
+    if not c.execute("SELECT 1 FROM app_config WHERE key = 'drawing_blobs_migrated_v1'").fetchone():
+        for table in ("units", "parts", "master_backup_units", "master_backup_parts"):
+            rows = c.execute(
+                f"SELECT id, drawing_data FROM {table} WHERE drawing_data LIKE 'data:%'"
+            ).fetchall()
+            for row in rows:
+                ref = store_drawing_blob(conn, row["drawing_data"])
+                c.execute(f"UPDATE {table} SET drawing_data = ? WHERE id = ?", (ref, row["id"]))
+        c.execute("INSERT INTO app_config (key, value) VALUES ('drawing_blobs_migrated_v1', '1')")
+
     # 설비/유닛/부품이 많아져도 목록 조회가 느려지지 않도록, 자주 필터링되는 외래키 컬럼에
     # 인덱스를 추가한다 (이미 있으면 아무 일도 하지 않음).
     c.execute("CREATE INDEX IF NOT EXISTS idx_units_equipment_id ON units(equipment_id)")
@@ -641,18 +703,22 @@ def part_status(cycle_days, last_replaced_date):
     }
 
 
-def serialize_part(row, include_drawing=False):
+def serialize_part(conn, row, include_drawing=False):
     """목록 응답에는 도면 원본(최대 8MB) 대신 has_drawing 여부만 포함한다.
     실제 도면은 사용자가 도면 보기/편집을 열 때 /api/parts/<id>/drawing로 그때 가져온다.
     호출부가 이미 SQL에서 has_drawing을 계산해 넘긴 경우(도면 원본을 아예 조회하지 않은
-    경우) 그 값을 그대로 쓰고, drawing_data를 통째로 가져온 경우에는 여기서 계산한다."""
+    경우) 그 값을 그대로 쓰고, drawing_data를 통째로 가져온 경우에는 여기서 계산한다.
+    drawing_data 컬럼에는 실제 도면 원본이 아니라 drawing_blobs를 가리키는 해시 참조만
+    들어있으므로, include_drawing=True일 때는 load_drawing_blob으로 원본을 가져와 채운다."""
     info = part_status(row["cycle_days"], row["last_replaced_date"])
     d = dict(row)
     if "has_drawing" in d:
         d["has_drawing"] = bool(d["has_drawing"])
     else:
         d["has_drawing"] = bool(d.get("drawing_data"))
-    if not include_drawing:
+    if include_drawing:
+        d["drawing_data"] = load_drawing_blob(conn, d.get("drawing_data"))
+    else:
         d.pop("drawing_data", None)
     d.update(info)
     return d
@@ -1906,6 +1972,7 @@ def add_unit(equipment_id):
     if drawing_data and len(drawing_data) > MAX_DRAWING_DATA_LEN:
         return jsonify({"error": "도면 이미지 용량이 너무 큽니다 (최대 5MB)"}), 400
     conn = get_db()
+    drawing_data = store_drawing_blob(conn, drawing_data)
     cur = conn.execute(
         "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y, width, height, drawing_data) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -1957,10 +2024,17 @@ def update_unit(unit_id):
     pos_y = data.get("pos_y", unit["pos_y"])
     width = data.get("width", unit["width"])
     height = data.get("height", unit["height"])
-    drawing_data = data.get("drawing_data", unit["drawing_data"])
-    if drawing_data and len(drawing_data) > MAX_DRAWING_DATA_LEN:
-        conn.close()
-        return jsonify({"error": "도면 이미지 용량이 너무 큽니다 (최대 5MB)"}), 400
+    # drawing_data가 요청에 없으면(도면 아닌 다른 항목만 수정) 기존 해시 참조를 그대로 둔다.
+    # 요청에 있으면(도면을 새로 그리거나 지운 경우) 새 원본을 저장하고 그 해시로 바꾼다.
+    # unit["drawing_data"]는 이미 해시 참조이므로 다시 store_drawing_blob에 넣으면 안 된다.
+    if "drawing_data" in data:
+        new_drawing = data["drawing_data"]
+        if new_drawing and len(new_drawing) > MAX_DRAWING_DATA_LEN:
+            conn.close()
+            return jsonify({"error": "도면 이미지 용량이 너무 큽니다 (최대 5MB)"}), 400
+        drawing_data = store_drawing_blob(conn, new_drawing)
+    else:
+        drawing_data = unit["drawing_data"]
     meaningful_change = name != unit["name"] or icon != unit["icon"] or color != unit["color"]
     conn.execute(
         "UPDATE units SET name = ?, icon = ?, color = ?, pos_x = ?, pos_y = ?, width = ?, height = ?, "
@@ -2007,28 +2081,33 @@ def list_parts(unit_id):
             f"(p.drawing_data IS NOT NULL AND p.drawing_data != '') AS has_drawing "
             f"FROM parts p WHERE p.unit_id = ? AND p.deleted_at IS NULL ORDER BY p.id", (unit_id,)
         ).fetchall()
+    result = [serialize_part(conn, r, include_drawing=include_drawing) for r in rows]
     conn.close()
-    return jsonify([serialize_part(r, include_drawing=include_drawing) for r in rows])
+    return jsonify(result)
 
 
 @app.route("/api/parts/<int:part_id>/drawing")
 def get_part_drawing(part_id):
     conn = get_db()
     row = conn.execute("SELECT drawing_data FROM parts WHERE id = ?", (part_id,)).fetchone()
-    conn.close()
     if not row:
+        conn.close()
         return jsonify({"error": "부품을 찾을 수 없습니다"}), 404
-    return jsonify({"drawing_data": row["drawing_data"]})
+    drawing_data = load_drawing_blob(conn, row["drawing_data"])
+    conn.close()
+    return jsonify({"drawing_data": drawing_data})
 
 
 @app.route("/api/units/<int:unit_id>/drawing")
 def get_unit_drawing(unit_id):
     conn = get_db()
     row = conn.execute("SELECT drawing_data FROM units WHERE id = ?", (unit_id,)).fetchone()
-    conn.close()
     if not row:
+        conn.close()
         return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
-    return jsonify({"drawing_data": row["drawing_data"]})
+    drawing_data = load_drawing_blob(conn, row["drawing_data"])
+    conn.close()
+    return jsonify({"drawing_data": drawing_data})
 
 
 @app.route("/api/units/<int:unit_id>/parts", methods=["POST"])
@@ -2064,6 +2143,7 @@ def add_part(unit_id):
     # 기준 설비(TEAG01)가 아닌 곳에서 직접 등록한 부품은 "독립 부품"으로 표시해, 기준 설비
     # 기준의 재고/금액/구매처 동기화 및 "전체 설비에 적용" 시 삭제 대상에서 제외되도록 한다.
     local_only = 1 if unit_row["equipment_id"] != MASTER_EQUIPMENT_ID else 0
+    drawing_data = store_drawing_blob(conn, drawing_data)
     part_id = insert_part(
         conn, unit_id, name, spec=spec, cycle_days=cycle_days, cycle_unit=cycle_unit, cost=cost,
         last_replaced_date=last_replaced_date, note=note, memo=memo, drawing_data=drawing_data, icon=icon,
@@ -2075,7 +2155,7 @@ def add_part(unit_id):
     conn.commit()
     row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
     conn.close()
-    return jsonify(serialize_part(row)), 201
+    return jsonify(serialize_part(conn, row)), 201
 
 
 @app.route("/api/units/<int:unit_id>/apply-parts", methods=["POST"])
@@ -2293,10 +2373,16 @@ def update_part(part_id):
     cycle_days, cycle_unit = resolve_cycle(data, part["cycle_days"], part["cycle_unit"])
     note = data.get("note", part["note"])
     memo = sanitize_rich_html(data.get("memo", part["memo"]))
-    drawing_data = data.get("drawing_data", part["drawing_data"])
-    if drawing_data and len(drawing_data) > MAX_DRAWING_DATA_LEN:
-        conn.close()
-        return jsonify({"error": "도면 이미지 용량이 너무 큽니다 (최대 5MB)"}), 400
+    # drawing_data가 요청에 없으면(도면 아닌 다른 항목만 수정) 기존 해시 참조를 그대로 둔다.
+    # part["drawing_data"]는 이미 해시 참조이므로 다시 store_drawing_blob에 넣으면 안 된다.
+    if "drawing_data" in data:
+        new_drawing = data["drawing_data"]
+        if new_drawing and len(new_drawing) > MAX_DRAWING_DATA_LEN:
+            conn.close()
+            return jsonify({"error": "도면 이미지 용량이 너무 큽니다 (최대 5MB)"}), 400
+        drawing_data = store_drawing_blob(conn, new_drawing)
+    else:
+        drawing_data = part["drawing_data"]
     icon = (data.get("icon") or part["icon"]).strip()
     pos_x = data.get("pos_x", part["pos_x"])
     pos_y = data.get("pos_y", part["pos_y"])
@@ -2338,7 +2424,7 @@ def update_part(part_id):
     conn.commit()
     row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
     conn.close()
-    return jsonify(serialize_part(row))
+    return jsonify(serialize_part(conn, row))
 
 
 @app.route("/api/parts/<int:part_id>", methods=["DELETE"])
@@ -2380,7 +2466,7 @@ def replace_part(part_id):
     conn.commit()
     row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
     conn.close()
-    return jsonify(serialize_part(row)), 201
+    return jsonify(serialize_part(conn, row)), 201
 
 
 @app.route("/api/parts/<int:part_id>/history")
@@ -2619,10 +2705,14 @@ def make_master_backup():
 def api_vacuum():
     """도면 교체·영구 삭제 등으로 안 쓰게 된 공간은 SQLite가 자동으로 파일에서 돌려주지
     않고 재사용 대기 상태로만 남겨둔다. VACUUM으로 DB 파일을 다시 정리해 실제 용량을
-    줄인다. 시간이 걸릴 수 있어 사용자가 직접 원할 때 눌러서 실행한다."""
+    줄인다. 시간이 걸릴 수 있어 사용자가 직접 원할 때 눌러서 실행한다.
+    같은 부품/유닛이 삭제되거나 도면이 바뀌어 어디서도 더 이상 참조하지 않게 된
+    drawing_blobs도 VACUUM 전에 함께 정리한다."""
     before_size = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
     conn = get_db()
     try:
+        removed_blobs = cleanup_orphaned_drawing_blobs(conn)
+        conn.commit()
         conn.execute("VACUUM")
     except sqlite3.Error as e:
         conn.close()
@@ -2635,7 +2725,8 @@ def api_vacuum():
     log_conn = get_db()
     log_activity(
         log_conn, "vacuum", "db", None, "DB 최적화",
-        f"{before_size / 1024 / 1024:.1f}MB → {after_size / 1024 / 1024:.1f}MB",
+        f"{before_size / 1024 / 1024:.1f}MB → {after_size / 1024 / 1024:.1f}MB "
+        f"(안 쓰는 도면 {removed_blobs}개 정리)",
     )
     log_conn.commit()
     log_conn.close()
