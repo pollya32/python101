@@ -43,6 +43,8 @@ MAIL_SYSTEM_ID = "XXXXXXXXXXXXXX"                # ← 실제 System-ID 값으�
 MAIL_SUBJECT = "[부품관리] TES 설비 부품 현황"
 # ════════════════════════════════════════════════════════════════════
 MAX_DRAWING_DATA_LEN = 8 * 1024 * 1024  # 도면 이미지(base64 data URL) 최대 길이, 원본 파일 약 5MB에 해당
+SEARCH_DEFAULT_PAGE_SIZE = 50
+SEARCH_MAX_PAGE_SIZE = 200
 
 
 def store_drawing_blob(conn, data):
@@ -1355,9 +1357,20 @@ def get_alert_parts():
     return result
 
 
-def search_parts(query, status=None, equipment_id=None):
+def search_parts(query, status=None, equipment_id=None, page=1, page_size=SEARCH_DEFAULT_PAGE_SIZE):
     """부품명/규격으로 모든 설비를 통틀어 검색 (상태/설비로 추가 필터링 가능).
+    검색어/상태/설비 필터가 전부 비어있으면(검색 페이지를 막 연 직후 등) 등록된 부품 전체를
+    스캔해서 돌려주게 되어 부품이 많을수록 느려지므로, 이 경우 조회 자체를 하지 않고 빈
+    결과를 즉시 돌려준다. 실제로 뭔가 찾을 때만 조회하고, 그 결과도 한 번에 다 보내지 않고
+    page/page_size로 나눠서 보낸다.
     검색 결과 화면은 도면을 표시하지 않으므로 drawing_data는 조회하지 않는다."""
+    query = (query or "").strip()
+    page = max(int(page or 1), 1)
+    page_size = min(max(int(page_size or SEARCH_DEFAULT_PAGE_SIZE), 1), SEARCH_MAX_PAGE_SIZE)
+    empty_payload = {"items": [], "page": 1, "page_size": page_size, "total": 0, "total_pages": 1}
+    if not query and not status and not equipment_id:
+        return empty_payload
+
     conn = get_db()
     like = f"%{query}%"
     sql = f"""
@@ -1384,7 +1397,16 @@ def search_parts(query, status=None, equipment_id=None):
         d = dict(r)
         d.update(info)
         result.append(d)
-    return result
+
+    total = len(result)
+    start = (page - 1) * page_size
+    return {
+        "items": result[start:start + page_size],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": max((total + page_size - 1) // page_size, 1),
+    }
 
 
 def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
@@ -2765,7 +2787,9 @@ def api_search():
     status = request.args.get("status") or None
     equipment_id = request.args.get("equipment_id")
     equipment_id = int(equipment_id) if equipment_id else None
-    return jsonify(search_parts(q, status=status, equipment_id=equipment_id))
+    page = request.args.get("page", 1, type=int)
+    page_size = request.args.get("page_size", SEARCH_DEFAULT_PAGE_SIZE, type=int)
+    return jsonify(search_parts(q, status=status, equipment_id=equipment_id, page=page, page_size=page_size))
 
 
 def build_stats_payload(conn, unit_names, start_date=None, end_date=None):

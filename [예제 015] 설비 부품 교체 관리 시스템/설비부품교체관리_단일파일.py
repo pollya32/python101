@@ -70,6 +70,8 @@ MAIL_SYSTEM_ID = "XXXXXXXXXXXXXX"                # ← 실제 System-ID 값으�
 MAIL_SUBJECT = "[부품관리] TES 설비 부품 현황"
 # ════════════════════════════════════════════════════════════════════
 MAX_DRAWING_DATA_LEN = 8 * 1024 * 1024  # 도면 이미지(base64 data URL) 최대 길이, 원본 파일 약 5MB에 해당
+SEARCH_DEFAULT_PAGE_SIZE = 50
+SEARCH_MAX_PAGE_SIZE = 200
 
 
 def store_drawing_blob(conn, data):
@@ -1382,9 +1384,20 @@ def get_alert_parts():
     return result
 
 
-def search_parts(query, status=None, equipment_id=None):
+def search_parts(query, status=None, equipment_id=None, page=1, page_size=SEARCH_DEFAULT_PAGE_SIZE):
     """부품명/규격으로 모든 설비를 통틀어 검색 (상태/설비로 추가 필터링 가능).
+    검색어/상태/설비 필터가 전부 비어있으면(검색 페이지를 막 연 직후 등) 등록된 부품 전체를
+    스캔해서 돌려주게 되어 부품이 많을수록 느려지므로, 이 경우 조회 자체를 하지 않고 빈
+    결과를 즉시 돌려준다. 실제로 뭔가 찾을 때만 조회하고, 그 결과도 한 번에 다 보내지 않고
+    page/page_size로 나눠서 보낸다.
     검색 결과 화면은 도면을 표시하지 않으므로 drawing_data는 조회하지 않는다."""
+    query = (query or "").strip()
+    page = max(int(page or 1), 1)
+    page_size = min(max(int(page_size or SEARCH_DEFAULT_PAGE_SIZE), 1), SEARCH_MAX_PAGE_SIZE)
+    empty_payload = {"items": [], "page": 1, "page_size": page_size, "total": 0, "total_pages": 1}
+    if not query and not status and not equipment_id:
+        return empty_payload
+
     conn = get_db()
     like = f"%{query}%"
     sql = f"""
@@ -1411,7 +1424,16 @@ def search_parts(query, status=None, equipment_id=None):
         d = dict(r)
         d.update(info)
         result.append(d)
-    return result
+
+    total = len(result)
+    start = (page - 1) * page_size
+    return {
+        "items": result[start:start + page_size],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": max((total + page_size - 1) // page_size, 1),
+    }
 
 
 def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
@@ -2792,7 +2814,9 @@ def api_search():
     status = request.args.get("status") or None
     equipment_id = request.args.get("equipment_id")
     equipment_id = int(equipment_id) if equipment_id else None
-    return jsonify(search_parts(q, status=status, equipment_id=equipment_id))
+    page = request.args.get("page", 1, type=int)
+    page_size = request.args.get("page_size", SEARCH_DEFAULT_PAGE_SIZE, type=int)
+    return jsonify(search_parts(q, status=status, equipment_id=equipment_id, page=page, page_size=page_size))
 
 
 def build_stats_payload(conn, unit_names, start_date=None, end_date=None):
@@ -13793,7 +13817,12 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
   </div>
 
   <div id="searchResults" class="alerts-list mt-3"></div>
-  <p id="searchHintMsg" class="text-muted text-center py-4">불러오는 중...</p>
+  <p id="searchHintMsg" class="text-muted text-center py-4">검색어를 입력하거나 상태/설비를 선택하세요.</p>
+  <div id="searchPager" class="d-none align-items-center justify-content-center gap-3 mt-3">
+    <button id="searchPrevBtn" class="btn btn-sm btn-outline-secondary">이전</button>
+    <span id="searchPageInfo" class="small text-muted"></span>
+    <button id="searchNextBtn" class="btn btn-sm btn-outline-secondary">다음</button>
+  </div>
 
 </main>
 
@@ -13813,6 +13842,8 @@ function escapeHtml(s) {
 const STATUS_LABEL = { ok: "정상", soon: "교체 임박", overdue: "교체 필요", unknown: "미기록" };
 
 let searchTimer;
+let searchPage = 1;
+let searchTotalPages = 1;
 
 async function loadEquipmentFilterOptions() {
   const res = await fetch("/api/equipments");
@@ -13827,27 +13858,46 @@ async function loadEquipmentFilterOptions() {
     equipments.map((e) => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join("");
 }
 
-async function runSearch() {
+async function runSearch(resetPage = false) {
+  if (resetPage) searchPage = 1;
   const q = document.getElementById("partSearchInput").value.trim();
   const status = document.getElementById("statusFilter").value;
   const equipmentId = document.getElementById("equipmentFilter").value;
   const list = document.getElementById("searchResults");
   const hint = document.getElementById("searchHintMsg");
+  const pager = document.getElementById("searchPager");
+
+  // 검색어/상태/설비 필터가 전부 비어있으면 서버에 요청조차 보내지 않는다. 검색 페이지를
+  // 열자마자 등록된 부품 전체를 매번 불러오던 것이 느려지는 원인이었다.
+  if (!q && !status && !equipmentId) {
+    list.innerHTML = "";
+    searchTotalPages = 1;
+    pager.classList.add("d-none");
+    pager.classList.remove("d-flex");
+    hint.textContent = "검색어를 입력하거나 상태/설비를 선택하세요.";
+    hint.classList.remove("d-none");
+    return;
+  }
 
   const params = new URLSearchParams();
   if (q) params.set("q", q);
   if (status) params.set("status", status);
   if (equipmentId) params.set("equipment_id", equipmentId);
+  params.set("page", searchPage);
   const res = await fetch(`/api/search?${params.toString()}`);
   if (res.status === 401) {
     window.location.href = "/login";
     return;
   }
-  const parts = await res.json();
+  const payload = await res.json();
+  const parts = payload.items;
+  searchTotalPages = payload.total_pages;
 
   if (parts.length === 0) {
     list.innerHTML = "";
-    hint.textContent = q || status || equipmentId ? "검색 결과가 없습니다." : "등록된 부품이 없습니다.";
+    pager.classList.add("d-none");
+    pager.classList.remove("d-flex");
+    hint.textContent = "검색 결과가 없습니다.";
     hint.classList.remove("d-none");
     return;
   }
@@ -13860,6 +13910,18 @@ async function runSearch() {
       window.location.href = `/unit/${p.unit_id}`;
     });
   });
+
+  if (payload.total_pages > 1) {
+    document.getElementById("searchPageInfo").textContent =
+      `${payload.page} / ${payload.total_pages} 페이지 · 전체 ${payload.total}건`;
+    document.getElementById("searchPrevBtn").disabled = payload.page <= 1;
+    document.getElementById("searchNextBtn").disabled = payload.page >= payload.total_pages;
+    pager.classList.remove("d-none");
+    pager.classList.add("d-flex");
+  } else {
+    pager.classList.add("d-none");
+    pager.classList.remove("d-flex");
+  }
 }
 
 function searchRowHtml(p) {
@@ -13891,16 +13953,32 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadEquipmentFilterOptions();
   document.getElementById("partSearchInput").addEventListener("input", () => {
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(runSearch, 200);
+    searchTimer = setTimeout(() => runSearch(true), 200);
   });
-  document.getElementById("statusFilter").addEventListener("change", runSearch);
-  document.getElementById("equipmentFilter").addEventListener("change", runSearch);
+  document.getElementById("statusFilter").addEventListener("change", () => runSearch(true));
+  document.getElementById("equipmentFilter").addEventListener("change", () => runSearch(true));
+  document.getElementById("searchPrevBtn").addEventListener("click", () => {
+    if (searchPage > 1) {
+      searchPage -= 1;
+      runSearch();
+    }
+  });
+  document.getElementById("searchNextBtn").addEventListener("click", () => {
+    if (searchPage < searchTotalPages) {
+      searchPage += 1;
+      runSearch();
+    }
+  });
 
+  // 통계 등 다른 화면에서 ?q=로 넘어온 경우에만 페이지를 열자마자 자동으로 검색한다.
+  // 그 외(검색 페이지를 직접 열었을 때)는 아무것도 입력/선택하기 전까지 조회하지 않는다.
   const q = new URLSearchParams(window.location.search).get("q");
   if (q) {
     document.getElementById("partSearchInput").value = q;
+    runSearch(true);
+  } else {
+    document.getElementById("searchHintMsg").classList.remove("d-none");
   }
-  runSearch();
 });
 </script>
 </body>
