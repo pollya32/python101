@@ -22,8 +22,11 @@ async function fetchJson(url, options) {
   return res.status === 204 ? null : res.json();
 }
 
+let lastTrashData = { equipments: [], units: [], parts: [] };
+
 async function loadTrash() {
   const data = await fetchJson("/api/trash");
+  lastTrashData = data;
   renderEquipments(data.equipments);
   renderUnits(data.units);
   renderParts(data.parts);
@@ -110,6 +113,24 @@ document.addEventListener("DOMContentLoaded", () => {
   tick();
   setInterval(tick, 1000);
   loadTrash();
+
+  document.getElementById("emptyTrashBtn").addEventListener("click", async () => {
+    const total = lastTrashData.equipments.length + lastTrashData.units.length + lastTrashData.parts.length;
+    if (total === 0) {
+      alert("휴지통이 비어 있습니다.");
+      return;
+    }
+    if (!confirm(`휴지통에 있는 항목 ${total}개를 모두 영구적으로 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) return;
+    try {
+      const result = await fetchJson("/api/trash/empty", { method: "POST" });
+      await loadTrash();
+      alert(
+        `휴지통을 비웠습니다. (설비 ${result.equipment_count}개, 유닛 ${result.unit_count}개, 부품 ${result.part_count}개)`
+      );
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 
   document.addEventListener("click", async (e) => {
     const restoreBtn = e.target.closest(".restore-btn");

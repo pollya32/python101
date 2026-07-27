@@ -37,6 +37,7 @@ const TARGET_LABEL = {
   unit: "유닛",
   part: "부품",
   backup: "백업",
+  trash: "휴지통",
 };
 
 const ACTION_BADGE = {

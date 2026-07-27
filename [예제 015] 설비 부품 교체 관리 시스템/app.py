@@ -45,6 +45,7 @@ MAIL_SUBJECT = "[부품관리] TES 설비 부품 현황"
 MAX_DRAWING_DATA_LEN = 8 * 1024 * 1024  # 도면 이미지(base64 data URL) 최대 길이, 원본 파일 약 5MB에 해당
 SEARCH_DEFAULT_PAGE_SIZE = 50
 SEARCH_MAX_PAGE_SIZE = 200
+ACTIVITY_LOG_RETENTION_DAYS = 14  # 활동 로그는 이보다 오래된 기록을 하루 한 번 자동으로 정리한다.
 PORT = 5000  # 실행 인자/PORT 환경변수로 바꿀 수 있다 (맨 아래 진입점 블록 참고).
              # 메일 본문의 "사이트 접속" 링크 등에서도 이 값을 그대로 참조한다.
 
@@ -195,6 +196,13 @@ def log_activity(conn, action, target_type, target_id, target_name, detail=""):
         "VALUES (?, ?, ?, ?, ?, ?)",
         (actor, action, target_type, target_id, target_name, detail),
     )
+
+
+def cleanup_old_activity_log(conn):
+    """활동 로그 중 보관 기간(ACTIVITY_LOG_RETENTION_DAYS)이 지난 기록을 정리한다."""
+    threshold = (datetime.now() - timedelta(days=ACTIVITY_LOG_RETENTION_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
+    cur = conn.execute("DELETE FROM activity_log WHERE created_at < ?", (threshold,))
+    return cur.rowcount
 
 
 def init_db():
@@ -3232,6 +3240,45 @@ def permanent_delete_part(part_id):
     return jsonify({"ok": True})
 
 
+@app.route("/api/trash/empty", methods=["POST"])
+def empty_trash():
+    """휴지통에 있는 설비/유닛/부품을 한 번에 모두 영구 삭제한다. 삭제된 설비는 소속 유닛/부품이
+    (FK ON DELETE CASCADE로) 함께 삭제되므로, 부모 설비가 살아있는 채로 단독 삭제된 유닛/부품만
+    별도로 골라 지운다 - /api/trash가 목록을 보여주는 기준과 동일하다."""
+    conn = get_db()
+    equipments = conn.execute("SELECT id FROM equipments WHERE deleted_at IS NOT NULL").fetchall()
+    units = conn.execute("""
+        SELECT u.id FROM units u JOIN equipments e ON u.equipment_id = e.id
+        WHERE u.deleted_at IS NOT NULL AND e.deleted_at IS NULL
+    """).fetchall()
+    parts = conn.execute("""
+        SELECT p.id FROM parts p JOIN units u ON p.unit_id = u.id
+        WHERE p.deleted_at IS NOT NULL AND u.deleted_at IS NULL
+    """).fetchall()
+    equipment_ids = [r["id"] for r in equipments]
+    unit_ids = [r["id"] for r in units]
+    part_ids = [r["id"] for r in parts]
+    if equipment_ids:
+        placeholders = ",".join("?" for _ in equipment_ids)
+        conn.execute(f"DELETE FROM equipments WHERE id IN ({placeholders})", equipment_ids)
+    if unit_ids:
+        placeholders = ",".join("?" for _ in unit_ids)
+        conn.execute(f"DELETE FROM units WHERE id IN ({placeholders})", unit_ids)
+    if part_ids:
+        placeholders = ",".join("?" for _ in part_ids)
+        conn.execute(f"DELETE FROM parts WHERE id IN ({placeholders})", part_ids)
+    if equipment_ids or unit_ids or part_ids:
+        log_activity(
+            conn, "permanent_delete", "trash", None, "휴지통 비우기",
+            f"설비 {len(equipment_ids)}개, 유닛 {len(unit_ids)}개, 부품 {len(part_ids)}개 영구 삭제",
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({
+        "ok": True, "equipment_count": len(equipment_ids), "unit_count": len(unit_ids), "part_count": len(part_ids),
+    })
+
+
 @app.route("/activity-log")
 def activity_log_page():
     return render_template("activity_log.html")
@@ -3266,6 +3313,27 @@ def mail_scheduler_loop():
         time.sleep(30)
 
 
+def activity_log_cleanup_loop():
+    """하루에 한 번, 보관 기간(ACTIVITY_LOG_RETENTION_DAYS)이 지난 활동 로그를 정리한다.
+    last_run_date를 None으로 시작해, 프로그램을 새로 켤 때마다 한 번은 즉시 정리하고
+    이후로는 날짜가 바뀔 때만 다시 실행한다."""
+    last_run_date = None
+    while True:
+        try:
+            today = datetime.now().strftime("%Y-%m-%d")
+            if last_run_date != today:
+                conn = get_db()
+                removed = cleanup_old_activity_log(conn)
+                conn.commit()
+                conn.close()
+                if removed:
+                    print(f"[활동 로그 정리] {removed}건 삭제 ({ACTIVITY_LOG_RETENTION_DAYS}일 이상 경과)")
+                last_run_date = today
+        except Exception as e:
+            print("[활동 로그 정리] 오류:", e)
+        time.sleep(3600)
+
+
 if __name__ == "__main__":
     # 같은 컴퓨터에서 다른 설비군을 위해 이 프로그램 폴더를 통째로 복사해 두 번째 인스턴스를
     # 띄울 때, 소스 코드를 고치지 않고도 포트를 바꿀 수 있도록 실행 인자/환경변수로 받는다.
@@ -3286,4 +3354,5 @@ if __name__ == "__main__":
     print("  (다른 사람이 접속 안 되면 Windows 방화벽에서 Python 허용 여부를 확인하세요)")
     print(f"  최초 접속 비밀번호: {DEFAULT_PASSWORD} (로그인 후 반드시 변경해주세요)")
     threading.Thread(target=mail_scheduler_loop, daemon=True).start()
+    threading.Thread(target=activity_log_cleanup_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
