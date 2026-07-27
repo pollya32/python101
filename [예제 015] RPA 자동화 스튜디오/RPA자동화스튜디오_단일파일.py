@@ -541,7 +541,31 @@ class AutomationApp:
                     root.after(800, lambda: self.start_automation(confirm=False))
         self.root.after(1000, self._scheduler_tick)
 
+    def _build_menu(self) -> None:
+        menubar = tk.Menu(self.root)
+        file_menu = tk.Menu(menubar, tearoff=False)
+        file_menu.add_command(label="새로 만들기", accelerator="Ctrl+N", command=self.new_profile)
+        file_menu.add_command(label="열기...", accelerator="Ctrl+O", command=self.load_profile)
+        file_menu.add_separator()
+        file_menu.add_command(label="저장", accelerator="Ctrl+S", command=self.save_profile)
+        file_menu.add_command(
+            label="다른 이름으로 저장...", accelerator="Ctrl+Shift+S", command=self.save_profile_as
+        )
+        file_menu.add_separator()
+        file_menu.add_command(label="로그 폴더 열기", command=self.open_log_directory)
+        file_menu.add_separator()
+        file_menu.add_command(label="종료", command=self.on_close)
+        menubar.add_cascade(label="파일", menu=file_menu)
+        self.root.config(menu=menubar)
+
+        self.root.bind_all("<Control-n>", lambda _event: self.new_profile())
+        self.root.bind_all("<Control-o>", lambda _event: self.load_profile())
+        self.root.bind_all("<Control-s>", lambda _event: self.save_profile())
+        for sequence in ("<Control-Shift-S>", "<Control-Shift-s>"):
+            self.root.bind_all(sequence, lambda _event: self.save_profile_as())
+
     def _build_ui(self) -> None:
+        self._build_menu()
         outer = ttk.Frame(self.root, padding=12)
         outer.pack(fill=tk.BOTH, expand=True)
         header = ttk.Frame(outer)
@@ -686,10 +710,17 @@ class AutomationApp:
 
         files = ttk.LabelFrame(self.settings_tab, text="설정 파일 · 실행 기록", padding=12)
         files.pack(fill=tk.X, pady=(12, 0))
-        ttk.Button(files, text="설정 저장", command=self.save_profile).grid(row=0, column=0, padx=4)
-        ttk.Button(files, text="설정 불러오기", command=self.load_profile).grid(row=0, column=1, padx=4)
-        ttk.Button(files, text="로그 폴더 열기", command=self.open_log_directory).grid(
+        ttk.Button(files, text="저장(Ctrl+S)", command=self.save_profile).grid(
+            row=0, column=0, padx=4
+        )
+        ttk.Button(files, text="다른 이름으로 저장...(Ctrl+Shift+S)", command=self.save_profile_as).grid(
+            row=0, column=1, padx=4
+        )
+        ttk.Button(files, text="불러오기...(Ctrl+O)", command=self.load_profile).grid(
             row=0, column=2, padx=4
+        )
+        ttk.Button(files, text="로그 폴더 열기", command=self.open_log_directory).grid(
+            row=0, column=3, padx=4
         )
         ttk.Label(files, text="로그 폴더").grid(row=1, column=0, sticky=tk.W, padx=4, pady=(12, 4))
         ttk.Entry(files, textvariable=self.log_dir_var).grid(
@@ -1567,19 +1598,7 @@ class AutomationApp:
             "actions": [asdict(action) for action in self.actions],
         }
 
-    def save_profile(self) -> bool:
-        if not self.actions:
-            messagebox.showwarning("저장할 단계 없음", "먼저 실행 단계를 등록하세요.")
-            return False
-        initial = self.current_profile_path.name if self.current_profile_path else "RPA_자동화_설정.json"
-        path = filedialog.asksaveasfilename(
-            title="자동화 설정 저장",
-            defaultextension=".json",
-            filetypes=[("자동화 설정", "*.json"), ("모든 파일", "*.*")],
-            initialfile=initial,
-        )
-        if not path:
-            return False
+    def _write_profile_to(self, path: Path) -> bool:
         try:
             Path(path).write_text(
                 json.dumps(self._profile_data(), ensure_ascii=False, indent=2),
@@ -1591,6 +1610,45 @@ class AutomationApp:
         self.current_profile_path = Path(path).resolve()
         self.status_var.set(f"설정 저장 완료: {self.current_profile_path.name}")
         return True
+
+    def save_profile(self) -> bool:
+        """빠른 저장: 이미 열려 있던(불러왔거나 이전에 저장한) 파일이 있으면 그대로
+        덮어쓰고, 처음 저장하는 경우에는 '다른 이름으로 저장'과 동일하게 동작한다."""
+        if not self.actions:
+            messagebox.showwarning("저장할 단계 없음", "먼저 실행 단계를 등록하세요.")
+            return False
+        if self.current_profile_path is not None:
+            return self._write_profile_to(self.current_profile_path)
+        return self.save_profile_as()
+
+    def save_profile_as(self) -> bool:
+        """다른 이름으로 저장: 항상 파일 이름/위치를 새로 물어본다."""
+        if not self.actions:
+            messagebox.showwarning("저장할 단계 없음", "먼저 실행 단계를 등록하세요.")
+            return False
+        initial = self.current_profile_path.name if self.current_profile_path else "RPA_자동화_설정.json"
+        path = filedialog.asksaveasfilename(
+            title="자동화 설정 다른 이름으로 저장",
+            defaultextension=".json",
+            filetypes=[("자동화 설정", "*.json"), ("모든 파일", "*.*")],
+            initialfile=initial,
+        )
+        if not path:
+            return False
+        return self._write_profile_to(Path(path))
+
+    def new_profile(self) -> None:
+        """새로 만들기: 현재 등록된 단계를 지우고 저장 파일 연결을 해제한다."""
+        if self.running or self.recording:
+            return
+        if self.actions and not messagebox.askyesno(
+            "새로 만들기", "저장하지 않은 변경 사항이 있을 수 있습니다.\n현재 단계를 모두 지우고 새로 시작할까요?"
+        ):
+            return
+        self.actions.clear()
+        self.current_profile_path = None
+        self._refresh_list()
+        self.status_var.set("새 자동화를 시작합니다.")
 
     def load_profile(self) -> None:
         path = filedialog.askopenfilename(
