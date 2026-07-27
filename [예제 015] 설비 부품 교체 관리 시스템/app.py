@@ -1359,6 +1359,37 @@ def get_alert_parts():
     return result
 
 
+def get_calendar_due_parts(year, month):
+    """지정한 연/월에 다음 교체 예정일이 있는 부품 전체를 예정일별로 묶어서 반환한다.
+    상태(교체 필요/임박/정상)는 항상 오늘 날짜 기준으로 계산되므로, 지난 달을 보면 대부분
+    "교체 필요"로, 몇 달 뒤를 보면 대부분 "정상(예정)"으로 표시된다.
+    화면에 도면을 표시하지 않으므로 drawing_data는 조회하지 않는다."""
+    start = date(year, month, 1)
+    end = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    conn = get_db()
+    rows = conn.execute(f"""
+        SELECT {PART_COLS_SANS_DRAWING}, u.id AS unit_id, u.name AS unit_name,
+               e.id AS equipment_id, e.name AS equipment_name, e.icon AS equipment_icon
+        FROM parts p
+        JOIN units u ON p.unit_id = u.id
+        JOIN equipments e ON u.equipment_id = e.id
+        WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
+          AND p.cycle_days IS NOT NULL AND p.last_replaced_date IS NOT NULL
+          AND date(p.last_replaced_date, '+' || p.cycle_days || ' days') >= ?
+          AND date(p.last_replaced_date, '+' || p.cycle_days || ' days') < ?
+    """, (start.isoformat(), end.isoformat())).fetchall()
+    conn.close()
+    days = {}
+    for r in rows:
+        info = part_status(r["cycle_days"], r["last_replaced_date"])
+        d = dict(r)
+        d.update(info)
+        days.setdefault(info["next_due"], []).append(d)
+    for items in days.values():
+        items.sort(key=lambda x: (x["equipment_name"], x["unit_name"], x["name"]))
+    return days
+
+
 def search_parts(query, status=None, equipment_id=None, page=1, page_size=SEARCH_DEFAULT_PAGE_SIZE):
     """부품명/규격으로 모든 설비를 통틀어 검색 (상태/설비로 추가 필터링 가능).
     검색어/상태/설비 필터가 전부 비어있으면(검색 페이지를 막 연 직후 등) 등록된 부품 전체를
@@ -2765,6 +2796,22 @@ def api_vacuum():
 @app.route("/api/alerts")
 def api_alerts():
     return jsonify(get_alert_parts())
+
+
+@app.route("/api/calendar")
+def api_calendar():
+    today = date.today()
+    year = request.args.get("year", today.year, type=int)
+    month = request.args.get("month", today.month, type=int)
+    if month < 1 or month > 12:
+        return jsonify({"error": "잘못된 월입니다"}), 400
+    # 화면에서 다음 6개월치까지만 넘겨볼 수 있게 하므로, 서버에서도 그 범위를 벗어난
+    # 요청은 막는다.
+    months_ahead = (year - today.year) * 12 + (month - today.month)
+    if months_ahead > 6:
+        return jsonify({"error": "6개월 이후 달은 조회할 수 없습니다"}), 400
+    days = get_calendar_due_parts(year, month)
+    return jsonify({"year": year, "month": month, "days": days})
 
 
 @app.route("/api/alerts/export")
