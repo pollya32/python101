@@ -867,6 +867,17 @@ class AutomationApp:
             self.action_tree.selection_set(target_id)
             self.action_tree.see(target_id)
 
+    def _insert_action(self, action: Action) -> None:
+        """새 동작을 추가한다. 목록에서 선택된 단계가 있으면 그 바로 아래에 끼워 넣고,
+        선택된 단계가 없으면 맨 뒤에 추가한다."""
+        if len(self.actions) >= MAX_ACTIONS:
+            messagebox.showwarning("단계 제한", f"실행 단계는 최대 {MAX_ACTIONS:,}개입니다.")
+            return
+        index = self._selected_action_index()
+        insert_at = len(self.actions) if index is None else index + 1
+        self.actions.insert(insert_at, action)
+        self._refresh_list(insert_at)
+
     def _capture_position_after_countdown(self, purpose: str) -> tuple[int, int] | None:
         if pyautogui is None:
             self._show_dependency_error()
@@ -889,8 +900,7 @@ class AutomationApp:
         point = self._capture_position_after_countdown("클릭할")
         if point is None:
             return
-        self.actions.append(Action(kind, {"x": point[0], "y": point[1]}))
-        self._refresh_list(len(self.actions) - 1)
+        self._insert_action(Action(kind, {"x": point[0], "y": point[1]}))
 
     def capture_drag(self) -> None:
         start = self._capture_position_after_countdown("드래그를 시작할")
@@ -899,13 +909,12 @@ class AutomationApp:
         end = self._capture_position_after_countdown("드래그를 끝낼")
         if end is None:
             return
-        self.actions.append(
+        self._insert_action(
             Action(
                 "drag",
                 {"x1": start[0], "y1": start[1], "x2": end[0], "y2": end[1], "duration": 0.6},
             )
         )
-        self._refresh_list(len(self.actions) - 1)
 
     def add_scroll(self) -> None:
         clicks = simpledialog.askinteger(
@@ -918,8 +927,7 @@ class AutomationApp:
         )
         if clicks is None:
             return
-        self.actions.append(Action("scroll", {"clicks": clicks}))
-        self._refresh_list(len(self.actions) - 1)
+        self._insert_action(Action("scroll", {"clicks": clicks}))
 
     def add_text(self) -> None:
         dialog = MultilineDialog(
@@ -940,8 +948,7 @@ class AutomationApp:
         if interval is None:
             # 입력 속도 창을 취소해도 이미 작성한 문자열은 버리지 않고 기본 속도로 등록한다.
             interval = 0.01
-        self.actions.append(Action("text", {"template": dialog.result, "interval": interval}))
-        self._refresh_list(len(self.actions) - 1)
+        self._insert_action(Action("text", {"template": dialog.result, "interval": interval}))
 
     def add_key_or_hotkey(self) -> None:
         value = simpledialog.askstring(
@@ -955,8 +962,7 @@ class AutomationApp:
         if not keys:
             return
         action = Action("key", {"key": keys[0]}) if len(keys) == 1 else Action("hotkey", {"keys": keys})
-        self.actions.append(action)
-        self._refresh_list(len(self.actions) - 1)
+        self._insert_action(action)
 
     def add_wait(self) -> None:
         seconds = simpledialog.askfloat(
@@ -969,8 +975,7 @@ class AutomationApp:
         )
         if seconds is None:
             return
-        self.actions.append(Action("wait", {"seconds": seconds}))
-        self._refresh_list(len(self.actions) - 1)
+        self._insert_action(Action("wait", {"seconds": seconds}))
 
     def _prompt_image_confidence(self, initial: dict[str, Any]) -> float:
         confidence = simpledialog.askfloat(
@@ -1025,8 +1030,7 @@ class AutomationApp:
         params = self._prompt_image_params()
         if params is None:
             return
-        self.actions.append(Action("image_click", params))
-        self._refresh_list(len(self.actions) - 1)
+        self._insert_action(Action("image_click", params))
 
     def _capture_screen_region_to_file(self) -> Path | None:
         """화면 위에서 사각형을 드래그로 지정해 그 영역만 이미지 파일로 저장한다."""
@@ -1118,8 +1122,7 @@ class AutomationApp:
         if image_path is None:
             return
         settings = self._prompt_image_settings({})
-        self.actions.append(Action("image_click", {"image": str(image_path), **settings}))
-        self._refresh_list(len(self.actions) - 1)
+        self._insert_action(Action("image_click", {"image": str(image_path), **settings}))
 
     def _prompt_image_condition_params(
         self, initial: dict[str, Any] | None = None
@@ -1160,8 +1163,7 @@ class AutomationApp:
         params = self._prompt_image_condition_params()
         if params is None:
             return
-        self.actions.append(Action("image_condition_skip", params))
-        self._refresh_list(len(self.actions) - 1)
+        self._insert_action(Action("image_condition_skip", params))
 
     def _prompt_window_params(self, initial: dict[str, Any] | None = None) -> dict[str, Any] | None:
         initial = initial or {}
@@ -1203,8 +1205,7 @@ class AutomationApp:
         params = self._prompt_window_params()
         if params is None:
             return
-        self.actions.append(Action("wait_window", params))
-        self._refresh_list(len(self.actions) - 1)
+        self._insert_action(Action("wait_window", params))
 
     def start_recording(self) -> None:
         if self.running or self.recording:
@@ -1358,8 +1359,14 @@ class AutomationApp:
         if len(recorded) > remaining:
             recorded = recorded[:remaining]
             messagebox.showwarning("단계 제한", f"최대 {MAX_ACTIONS:,}단계까지만 추가했습니다.")
-        self.actions.extend(recorded)
-        self._refresh_list(len(self.actions) - 1 if self.actions else None)
+        # 수동 동작 추가와 마찬가지로, 선택된 단계가 있으면 그 바로 아래에 녹화 결과를 끼워 넣는다.
+        index = self._selected_action_index()
+        insert_at = len(self.actions) if index is None else index + 1
+        self.actions[insert_at:insert_at] = recorded
+        if recorded:
+            self._refresh_list(insert_at + len(recorded) - 1)
+        else:
+            self._refresh_list()
         self.status_var.set(f"녹화 완료: {len(recorded)}개 단계가 추가되었습니다.")
 
     @staticmethod
