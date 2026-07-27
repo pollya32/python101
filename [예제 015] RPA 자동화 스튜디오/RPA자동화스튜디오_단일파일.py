@@ -684,7 +684,7 @@ class AutomationApp:
             ("아래로", self.move_down),
             ("선택 삭제", self.delete_selected),
             ("전체 삭제", self.clear_all),
-            ("▶ 선택 단계 테스트", self.test_selected_action),
+            ("▶ 선택 단계부터 실행", self.test_selected_action),
         ]:
             ttk.Button(edit_buttons, text=text, command=command).pack(fill=tk.X, pady=2)
 
@@ -1526,20 +1526,25 @@ class AutomationApp:
             self._refresh_list()
 
     def test_selected_action(self) -> None:
-        """전체 실행 없이 선택한 단계 하나만 즉시 실행해 본다(디버깅용)."""
+        """선택한 단계부터 끝까지 순서대로 실행한다.
+        각 단계가 성공하면 자동으로 다음 단계로 이어지고, 실패하면 그 자리에서 멈춘다
+        (일시정지/긴급 중지, 재시도, 실패 스크린샷 등 실제 실행과 동일한 엔진을 사용한다)."""
         if pyautogui is None:
             self._show_dependency_error()
             return
         if self.running or self.recording:
-            messagebox.showwarning("실행 중", "자동화 실행/녹화 중에는 테스트할 수 없습니다.")
+            messagebox.showwarning("실행 중", "자동화 실행/녹화 중에는 시작할 수 없습니다.")
             return
         index = self._selected_action_index()
         if index is None:
-            messagebox.showwarning("선택 없음", "테스트할 단계를 목록에서 선택하세요.")
+            messagebox.showwarning("선택 없음", "시작할 단계를 목록에서 선택하세요.")
             return
-        action = self.actions[index].clone()
+        remaining = [action.clone() for action in self.actions[index:] if action.enabled]
+        if not remaining:
+            messagebox.showwarning("실행할 단계 없음", "선택한 위치부터 사용 상태인 단계가 없습니다.")
+            return
         try:
-            self._validate_actions([action])
+            self._validate_actions(remaining)
         except Exception as error:
             messagebox.showerror("단계 오류", str(error))
             return
@@ -1548,25 +1553,41 @@ class AutomationApp:
         except Exception:
             context = {}
         if not messagebox.askyesno(
-            "단계 테스트 실행",
-            f"선택한 단계를 지금 실제로 실행합니다:\n{action.label()}\n\n"
-            "확인을 누르면 2초 후 실행합니다.",
+            "선택 단계부터 실행",
+            f"'{self.actions[index].label()}' 단계부터 끝까지 {len(remaining)}개 단계를 실행합니다.\n"
+            "각 단계가 성공하면 자동으로 다음 단계로 이어지고, 실패하면 멈춥니다.\n\n"
+            "확인을 누르면 3초 후 실행합니다.",
         ):
             return
+
+        mutex_handle = acquire_run_mutex()
+        if mutex_handle is None:
+            messagebox.showerror(
+                "중복 실행 방지",
+                "다른 프로세스(예: Windows 작업 스케줄러로 실행된 인스턴스)에서 이미 "
+                "자동화를 실행 중인 것으로 보입니다.\n해당 실행이 끝난 뒤 다시 시도하세요.",
+            )
+            return
+        self.run_mutex_handle = mutex_handle
+
+        retry_count = int(self.retry_count_var.get())
+        retry_delay = float(self.retry_delay_var.get())
+        step_delay = float(self.step_delay_var.get())
+
         self.stop_event.clear()
         self.pause_event.clear()
-
-        def worker() -> None:
-            try:
-                self._set_status(f"테스트 실행 준비 중: {action.label()}")
-                time.sleep(2)
-                self._execute_action(action, context)
-                self._set_status(f"테스트 실행 완료: {action.label()}")
-            except Exception as error:
-                self._set_status(f"테스트 실행 실패: {error}")
-                self.root.after(0, messagebox.showerror, "테스트 실행 실패", str(error))
-
-        threading.Thread(target=worker, daemon=True).start()
+        self.running = True
+        self.run_button.configure(state=tk.DISABLED)
+        self.pause_button.configure(state=tk.NORMAL, text="Ⅱ 일시정지")
+        self.stop_button.configure(state=tk.NORMAL)
+        self._start_run_log()
+        self._write_log("INFO", f"선택 단계부터 실행 시작 (총 {len(remaining)}단계)")
+        thread = threading.Thread(
+            target=self._automation_worker,
+            args=(remaining, [context], 1, step_delay, retry_count, retry_delay),
+            daemon=True,
+        )
+        thread.start()
 
     def _profile_data(self) -> dict[str, Any]:
         return {
