@@ -72,6 +72,8 @@ MAIL_SUBJECT = "[부품관리] TES 설비 부품 현황"
 MAX_DRAWING_DATA_LEN = 8 * 1024 * 1024  # 도면 이미지(base64 data URL) 최대 길이, 원본 파일 약 5MB에 해당
 SEARCH_DEFAULT_PAGE_SIZE = 50
 SEARCH_MAX_PAGE_SIZE = 200
+PORT = 5000  # 실행 인자/PORT 환경변수로 바꿀 수 있다 (맨 아래 진입점 블록 참고).
+             # 메일 본문의 "사이트 접속" 링크 등에서도 이 값을 그대로 참조한다.
 
 
 def store_drawing_blob(conn, data):
@@ -1159,7 +1161,7 @@ def set_mail_report_sections(conn, sections):
 
 
 def _mail_section_site_url(conn):
-    site_url = f"http://{get_lan_ip()}:5000"
+    site_url = f"http://{get_lan_ip()}:{PORT}"
     return f"<p style='font-size:14px'>사이트 접속: <a href='{site_url}'>{site_url}</a></p>"
 
 
