@@ -1974,6 +1974,10 @@ class AutomationApp:
         skipped_steps = 0
         retry_events = 0
         try:
+            # 스튜디오 창이 계속 포커스를 갖고 있으면 클릭 없이 바로 단축키를 실행하는
+            # 단계에서 키 입력이 대상 프로그램이 아니라 이 창으로 들어가 버린다.
+            # 녹화 시작과 마찬가지로 최소화해 대상 프로그램에 포커스를 넘겨준다.
+            self.root.after(0, self.root.iconify)
             for countdown in (3, 2, 1):
                 self._set_status(f"{countdown}초 후 자동화를 시작합니다...")
                 self._interruptible_wait(1)
@@ -2210,6 +2214,7 @@ class AutomationApp:
         self.run_mutex_handle = None
         self.running = False
         self.pause_event.clear()
+        self.root.deiconify()
         self.run_button.configure(state=tk.NORMAL)
         self.pause_button.configure(state=tk.DISABLED, text="Ⅱ 일시정지")
         self.stop_button.configure(state=tk.DISABLED)
