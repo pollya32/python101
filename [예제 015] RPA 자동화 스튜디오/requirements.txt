@@ -1,0 +1,7 @@
+pyautogui>=0.9
+pynput>=1.7
+pillow>=10.0
+
+# 선택 설치 (Excel 데이터 사용 / 이미지 정확도 매칭)
+# openpyxl>=3.1
+# opencv-python>=4.8
