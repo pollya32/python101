@@ -352,6 +352,17 @@ def normalize_key_name(raw: str) -> str:
 
 def pynput_key_name(key: Any) -> str | None:
     char = getattr(key, "char", None)
+    vk = getattr(key, "vk", None)
+    is_control_char = isinstance(char, str) and char != "" and ord(char) < 32
+    if (char is None or is_control_char) and isinstance(vk, int):
+        # Ctrl을 누른 채 문자 키를 누르면 Windows/pynput이 실제 글자 대신 제어 문자를
+        # 돌려주거나(예: Ctrl+A -> chr(1)) char 자체가 비어 오는 경우가 있다. pyautogui는
+        # 이런 값을 키 이름으로 인식하지 못해 조용히 아무 동작도 하지 않으므로,
+        # 가상 키 코드로 원래 글자를 복원한다.
+        if 65 <= vk <= 90:  # A-Z
+            return chr(vk).lower()
+        if 48 <= vk <= 57:  # 0-9
+            return chr(vk)
     if isinstance(char, str) and char:
         if len(char) == 1 and ord(char) < 128:
             return char.lower()
