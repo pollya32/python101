@@ -1,16 +1,15 @@
 @echo off
 setlocal enabledelayedexpansion
-chcp 65001 >nul
 cd /d "%~dp0"
 
-rem íŒŒì¼ ì´ë¦„ì„ ë°”ê¿”ë„ ë™ìž‘í•˜ë„ë¡, ê°™ì€ í´ë”ì—ì„œ .py íŒŒì¼ì„ ìžë™ìœ¼ë¡œ ì°¾ëŠ”ë‹¤.
+rem ÆÄÀÏ ÀÌ¸§À» ¹Ù²ãµµ µ¿ÀÛÇÏµµ·Ï, °°Àº Æú´õ¿¡¼­ .py ÆÄÀÏÀ» ÀÚµ¿À¸·Î Ã£´Â´Ù.
 set "SCRIPT="
 for %%F in ("%~dp0*.py") do (
     if not defined SCRIPT set "SCRIPT=%%~nxF"
 )
 if not defined SCRIPT (
-    echo ì‹¤í–‰í•  .py íŒŒì¼ì„ ì°¾ì§€ ëª»í–ˆìŠµë‹ˆë‹¤.
-    echo ì´ .bat íŒŒì¼ì„ íŒŒì´ì¬ ìŠ¤í¬ë¦½íŠ¸ì™€ ê°™ì€ í´ë”ì— ë‘ì„¸ìš”.
+    echo ½ÇÇàÇÒ .py ÆÄÀÏÀ» Ã£Áö ¸øÇß½À´Ï´Ù.
+    echo ÀÌ .bat ÆÄÀÏÀ» ÆÄÀÌ½ã ½ºÅ©¸³Æ®¿Í °°Àº Æú´õ¿¡ µÎ¼¼¿ä.
     pause
     exit /b 1
 )
@@ -23,9 +22,9 @@ if !errorlevel! equ 0 (
     if !errorlevel! equ 0 (
         set "PYEXE=python"
     ) else (
-        echo Pythonì´ ì„¤ì¹˜ë˜ì–´ ìžˆì§€ ì•ŠìŠµë‹ˆë‹¤.
-        echo https://www.python.org/downloads/ ì—ì„œ ì„¤ì¹˜í•˜ì„¸ìš”.
-        echo ì„¤ì¹˜ í™”ë©´ì—ì„œ ë°˜ë“œì‹œ "Add python.exe to PATH"ë¥¼ ì²´í¬í•´ì•¼ í•©ë‹ˆë‹¤.
+        echo PythonÀÌ ¼³Ä¡µÇ¾î ÀÖÁö ¾Ê½À´Ï´Ù.
+        echo https://www.python.org/downloads/ ¿¡¼­ ¼³Ä¡ÇÏ¼¼¿ä.
+        echo ¼³Ä¡ È­¸é¿¡¼­ ¹Ýµå½Ã "Add python.exe to PATH"¸¦ Ã¼Å©ÇØ¾ß ÇÕ´Ï´Ù.
         pause
         exit /b 1
     )
@@ -33,10 +32,10 @@ if !errorlevel! equ 0 (
 
 "!PYEXE!" -c "import pyautogui, pynput, PIL" >nul 2>nul
 if not !errorlevel! equ 0 (
-    echo ì²˜ìŒ ì‹¤í–‰ì´ë¼ í•„ìš”í•œ íŒ¨í‚¤ì§€ë¥¼ ì„¤ì¹˜í•©ë‹ˆë‹¤. ìž ì‹œë§Œ ê¸°ë‹¤ë ¤ ì£¼ì„¸ìš”...
+    echo Ã³À½ ½ÇÇàÀÌ¶ó ÇÊ¿äÇÑ ÆÐÅ°Áö¸¦ ¼³Ä¡ÇÕ´Ï´Ù. Àá½Ã¸¸ ±â´Ù·Á ÁÖ¼¼¿ä...
     "!PYEXE!" -m pip install --disable-pip-version-check pyautogui pynput pillow
     if not !errorlevel! equ 0 (
-        echo íŒ¨í‚¤ì§€ ì„¤ì¹˜ì— ì‹¤íŒ¨í–ˆìŠµë‹ˆë‹¤. ì¸í„°ë„· ì—°ê²°ì„ í™•ì¸í•˜ê±°ë‚˜ ê´€ë¦¬ìž ê¶Œí•œìœ¼ë¡œ ë‹¤ì‹œ ì‹¤í–‰í•´ ë³´ì„¸ìš”.
+        echo ÆÐÅ°Áö ¼³Ä¡¿¡ ½ÇÆÐÇß½À´Ï´Ù. ÀÎÅÍ³Ý ¿¬°áÀ» È®ÀÎÇÏ°Å³ª °ü¸®ÀÚ ±ÇÇÑÀ¸·Î ´Ù½Ã ½ÇÇàÇØ º¸¼¼¿ä.
         pause
         exit /b 1
     )
