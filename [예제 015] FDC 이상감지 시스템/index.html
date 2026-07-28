@@ -2949,8 +2949,15 @@ function _buildMailReportHtml() {
     ${card(paramCount,               'PPID 수',       '#1e3a5f')}
   </tr></table>`;
 
-  /* ── 통계 요약 테이블 ── */
-  const statRows = stats.map((s,i) => `<tr style="background:${i%2===0?'#f7f9fc':'#fff'}">
+  /* ── 통계 요약 테이블 — 이상 발생 설비 먼저(이상률 내림차순), 나머지는 EQP·CH 오름차순 ── */
+  const sortedStats = [...stats].sort((a, b) => {
+    const aAnom = a.anomCount > 0, bAnom = b.anomCount > 0;
+    if (aAnom !== bAnom) return aAnom ? -1 : 1;
+    if (aAnom && bAnom) return b.anomRate - a.anomRate;
+    if (a.eqp !== b.eqp) return String(a.eqp).localeCompare(String(b.eqp));
+    return String(a.ch||'').localeCompare(String(b.ch||''));
+  });
+  const statRows = sortedStats.map((s,i) => `<tr style="background:${i%2===0?'#f7f9fc':'#fff'}">
     <td style="${TDC}">${s.eqp}</td>
     <td style="${TDC}">${s.ch||'-'}</td>
     <td style="${TD}">${s.param}</td>
