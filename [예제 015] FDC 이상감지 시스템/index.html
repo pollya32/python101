@@ -2131,25 +2131,30 @@ async function runAnalysis(){
     initChartFilters(gResults);
     await renderCharts(gResults, gStats);
 
-    _setProgress(88,'테이블 렌더링 중...'); await _tick();
+    _setProgress(82,'테이블 렌더링 중...'); await _tick();
     renderTables(gResults);
 
-    _setProgress(94,'필터/산점도 초기화 중...'); await _tick();
+    _setProgress(86,'필터/산점도 초기화 중...'); await _tick();
     populateFilters(gResults);
     initScatterSelects(gResults);
 
-    _setProgress(90,'추가 통계 분석 중...'); await _tick();
-    detectConsecutiveAnoms(3);
+    _setProgress(89,'연속 이상 감지 중...'); await _tick();
+    await detectConsecutiveAnoms(3);
     renderConsecBanner();
     checkAnomalyRateAlert();
+
+    _setProgress(92,'파레토·트렌드 차트 중...'); await _tick();
     renderParetoChart();
-    renderTrendChart();
-    renderLotStats();
-    renderCorrelHeatmap();
+    await renderTrendChart();
+
+    _setProgress(95,'LOT 집계·상관 분석 중...'); await _tick();
+    await buildLotStatsAsync();
+    renderLotTable();
+    await renderCorrelHeatmap();
+
+    _setProgress(98,'마무리 중...'); await _tick();
     renderPresets();
     _checkSavedColMap();
-
-    _setProgress(98,'완료 처리 중...'); await _tick();
     const res=document.getElementById('results');
     res.style.display='block';
     res.scrollIntoView({behavior:'smooth',block:'start'});
@@ -3361,26 +3366,30 @@ function checkAnomalyRateAlert() {
 ══════════════════════════════════════════════════════ */
 let gConsecGroups = [];  // [{eqp, ppid, ch, rows, count}]
 
-function detectConsecutiveAnoms(minRun = 3) {
+async function detectConsecutiveAnoms(minRun = 3) {
   gConsecGroups = [];
   if (!gAnomsAll.length) return;
 
-  // EQP+CH+PPID 그룹 별로 날짜 정렬 후 연속 감지
+  // _statsKey 사전 계산 키로 그룹화 (O(N) 단순 순회)
   const groups = {};
-  gResults.forEach(r => {
+  let yT = performance.now();
+  for (let i = 0; i < gResults.length; i++) {
+    const r = gResults[i];
     const k = `${r['EQP ID']}|||${r['CH']||''}|||${r['PPID']}`;
     if (!groups[k]) groups[k] = [];
     groups[k].push(r);
-  });
+    if ((i & 0xFFF) === 0 && performance.now() - yT >= 16) { await _tick(); yT = performance.now(); }
+  }
 
-  const consecSet = new Set();  // 연속 이상인 row 식별용
-  Object.entries(groups).forEach(([k, rows]) => {
+  const consecSet = new Set();
+  const entries = Object.entries(groups);
+  for (let gi = 0; gi < entries.length; gi++) {
+    const [k, rows] = entries[gi];
     rows.sort((a, b) => String(a['날짜']).localeCompare(String(b['날짜'])));
     let run = [];
-    rows.forEach(r => {
-      if (r.isAnom) {
-        run.push(r);
-      } else {
+    for (const r of rows) {
+      if (r.isAnom) { run.push(r); }
+      else {
         if (run.length >= minRun) {
           const [eqp,,ppid] = k.split('|||');
           gConsecGroups.push({ eqp, ppid, ch: run[0]['CH']||'', count: run.length, rows: [...run] });
@@ -3388,16 +3397,21 @@ function detectConsecutiveAnoms(minRun = 3) {
         }
         run = [];
       }
-    });
+    }
     if (run.length >= minRun) {
       const [eqp,,ppid] = k.split('|||');
       gConsecGroups.push({ eqp, ppid, ch: run[0]['CH']||'', count: run.length, rows: [...run] });
       run.forEach(x => consecSet.add(x));
     }
-  });
+    if ((gi & 0xFF) === 0 && performance.now() - yT >= 16) { await _tick(); yT = performance.now(); }
+  }
 
-  // 연속 이상 row에 플래그 설정
-  gResults.forEach(r => { r._consec = consecSet.has(r) ? true : false; });
+  // 플래그 설정
+  yT = performance.now();
+  for (let i = 0; i < gResults.length; i++) {
+    gResults[i]._consec = consecSet.has(gResults[i]);
+    if ((i & 0xFFF) === 0 && performance.now() - yT >= 16) { await _tick(); yT = performance.now(); }
+  }
 }
 
 function renderConsecBanner() {
@@ -3470,14 +3484,16 @@ function renderParetoChart() {
 ══════════════════════════════════════════════════════ */
 let gTrendChart = null;
 
-function renderTrendChart() {
+async function renderTrendChart() {
   if (!gResults.length) return;
   const metric   = document.getElementById('trendMetric')?.value || 'count';
   const groupBy  = document.getElementById('trendGroup')?.value  || 'total';
 
   // 날짜별 전체건수 / 이상건수 집계
   const dateTotal = {}, dateAnom = {}, dateEqpTotal = {}, dateEqpAnom = {};
-  gResults.forEach(r => {
+  let yT = performance.now();
+  for (let i = 0; i < gResults.length; i++) {
+    const r = gResults[i];
     const d = _dateStr(r);
     const e = r['EQP ID'] || '?';
     dateTotal[d] = (dateTotal[d]||0) + 1;
@@ -3487,7 +3503,8 @@ function renderTrendChart() {
       dateEqpTotal[k] = (dateEqpTotal[k]||0) + 1;
       if (r.isAnom) dateEqpAnom[k] = (dateEqpAnom[k]||0) + 1;
     }
-  });
+    if ((i & 0xFFF) === 0 && performance.now() - yT >= 16) { await _tick(); yT = performance.now(); }
+  }
 
   const dates = Object.keys(dateTotal).sort();
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
@@ -3539,15 +3556,18 @@ function renderTrendChart() {
 let gLotData = [];
 let gLotSortCol = 4, gLotSortAsc = false;
 
-function buildLotStats() {
+async function buildLotStatsAsync() {
   const map = {};
-  gResults.forEach(r => {
+  let yT = performance.now();
+  for (let i = 0; i < gResults.length; i++) {
+    const r = gResults[i];
     const lot = r['LOTID']||'?', eqp = r['EQP ID']||'?';
     const k = `${lot}|||${eqp}`;
     if (!map[k]) map[k] = { lot, eqp, total: 0, anom: 0, ppids: new Set() };
     map[k].total++;
     if (r.isAnom) { map[k].anom++; map[k].ppids.add(r['PPID']||'?'); }
-  });
+    if ((i & 0xFFF) === 0 && performance.now() - yT >= 16) { await _tick(); yT = performance.now(); }
+  }
   gLotData = Object.values(map).map(v => ({
     ...v, rate: v.total ? v.anom / v.total * 100 : 0, ppids: [...v.ppids]
   }));
@@ -3556,11 +3576,10 @@ function buildLotStats() {
 function sortLotTable(col) {
   if (gLotSortCol === col) gLotSortAsc = !gLotSortAsc;
   else { gLotSortCol = col; gLotSortAsc = col < 2; }
-  renderLotStats();
+  renderLotTable();
 }
 
-function renderLotStats() {
-  buildLotStats();
+function renderLotTable() {
   const col = gLotSortCol, asc = gLotSortAsc;
   const sorted = [...gLotData].sort((a, b) => {
     const vals = [a.lot, a.eqp, a.total, a.anom, a.rate];
@@ -3593,7 +3612,7 @@ function exportLotCSV() {
 /* ══════════════════════════════════════════════════════
    8. PPID 이상 동시 발생 상관 히트맵
 ══════════════════════════════════════════════════════ */
-function renderCorrelHeatmap() {
+async function renderCorrelHeatmap() {
   const ppids = [...(gIndex?.paramSet || new Set(gAnomsAll.map(r=>r['PPID'])))].filter(Boolean);
   if (ppids.length < 2) { document.getElementById('corrHeatmap').innerHTML='<div style="padding:16px;color:var(--tx2)">PPID가 2개 이상이어야 합니다.</div>'; return; }
   const MAX_PPID = 30;
@@ -3601,22 +3620,29 @@ function renderCorrelHeatmap() {
 
   // 날짜+EQP 그룹별 이상 PPID 집합 구성
   const groups = {};
-  gAnomsAll.forEach(r => {
+  let yT = performance.now();
+  for (let i = 0; i < gAnomsAll.length; i++) {
+    const r = gAnomsAll[i];
     const k = `${_dateStr(r)}|||${r['EQP ID']||''}`;
     if (!groups[k]) groups[k] = new Set();
     groups[k].add(r['PPID']);
-  });
+    if ((i & 0xFFF) === 0 && performance.now() - yT >= 16) { await _tick(); yT = performance.now(); }
+  }
 
   // 공동 발생 횟수 행렬
   const idx = {};
   topPpids.forEach((p, i) => { idx[p] = i; });
   const mat = Array.from({length: topPpids.length}, () => new Array(topPpids.length).fill(0));
-  Object.values(groups).forEach(set => {
+  const groupEntries = Object.values(groups);
+  yT = performance.now();
+  for (let gi = 0; gi < groupEntries.length; gi++) {
+    const set = groupEntries[gi];
     const ps = topPpids.filter(p => set.has(p));
     for (let i = 0; i < ps.length; i++)
       for (let j = 0; j < ps.length; j++)
         if (i !== j) mat[idx[ps[i]]][idx[ps[j]]]++;
-  });
+    if ((gi & 0xFF) === 0 && performance.now() - yT >= 16) { await _tick(); yT = performance.now(); }
+  }
 
   const maxVal = Math.max(1, ...mat.flat().filter((v,_,a)=>v!==Math.max(...a)));
   function cellBg(v, isSelf) {
