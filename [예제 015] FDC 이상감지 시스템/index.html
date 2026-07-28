@@ -2618,9 +2618,7 @@ async function downloadApp() {
 /* ══════════════════════════════════════════════════════
    HTML 보고서 다운로드
 ══════════════════════════════════════════════════════ */
-function downloadReport() {
-  if (!gResults.length) { toast('먼저 분석을 실행하세요.','err'); return; }
-
+function _buildReportHtml() {
   const stats = calcStats(gResults);
   const anoms = gAnomsAll;
   const total = gResults.length;
@@ -2743,12 +2741,25 @@ function downloadReport() {
 </body>
 </html>`;
 
+  return html;
+}
+
+function downloadReport() {
+  if (!gResults.length) { toast('먼저 분석을 실행하세요.','err'); return; }
+  const html = _buildReportHtml();
   const blob = new Blob([html], {type:'text/html;charset=utf-8'});
   const url  = URL.createObjectURL(blob);
   const fn   = `fdc_report_${today()}.html`;
   Object.assign(document.createElement('a'),{href:url,download:fn}).click();
   URL.revokeObjectURL(url);
   toast('HTML 보고서 다운로드 완료!','ok');
+}
+
+function _htmlToBase64(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
 }
 
 /* ══════════════════════════════════════════════════════
@@ -2919,6 +2930,7 @@ async function sendMailNow() {
   msg.textContent = '발송 중...';
 
   const subject = s.subject || '[FDC이상감지] 이상 감지 현황 리포트';
+  const attachReport = document.getElementById('mailAttachReport')?.checked;
   const body = {
     subject,
     contents: _buildMailHtml(),
@@ -2926,6 +2938,13 @@ async function sendMailNow() {
     docSecuType: 'PERSONAL',
     sender: { emailAddress: `${s.senderId}@samsung.com` },
     recipients: s.recipients.map(r => ({ emailAddress: `${r}@samsung.com`, recipientType: 'TO' })),
+    ...(attachReport ? {
+      files: [{
+        fileName: `fdc_report_${today()}.html`,
+        fileContent: _htmlToBase64(_buildReportHtml()),
+        fileType: 'text/html',
+      }],
+    } : {}),
   };
 
   try {
@@ -3002,6 +3021,10 @@ function toast(msg,type=''){
       </div>
       <div class="mail-divider"></div>
       <!-- 발송 -->
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx1);cursor:pointer;user-select:none;">
+        <input type="checkbox" id="mailAttachReport" checked style="width:15px;height:15px;accent-color:var(--ac1);">
+        HTML 분석 보고서 첨부 (전체 통계 + 이상 목록 + 원본 데이터)
+      </label>
       <button class="mail-send-btn" id="mailSendBtn" onclick="sendMailNow()">📤 지금 바로 발송</button>
       <div class="mail-status" id="mailStatusMsg"></div>
     </div>
