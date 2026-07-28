@@ -2916,6 +2916,123 @@ function _buildMailHtml() {
 </div>`;
 }
 
+/* 이메일 전용 전체 보고서 — 완전 인라인 스타일 */
+function _buildMailReportHtml() {
+  const stats   = calcStats(gResults);
+  const anoms   = gAnomsAll;
+  const total   = gResults.length;
+  const rate    = total ? (anoms.length/total*100).toFixed(1) : '0.0';
+  const method  = document.getElementById('detectMethod')?.selectedOptions?.[0]?.text || '';
+  const now     = new Date().toLocaleString('ko-KR');
+
+  /* 공통 셀 스타일 */
+  const TH  = 'background:#1e3a5f;color:#fff;font-size:11px;font-weight:600;padding:7px 10px;border:1px solid #ccc;white-space:nowrap;text-align:center';
+  const TD  = 'font-size:11px;padding:6px 10px;border:1px solid #ddd;white-space:nowrap;vertical-align:middle';
+  const TDR = TD + ';text-align:right';
+  const TDC = TD + ';text-align:center';
+
+  /* ── 요약 카드 행 ── */
+  function card(val, lbl, color='#1e3a5f') {
+    return `<td style="padding:6px"><div style="background:#fff;border:1px solid #dde3ef;border-radius:8px;padding:12px 16px;text-align:center;min-width:100px">
+      <div style="font-size:22px;font-weight:700;color:${color}">${val}</div>
+      <div style="font-size:11px;color:#666;margin-top:3px">${lbl}</div>
+    </div></td>`;
+  }
+  const eqpCount   = gIndex ? gIndex.eqpSet.size : new Set(gResults.map(r=>r['EQP ID'])).size;
+  const paramCount = gIndex ? gIndex.paramSet.size: new Set(gResults.map(r=>r['PPID'])).size;
+  const summaryRow = `<table style="border-collapse:collapse;width:100%"><tr>
+    ${card(total.toLocaleString(),   '총 데이터 수',  '#1e3a5f')}
+    ${card(anoms.length.toLocaleString(),'이상감지 건수','#c9303a')}
+    ${card((total-anoms.length).toLocaleString(),'정상 건수','#2a7a3a')}
+    ${card(rate+'%',                 '이상 비율',     '#b45309')}
+    ${card(eqpCount,                 'EQP 수',        '#1e3a5f')}
+    ${card(paramCount,               'PPID 수',       '#1e3a5f')}
+  </tr></table>`;
+
+  /* ── 통계 요약 테이블 ── */
+  const statRows = stats.map((s,i) => `<tr style="background:${i%2===0?'#f7f9fc':'#fff'}">
+    <td style="${TDC}">${s.eqp}</td>
+    <td style="${TDC}">${s.ch||'-'}</td>
+    <td style="${TD}">${s.param}</td>
+    <td style="${TDR}">${s.n.toLocaleString()}</td>
+    <td style="${TDR}">${s.mean.toFixed(4)}</td>
+    <td style="${TDR}">${s.std.toFixed(4)}</td>
+    <td style="${TDR}">${s.min.toFixed(4)}</td>
+    <td style="${TDR}">${s.max.toFixed(4)}</td>
+    <td style="${TDR}">${s.ucl.toFixed(4)}</td>
+    <td style="${TDR}">${s.lcl.toFixed(4)}</td>
+    <td style="${TDR};color:${s.anomCount>0?'#c9303a':'#2a7a3a'}">${s.anomCount}</td>
+    <td style="${TDR};color:${s.anomCount>0?'#c9303a':'#2a7a3a'};font-weight:600">${s.anomRate.toFixed(1)}%</td>
+  </tr>`).join('');
+
+  /* ── 이상감지 목록 (전체) ── */
+  const SHOW_MAX = 500;
+  const anomRows = anoms.slice(0, SHOW_MAX).map((r,i) => `<tr style="background:${i%2===0?'#fff8f8':'#fff'}">
+    <td style="${TDC}">${String(r['날짜']||'').slice(0,16)}</td>
+    <td style="${TDC}">${r['EQP ID']||''}</td>
+    <td style="${TDC}">${r['LOTID']||''}</td>
+    <td style="${TDC}">${r['SLOT']??''}</td>
+    <td style="${TDC}">${r['CH']||''}</td>
+    <td style="${TD}">${r['PPID']||''}</td>
+    <td style="${TDR}">${r['REAL DATA']??''}</td>
+    <td style="${TDR}">${r.ref!=null?Number(r.ref).toFixed(4):'-'}</td>
+    <td style="${TDR};color:#c9303a;font-weight:600">${r.diff!=null?Number(r.diff).toFixed(4):'-'}</td>
+    <td style="${TDC}">${r.threshold??''}</td>
+  </tr>`).join('');
+
+  function section(title, content) {
+    return `<div style="margin-bottom:24px">
+      <div style="background:#1e3a5f;color:#fff;padding:8px 14px;border-radius:6px 6px 0 0;font-size:13px;font-weight:700">${title}</div>
+      <div style="border:1px solid #ccc;border-top:none;border-radius:0 0 6px 6px;overflow:auto">${content}</div>
+    </div>`;
+  }
+
+  return `<div style="font-family:'Malgun Gothic',Arial,sans-serif;max-width:900px;margin:0 auto;color:#1a1d23">
+
+  <!-- 헤더 -->
+  <div style="background:#1a233e;color:#fff;padding:18px 24px;border-radius:8px 8px 0 0;margin-bottom:4px">
+    <div style="font-size:18px;font-weight:700">📊 FDC RAW DATA 이상감지 — 전체 분석 보고서</div>
+    <div style="font-size:11px;color:#aab;margin-top:4px">생성: ${now} &nbsp;|&nbsp; 감지 방식: ${method} &nbsp;|&nbsp; 임계값: ${gThreshold}</div>
+  </div>
+
+  <!-- 요약 카드 -->
+  <div style="border:1px solid #dde3ef;border-top:none;padding:12px;margin-bottom:20px;background:#f4f6fb;border-radius:0 0 8px 8px">
+    ${summaryRow}
+  </div>
+
+  <!-- 통계 요약 -->
+  ${section('📋 통계 요약 (EQP / CH / PPID 별)',
+    `<table style="border-collapse:collapse;width:100%">
+      <thead><tr>
+        <th style="${TH}">EQP ID</th><th style="${TH}">CH</th><th style="${TH}">PPID</th>
+        <th style="${TH}">건수</th><th style="${TH}">평균</th><th style="${TH}">표준편차</th>
+        <th style="${TH}">최솟값</th><th style="${TH}">최댓값</th>
+        <th style="${TH}">UCL(+3σ)</th><th style="${TH}">LCL(−3σ)</th>
+        <th style="${TH}">이상 건수</th><th style="${TH}">이상률</th>
+      </tr></thead>
+      <tbody>${statRows||'<tr><td colspan="12" style="'+TD+';color:#888">데이터 없음</td></tr>'}</tbody>
+    </table>`
+  )}
+
+  <!-- 이상감지 목록 -->
+  ${section(`🚨 이상감지 목록 (${anoms.length}건${anoms.length>SHOW_MAX?' — 상위 '+SHOW_MAX+'건':''}표시)`,
+    `<table style="border-collapse:collapse;width:100%">
+      <thead><tr>
+        <th style="${TH}">날짜</th><th style="${TH}">EQP ID</th><th style="${TH}">LOTID</th>
+        <th style="${TH}">SLOT</th><th style="${TH}">CH</th><th style="${TH}">PPID</th>
+        <th style="${TH}">측정값</th><th style="${TH}">참조값</th>
+        <th style="${TH}">편차/변화량</th><th style="${TH}">임계값</th>
+      </tr></thead>
+      <tbody>${anomRows||'<tr><td colspan="10" style="'+TD+';color:#888;text-align:center">✅ 이상감지된 데이터가 없습니다.</td></tr>'}</tbody>
+    </table>`
+  )}
+
+  <div style="border-top:1px solid #ddd;padding-top:10px;color:#aaa;font-size:11px;text-align:center">
+    FDC 이상감지 시스템 — 자동 생성 보고서
+  </div>
+</div>`;
+}
+
 async function sendMailNow() {
   const s = _loadMailSettings();
   if (!s.senderId) { document.getElementById('mailStatusMsg').textContent='발신자 Knox ID를 입력하세요.'; return; }
@@ -2932,16 +3049,7 @@ async function sendMailNow() {
   const subject = s.subject || '[FDC이상감지] 이상 감지 현황 리포트';
   const attachReport = document.getElementById('mailAttachReport')?.checked;
 
-  // 전체 보고서 포함 시: _buildReportHtml()의 body 내용을 요약 뒤에 인라인으로 붙임
-  let contents = _buildMailHtml();
-  if (attachReport) {
-    const fullHtml = _buildReportHtml();
-    const m = fullHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-    const reportBody = m ? m[1] : fullHtml;
-    contents += `<hr style="margin:28px 0;border:none;border-top:2px solid #1a233e">
-<p style="font-size:11px;color:#888;margin-bottom:12px">※ 아래는 전체 분석 보고서 (인라인 포함)</p>
-${reportBody}`;
-  }
+  const contents = attachReport ? _buildMailReportHtml() : _buildMailHtml();
 
   const mailJson = {
     subject,
