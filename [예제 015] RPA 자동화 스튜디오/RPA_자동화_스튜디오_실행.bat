@@ -2,7 +2,18 @@
 setlocal enabledelayedexpansion
 chcp 65001 >nul
 cd /d "%~dp0"
-set "SCRIPT=RPA자동화스튜디오_단일파일.py"
+
+rem 파일 이름을 바꿔도 동작하도록, 같은 폴더에서 .py 파일을 자동으로 찾는다.
+set "SCRIPT="
+for %%F in ("%~dp0*.py") do (
+    if not defined SCRIPT set "SCRIPT=%%~nxF"
+)
+if not defined SCRIPT (
+    echo 실행할 .py 파일을 찾지 못했습니다.
+    echo 이 .bat 파일을 파이썬 스크립트와 같은 폴더에 두세요.
+    pause
+    exit /b 1
+)
 
 where py >nul 2>nul
 if !errorlevel! equ 0 (
