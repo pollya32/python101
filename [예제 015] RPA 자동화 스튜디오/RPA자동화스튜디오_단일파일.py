@@ -504,19 +504,26 @@ class MultilineDialog(tk.Toplevel):
         self.title(title)
         self.transient(parent)
         self.grab_set()
-        self.geometry("620x360")
-        self.minsize(460, 280)
+        self.geometry("640x420")
+        self.minsize(480, 320)
 
         frame = ttk.Frame(self, padding=12)
         frame.pack(fill=tk.BOTH, expand=True)
-        ttk.Label(frame, text=prompt, wraplength=580).pack(anchor=tk.W)
+        ttk.Label(frame, text=prompt, wraplength=600).pack(anchor=tk.W)
+
+        # 확인/취소 버튼을 먼저 아래쪽에 고정 배치해 항상 자리를 확보한 뒤,
+        # 남는 공간만 문자 입력창(Text)이 채우도록 한다. 반대 순서로 배치하면
+        # 창 높이가 부족할 때(고해상도 DPI 확대 등) 버튼이 화면 밖으로 밀려나
+        # 보이지 않을 수 있다.
+        buttons = ttk.Frame(frame)
+        buttons.pack(side=tk.BOTTOM, fill=tk.X, pady=(8, 0))
+        ttk.Button(buttons, text="취소", command=self.destroy).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(buttons, text="확인", command=self._accept).pack(side=tk.RIGHT)
+
         self.text = tk.Text(frame, wrap=tk.WORD, font=("Malgun Gothic", 11), undo=True)
         self.text.pack(fill=tk.BOTH, expand=True, pady=8)
         self.text.insert("1.0", initial)
-        buttons = ttk.Frame(frame)
-        buttons.pack(fill=tk.X)
-        ttk.Button(buttons, text="취소", command=self.destroy).pack(side=tk.RIGHT, padx=4)
-        ttk.Button(buttons, text="확인", command=self._accept).pack(side=tk.RIGHT)
+
         self.bind("<Control-Return>", lambda _event: self._accept())
         self.text.focus_set()
         self.wait_window()
@@ -1022,6 +1029,7 @@ class AutomationApp:
             "클립보드에 붙여넣기(Ctrl+V)로 입력할까요?\n"
             "(붙여넣기 직후 원래 클립보드 내용을 복원합니다)\n\n"
             "잘 모르겠으면 '아니요'를 선택하세요.",
+            parent=self.root,
         )
         self._insert_action(
             Action(
@@ -1565,6 +1573,7 @@ class AutomationApp:
                     "입력 방식 선택",
                     "클립보드에 붙여넣기(Ctrl+V)로 입력할까요?\n"
                     "한글 등에서 직접 키 입력이 제대로 안 될 때 선택하세요.",
+                    parent=self.root,
                 )
                 updated = dict(p, template=dialog.result, use_clipboard=use_clipboard)
         elif action.kind == "image_click":
