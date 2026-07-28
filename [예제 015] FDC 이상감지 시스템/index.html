@@ -3127,6 +3127,71 @@ function _delMailRecipient(idx) {
   _renderMailRecipients();
 }
 
+/* 메일 전용 EQP×PPID 이상률 히트맵 — 완전 인라인 스타일 */
+function _buildMailHeatmapHtml() {
+  if (!gResults.length) return '';
+  const MAX_EQP  = 20;
+  const MAX_PPID = 20;
+
+  const allEqps  = [...new Set(gResults.map(r=>r['EQP ID']))].sort();
+  const allPpids = [...new Set(gResults.map(r=>r['PPID']))].sort();
+  const eqps     = allEqps.slice(0, MAX_EQP);
+  const params   = allPpids.slice(0, MAX_PPID);
+
+  const agg = {};
+  gResults.forEach(r => {
+    const e = r['EQP ID'], p = r['PPID'];
+    if (!agg[e]) agg[e] = {};
+    if (!agg[e][p]) agg[e][p] = {total:0, anom:0};
+    agg[e][p].total++;
+    if (r.isAnom) agg[e][p].anom++;
+  });
+  const cell = (e,p) => {
+    const d = agg[e]?.[p];
+    if (!d || !d.total) return null;
+    return {...d, rate: d.anom/d.total*100};
+  };
+
+  let maxRate = 0.01;
+  eqps.forEach(e => params.forEach(p => { const d=cell(e,p); if(d&&d.rate>maxRate) maxRate=d.rate; }));
+
+  const TH_corner = 'border:1px solid #ccc;padding:5px 8px;font-size:10px;background:#e8eef7;color:#333;font-weight:600;white-space:nowrap;text-align:left;min-width:80px';
+  const TH_col    = 'border:1px solid #ccc;padding:5px 6px;font-size:10px;font-weight:600;background:#1e3a5f;color:#fff;white-space:nowrap;text-align:center';
+  const TH_row    = 'border:1px solid #ccc;padding:5px 8px;font-size:10px;font-weight:600;background:#e8eef7;color:#333;white-space:nowrap;text-align:left';
+
+  let tbl = `<table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:10px">
+    <thead><tr>
+      <th style="${TH_corner}">EQP \\ PPID</th>
+      ${params.map(p=>`<th style="${TH_col}" title="${p}">${p.length>10?p.slice(0,9)+'…':p}</th>`).join('')}
+    </tr></thead><tbody>`;
+
+  eqps.forEach(e => {
+    tbl += `<tr><th style="${TH_row}">${e}</th>`;
+    params.forEach(p => {
+      const d = cell(e, p);
+      if (!d) {
+        tbl += `<td style="border:1px solid #e8e8e8;padding:4px 6px;background:#f7f7f7;color:#ccc;text-align:center">—</td>`;
+      } else {
+        const t   = d.rate / maxRate;
+        const r_  = Math.round(220 + t*35);
+        const g_  = Math.round(220*(1-t*0.9));
+        const b_  = Math.round(220*(1-t*0.9));
+        const bg  = d.rate===0 ? '#d4edda' : `rgb(${r_},${g_},${b_})`;
+        const col = d.rate===0 ? '#1a5e2a' : (t>0.55?'#7a0000':'#333');
+        const lbl = d.rate===0 ? 'OK' : `${d.rate.toFixed(1)}%`;
+        tbl += `<td style="border:1px solid #e0e0e0;padding:4px 7px;background:${bg};color:${col};text-align:center;font-weight:${d.rate>0?'700':'400'}">${lbl}</td>`;
+      }
+    });
+    tbl += '</tr>';
+  });
+  tbl += '</tbody></table>';
+
+  const noteEqp  = allEqps.length > MAX_EQP  ? `EQP ${MAX_EQP}/${allEqps.length}개` : '';
+  const notePpid = allPpids.length > MAX_PPID ? `PPID ${MAX_PPID}/${allPpids.length}개` : '';
+  const note     = (noteEqp||notePpid) ? `<p style="font-size:11px;color:#888;margin:4px 0 0">※ 표시 범위: ${[noteEqp,notePpid].filter(Boolean).join(', ')} (이상률 높은 순)</p>` : '';
+  return tbl + note;
+}
+
 function _buildMailHtml() {
   if (!gResults.length) return '<p>분석 데이터가 없습니다.</p>';
   const totalRows = gResults.length;
@@ -3195,6 +3260,11 @@ function _buildMailHtml() {
     <tr style="background:#1a233e;color:#fff"><th style="${td}">EQP ID</th><th style="${td};text-align:right">이상 건수</th></tr>
     ${eqpRows||'<tr><td colspan="2" style="'+td+';color:#888">이상 없음</td></tr>'}
   </table>
+
+  <h3 style="color:#1a233e;margin-bottom:8px">🌡️ EQP × PPID 이상률 히트맵</h3>
+  <div style="overflow-x:auto;margin-bottom:20px">
+    ${_buildMailHeatmapHtml()}
+  </div>
 
   <h3 style="color:#1a233e;margin-bottom:8px">⚠️ 이상 감지 목록 (상위 ${Math.min(30,anomCount)}건)</h3>
   <table style="border-collapse:collapse;width:100%;margin-bottom:20px">
