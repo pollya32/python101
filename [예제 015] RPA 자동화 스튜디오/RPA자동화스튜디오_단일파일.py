@@ -17,7 +17,11 @@ RPA 자동화 스튜디오 (Windows)
 - 로그·스크린샷 보관 기간 설정 및 자동 정리
 - 프로그램 내부 예약 실행, Windows 작업 스케줄러 등록(창 최소화·완료 후 자동 종료 옵션)
 - 예약 실행과 수동 실행이 겹치지 않도록 중복 실행 방지
-- 기존 v1~v3 JSON 설정 자동 호환
+- 목록 드래그로 순서 변경, 다중 선택 일괄 삭제/복제/사용 토글
+- 실행 취소(Ctrl+Z)/다시 실행(Ctrl+Y), 단계 복사·붙여넣기(Ctrl+C/V), 단계 찾기(Ctrl+F)
+- 실행되지 않는 주석/구분선 단계로 긴 목록 정리
+- 파일 메뉴 최근 파일 목록
+- 기존 v1~v4 JSON 설정 자동 호환
 
 필수 설치
 ---------
@@ -377,6 +381,8 @@ class Action:
             filename = Path(str(p.get("image", ""))).name
             condition_text = "있으면" if p.get("condition") == "found" else "없으면"
             return f"조건 분기: {filename} {condition_text} 다음 {p.get('skip_count', 1)}단계 건너뜀"
+        if self.kind == "comment":
+            return f"── {p.get('text', '')} ──"
         return f"{self.kind}: {p}"
 
 
@@ -563,6 +569,10 @@ class AutomationApp:
         self.log_lock = threading.Lock()
         self.run_mutex_handle: Any = None
         self.is_autorun_session = bool(autorun)
+        self.undo_stack: list[list[Action]] = []
+        self.redo_stack: list[list[Action]] = []
+        self.action_clipboard: list[Action] = []
+        self._drag_start_iid: str | None = None
 
         root.title(APP_TITLE)
         root.geometry("1160x790")
@@ -618,6 +628,8 @@ class AutomationApp:
         file_menu = tk.Menu(menubar, tearoff=False)
         file_menu.add_command(label="새로 만들기", accelerator="Ctrl+N", command=self.new_profile)
         file_menu.add_command(label="열기...", accelerator="Ctrl+O", command=self.load_profile)
+        self.recent_menu = tk.Menu(file_menu, tearoff=False)
+        file_menu.add_cascade(label="최근 파일", menu=self.recent_menu)
         file_menu.add_separator()
         file_menu.add_command(label="저장", accelerator="Ctrl+S", command=self.save_profile)
         file_menu.add_command(
@@ -629,12 +641,66 @@ class AutomationApp:
         file_menu.add_command(label="종료", command=self.on_close)
         menubar.add_cascade(label="파일", menu=file_menu)
         self.root.config(menu=menubar)
+        self._refresh_recent_menu()
 
         self.root.bind_all("<Control-n>", lambda _event: self.new_profile())
         self.root.bind_all("<Control-o>", lambda _event: self.load_profile())
         self.root.bind_all("<Control-s>", lambda _event: self.save_profile())
+        self.root.bind_all("<Control-f>", lambda _event: self.find_action())
         for sequence in ("<Control-Shift-S>", "<Control-Shift-s>"):
             self.root.bind_all(sequence, lambda _event: self.save_profile_as())
+
+    @staticmethod
+    def _recent_files_path() -> Path:
+        return Path.home() / ".rpa_automation_studio_recent.json"
+
+    def _load_recent_files(self) -> list[str]:
+        try:
+            data = json.loads(self._recent_files_path().read_text(encoding="utf-8"))
+        except Exception:
+            return []
+        return [item for item in data if isinstance(item, str)]
+
+    def _save_recent_files(self, paths: list[str]) -> None:
+        try:
+            self._recent_files_path().write_text(
+                json.dumps(paths, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except OSError:
+            pass
+
+    def _remember_recent_file(self, path: Path) -> None:
+        path_str = str(path.resolve())
+        paths = [item for item in self._load_recent_files() if item != path_str]
+        paths.insert(0, path_str)
+        paths = paths[:8]
+        self._save_recent_files(paths)
+        self._refresh_recent_menu(paths)
+
+    def _refresh_recent_menu(self, paths: list[str] | None = None) -> None:
+        if paths is None:
+            paths = self._load_recent_files()
+        self.recent_menu.delete(0, tk.END)
+        if not paths:
+            self.recent_menu.add_command(label="(최근 파일 없음)", state=tk.DISABLED)
+            return
+        for path_str in paths:
+            self.recent_menu.add_command(
+                label=path_str, command=lambda p=path_str: self._open_recent_file(p)
+            )
+
+    def _open_recent_file(self, path_str: str) -> None:
+        path = Path(path_str)
+        if not path.exists():
+            messagebox.showerror("파일 없음", f"파일을 찾을 수 없습니다:\n{path_str}")
+            remaining = [item for item in self._load_recent_files() if item != path_str]
+            self._save_recent_files(remaining)
+            self._refresh_recent_menu(remaining)
+            return
+        try:
+            self._load_profile_path(path)
+        except Exception as error:
+            messagebox.showerror("불러오기 실패", f"설정 파일을 확인하세요.\n\n{error}")
 
     def _build_ui(self) -> None:
         self._build_menu()
@@ -708,6 +774,7 @@ class AutomationApp:
             ("조건 분기(이미지)", self.add_image_condition_skip),
             ("창 대기", self.add_window_action),
             ("대기", self.add_wait),
+            ("주석/구분선", self.add_comment),
         ]
         self.record_start_button: ttk.Button | None = None
         self.record_stop_button: ttk.Button | None = None
@@ -735,7 +802,7 @@ class AutomationApp:
             list_frame,
             columns=("number", "enabled", "description"),
             show="headings",
-            selectmode="browse",
+            selectmode="extended",
         )
         self.action_tree.heading("number", text="순서")
         self.action_tree.heading("enabled", text="사용")
@@ -743,8 +810,18 @@ class AutomationApp:
         self.action_tree.column("number", width=55, anchor=tk.CENTER, stretch=False)
         self.action_tree.column("enabled", width=55, anchor=tk.CENTER, stretch=False)
         self.action_tree.column("description", width=760)
+        self.action_tree.tag_configure("comment", foreground="#6B6B6B")
         self.action_tree.grid(row=0, column=0, sticky="nsew")
         self.action_tree.bind("<Double-1>", lambda _event: self.edit_selected())
+        # 목록 안에서 드래그로 순서를 바꿀 수 있게 한다(기본 클릭 선택 동작은 그대로 유지).
+        self.action_tree.bind("<ButtonPress-1>", self._on_tree_button_press, add="+")
+        self.action_tree.bind("<ButtonRelease-1>", self._on_tree_button_release, add="+")
+        self.action_tree.bind("<Control-c>", lambda _event: self.copy_selected())
+        self.action_tree.bind("<Control-v>", lambda _event: self.paste_actions())
+        self.action_tree.bind("<Delete>", lambda _event: self.delete_selected())
+        self.action_tree.bind("<Control-z>", lambda _event: self.undo())
+        for sequence in ("<Control-y>", "<Control-Shift-Z>", "<Control-Shift-z>"):
+            self.action_tree.bind(sequence, lambda _event: self.redo())
         scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.action_tree.yview)
         scrollbar.grid(row=0, column=1, sticky="ns")
         self.action_tree.configure(yscrollcommand=scrollbar.set)
@@ -755,6 +832,11 @@ class AutomationApp:
             ("편집", self.edit_selected),
             ("복제", self.duplicate_selected),
             ("사용/제외", self.toggle_selected),
+            ("복사(Ctrl+C)", self.copy_selected),
+            ("붙여넣기(Ctrl+V)", self.paste_actions),
+            ("찾기(Ctrl+F)", self.find_action),
+            ("실행 취소(Ctrl+Z)", self.undo),
+            ("다시 실행(Ctrl+Y)", self.redo),
             ("위로", self.move_up),
             ("아래로", self.move_down),
             ("선택 삭제", self.delete_selected),
@@ -931,6 +1013,7 @@ class AutomationApp:
                 tk.END,
                 iid=action.action_id,
                 values=(index, "✓" if action.enabled else "—", action.label()),
+                tags=("comment",) if action.kind == "comment" else (),
             )
         target_id: str | None = None
         if selected_index is not None and self.actions:
@@ -948,10 +1031,99 @@ class AutomationApp:
         if len(self.actions) >= MAX_ACTIONS:
             messagebox.showwarning("단계 제한", f"실행 단계는 최대 {MAX_ACTIONS:,}개입니다.")
             return
+        self._snapshot_for_undo()
         index = self._selected_action_index()
         insert_at = len(self.actions) if index is None else index + 1
         self.actions.insert(insert_at, action)
         self._refresh_list(insert_at)
+
+    def _selected_action_indices(self) -> list[int]:
+        selected_ids = set(self.action_tree.selection())
+        if not selected_ids:
+            return []
+        return sorted(index for index, action in enumerate(self.actions) if action.action_id in selected_ids)
+
+    def _snapshot_for_undo(self) -> None:
+        self.undo_stack.append([copy.deepcopy(action) for action in self.actions])
+        if len(self.undo_stack) > 50:
+            self.undo_stack.pop(0)
+        self.redo_stack.clear()
+
+    def undo(self) -> None:
+        if not self.undo_stack:
+            return
+        self.redo_stack.append([copy.deepcopy(action) for action in self.actions])
+        self.actions = self.undo_stack.pop()
+        self._refresh_list()
+        self.status_var.set("실행을 취소했습니다.")
+
+    def redo(self) -> None:
+        if not self.redo_stack:
+            return
+        self.undo_stack.append([copy.deepcopy(action) for action in self.actions])
+        self.actions = self.redo_stack.pop()
+        self._refresh_list()
+        self.status_var.set("다시 실행했습니다.")
+
+    def copy_selected(self) -> None:
+        indices = self._selected_action_indices()
+        if not indices:
+            return
+        self.action_clipboard = [copy.deepcopy(self.actions[index]) for index in indices]
+        self.status_var.set(f"{len(self.action_clipboard)}개 단계를 복사했습니다.")
+
+    def paste_actions(self) -> None:
+        if not self.action_clipboard:
+            return
+        if len(self.actions) + len(self.action_clipboard) > MAX_ACTIONS:
+            messagebox.showwarning("단계 제한", f"실행 단계는 최대 {MAX_ACTIONS:,}개입니다.")
+            return
+        self._snapshot_for_undo()
+        index = self._selected_action_index()
+        insert_at = len(self.actions) if index is None else index + 1
+        clones = [action.clone() for action in self.action_clipboard]
+        self.actions[insert_at:insert_at] = clones
+        self._refresh_list(insert_at + len(clones) - 1)
+        self.status_var.set(f"{len(clones)}개 단계를 붙여넣었습니다.")
+
+    def find_action(self) -> None:
+        query = simpledialog.askstring("단계 찾기", "찾을 텍스트를 입력하세요.", parent=self.root)
+        if not query:
+            return
+        if not self.actions:
+            return
+        query_lower = query.lower()
+        start_index = self._selected_action_index()
+        start = 0 if start_index is None else start_index + 1
+        total = len(self.actions)
+        for offset in range(total):
+            index = (start + offset) % total
+            if query_lower in self.actions[index].label().lower():
+                self._refresh_list(index)
+                self.status_var.set(f"'{query}' 찾음: {index + 1}번째 단계")
+                return
+        messagebox.showinfo("단계 찾기", f"'{query}'를 포함한 단계를 찾지 못했습니다.")
+
+    def _on_tree_button_press(self, event: tk.Event) -> None:
+        self._drag_start_iid = self.action_tree.identify_row(event.y)
+
+    def _on_tree_button_release(self, event: tk.Event) -> None:
+        start_iid, self._drag_start_iid = self._drag_start_iid, None
+        if not start_iid:
+            return
+        target_iid = self.action_tree.identify_row(event.y)
+        if not target_iid or target_iid == start_iid:
+            return
+        start_index = next((i for i, a in enumerate(self.actions) if a.action_id == start_iid), None)
+        target_index = next((i for i, a in enumerate(self.actions) if a.action_id == target_iid), None)
+        if start_index is None or target_index is None:
+            return
+        self._snapshot_for_undo()
+        action = self.actions.pop(start_index)
+        if start_index < target_index:
+            target_index -= 1
+        self.actions.insert(target_index, action)
+        self._refresh_list(target_index)
 
     def _capture_position_after_countdown(self, purpose: str) -> tuple[int, int] | None:
         if pyautogui is None:
@@ -1064,6 +1236,17 @@ class AutomationApp:
         if seconds is None:
             return
         self._insert_action(Action("wait", {"seconds": seconds}))
+
+    def add_comment(self) -> None:
+        """실행되지 않는 설명 텍스트를 추가한다. 긴 자동화 목록을 구간별로 정리할 때 쓴다."""
+        text = simpledialog.askstring(
+            "주석/구분선 추가",
+            "실행되지 않는 설명 텍스트를 입력하세요.\n예: 로그인 시작 / 데이터 입력 구간",
+            parent=self.root,
+        )
+        if not text:
+            return
+        self._insert_action(Action("comment", {"text": text}))
 
     def _prompt_image_confidence(self, initial: dict[str, Any]) -> float:
         confidence = simpledialog.askfloat(
@@ -1448,6 +1631,8 @@ class AutomationApp:
             recorded = recorded[:remaining]
             messagebox.showwarning("단계 제한", f"최대 {MAX_ACTIONS:,}단계까지만 추가했습니다.")
         # 수동 동작 추가와 마찬가지로, 선택된 단계가 있으면 그 바로 아래에 녹화 결과를 끼워 넣는다.
+        if recorded:
+            self._snapshot_for_undo()
         index = self._selected_action_index()
         insert_at = len(self.actions) if index is None else index + 1
         self.actions[insert_at:insert_at] = recorded
@@ -1582,28 +1767,52 @@ class AutomationApp:
             updated = self._prompt_window_params(p)
         elif action.kind == "image_condition_skip":
             updated = self._prompt_image_condition_params(p)
+        elif action.kind == "comment":
+            value = simpledialog.askstring(
+                "주석 편집",
+                "설명 텍스트",
+                initialvalue=str(p.get("text", "")),
+                parent=self.root,
+            )
+            if value:
+                updated = {"text": value}
         if updated is not None:
+            self._snapshot_for_undo()
             action.params = updated
             self._refresh_list(index)
 
     def duplicate_selected(self) -> None:
-        index = self._selected_action_index()
-        if index is None:
+        indices = self._selected_action_indices()
+        if not indices:
             return
-        self.actions.insert(index + 1, self.actions[index].clone())
-        self._refresh_list(index + 1)
+        if len(self.actions) + len(indices) > MAX_ACTIONS:
+            messagebox.showwarning("단계 제한", f"실행 단계는 최대 {MAX_ACTIONS:,}개입니다.")
+            return
+        self._snapshot_for_undo()
+        offset = 0
+        last_insert_at = indices[-1]
+        for original_index in indices:
+            actual_index = original_index + offset
+            insert_at = actual_index + 1
+            self.actions.insert(insert_at, self.actions[actual_index].clone())
+            last_insert_at = insert_at
+            offset += 1
+        self._refresh_list(last_insert_at)
 
     def toggle_selected(self) -> None:
-        index = self._selected_action_index()
-        if index is None:
+        indices = self._selected_action_indices()
+        if not indices:
             return
-        self.actions[index].enabled = not self.actions[index].enabled
-        self._refresh_list(index)
+        self._snapshot_for_undo()
+        for index in indices:
+            self.actions[index].enabled = not self.actions[index].enabled
+        self._refresh_list(indices[-1])
 
     def move_up(self) -> None:
         index = self._selected_action_index()
         if index is None or index == 0:
             return
+        self._snapshot_for_undo()
         self.actions[index - 1], self.actions[index] = self.actions[index], self.actions[index - 1]
         self._refresh_list(index - 1)
 
@@ -1611,18 +1820,22 @@ class AutomationApp:
         index = self._selected_action_index()
         if index is None or index >= len(self.actions) - 1:
             return
+        self._snapshot_for_undo()
         self.actions[index + 1], self.actions[index] = self.actions[index], self.actions[index + 1]
         self._refresh_list(index + 1)
 
     def delete_selected(self) -> None:
-        index = self._selected_action_index()
-        if index is None:
+        indices = self._selected_action_indices()
+        if not indices:
             return
-        del self.actions[index]
-        self._refresh_list(index)
+        self._snapshot_for_undo()
+        for index in sorted(indices, reverse=True):
+            del self.actions[index]
+        self._refresh_list(min(indices))
 
     def clear_all(self) -> None:
         if self.actions and messagebox.askyesno("전체 삭제", "등록된 실행 단계를 모두 삭제할까요?"):
+            self._snapshot_for_undo()
             self.actions.clear()
             self._refresh_list()
 
@@ -1730,6 +1943,7 @@ class AutomationApp:
             messagebox.showerror("저장 실패", str(error))
             return False
         self.current_profile_path = Path(path).resolve()
+        self._remember_recent_file(self.current_profile_path)
         self.status_var.set(f"설정 저장 완료: {self.current_profile_path.name}")
         return True
 
@@ -1821,6 +2035,9 @@ class AutomationApp:
         self.schedule_minimized_var.set(bool(schedule.get("start_minimized", True)))
         self.schedule_exit_after_var.set(bool(schedule.get("exit_after_run", False)))
         self.current_profile_path = path.resolve()
+        self.undo_stack.clear()
+        self.redo_stack.clear()
+        self._remember_recent_file(self.current_profile_path)
         self._refresh_list()
         self.status_var.set(f"설정 불러오기 완료: {path.name} (v{version} 호환)")
 
@@ -1845,6 +2062,7 @@ class AutomationApp:
             "image_click",
             "wait_window",
             "image_condition_skip",
+            "comment",
         }
         for action in actions:
             if action.kind not in allowed:
@@ -2246,6 +2464,8 @@ class AutomationApp:
             condition_met = present if p.get("condition") == "found" else not present
             if condition_met:
                 return int(p.get("skip_count", 1))
+        elif action.kind == "comment":
+            pass  # 실행되지 않는 설명 텍스트 - 항상 성공으로 처리한다.
         else:
             raise ValueError(f"지원하지 않는 실행 단계: {action.kind}")
         return 0
