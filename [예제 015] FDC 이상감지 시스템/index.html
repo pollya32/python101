@@ -160,13 +160,28 @@
     .drag-select-info tr:last-child td{border-bottom:none;}
     .drag-select-info tr.is-anom td{background:rgba(248,81,73,.07);}
 
-    /* ── 히스토리 모달 ── */
+    /* ── 공통 모달 ── */
     .hist-modal-overlay{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;}
     .hist-modal-overlay.open{display:flex;}
     .hist-modal{background:var(--bg2);border:1px solid var(--bd);border-radius:12px;width:min(780px,95vw);max-height:82vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.5);}
     .hist-modal-head{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--bd);}
     .hist-modal-body{overflow:auto;padding:4px 0;}
     .hist-modal-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid var(--bd);}
+    /* ── 메일 모달 ── */
+    .mail-modal{width:min(520px,95vw);}
+    .mail-modal-body{padding:18px 22px;display:flex;flex-direction:column;gap:14px;}
+    .mail-field label{font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:4px;display:block;}
+    .mail-field input{width:100%;padding:6px 10px;border:1px solid var(--bd);border-radius:6px;background:var(--bg1);color:var(--tx1);font-size:13px;}
+    .mail-field input:focus{outline:none;border-color:var(--ac1);}
+    .mail-recipient-row{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border:1px solid var(--bd);border-radius:6px;font-size:13px;background:var(--bg1);margin-bottom:4px;}
+    .mail-recipient-row button{background:none;border:none;color:var(--tx2);cursor:pointer;font-size:14px;padding:0 4px;}
+    .mail-recipient-row button:hover{color:#f85149;}
+    .mail-add-row{display:flex;gap:8px;}
+    .mail-add-row input{flex:1;}
+    .mail-send-btn{width:100%;padding:10px;border:none;border-radius:8px;background:var(--ac1);color:#fff;font-size:14px;font-weight:600;cursor:pointer;}
+    .mail-send-btn:disabled{opacity:.5;cursor:not-allowed;}
+    .mail-status{font-size:12px;text-align:center;color:var(--tx2);min-height:18px;}
+    .mail-divider{height:1px;background:var(--bd);}
     .hist-table{width:100%;border-collapse:collapse;font-size:13px;}
     .hist-table th{padding:8px 12px;text-align:left;color:var(--tx2);font-weight:600;font-size:11px;border-bottom:1px solid var(--bd);white-space:nowrap;background:var(--bg1);position:sticky;top:0;}
     .hist-table td{padding:9px 12px;border-bottom:1px solid var(--bd);vertical-align:middle;}
@@ -290,6 +305,7 @@
       <input type="file" id="loadJsonInput" accept=".json" style="display:none" onchange="loadAnalysisFile(event)">
       <div style="height:1px;background:var(--bd);flex-basis:100%;margin:4px 0"></div>
       <button class="btn btn-secondary" onclick="downloadApp()">⬇ 앱 다운로드</button>
+      <button class="btn btn-secondary" onclick="openMailModal()">📧 메일 발송</button>
     </div>
   </div>
 
@@ -2736,6 +2752,205 @@ function downloadReport() {
 }
 
 /* ══════════════════════════════════════════════════════
+   MAIL (사내 메일 API)
+══════════════════════════════════════════════════════ */
+const MAIL_LS_KEY = 'fdc_mail_settings';
+
+function _loadMailSettings() {
+  try { return JSON.parse(localStorage.getItem(MAIL_LS_KEY)||'{}'); } catch{ return {}; }
+}
+function saveMailSettings() {
+  const s = {
+    senderId: document.getElementById('mailSenderId').value.trim(),
+    authorization: document.getElementById('mailAuth').value.trim(),
+    systemId: document.getElementById('mailSysId').value.trim(),
+    subject: document.getElementById('mailSubject').value.trim(),
+    recipients: _loadMailSettings().recipients || [],
+  };
+  localStorage.setItem(MAIL_LS_KEY, JSON.stringify(s));
+}
+
+function openMailModal() {
+  const s = _loadMailSettings();
+  document.getElementById('mailSenderId').value = s.senderId || '';
+  document.getElementById('mailAuth').value = s.authorization || '';
+  document.getElementById('mailSysId').value = s.systemId || '';
+  document.getElementById('mailSubject').value = s.subject || '[FDC이상감지] 이상 감지 현황 리포트';
+  document.getElementById('mailStatusMsg').textContent = '';
+  _renderMailRecipients();
+  document.getElementById('mailModal').classList.add('open');
+}
+function closeMailModal() {
+  document.getElementById('mailModal').classList.remove('open');
+}
+
+function _renderMailRecipients() {
+  const s = _loadMailSettings();
+  const list = s.recipients || [];
+  const el = document.getElementById('mailRecipientList');
+  if (!list.length) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--tx2);padding:4px 0">등록된 수신자가 없습니다.</div>';
+    return;
+  }
+  el.innerHTML = list.map((r,i) => `
+    <div class="mail-recipient-row">
+      <span>${r}@samsung.com</span>
+      <button onclick="_delMailRecipient(${i})" title="삭제">✕</button>
+    </div>`).join('');
+}
+
+function addMailRecipient() {
+  const inp = document.getElementById('mailRecipientInput');
+  const id = inp.value.trim().replace(/@.*$/, '');
+  if (!id) return;
+  const s = _loadMailSettings();
+  s.recipients = s.recipients || [];
+  if (s.recipients.includes(id)) { inp.value=''; return; }
+  s.recipients.push(id);
+  localStorage.setItem(MAIL_LS_KEY, JSON.stringify(s));
+  inp.value = '';
+  _renderMailRecipients();
+}
+
+function _delMailRecipient(idx) {
+  const s = _loadMailSettings();
+  s.recipients.splice(idx, 1);
+  localStorage.setItem(MAIL_LS_KEY, JSON.stringify(s));
+  _renderMailRecipients();
+}
+
+function _buildMailHtml() {
+  if (!gResults.length) return '<p>분석 데이터가 없습니다.</p>';
+  const totalRows = gResults.length;
+  const anomCount = gAnomsAll.length;
+  const anomRate  = totalRows ? (anomCount/totalRows*100).toFixed(1) : 0;
+  const eqpCount  = gIndex ? gIndex.eqpSet.size : new Set(gResults.map(r=>r['EQP ID'])).size;
+  const paramCount= gIndex ? gIndex.paramSet.size: new Set(gResults.map(r=>r['PPID'])).size;
+  const method    = document.getElementById('methodSel')?.value || '';
+  const methodLabel= (typeof METHOD_LABEL!=='undefined'&&METHOD_LABEL[method]) || method;
+  const now       = new Date().toLocaleString('ko-KR');
+
+  // EQP별 이상 집계
+  const eqpMap = {};
+  gAnomsAll.forEach(r => {
+    const e = r['EQP ID']||'?';
+    if (!eqpMap[e]) eqpMap[e] = {total:0, byParam:{}};
+    eqpMap[e].total++;
+    const p = r['PPID']||'?';
+    eqpMap[e].byParam[p] = (eqpMap[e].byParam[p]||0)+1;
+  });
+  const eqpRows = Object.entries(eqpMap)
+    .sort((a,b)=>b[1].total-a[1].total)
+    .map(([e,v])=>`<tr><td>${e}</td><td style="text-align:right;color:#e84040;font-weight:600">${v.total}</td></tr>`)
+    .join('');
+
+  // 이상 목록 상위 30건
+  const td = 'border:1px solid #ddd;padding:6px 10px;font-size:12px';
+  const anomRows = gAnomsAll.slice(0,30).map(r=>`
+    <tr>
+      <td style="${td}">${String(r['날짜']).slice(0,16)}</td>
+      <td style="${td}">${r['EQP ID']||''}</td>
+      <td style="${td}">${r['LOTID']||''}</td>
+      <td style="${td}">${r['CH']||''}</td>
+      <td style="${td}">${r['PPID']||''}</td>
+      <td style="${td};text-align:right">${Number(r['REAL DATA']).toFixed(3)}</td>
+      <td style="${td};text-align:right;color:#e84040">${r.diff!=null?Number(r.diff).toFixed(3):'-'}</td>
+    </tr>`).join('');
+
+  return `
+<div style="font-family:Arial,sans-serif;max-width:760px;margin:0 auto;color:#222">
+  <h2 style="background:#1a233e;color:#fff;padding:14px 20px;margin:0;border-radius:8px 8px 0 0">
+    📊 FDC RAW DATA 이상감지 시스템 — 현황 리포트
+  </h2>
+  <div style="background:#f8f9fa;border:1px solid #ddd;border-top:none;padding:14px 20px;border-radius:0 0 8px 8px;margin-bottom:16px">
+    <span style="color:#666;font-size:12px">생성일시: ${now} &nbsp;|&nbsp; 감지 방식: ${methodLabel}</span>
+  </div>
+
+  <h3 style="color:#1a233e;margin-bottom:8px">📋 분석 요약</h3>
+  <table style="border-collapse:collapse;width:100%;margin-bottom:20px">
+    <tr style="background:#eaf2ff">
+      <td style="${td}"><b>전체 데이터 건수</b></td><td style="${td};text-align:right">${totalRows.toLocaleString()}</td>
+      <td style="${td}"><b>이상 감지 건수</b></td><td style="${td};text-align:right;color:#e84040;font-weight:700">${anomCount.toLocaleString()}</td>
+    </tr>
+    <tr>
+      <td style="${td}"><b>이상률</b></td><td style="${td};text-align:right">${anomRate}%</td>
+      <td style="${td}"><b>EQP 수</b></td><td style="${td};text-align:right">${eqpCount}</td>
+    </tr>
+    <tr style="background:#eaf2ff">
+      <td style="${td}"><b>PPID 수</b></td><td style="${td};text-align:right">${paramCount}</td>
+      <td style="${td}"><b>임계값</b></td><td style="${td};text-align:right">${gThreshold}</td>
+    </tr>
+  </table>
+
+  <h3 style="color:#1a233e;margin-bottom:8px">🏭 EQP별 이상 건수</h3>
+  <table style="border-collapse:collapse;width:100%;margin-bottom:20px">
+    <tr style="background:#1a233e;color:#fff"><th style="${td}">EQP ID</th><th style="${td};text-align:right">이상 건수</th></tr>
+    ${eqpRows||'<tr><td colspan="2" style="'+td+';color:#888">이상 없음</td></tr>'}
+  </table>
+
+  <h3 style="color:#1a233e;margin-bottom:8px">⚠️ 이상 감지 목록 (상위 ${Math.min(30,anomCount)}건)</h3>
+  <table style="border-collapse:collapse;width:100%;margin-bottom:20px">
+    <tr style="background:#1a233e;color:#fff">
+      <th style="${td}">날짜</th><th style="${td}">EQP ID</th><th style="${td}">LOTID</th>
+      <th style="${td}">CH</th><th style="${td}">PPID</th>
+      <th style="${td};text-align:right">측정값</th><th style="${td};text-align:right">이탈량</th>
+    </tr>
+    ${anomRows||'<tr><td colspan="7" style="'+td+';color:#888">이상 없음</td></tr>'}
+  </table>
+  ${anomCount>30?`<p style="color:#888;font-size:12px">※ 전체 ${anomCount}건 중 상위 30건만 표시</p>`:''}
+
+  <div style="border-top:1px solid #ddd;padding-top:10px;margin-top:8px;color:#888;font-size:11px">
+    FDC 이상감지 시스템 — 자동 생성 리포트
+  </div>
+</div>`;
+}
+
+async function sendMailNow() {
+  const s = _loadMailSettings();
+  if (!s.senderId) { document.getElementById('mailStatusMsg').textContent='발신자 Knox ID를 입력하세요.'; return; }
+  if (!s.authorization) { document.getElementById('mailStatusMsg').textContent='Authorization 키를 입력하세요.'; return; }
+  if (!s.systemId) { document.getElementById('mailStatusMsg').textContent='System-ID를 입력하세요.'; return; }
+  if (!s.recipients || !s.recipients.length) { document.getElementById('mailStatusMsg').textContent='수신자를 1명 이상 추가하세요.'; return; }
+  if (!gResults.length) { document.getElementById('mailStatusMsg').textContent='분석 결과가 없습니다. 먼저 분석을 실행하세요.'; return; }
+
+  const btn = document.getElementById('mailSendBtn');
+  const msg = document.getElementById('mailStatusMsg');
+  btn.disabled = true;
+  msg.textContent = '발송 중...';
+
+  const subject = s.subject || '[FDC이상감지] 이상 감지 현황 리포트';
+  const body = {
+    subject,
+    contents: _buildMailHtml(),
+    contentType: 'HTML',
+    docSecuType: 'PERSONAL',
+    sender: { emailAddress: `${s.senderId}@samsung.com` },
+    recipients: s.recipients.map(r => ({ emailAddress: `${r}@samsung.com`, recipientType: 'TO' })),
+  };
+
+  try {
+    const res = await fetch(
+      `https://openapi.samsung.net/mail/api/v2.0/mails/send?userId=${encodeURIComponent(s.senderId)}`,
+      { method:'POST', headers:{ 'Authorization': s.authorization, 'System-ID': s.systemId, 'Content-Type':'application/json' }, body: JSON.stringify(body) }
+    );
+    if (res.ok) {
+      msg.style.color='#2ecc71';
+      msg.textContent=`✅ ${s.recipients.length}명에게 발송 완료`;
+      toast('메일 발송 완료!','ok');
+    } else {
+      const txt = await res.text().catch(()=>'');
+      msg.style.color='#e84040';
+      msg.textContent=`❌ 메일 API 오류 (HTTP ${res.status}): ${txt.slice(0,120)}`;
+    }
+  } catch(e) {
+    msg.style.color='#e84040';
+    msg.textContent='❌ 발송 실패: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ══════════════════════════════════════════════════════
    TOAST
 ══════════════════════════════════════════════════════ */
 function toast(msg,type=''){
@@ -2747,6 +2962,51 @@ function toast(msg,type=''){
   setTimeout(()=>el.remove(),4500);
 }
 </script>
+
+<!-- 메일 발송 모달 -->
+<div id="mailModal" class="hist-modal-overlay" onclick="if(event.target===this)closeMailModal()">
+  <div class="hist-modal mail-modal">
+    <div class="hist-modal-head">
+      <span style="font-size:15px;font-weight:700;color:var(--tx1)">📧 현황 메일 발송</span>
+      <button class="btn btn-secondary btn-sm" onclick="closeMailModal()">✕ 닫기</button>
+    </div>
+    <div class="mail-modal-body">
+      <!-- API 설정 -->
+      <div class="mail-field">
+        <label>발신자 Knox ID (@samsung.com 제외)</label>
+        <input type="text" id="mailSenderId" placeholder="예: hong.gildong" oninput="saveMailSettings()">
+      </div>
+      <div class="mail-field">
+        <label>Authorization (사내 메일 API 키)</label>
+        <input type="password" id="mailAuth" placeholder="Bearer XXXX..." oninput="saveMailSettings()">
+      </div>
+      <div class="mail-field">
+        <label>System-ID</label>
+        <input type="password" id="mailSysId" placeholder="XXXXXX" oninput="saveMailSettings()">
+      </div>
+      <div class="mail-field">
+        <label>메일 제목</label>
+        <input type="text" id="mailSubject" placeholder="[FDC이상감지] 이상 감지 현황 리포트" oninput="saveMailSettings()">
+      </div>
+      <div class="mail-divider"></div>
+      <!-- 수신자 관리 -->
+      <div>
+        <div class="mail-field" style="margin-bottom:8px">
+          <label>수신자 (Knox ID, @samsung.com 제외)</label>
+          <div class="mail-add-row">
+            <input type="text" id="mailRecipientInput" placeholder="예: kim.minsu" onkeydown="if(event.key==='Enter')addMailRecipient()">
+            <button class="btn btn-secondary btn-sm" onclick="addMailRecipient()">추가</button>
+          </div>
+        </div>
+        <div id="mailRecipientList"></div>
+      </div>
+      <div class="mail-divider"></div>
+      <!-- 발송 -->
+      <button class="mail-send-btn" id="mailSendBtn" onclick="sendMailNow()">📤 지금 바로 발송</button>
+      <div class="mail-status" id="mailStatusMsg"></div>
+    </div>
+  </div>
+</div>
 
 <!-- 히스토리 모달 -->
 <div id="histModal" class="hist-modal-overlay" onclick="if(event.target===this)closeHistoryModal()">
