@@ -2931,26 +2931,35 @@ async function sendMailNow() {
 
   const subject = s.subject || '[FDC이상감지] 이상 감지 현황 리포트';
   const attachReport = document.getElementById('mailAttachReport')?.checked;
-  const body = {
+  const mailJson = {
     subject,
     contents: _buildMailHtml(),
     contentType: 'HTML',
     docSecuType: 'PERSONAL',
     sender: { emailAddress: `${s.senderId}@samsung.com` },
     recipients: s.recipients.map(r => ({ emailAddress: `${r}@samsung.com`, recipientType: 'TO' })),
-    ...(attachReport ? {
-      files: [{
-        fileName: `fdc_report_${today()}.html`,
-        fileContent: _htmlToBase64(_buildReportHtml()),
-        fileType: 'text/html',
-      }],
-    } : {}),
   };
+
+  let fetchBody, fetchHeaders;
+  if (attachReport) {
+    /* 첨부파일이 있을 때: multipart/form-data
+       - mailData 필드: JSON 문자열
+       - file 필드: HTML 보고서 바이너리 */
+    const fd = new FormData();
+    fd.append('mailData', JSON.stringify(mailJson));
+    const reportBlob = new Blob([_buildReportHtml()], { type: 'text/html' });
+    fd.append('file', reportBlob, `fdc_report_${today()}.html`);
+    fetchBody = fd;
+    fetchHeaders = { 'Authorization': s.authorization, 'System-ID': s.systemId };
+  } else {
+    fetchBody = JSON.stringify(mailJson);
+    fetchHeaders = { 'Authorization': s.authorization, 'System-ID': s.systemId, 'Content-Type': 'application/json' };
+  }
 
   try {
     const res = await fetch(
       `https://openapi.samsung.net/mail/api/v2.0/mails/send?userId=${encodeURIComponent(s.senderId)}`,
-      { method:'POST', headers:{ 'Authorization': s.authorization, 'System-ID': s.systemId, 'Content-Type':'application/json' }, body: JSON.stringify(body) }
+      { method:'POST', headers: fetchHeaders, body: fetchBody }
     );
     if (res.ok) {
       msg.style.color='#2ecc71';
