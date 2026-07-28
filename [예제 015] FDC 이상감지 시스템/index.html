@@ -189,7 +189,36 @@
     .hist-table tr:hover td{background:rgba(56,139,253,.07);}
     .hist-badge{display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;}
 
-    @media(max-width:700px){main{padding:14px;}header{padding:14px;}}
+    /* ── 파레토 차트 ── */
+    .pareto-wrap{position:relative;height:320px}
+    /* ── 트렌드 차트 ── */
+    .trend-wrap{position:relative;height:280px}
+    /* ── 연속 이상 배지 ── */
+    .consec-badge{background:#ff6b35;color:#fff;border-radius:4px;padding:1px 5px;font-size:10px;font-weight:700;margin-left:4px;vertical-align:middle}
+    /* ── LOT 집계 ── */
+    .lot-anom-rate{font-weight:700;color:#c9303a}
+    /* ── PPID 상관 히트맵 ── */
+    .corr-scroll{overflow:auto;max-height:420px}
+    .corr-tbl{border-collapse:collapse;font-size:11px}
+    .corr-tbl th,.corr-tbl td{padding:4px 8px;border:1px solid var(--bd);white-space:nowrap;text-align:center;min-width:40px}
+    .corr-tbl th{background:var(--bg1);color:var(--tx2);position:sticky;top:0}
+    .corr-tbl td.diag{background:var(--bg1);font-weight:600}
+    /* ── 필터 프리셋 ── */
+    .preset-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:var(--bg1);border:1px solid var(--bd);border-radius:8px;margin-bottom:10px}
+    .preset-bar-label{font-size:11px;font-weight:600;color:var(--tx2);white-space:nowrap}
+    .preset-chip{display:inline-flex;align-items:center;gap:4px;background:var(--bg2);border:1px solid var(--bd);border-radius:20px;padding:3px 10px;font-size:12px;cursor:pointer;color:var(--tx1)}
+    .preset-chip:hover{border-color:var(--ac1);color:var(--ac1)}
+    .preset-chip .pdel{color:var(--tx2);font-size:11px;margin-left:2px;cursor:pointer}
+    .preset-chip .pdel:hover{color:#f85149}
+    /* ── 비교 분석 ── */
+    .compare-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .compare-col{background:var(--bg1);border:1px solid var(--bd);border-radius:8px;padding:14px}
+    .compare-col-title{font-size:13px;font-weight:700;color:var(--tx1);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--bd)}
+    .compare-stat-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--bd);font-size:13px}
+    .compare-stat-row:last-child{border-bottom:none}
+    .compare-win{color:#2ecc71;font-weight:700}
+    .compare-lose{color:#c9303a}
+    @media(max-width:700px){main{padding:14px;}header{padding:14px;}.compare-grid{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
@@ -225,7 +254,13 @@
 
     <!-- 컬럼 매핑 UI -->
     <div class="cm-wrap" id="colMapWrap" style="display:none">
-      <div class="cm-header">🔗 컬럼 매핑 &nbsp;<span style="font-weight:400">(데이터 열 이름을 각 필드에 연결하세요 — 자동 감지됨)</span></div>
+      <div class="cm-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <span>🔗 컬럼 매핑 &nbsp;<span style="font-weight:400">(데이터 열 이름을 각 필드에 연결하세요 — 자동 감지됨)</span></span>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" onclick="saveColMapping()">💾 매핑 저장</button>
+          <button class="btn btn-secondary btn-sm" id="btnLoadColMap" onclick="loadColMapping()" style="display:none">📂 저장된 매핑 불러오기</button>
+        </div>
+      </div>
       <div class="cm-grid" id="colMapGrid"></div>
     </div>
 
@@ -291,6 +326,12 @@
         <input type="checkbox" id="showSPC">
         <label for="showSPC" style="cursor:pointer;font-size:13px">SPC ±3σ 관리한계선</label>
       </div>
+      <!-- 이상률 경보 임계값 -->
+      <div class="ctrl-group">
+        <span style="font-size:12px;color:var(--tx2)">🔔 경보 이상률:</span>
+        <input type="number" id="alertRate" value="5" min="0" max="100" step="0.5" style="width:60px">
+        <span style="font-size:11px;color:var(--tx2)">% 이상 시 경보</span>
+      </div>
       <button class="btn btn-primary" id="btnRun" onclick="runAnalysis()">🔍 분석 시작</button>
       <button class="btn btn-secondary" onclick="loadSample()">📊 샘플 데이터</button>
       <button class="btn btn-secondary" onclick="clearAll()">🗑 초기화</button>
@@ -341,10 +382,43 @@
       <div class="rank-grid" id="rankGrid"></div>
     </div>
 
+    <!-- 파레토 차트 -->
+    <div class="card" id="paretoCard">
+      <div class="tbl-header" style="padding:0 0 10px">
+        <span class="card-title" style="margin:0">📊 이상 건수 파레토 차트</span>
+        <div style="display:flex;gap:8px;margin-left:auto;align-items:center">
+          <select id="paretoGroup" onchange="renderParetoChart()" style="font-size:12px;padding:3px 8px;background:var(--bg2);color:var(--tx1);border:1px solid var(--bd);border-radius:4px">
+            <option value="eqp">EQP별</option>
+            <option value="ppid">PPID별</option>
+            <option value="lot">LOT별</option>
+          </select>
+        </div>
+      </div>
+      <div class="pareto-wrap"><canvas id="paretoCanvas"></canvas></div>
+    </div>
+
     <!-- 이상률 히트맵 -->
     <div class="card" id="heatmapCard">
       <div class="card-title">🌡️ EQP × PPID 이상률 히트맵</div>
       <div class="heatmap-scroll" id="heatmapTable"></div>
+    </div>
+
+    <!-- 시계열 트렌드 -->
+    <div class="card" id="trendCard">
+      <div class="tbl-header" style="padding:0 0 10px">
+        <span class="card-title" style="margin:0">📈 날짜별 이상 발생 트렌드</span>
+        <div style="display:flex;gap:8px;margin-left:auto;align-items:center">
+          <select id="trendMetric" onchange="renderTrendChart()" style="font-size:12px;padding:3px 8px;background:var(--bg2);color:var(--tx1);border:1px solid var(--bd);border-radius:4px">
+            <option value="count">이상 건수</option>
+            <option value="rate">이상률(%)</option>
+          </select>
+          <select id="trendGroup" onchange="renderTrendChart()" style="font-size:12px;padding:3px 8px;background:var(--bg2);color:var(--tx1);border:1px solid var(--bd);border-radius:4px">
+            <option value="total">전체</option>
+            <option value="eqp">EQP별</option>
+          </select>
+        </div>
+      </div>
+      <div class="trend-wrap"><canvas id="trendCanvas"></canvas></div>
     </div>
 
     <!-- 이상감지 목록 -->
@@ -380,6 +454,39 @@
         </table>
       </div></div>
       <div class="pagination" id="anomPagination"></div>
+    </div>
+
+    <!-- LOT별 불량 집계 -->
+    <div class="card" id="lotCard">
+      <div class="tbl-header">
+        <span class="title">🏭 LOT별 불량 집계</span>
+        <span class="cnt-badge" id="lotCnt">0건</span>
+        <div style="margin-left:auto">
+          <button class="btn btn-secondary btn-sm" onclick="exportLotCSV()">⬇ CSV</button>
+        </div>
+      </div>
+      <div class="tbl-scroll"><div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th class="sortable" onclick="sortLotTable(0)">LOTID</th>
+            <th class="sortable" onclick="sortLotTable(1)">EQP ID</th>
+            <th class="sortable" onclick="sortLotTable(2)">총 건수</th>
+            <th class="sortable" onclick="sortLotTable(3)">이상 건수</th>
+            <th class="sortable" onclick="sortLotTable(4)">이상률</th>
+            <th>이상 PPID 목록</th>
+          </tr></thead>
+          <tbody id="lotTbody"></tbody>
+        </table>
+      </div></div>
+    </div>
+
+    <!-- PPID 이상 동시 발생 상관 히트맵 -->
+    <div class="card" id="corrCard">
+      <div class="tbl-header" style="padding:0 0 10px">
+        <span class="card-title" style="margin:0">🔗 PPID 이상 동시 발생 상관 히트맵</span>
+        <span style="font-size:11px;color:var(--tx2);margin-left:8px">같은 날짜+EQP에서 동시 이상 발생 횟수</span>
+      </div>
+      <div class="corr-scroll" id="corrHeatmap"></div>
     </div>
 
     <!-- 그래프 -->
@@ -449,6 +556,12 @@
       <div class="tbl-header">
         <span class="title">📋 전체 데이터</span>
         <span class="cnt-badge" id="totalCnt">0건</span>
+        <!-- 필터 프리셋 바 -->
+        <div class="preset-bar" id="presetBar" style="display:none;width:100%;margin-top:8px">
+          <span class="preset-bar-label">📌 프리셋:</span>
+          <div id="presetChips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+          <button class="btn btn-secondary btn-sm" onclick="saveFilterPreset()" style="margin-left:auto">+ 현재 필터 저장</button>
+        </div>
         <div class="filter-row">
           <label>날짜</label>
           <input type="date" id="fDateFrom" onchange="applyFilter()" style="padding:4px 8px;font-size:12px;width:auto">
@@ -481,6 +594,23 @@
         </table>
       </div></div>
       <div class="pagination" id="fullPagination"></div>
+    </div>
+  </div>
+
+  <!-- ── 비교 분석 (항상 표시) ── -->
+  <div class="card" style="margin-top:16px">
+    <div class="tbl-header" style="padding:0 0 10px">
+      <span class="card-title" style="margin:0">⚖️ 데이터 비교 분석</span>
+      <button class="btn btn-secondary btn-sm" id="btnToggleCompare" onclick="toggleCompare()" style="margin-left:auto">비교 모드 열기</button>
+    </div>
+    <div id="compareBody" style="display:none">
+      <div style="margin-bottom:12px;display:flex;gap:10px;align-items:flex-start">
+        <textarea id="dataInput2" rows="5"
+          style="flex:1;background:var(--bg1);color:var(--tx1);border:1px solid var(--bd);border-radius:6px;padding:8px;font-size:12px;resize:vertical"
+          placeholder="비교할 두 번째 데이터를 붙여넣으세요 (첫 번째와 동일한 컬럼 형식)"></textarea>
+        <button class="btn btn-primary" onclick="runComparison()">⚖️ 비교 실행</button>
+      </div>
+      <div id="compareResult"></div>
     </div>
   </div>
 </main>
@@ -2008,6 +2138,17 @@ async function runAnalysis(){
     populateFilters(gResults);
     initScatterSelects(gResults);
 
+    _setProgress(90,'추가 통계 분석 중...'); await _tick();
+    detectConsecutiveAnoms(3);
+    renderConsecBanner();
+    checkAnomalyRateAlert();
+    renderParetoChart();
+    renderTrendChart();
+    renderLotStats();
+    renderCorrelHeatmap();
+    renderPresets();
+    _checkSavedColMap();
+
     _setProgress(98,'완료 처리 중...'); await _tick();
     const res=document.getElementById('results');
     res.style.display='block';
@@ -3091,6 +3232,481 @@ ${_buildMailReportHtml()}`;
   } finally {
     btn.disabled = false;
   }
+}
+
+/* ══════════════════════════════════════════════════════
+   1. 컬럼 매핑 저장/불러오기
+══════════════════════════════════════════════════════ */
+const COL_MAP_LS = 'fdc_col_mapping';
+
+function saveColMapping() {
+  const selects = document.querySelectorAll('#colMapGrid select');
+  if (!selects.length) { toast('매핑 정보가 없습니다.', 'err'); return; }
+  const map = {};
+  selects.forEach(s => { map[s.dataset.key] = s.value; });
+  localStorage.setItem(COL_MAP_LS, JSON.stringify({ map, headers: gHeaders }));
+  toast('컬럼 매핑이 저장되었습니다.', 'ok');
+}
+
+function loadColMapping() {
+  const saved = JSON.parse(localStorage.getItem(COL_MAP_LS) || 'null');
+  if (!saved) { toast('저장된 매핑이 없습니다.', 'err'); return; }
+  const selects = document.querySelectorAll('#colMapGrid select');
+  selects.forEach(s => {
+    const savedVal = saved.map[s.dataset.key];
+    if (savedVal !== undefined) {
+      // 현재 헤더에 저장된 값이 있으면 선택
+      const opt = [...s.options].find(o => o.value === savedVal);
+      if (opt) s.value = savedVal;
+    }
+  });
+  toast('저장된 매핑을 불러왔습니다.', 'ok');
+}
+
+function _checkSavedColMap() {
+  const saved = localStorage.getItem(COL_MAP_LS);
+  document.getElementById('btnLoadColMap').style.display = saved ? '' : 'none';
+}
+
+/* ══════════════════════════════════════════════════════
+   2. 필터 프리셋 저장/불러오기
+══════════════════════════════════════════════════════ */
+const PRESET_LS = 'fdc_filter_presets';
+
+function _getPresets() {
+  try { return JSON.parse(localStorage.getItem(PRESET_LS) || '[]'); } catch { return []; }
+}
+
+function saveFilterPreset() {
+  const name = prompt('프리셋 이름을 입력하세요:', '프리셋 ' + (_getPresets().length + 1));
+  if (!name) return;
+  const preset = {
+    name,
+    dateFrom: document.getElementById('fDateFrom').value,
+    dateTo:   document.getElementById('fDateTo').value,
+    eqp:      document.getElementById('fEqp').value,
+    ch:       document.getElementById('fCh').value,
+    param:    document.getElementById('fParam').value,
+    status:   document.getElementById('fStatus').value,
+  };
+  const presets = _getPresets();
+  presets.push(preset);
+  localStorage.setItem(PRESET_LS, JSON.stringify(presets));
+  renderPresets();
+  toast(`프리셋 "${name}" 저장됨`, 'ok');
+}
+
+function applyPreset(idx) {
+  const p = _getPresets()[idx];
+  if (!p) return;
+  document.getElementById('fDateFrom').value = p.dateFrom || '';
+  document.getElementById('fDateTo').value   = p.dateTo   || '';
+  document.getElementById('fEqp').value      = p.eqp      || '';
+  document.getElementById('fCh').value       = p.ch       || '';
+  document.getElementById('fParam').value    = p.param    || '';
+  document.getElementById('fStatus').value   = p.status   || '';
+  applyFilter();
+  toast(`프리셋 "${p.name}" 적용됨`, 'ok');
+}
+
+function deletePreset(idx) {
+  const presets = _getPresets();
+  presets.splice(idx, 1);
+  localStorage.setItem(PRESET_LS, JSON.stringify(presets));
+  renderPresets();
+}
+
+function renderPresets() {
+  const presets = _getPresets();
+  const bar = document.getElementById('presetBar');
+  const chips = document.getElementById('presetChips');
+  if (!presets.length) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  chips.innerHTML = presets.map((p, i) => `
+    <span class="preset-chip" onclick="applyPreset(${i})">
+      ${p.name}
+      <span class="pdel" onclick="event.stopPropagation();deletePreset(${i})" title="삭제">✕</span>
+    </span>`).join('');
+}
+
+/* ══════════════════════════════════════════════════════
+   3. 이상률 경보 (분석 완료 후 체크)
+══════════════════════════════════════════════════════ */
+function checkAnomalyRateAlert() {
+  const limit = parseFloat(document.getElementById('alertRate').value);
+  if (isNaN(limit) || limit <= 0) return;
+  const total = gResults.length;
+  if (!total) return;
+  const rate = gAnomsAll.length / total * 100;
+  if (rate >= limit) {
+    const msg = `⚠️ 이상률 경보: ${rate.toFixed(1)}% (설정 임계값 ${limit}% 초과)`;
+    const banner = document.getElementById('alertBanner');
+    // 기존 배너에 경보 추가
+    const alertEl = document.createElement('div');
+    alertEl.className = 'alert-bar danger';
+    alertEl.style.cssText = 'background:rgba(201,48,58,.15);border-color:#c9303a;margin-top:8px';
+    alertEl.innerHTML = `<span class="alert-icon">🔔</span><span>${msg}</span>`;
+    banner.appendChild(alertEl);
+    toast(msg, 'err');
+  }
+}
+
+/* ══════════════════════════════════════════════════════
+   4. 연속 이상 감지
+══════════════════════════════════════════════════════ */
+let gConsecGroups = [];  // [{eqp, ppid, ch, rows, count}]
+
+function detectConsecutiveAnoms(minRun = 3) {
+  gConsecGroups = [];
+  if (!gAnomsAll.length) return;
+
+  // EQP+CH+PPID 그룹 별로 날짜 정렬 후 연속 감지
+  const groups = {};
+  gResults.forEach(r => {
+    const k = `${r['EQP ID']}|||${r['CH']||''}|||${r['PPID']}`;
+    if (!groups[k]) groups[k] = [];
+    groups[k].push(r);
+  });
+
+  const consecSet = new Set();  // 연속 이상인 row 식별용
+  Object.entries(groups).forEach(([k, rows]) => {
+    rows.sort((a, b) => String(a['날짜']).localeCompare(String(b['날짜'])));
+    let run = [];
+    rows.forEach(r => {
+      if (r.isAnom) {
+        run.push(r);
+      } else {
+        if (run.length >= minRun) {
+          const [eqp,,ppid] = k.split('|||');
+          gConsecGroups.push({ eqp, ppid, ch: run[0]['CH']||'', count: run.length, rows: [...run] });
+          run.forEach(x => consecSet.add(x));
+        }
+        run = [];
+      }
+    });
+    if (run.length >= minRun) {
+      const [eqp,,ppid] = k.split('|||');
+      gConsecGroups.push({ eqp, ppid, ch: run[0]['CH']||'', count: run.length, rows: [...run] });
+      run.forEach(x => consecSet.add(x));
+    }
+  });
+
+  // 연속 이상 row에 플래그 설정
+  gResults.forEach(r => { r._consec = consecSet.has(r) ? true : false; });
+}
+
+function renderConsecBanner() {
+  if (!gConsecGroups.length) return;
+  const banner = document.getElementById('alertBanner');
+  const top5 = gConsecGroups.sort((a, b) => b.count - a.count).slice(0, 5);
+  const lines = top5.map(g => `${g.eqp} / ${g.ppid}${g.ch?' / CH'+g.ch:''} — <strong>${g.count}회 연속</strong>`).join('<br>');
+  const el = document.createElement('div');
+  el.className = 'alert-bar danger';
+  el.style.cssText = 'background:rgba(255,107,53,.12);border-color:#ff6b35;margin-top:8px';
+  el.innerHTML = `<span class="alert-icon">⚡</span><div>
+    <strong>연속 이상 감지 ${gConsecGroups.length}건</strong> (3회 이상 연속)<br>
+    <span style="font-size:12px">${lines}</span>
+  </div>`;
+  banner.appendChild(el);
+}
+
+/* ══════════════════════════════════════════════════════
+   5. 파레토 차트
+══════════════════════════════════════════════════════ */
+let gParetoChart = null;
+
+function renderParetoChart() {
+  if (!gAnomsAll.length) return;
+  const groupBy = document.getElementById('paretoGroup')?.value || 'eqp';
+  const keyFn = groupBy === 'eqp' ? r => r['EQP ID']
+              : groupBy === 'ppid' ? r => r['PPID']
+              : r => r['LOTID'];
+
+  const counts = {};
+  gAnomsAll.forEach(r => { const k = keyFn(r)||'?'; counts[k] = (counts[k]||0) + 1; });
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 30);
+  const total  = sorted.reduce((s, [, v]) => s + v, 0);
+  const labels = sorted.map(([k]) => k);
+  const values = sorted.map(([, v]) => v);
+  const cumul  = [];
+  values.reduce((s, v, i) => { cumul[i] = +(((s + v) / total) * 100).toFixed(1); return s + v; }, 0);
+
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
+    || (!document.documentElement.getAttribute('data-theme') && window.matchMedia('(prefers-color-scheme:dark)').matches);
+  const gridColor = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.08)';
+  const tickColor = isDark ? '#8b949e' : '#6b7280';
+
+  const ctx = document.getElementById('paretoCanvas').getContext('2d');
+  if (gParetoChart) gParetoChart.destroy();
+  gParetoChart = new Chart(ctx, {
+    data: {
+      labels,
+      datasets: [
+        { type: 'bar',  label: '이상 건수', data: values, backgroundColor: 'rgba(201,48,58,.75)', yAxisID: 'y' },
+        { type: 'line', label: '누적 비율(%)', data: cumul, borderColor: '#2563eb', borderWidth: 2,
+          pointRadius: 3, pointBackgroundColor: '#2563eb', yAxisID: 'y2', tension: 0.2, fill: false },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: tickColor } } },
+      scales: {
+        x: { ticks: { color: tickColor, maxRotation: 45 }, grid: { color: gridColor } },
+        y:  { position: 'left',  ticks: { color: tickColor }, grid: { color: gridColor }, title: { display: true, text: '이상 건수', color: tickColor } },
+        y2: { position: 'right', min: 0, max: 100, ticks: { color: '#2563eb', callback: v => v + '%' }, grid: { display: false },
+               title: { display: true, text: '누적 비율(%)', color: '#2563eb' } },
+      },
+    },
+  });
+}
+
+/* ══════════════════════════════════════════════════════
+   6. 시계열 트렌드 차트
+══════════════════════════════════════════════════════ */
+let gTrendChart = null;
+
+function renderTrendChart() {
+  if (!gResults.length) return;
+  const metric   = document.getElementById('trendMetric')?.value || 'count';
+  const groupBy  = document.getElementById('trendGroup')?.value  || 'total';
+
+  // 날짜별 전체건수 / 이상건수 집계
+  const dateTotal = {}, dateAnom = {}, dateEqpTotal = {}, dateEqpAnom = {};
+  gResults.forEach(r => {
+    const d = _dateStr(r);
+    const e = r['EQP ID'] || '?';
+    dateTotal[d] = (dateTotal[d]||0) + 1;
+    if (r.isAnom) dateAnom[d] = (dateAnom[d]||0) + 1;
+    if (groupBy === 'eqp') {
+      const k = `${d}|||${e}`;
+      dateEqpTotal[k] = (dateEqpTotal[k]||0) + 1;
+      if (r.isAnom) dateEqpAnom[k] = (dateEqpAnom[k]||0) + 1;
+    }
+  });
+
+  const dates = Object.keys(dateTotal).sort();
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
+    || (!document.documentElement.getAttribute('data-theme') && window.matchMedia('(prefers-color-scheme:dark)').matches);
+  const gridColor = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.08)';
+  const tickColor = isDark ? '#8b949e' : '#6b7280';
+
+  let datasets;
+  const COLORS = ['#2563eb','#c9303a','#f39c12','#2ecc71','#9b59b6','#1abc9c','#e74c3c','#3498db'];
+
+  if (groupBy === 'total') {
+    const vals = dates.map(d => metric === 'count' ? (dateAnom[d]||0)
+      : +((dateAnom[d]||0)/(dateTotal[d]||1)*100).toFixed(2));
+    datasets = [{ label: metric === 'count' ? '이상 건수' : '이상률(%)', data: vals,
+      borderColor: '#c9303a', backgroundColor: 'rgba(201,48,58,.15)', fill: true, tension: 0.3, pointRadius: 3 }];
+  } else {
+    const eqps = [...(gIndex?.eqpSet || new Set(gResults.map(r=>r['EQP ID'])))];
+    datasets = eqps.map((e, i) => {
+      const vals = dates.map(d => {
+        const k = `${d}|||${e}`;
+        return metric === 'count' ? (dateEqpAnom[k]||0)
+          : +((dateEqpAnom[k]||0)/(dateEqpTotal[k]||1)*100).toFixed(2);
+      });
+      return { label: e, data: vals, borderColor: COLORS[i%COLORS.length],
+        backgroundColor: 'transparent', tension: 0.3, pointRadius: 2, borderWidth: 1.5 };
+    });
+  }
+
+  const ctx = document.getElementById('trendCanvas').getContext('2d');
+  if (gTrendChart) gTrendChart.destroy();
+  gTrendChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: dates, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: tickColor, boxWidth: 12 } } },
+      scales: {
+        x: { ticks: { color: tickColor, maxRotation: 45, maxTicksLimit: 20 }, grid: { color: gridColor } },
+        y: { ticks: { color: tickColor, callback: v => metric==='rate'?v+'%':v }, grid: { color: gridColor },
+             title: { display: true, text: metric==='count'?'이상 건수':'이상률(%)', color: tickColor } },
+      },
+    },
+  });
+}
+
+/* ══════════════════════════════════════════════════════
+   7. LOT별 불량 집계
+══════════════════════════════════════════════════════ */
+let gLotData = [];
+let gLotSortCol = 4, gLotSortAsc = false;
+
+function buildLotStats() {
+  const map = {};
+  gResults.forEach(r => {
+    const lot = r['LOTID']||'?', eqp = r['EQP ID']||'?';
+    const k = `${lot}|||${eqp}`;
+    if (!map[k]) map[k] = { lot, eqp, total: 0, anom: 0, ppids: new Set() };
+    map[k].total++;
+    if (r.isAnom) { map[k].anom++; map[k].ppids.add(r['PPID']||'?'); }
+  });
+  gLotData = Object.values(map).map(v => ({
+    ...v, rate: v.total ? v.anom / v.total * 100 : 0, ppids: [...v.ppids]
+  }));
+}
+
+function sortLotTable(col) {
+  if (gLotSortCol === col) gLotSortAsc = !gLotSortAsc;
+  else { gLotSortCol = col; gLotSortAsc = col < 2; }
+  renderLotStats();
+}
+
+function renderLotStats() {
+  buildLotStats();
+  const col = gLotSortCol, asc = gLotSortAsc;
+  const sorted = [...gLotData].sort((a, b) => {
+    const vals = [a.lot, a.eqp, a.total, a.anom, a.rate];
+    const bVals= [b.lot, b.eqp, b.total, b.anom, b.rate];
+    const cmp  = typeof vals[col]==='string' ? vals[col].localeCompare(bVals[col]) : vals[col]-bVals[col];
+    return asc ? cmp : -cmp;
+  });
+
+  document.getElementById('lotCnt').textContent = `${sorted.filter(r=>r.anom>0).length}건 (이상 LOT)`;
+  document.getElementById('lotTbody').innerHTML = sorted.map(r => `
+    <tr>
+      <td>${r.lot}</td>
+      <td>${r.eqp}</td>
+      <td style="text-align:right">${r.total}</td>
+      <td style="text-align:right;color:${r.anom?'#c9303a':'inherit'}">${r.anom}</td>
+      <td style="text-align:right" class="${r.rate>=10?'lot-anom-rate':''}">${r.rate.toFixed(1)}%</td>
+      <td style="font-size:11px;color:var(--tx2)">${r.ppids.slice(0,5).join(', ')}${r.ppids.length>5?' …':''}</td>
+    </tr>`).join('');
+}
+
+function exportLotCSV() {
+  if (!gLotData.length) return;
+  const rows = [['LOTID','EQP ID','총건수','이상건수','이상률(%)','이상PPID']];
+  gLotData.forEach(r => rows.push([r.lot, r.eqp, r.total, r.anom, r.rate.toFixed(1), r.ppids.join('|')]));
+  const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob(['﻿'+csv],{type:'text/csv'})), download:'lot_stats.csv' });
+  a.click();
+}
+
+/* ══════════════════════════════════════════════════════
+   8. PPID 이상 동시 발생 상관 히트맵
+══════════════════════════════════════════════════════ */
+function renderCorrelHeatmap() {
+  const ppids = [...(gIndex?.paramSet || new Set(gAnomsAll.map(r=>r['PPID'])))].filter(Boolean);
+  if (ppids.length < 2) { document.getElementById('corrHeatmap').innerHTML='<div style="padding:16px;color:var(--tx2)">PPID가 2개 이상이어야 합니다.</div>'; return; }
+  const MAX_PPID = 30;
+  const topPpids = ppids.slice(0, MAX_PPID);
+
+  // 날짜+EQP 그룹별 이상 PPID 집합 구성
+  const groups = {};
+  gAnomsAll.forEach(r => {
+    const k = `${_dateStr(r)}|||${r['EQP ID']||''}`;
+    if (!groups[k]) groups[k] = new Set();
+    groups[k].add(r['PPID']);
+  });
+
+  // 공동 발생 횟수 행렬
+  const idx = {};
+  topPpids.forEach((p, i) => { idx[p] = i; });
+  const mat = Array.from({length: topPpids.length}, () => new Array(topPpids.length).fill(0));
+  Object.values(groups).forEach(set => {
+    const ps = topPpids.filter(p => set.has(p));
+    for (let i = 0; i < ps.length; i++)
+      for (let j = 0; j < ps.length; j++)
+        if (i !== j) mat[idx[ps[i]]][idx[ps[j]]]++;
+  });
+
+  const maxVal = Math.max(1, ...mat.flat().filter((v,_,a)=>v!==Math.max(...a)));
+  function cellBg(v, isSelf) {
+    if (isSelf) return 'var(--bg1)';
+    if (!v) return 'var(--bg2)';
+    const t = Math.min(v / maxVal, 1);
+    return `rgba(201,48,58,${(0.1 + t * 0.85).toFixed(2)})`;
+  }
+
+  const header = `<tr><th style="position:sticky;left:0;z-index:2;background:var(--bg1)">PPID ↓ / →</th>${topPpids.map(p=>`<th title="${p}">${p.length>10?p.slice(0,10)+'…':p}</th>`).join('')}</tr>`;
+  const body = topPpids.map((rp, ri) =>
+    `<tr><th style="text-align:left;position:sticky;left:0;background:var(--bg1)" title="${rp}">${rp.length>10?rp.slice(0,10)+'…':rp}</th>
+    ${topPpids.map((cp, ci) => {
+      const v = mat[ri][ci], self = ri===ci;
+      return `<td class="${self?'diag':''}" style="background:${cellBg(v,self)};color:${v>0&&!self?'#fff':'var(--tx1)'}">${self?'-':v||''}</td>`;
+    }).join('')}</tr>`
+  ).join('');
+
+  document.getElementById('corrHeatmap').innerHTML =
+    `<div class="corr-scroll"><table class="corr-tbl"><thead>${header}</thead><tbody>${body}</tbody></table></div>`;
+}
+
+/* ══════════════════════════════════════════════════════
+   9. 데이터 비교 분석
+══════════════════════════════════════════════════════ */
+function toggleCompare() {
+  const body = document.getElementById('compareBody');
+  const btn  = document.getElementById('btnToggleCompare');
+  const open = body.style.display === 'none';
+  body.style.display = open ? '' : 'none';
+  btn.textContent = open ? '비교 모드 닫기' : '비교 모드 열기';
+}
+
+async function runComparison() {
+  if (!gResults.length) { toast('먼저 기본 데이터를 분석하세요.', 'err'); return; }
+  const text2 = document.getElementById('dataInput2').value.trim();
+  if (!text2) { toast('비교할 두 번째 데이터를 붙여넣으세요.', 'err'); return; }
+
+  try {
+    const method  = document.getElementById('detectMethod').value;
+    const thr     = gThreshold;
+    const winSize = parseInt(document.getElementById('winSize').value)||3;
+    const lambda  = parseFloat(document.getElementById('ewmaLambda').value)||0.2;
+    const kCusum  = parseFloat(document.getElementById('cusumK').value)||0.5;
+
+    const data2    = await parseExcel(text2);
+    const results2 = await detectAnomalies(data2, thr, method, winSize, lambda, kCusum);
+    const anoms2   = results2.filter(r => r.isAnom);
+
+    const r1 = gResults, a1 = gAnomsAll, r2 = results2, a2 = anoms2;
+    const rate1 = r1.length ? (a1.length/r1.length*100) : 0;
+    const rate2 = r2.length ? (a2.length/r2.length*100) : 0;
+    const eqp1  = new Set(r1.map(r=>r['EQP ID'])).size;
+    const eqp2  = new Set(r2.map(r=>r['EQP ID'])).size;
+    const ppid1 = new Set(r1.map(r=>r['PPID'])).size;
+    const ppid2 = new Set(r2.map(r=>r['PPID'])).size;
+
+    function row(label, v1, v2, higherIsBetter = false) {
+      const better = higherIsBetter ? v1 > v2 : v1 < v2;
+      const f1 = typeof v1 === 'number' ? v1.toFixed(typeof v1==='number'&&v1%1!==0?1:0) : v1;
+      const f2 = typeof v2 === 'number' ? v2.toFixed(typeof v2==='number'&&v2%1!==0?1:0) : v2;
+      return `<div class="compare-stat-row">
+        <span style="color:var(--tx2);font-size:12px">${label}</span>
+        <span class="${better?'compare-win':'compare-lose'}">${f1}${typeof v1==='number'&&label.includes('%')?'%':''}</span>
+        <span style="color:var(--tx2)">vs</span>
+        <span class="${!better?'compare-win':'compare-lose'}">${f2}${typeof v2==='number'&&label.includes('%')?'%':''}</span>
+      </div>`;
+    }
+
+    document.getElementById('compareResult').innerHTML = `
+      <div class="compare-grid">
+        <div class="compare-col">
+          <div class="compare-col-title">📌 데이터셋 A (현재 분석)</div>
+          ${row('총 데이터 건수', r1.length, r2.length, true)}
+          ${row('이상 건수', a1.length, a2.length)}
+          ${row('이상률(%)', rate1, rate2)}
+          ${row('EQP 수', eqp1, eqp2, true)}
+          ${row('PPID 수', ppid1, ppid2, true)}
+        </div>
+        <div class="compare-col">
+          <div class="compare-col-title">📋 데이터셋 B (비교 데이터)</div>
+          ${row('총 데이터 건수', r2.length, r1.length, true)}
+          ${row('이상 건수', a2.length, a1.length)}
+          ${row('이상률(%)', rate2, rate1)}
+          ${row('EQP 수', eqp2, eqp1, true)}
+          ${row('PPID 수', ppid2, ppid1, true)}
+        </div>
+      </div>
+      <div style="margin-top:12px;padding:10px 14px;background:var(--bg1);border-radius:8px;border:1px solid var(--bd);font-size:13px">
+        <strong>비교 결과:</strong>
+        이상률 ${rate1<rate2?'A가 '+( rate2-rate1).toFixed(1)+'%p 낮음 ✅':'B가'+(rate1-rate2).toFixed(1)+'%p 낮음 ✅'}
+        &nbsp;|&nbsp; 이상 건수 차이: ${Math.abs(a1.length-a2.length)}건
+      </div>`;
+    toast('비교 분석 완료', 'ok');
+  } catch(e) { toast('비교 분석 오류: ' + e.message, 'err'); }
 }
 
 /* ══════════════════════════════════════════════════════
