@@ -3049,7 +3049,11 @@ async function sendMailNow() {
   const subject = s.subject || '[FDC이상감지] 이상 감지 현황 리포트';
   const attachReport = document.getElementById('mailAttachReport')?.checked;
 
-  const contents = attachReport ? _buildMailReportHtml() : _buildMailHtml();
+  let contents = _buildMailHtml();
+  if (attachReport) {
+    contents += `<hr style="margin:32px 0;border:none;border-top:2px solid #1a233e">
+${_buildMailReportHtml()}`;
+  }
 
   const mailJson = {
     subject,
