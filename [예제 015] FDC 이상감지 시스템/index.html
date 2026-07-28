@@ -167,6 +167,19 @@
     .hist-modal-head{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--bd);}
     .hist-modal-body{overflow:auto;padding:4px 0;}
     .hist-modal-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid var(--bd);}
+    /* ── 화면설정 모달 ── */
+    .layout-modal{width:min(460px,95vw);}
+    .layout-list{list-style:none;padding:12px 16px;display:flex;flex-direction:column;gap:6px;}
+    .layout-item{display:flex;align-items:center;gap:10px;background:var(--bg1);border:1px solid var(--bd);border-radius:8px;padding:9px 12px;cursor:grab;user-select:none;transition:background .15s;}
+    .layout-item:active{cursor:grabbing;}
+    .layout-item.drag-over{border-color:var(--blue);background:rgba(56,139,253,.1);}
+    .layout-item.dragging{opacity:.4;}
+    .layout-drag-handle{color:var(--tx2);font-size:16px;flex-shrink:0;line-height:1;}
+    .layout-eye{background:none;border:none;cursor:pointer;font-size:16px;flex-shrink:0;padding:0;line-height:1;color:var(--tx1);}
+    .layout-eye.hidden-card{color:var(--tx2);opacity:.4;}
+    .layout-label{font-size:13px;flex:1;}
+    .layout-move{background:none;border:none;cursor:pointer;font-size:13px;color:var(--tx2);padding:0 2px;line-height:1;}
+    .layout-move:hover{color:var(--tx1);}
     /* ── 메일 모달 ── */
     .mail-modal{width:min(520px,95vw);}
     .mail-modal-body{padding:18px 22px;display:flex;flex-direction:column;gap:14px;}
@@ -346,6 +359,7 @@
       <input type="file" id="loadJsonInput" accept=".json" style="display:none" onchange="loadAnalysisFile(event)">
       <div style="height:1px;background:var(--bd);flex-basis:100%;margin:4px 0"></div>
       <button class="btn btn-secondary" onclick="downloadApp()">⬇ 앱 다운로드</button>
+      <button class="btn btn-secondary" onclick="openLayoutModal()">⚙ 화면설정</button>
       <button class="btn btn-secondary" onclick="openMailModal()">📧 메일 발송</button>
     </div>
   </div>
@@ -356,7 +370,7 @@
     <div id="alertBanner"></div>
 
     <!-- 통계 요약 -->
-    <div class="card">
+    <div class="card" id="cardStats">
       <div class="tbl-header" style="padding:0 0 10px">
         <span class="card-title" style="margin:0">📊 통계 요약 (EQP / CH / PPID 별)</span>
         <div style="margin-left:auto">
@@ -377,7 +391,7 @@
     </div>
 
     <!-- 이상 랭킹 -->
-    <div class="card">
+    <div class="card" id="cardRank">
       <div class="card-title">🏆 이상감지 집중 랭킹</div>
       <div class="rank-grid" id="rankGrid"></div>
     </div>
@@ -422,7 +436,7 @@
     </div>
 
     <!-- 이상감지 목록 -->
-    <div class="card">
+    <div class="card" id="cardAnom">
       <div class="tbl-header">
         <span class="title">🚨 이상감지 목록</span>
         <span class="cnt-badge" id="anomCnt">0건</span>
@@ -490,7 +504,7 @@
     </div>
 
     <!-- 그래프 -->
-    <div class="card">
+    <div class="card" id="cardChart">
       <div class="card-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;">
         <span>📈 PPID 별 공정 추이 차트 (X축: 날짜)</span>
         <div style="display:flex;align-items:center;gap:16px;margin-left:auto;flex-wrap:wrap;">
@@ -527,7 +541,7 @@
     </div>
 
     <!-- EQP / CH 선택 산점도 -->
-    <div class="card">
+    <div class="card" id="cardScatter">
       <div class="card-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:12px">
         <span>🔬 EQP / CH 상세 산점도</span>
         <div style="display:flex;align-items:center;gap:10px;margin-left:auto;flex-wrap:wrap">
@@ -552,7 +566,7 @@
     </div>
 
     <!-- 전체 데이터 -->
-    <div class="card">
+    <div class="card" id="cardData">
       <div class="tbl-header">
         <span class="title">📋 전체 데이터</span>
         <span class="cnt-badge" id="totalCnt">0건</span>
@@ -2157,6 +2171,7 @@ async function runAnalysis(){
     _checkSavedColMap();
     const res=document.getElementById('results');
     res.style.display='block';
+    applyLayout();
     res.scrollIntoView({behavior:'smooth',block:'start'});
     saveSettings();
     _setProgress(100,'완료');
@@ -2925,6 +2940,142 @@ function saveMailSettings() {
     recipients: _loadMailSettings().recipients || [],
   };
   localStorage.setItem(MAIL_LS_KEY, JSON.stringify(s));
+}
+
+/* ══════════════════════════════════════════════════════
+   화면설정 (카드 순서 · 표시/숨기기)
+══════════════════════════════════════════════════════ */
+const LAYOUT_LS_KEY = 'fdc_layout_v1';
+const CARD_DEFAULTS = [
+  { id: 'cardStats',   label: '📊 통계 요약' },
+  { id: 'cardRank',    label: '🏆 이상감지 집중 랭킹' },
+  { id: 'paretoCard',  label: '📊 파레토 차트' },
+  { id: 'heatmapCard', label: '🌡️ EQP×PPID 히트맵' },
+  { id: 'trendCard',   label: '📈 날짜별 이상 트렌드' },
+  { id: 'cardAnom',    label: '🚨 이상감지 목록' },
+  { id: 'lotCard',     label: '🏭 LOT별 불량 집계' },
+  { id: 'corrCard',    label: '🔗 PPID 상관 히트맵' },
+  { id: 'cardChart',   label: '📈 PPID별 공정 추이 차트' },
+  { id: 'cardScatter', label: '🔬 EQP/CH 상세 산점도' },
+  { id: 'cardData',    label: '📋 전체 데이터' },
+];
+
+function _loadLayout() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LAYOUT_LS_KEY)||'null');
+    if (!Array.isArray(saved)) return CARD_DEFAULTS.map(c=>({...c,visible:true}));
+    // saved에 없는 신규 카드 뒤에 추가
+    const ids = new Set(saved.map(c=>c.id));
+    const extra = CARD_DEFAULTS.filter(c=>!ids.has(c.id)).map(c=>({...c,visible:true}));
+    return [...saved, ...extra];
+  } catch { return CARD_DEFAULTS.map(c=>({...c,visible:true})); }
+}
+
+function applyLayout() {
+  const layout = _loadLayout();
+  const parent = document.getElementById('results');
+  if (!parent) return;
+  // summaryGrid / alertBanner 는 항상 맨 위 유지
+  const pinnedIds = new Set(['summaryGrid', 'alertBanner']);
+  layout.forEach(cfg => {
+    const el = document.getElementById(cfg.id);
+    if (!el) return;
+    el.style.display = cfg.visible ? '' : 'none';
+    parent.appendChild(el);  // 순서대로 맨 뒤로 재배치 → 결과적으로 layout 순서
+  });
+}
+
+let _layoutDragSrc = null;
+
+function openLayoutModal() {
+  const layout = _loadLayout();
+  const list = document.getElementById('layoutList');
+  list.innerHTML = '';
+  layout.forEach((cfg, i) => {
+    const li = document.createElement('li');
+    li.className = 'layout-item';
+    li.draggable = true;
+    li.dataset.id = cfg.id;
+    li.innerHTML = `
+      <span class="layout-drag-handle" title="드래그로 이동">⠿</span>
+      <button class="layout-eye${cfg.visible?'':' hidden-card'}" title="${cfg.visible?'숨기기':'표시'}"
+              onclick="_toggleLayoutEye(this)">${cfg.visible?'👁':'🙈'}</button>
+      <span class="layout-label">${cfg.label}</span>
+      <button class="layout-move" title="위로" onclick="_moveLayoutItem(this,-1)">▲</button>
+      <button class="layout-move" title="아래로" onclick="_moveLayoutItem(this,1)">▼</button>`;
+    // drag events
+    li.addEventListener('dragstart', e => {
+      _layoutDragSrc = li;
+      li.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    li.addEventListener('dragend', () => {
+      li.classList.remove('dragging');
+      document.querySelectorAll('.layout-item').forEach(x=>x.classList.remove('drag-over'));
+    });
+    li.addEventListener('dragover', e => {
+      e.preventDefault();
+      if (li !== _layoutDragSrc) {
+        document.querySelectorAll('.layout-item').forEach(x=>x.classList.remove('drag-over'));
+        li.classList.add('drag-over');
+      }
+    });
+    li.addEventListener('drop', e => {
+      e.preventDefault();
+      if (_layoutDragSrc && _layoutDragSrc !== li) {
+        const items = [...list.children];
+        const si = items.indexOf(_layoutDragSrc), ti = items.indexOf(li);
+        if (si < ti) list.insertBefore(_layoutDragSrc, li.nextSibling);
+        else list.insertBefore(_layoutDragSrc, li);
+      }
+      li.classList.remove('drag-over');
+    });
+    list.appendChild(li);
+  });
+  document.getElementById('layoutModal').classList.add('open');
+}
+
+function _toggleLayoutEye(btn) {
+  const hidden = btn.classList.toggle('hidden-card');
+  btn.textContent = hidden ? '🙈' : '👁';
+  btn.title = hidden ? '표시' : '숨기기';
+}
+
+function _moveLayoutItem(btn, dir) {
+  const li = btn.closest('.layout-item');
+  const list = li.parentElement;
+  if (dir === -1 && li.previousElementSibling) {
+    list.insertBefore(li, li.previousElementSibling);
+  } else if (dir === 1 && li.nextElementSibling) {
+    list.insertBefore(li.nextElementSibling, li);
+  }
+}
+
+function _collectLayoutFromModal() {
+  const items = document.querySelectorAll('#layoutList .layout-item');
+  return [...items].map(li => {
+    const eye = li.querySelector('.layout-eye');
+    const def = CARD_DEFAULTS.find(c=>c.id===li.dataset.id)||{};
+    return { id: li.dataset.id, label: def.label||li.querySelector('.layout-label').textContent, visible: !eye.classList.contains('hidden-card') };
+  });
+}
+
+function saveLayoutAndClose() {
+  const layout = _collectLayoutFromModal();
+  localStorage.setItem(LAYOUT_LS_KEY, JSON.stringify(layout));
+  applyLayout();
+  closeLayoutModal();
+  toast('화면 설정이 저장되었습니다.','ok');
+}
+
+function resetLayout() {
+  localStorage.removeItem(LAYOUT_LS_KEY);
+  openLayoutModal();  // 기본값으로 다시 열기
+  toast('기본값으로 초기화되었습니다.','ok');
+}
+
+function closeLayoutModal() {
+  document.getElementById('layoutModal').classList.remove('open');
 }
 
 function openMailModal() {
@@ -3754,6 +3905,26 @@ function toast(msg,type=''){
 </script>
 
 <!-- 메일 발송 모달 -->
+<!-- 화면설정 모달 -->
+<div id="layoutModal" class="hist-modal-overlay" onclick="if(event.target===this)closeLayoutModal()">
+  <div class="hist-modal layout-modal">
+    <div class="hist-modal-head">
+      <span style="font-size:15px;font-weight:700">⚙ 화면 설정</span>
+      <button class="btn btn-secondary btn-sm" onclick="closeLayoutModal()">✕ 닫기</button>
+    </div>
+    <div style="padding:10px 16px 4px;font-size:12px;color:var(--tx2)">
+      드래그로 순서 변경 · 👁 클릭으로 표시/숨기기 · ▲▼ 로 이동
+    </div>
+    <div class="hist-modal-body">
+      <ul class="layout-list" id="layoutList"></ul>
+    </div>
+    <div class="hist-modal-foot">
+      <button class="btn btn-secondary" onclick="resetLayout()">↺ 기본값</button>
+      <button class="btn btn-primary" onclick="saveLayoutAndClose()">✓ 저장</button>
+    </div>
+  </div>
+</div>
+
 <div id="mailModal" class="hist-modal-overlay" onclick="if(event.target===this)closeMailModal()">
   <div class="hist-modal mail-modal">
     <div class="hist-modal-head">
