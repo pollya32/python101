@@ -183,6 +183,59 @@ def send_unicode_text_windows(text: str, interval: float = 0.01) -> None:
             time.sleep(interval)
 
 
+CF_UNICODETEXT = 13
+GMEM_MOVEABLE = 0x0002
+
+
+def win32_get_clipboard_text() -> str | None:
+    if not WINDOWS:
+        return None
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    if not user32.OpenClipboard(None):
+        return None
+    try:
+        handle = user32.GetClipboardData(CF_UNICODETEXT)
+        if not handle:
+            return None
+        pointer = kernel32.GlobalLock(handle)
+        if not pointer:
+            return None
+        try:
+            return ctypes.wstring_at(pointer)
+        finally:
+            kernel32.GlobalUnlock(handle)
+    finally:
+        user32.CloseClipboard()
+
+
+def win32_set_clipboard_text(text: str) -> None:
+    if not WINDOWS:
+        raise RuntimeError("클립보드 붙여넣기 입력은 Windows에서 지원됩니다.")
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    data = text.encode("utf-16-le") + b"\x00\x00"
+    handle = kernel32.GlobalAlloc(GMEM_MOVEABLE, len(data))
+    if not handle:
+        raise OSError("클립보드에 쓸 메모리를 할당하지 못했습니다.")
+    pointer = kernel32.GlobalLock(handle)
+    if not pointer:
+        kernel32.GlobalFree(handle)
+        raise OSError("클립보드 메모리를 잠그지 못했습니다.")
+    ctypes.memmove(pointer, data, len(data))
+    kernel32.GlobalUnlock(handle)
+    if not user32.OpenClipboard(None):
+        kernel32.GlobalFree(handle)
+        raise OSError("클립보드를 열지 못했습니다.")
+    try:
+        user32.EmptyClipboard()
+        if not user32.SetClipboardData(CF_UNICODETEXT, handle):
+            kernel32.GlobalFree(handle)
+            raise OSError("클립보드에 값을 설정하지 못했습니다.")
+    finally:
+        user32.CloseClipboard()
+
+
 def list_visible_windows() -> list[tuple[int, str]]:
     if not WINDOWS:
         return []
@@ -309,7 +362,8 @@ class Action:
             preview = template.replace("\n", "↵")
             if len(preview) > 45:
                 preview = preview[:42] + "..."
-            return f"문자 입력: {preview}"
+            mode = " [붙여넣기]" if p.get("use_clipboard") else ""
+            return f"문자 입력{mode}: {preview}"
         if self.kind == "image_click":
             filename = Path(str(p.get("image", ""))).name
             return (
@@ -962,7 +1016,19 @@ class AutomationApp:
         if interval is None:
             # 입력 속도 창을 취소해도 이미 작성한 문자열은 버리지 않고 기본 속도로 등록한다.
             interval = 0.01
-        self._insert_action(Action("text", {"template": dialog.result, "interval": interval}))
+        use_clipboard = messagebox.askyesno(
+            "입력 방식 선택",
+            "일부 프로그램은 직접 키 입력 방식으로 한글 등이 제대로 들어가지 않을 수 있습니다.\n"
+            "클립보드에 붙여넣기(Ctrl+V)로 입력할까요?\n"
+            "(붙여넣기 직후 원래 클립보드 내용을 복원합니다)\n\n"
+            "잘 모르겠으면 '아니요'를 선택하세요.",
+        )
+        self._insert_action(
+            Action(
+                "text",
+                {"template": dialog.result, "interval": interval, "use_clipboard": use_clipboard},
+            )
+        )
 
     def add_key_or_hotkey(self) -> None:
         value = simpledialog.askstring(
@@ -1495,7 +1561,12 @@ class AutomationApp:
                 str(p.get("template", "")),
             )
             if dialog.result is not None:
-                updated = dict(p, template=dialog.result)
+                use_clipboard = messagebox.askyesno(
+                    "입력 방식 선택",
+                    "클립보드에 붙여넣기(Ctrl+V)로 입력할까요?\n"
+                    "한글 등에서 직접 키 입력이 제대로 안 될 때 선택하세요.",
+                )
+                updated = dict(p, template=dialog.result, use_clipboard=use_clipboard)
         elif action.kind == "image_click":
             updated = self._prompt_image_params(p)
         elif action.kind == "wait_window":
@@ -2135,7 +2206,10 @@ class AutomationApp:
             pyautogui.keyUp(str(p["key"]))
         elif action.kind == "text":
             value = render_template(str(p.get("template", "")), context)
-            send_unicode_text_windows(value, float(p.get("interval", 0.01)))
+            if p.get("use_clipboard"):
+                self._type_via_clipboard(value)
+            else:
+                send_unicode_text_windows(value, float(p.get("interval", 0.01)))
         elif action.kind == "image_click":
             point = self._wait_for_image(
                 Path(str(p["image"])),
@@ -2166,6 +2240,23 @@ class AutomationApp:
         else:
             raise ValueError(f"지원하지 않는 실행 단계: {action.kind}")
         return 0
+
+    @staticmethod
+    def _type_via_clipboard(value: str) -> None:
+        """일부 프로그램은 SendInput 유니코드 직접 입력 방식으로 한글 등이 제대로
+        들어가지 않을 수 있다. 이런 경우의 대안으로 클립보드에 붙여넣고(Ctrl+V) 실행
+        직후 원래 클립보드 내용을 복원한다. Tk 객체를 쓰지 않는 Win32 API만 사용하므로
+        워커 스레드에서 안전하게 호출할 수 있다."""
+        if not WINDOWS:
+            raise RuntimeError("클립보드 붙여넣기 입력은 Windows에서 지원됩니다.")
+        previous = win32_get_clipboard_text()
+        try:
+            win32_set_clipboard_text(value)
+            time.sleep(0.05)
+            pyautogui.hotkey("ctrl", "v")
+            time.sleep(0.05)
+        finally:
+            win32_set_clipboard_text(previous if previous is not None else "")
 
     @staticmethod
     def _locate_image_once(image: Path, confidence: float) -> Any:
