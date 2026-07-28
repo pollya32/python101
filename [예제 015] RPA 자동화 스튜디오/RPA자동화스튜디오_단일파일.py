@@ -21,7 +21,8 @@ RPA 자동화 스튜디오 (Windows)
 - 실행 취소(Ctrl+Z)/다시 실행(Ctrl+Y), 단계 복사·붙여넣기(Ctrl+C/V), 단계 찾기(Ctrl+F)
 - 실행되지 않는 주석/구분선 단계로 긴 목록 정리
 - 파일 메뉴 최근 파일 목록
-- 기존 v1~v4 JSON 설정 자동 호환
+- 시간 예약 외 추가 트리거: 폴더 감시, 트리거 파일 감시, 전역 단축키, 창 열림 감지
+- 기존 v1~v5 JSON 설정 자동 호환
 
 필수 설치
 ---------
@@ -74,7 +75,7 @@ except ImportError:
 
 
 APP_TITLE = "RPA 자동화 스튜디오"
-PROFILE_VERSION = 4
+PROFILE_VERSION = 5
 MAX_ACTIONS = 20_000
 STOP_RECORD_KEY = "f8"
 WINDOWS = sys.platform == "win32"
@@ -410,6 +411,24 @@ def normalize_key_name(raw: str) -> str:
     return mapping.get(value, value)
 
 
+MODIFIER_ALIASES = {
+    "ctrlleft": "ctrl",
+    "ctrlright": "ctrl",
+    "shiftleft": "shift",
+    "shiftright": "shift",
+    "altleft": "alt",
+    "altright": "alt",
+    "winleft": "win",
+    "winright": "win",
+}
+
+
+def generalize_modifier_name(name: str) -> str:
+    """전역 단축키 조합을 판정할 때, 실제로 눌린 왼쪽/오른쪽 구분 수정키
+    (ctrlleft 등)를 사용자가 입력하는 일반 이름(ctrl 등)과 같게 취급한다."""
+    return MODIFIER_ALIASES.get(name, name)
+
+
 def pynput_key_name(key: Any) -> str | None:
     char = getattr(key, "char", None)
     vk = getattr(key, "vk", None)
@@ -573,6 +592,11 @@ class AutomationApp:
         self.redo_stack: list[list[Action]] = []
         self.action_clipboard: list[Action] = []
         self._drag_start_iid: str | None = None
+        self._watch_folder_known: set[str] | None = None
+        self._window_trigger_present = False
+        self._hotkey_listener: Any = None
+        self._hotkey_pressed: set[str] = set()
+        self._hotkey_target: frozenset[str] = frozenset()
 
         root.title(APP_TITLE)
         root.geometry("1160x790")
@@ -598,6 +622,17 @@ class AutomationApp:
         self.schedule_exit_after_var = tk.BooleanVar(value=False)
         self.log_dir_var = tk.StringVar(value=str(default_log_directory()))
         self.log_retention_var = tk.IntVar(value=30)
+
+        self.watch_folder_enabled_var = tk.BooleanVar(value=False)
+        self.watch_folder_path_var = tk.StringVar()
+        self.watch_folder_pattern_var = tk.StringVar(value="*")
+        self.watch_file_enabled_var = tk.BooleanVar(value=False)
+        self.watch_file_path_var = tk.StringVar()
+        self.hotkey_trigger_enabled_var = tk.BooleanVar(value=False)
+        self.hotkey_trigger_var = tk.StringVar(value="ctrl+alt+r")
+        self.window_trigger_enabled_var = tk.BooleanVar(value=False)
+        self.window_trigger_title_var = tk.StringVar()
+        self.window_trigger_regex_var = tk.BooleanVar(value=False)
 
         self._build_ui()
         self._refresh_list()
@@ -985,6 +1020,75 @@ class AutomationApp:
             wraplength=850,
             foreground="#555555",
         ).grid(row=4, column=0, columnspan=4, sticky=tk.W, padx=4, pady=(4, 0))
+
+        triggers = ttk.LabelFrame(self.data_tab, text="추가 트리거 (시간이 아닌 조건으로 자동 실행)", padding=12)
+        triggers.pack(fill=tk.X, pady=(12, 0))
+        triggers.columnconfigure(1, weight=1)
+
+        ttk.Checkbutton(
+            triggers,
+            text="폴더 감시: 아래 폴더에 새 파일이 생기면 자동 실행",
+            variable=self.watch_folder_enabled_var,
+            command=self._on_watch_folder_toggle,
+        ).grid(row=0, column=0, columnspan=4, sticky=tk.W, pady=(0, 2))
+        ttk.Label(triggers, text="감시 폴더").grid(row=1, column=0, sticky=tk.W, padx=4)
+        ttk.Entry(triggers, textvariable=self.watch_folder_path_var).grid(
+            row=1, column=1, sticky="ew", padx=4
+        )
+        ttk.Button(triggers, text="찾기", command=self.choose_watch_folder).grid(row=1, column=2, padx=4)
+        ttk.Label(triggers, text="파일 패턴").grid(row=1, column=3, sticky=tk.E, padx=4)
+        ttk.Entry(triggers, textvariable=self.watch_folder_pattern_var, width=10).grid(
+            row=1, column=4, sticky=tk.W, padx=4
+        )
+
+        ttk.Checkbutton(
+            triggers,
+            text="트리거 파일 감시: 아래 파일이 생기면 자동 실행 후 그 파일을 지움(외부 연동용)",
+            variable=self.watch_file_enabled_var,
+            command=self._on_watch_file_toggle,
+        ).grid(row=2, column=0, columnspan=5, sticky=tk.W, pady=(10, 2))
+        ttk.Label(triggers, text="트리거 파일").grid(row=3, column=0, sticky=tk.W, padx=4)
+        ttk.Entry(triggers, textvariable=self.watch_file_path_var).grid(
+            row=3, column=1, columnspan=2, sticky="ew", padx=4
+        )
+        ttk.Button(triggers, text="찾기", command=self.choose_watch_file).grid(row=3, column=3, padx=4)
+
+        ttk.Checkbutton(
+            triggers,
+            text="전역 단축키: 어디서든 아래 키 조합을 누르면 즉시 실행",
+            variable=self.hotkey_trigger_enabled_var,
+            command=self._on_hotkey_trigger_toggle,
+        ).grid(row=4, column=0, columnspan=5, sticky=tk.W, pady=(10, 2))
+        ttk.Label(triggers, text="키 조합").grid(row=5, column=0, sticky=tk.W, padx=4)
+        ttk.Entry(triggers, textvariable=self.hotkey_trigger_var, width=20).grid(
+            row=5, column=1, sticky=tk.W, padx=4
+        )
+        ttk.Label(triggers, text="예: ctrl+alt+r", foreground="#555555").grid(
+            row=5, column=2, columnspan=2, sticky=tk.W, padx=4
+        )
+
+        ttk.Checkbutton(
+            triggers,
+            text="창 열림 감지: 아래 제목의 창이 새로 뜨면 자동 실행",
+            variable=self.window_trigger_enabled_var,
+        ).grid(row=6, column=0, columnspan=5, sticky=tk.W, pady=(10, 2))
+        ttk.Label(triggers, text="창 제목(일부)").grid(row=7, column=0, sticky=tk.W, padx=4)
+        ttk.Entry(triggers, textvariable=self.window_trigger_title_var).grid(
+            row=7, column=1, columnspan=2, sticky="ew", padx=4
+        )
+        ttk.Checkbutton(
+            triggers, text="정규식", variable=self.window_trigger_regex_var
+        ).grid(row=7, column=3, sticky=tk.W, padx=4)
+
+        ttk.Label(
+            triggers,
+            text=(
+                "네 가지 트리거 모두 프로그램이 켜져 있는 동안에만 동작하며, 자동화가 이미 실행/녹화 "
+                "중이면 겹쳐 실행되지 않습니다. 폴더/트리거 파일/창 열림 감지는 매초 확인합니다."
+            ),
+            wraplength=850,
+            foreground="#555555",
+        ).grid(row=8, column=0, columnspan=5, sticky=tk.W, padx=4, pady=(8, 0))
 
     def _show_dependency_error(self) -> None:
         messagebox.showerror(
@@ -1930,6 +2034,26 @@ class AutomationApp:
                 "start_minimized": bool(self.schedule_minimized_var.get()),
                 "exit_after_run": bool(self.schedule_exit_after_var.get()),
             },
+            "triggers": {
+                "watch_folder": {
+                    "enabled": bool(self.watch_folder_enabled_var.get()),
+                    "path": self.watch_folder_path_var.get(),
+                    "pattern": self.watch_folder_pattern_var.get(),
+                },
+                "watch_file": {
+                    "enabled": bool(self.watch_file_enabled_var.get()),
+                    "path": self.watch_file_path_var.get(),
+                },
+                "hotkey": {
+                    "enabled": bool(self.hotkey_trigger_enabled_var.get()),
+                    "keys": self.hotkey_trigger_var.get(),
+                },
+                "window": {
+                    "enabled": bool(self.window_trigger_enabled_var.get()),
+                    "title": self.window_trigger_title_var.get(),
+                    "regex": bool(self.window_trigger_regex_var.get()),
+                },
+            },
             "actions": [asdict(action) for action in self.actions],
         }
 
@@ -2001,7 +2125,7 @@ class AutomationApp:
     def _load_profile_path(self, path: Path) -> None:
         data = json.loads(path.read_text(encoding="utf-8"))
         version = int(data.get("version", 1))
-        if version not in {1, 2, 3, 4}:
+        if version not in {1, 2, 3, 4, 5}:
             raise ValueError(f"지원하지 않는 설정 파일 버전입니다: {version}")
         loaded = [Action.from_dict(item) for item in data.get("actions", [])]
         self._validate_actions(loaded)
@@ -2012,10 +2136,12 @@ class AutomationApp:
             }
             data_source: dict[str, Any] = {}
             schedule: dict[str, Any] = {}
+            triggers: dict[str, Any] = {}
         else:
             settings = dict(data.get("settings", {}))
             data_source = dict(data.get("data_source", {}))
             schedule = dict(data.get("schedule", {}))
+            triggers = dict(data.get("triggers", {}))
         self.actions = loaded
         self.repeat_var.set(max(1, int(settings.get("repeat_count", 1))))
         self.step_delay_var.set(max(0.0, float(settings.get("step_delay", 0.25))))
@@ -2034,6 +2160,30 @@ class AutomationApp:
         self.schedule_daily_var.set(bool(schedule.get("daily", True)))
         self.schedule_minimized_var.set(bool(schedule.get("start_minimized", True)))
         self.schedule_exit_after_var.set(bool(schedule.get("exit_after_run", False)))
+
+        watch_folder = dict(triggers.get("watch_folder", {}))
+        self.watch_folder_enabled_var.set(bool(watch_folder.get("enabled", False)))
+        self.watch_folder_path_var.set(str(watch_folder.get("path", "")))
+        self.watch_folder_pattern_var.set(str(watch_folder.get("pattern", "*")))
+        self._watch_folder_known = None
+
+        watch_file = dict(triggers.get("watch_file", {}))
+        self.watch_file_enabled_var.set(bool(watch_file.get("enabled", False)))
+        self.watch_file_path_var.set(str(watch_file.get("path", "")))
+
+        hotkey = dict(triggers.get("hotkey", {}))
+        self.hotkey_trigger_enabled_var.set(bool(hotkey.get("enabled", False)))
+        self.hotkey_trigger_var.set(str(hotkey.get("keys", "ctrl+alt+r")))
+        self._stop_hotkey_listener()
+        if self.hotkey_trigger_enabled_var.get():
+            self._start_hotkey_listener()
+
+        window_trigger = dict(triggers.get("window", {}))
+        self.window_trigger_enabled_var.set(bool(window_trigger.get("enabled", False)))
+        self.window_trigger_title_var.set(str(window_trigger.get("title", "")))
+        self.window_trigger_regex_var.set(bool(window_trigger.get("regex", False)))
+        self._window_trigger_present = False
+
         self.current_profile_path = path.resolve()
         self.undo_stack.clear()
         self.redo_stack.clear()
@@ -2155,6 +2305,144 @@ class AutomationApp:
         path = filedialog.askdirectory(title="로그 폴더 선택")
         if path:
             self.log_dir_var.set(path)
+
+    def choose_watch_folder(self) -> None:
+        path = filedialog.askdirectory(title="감시할 폴더 선택")
+        if path:
+            self.watch_folder_path_var.set(path)
+
+    def choose_watch_file(self) -> None:
+        path = filedialog.asksaveasfilename(
+            title="트리거로 사용할 파일 위치 선택 (아직 없어도 됨)",
+            filetypes=[("모든 파일", "*.*")],
+        )
+        if path:
+            self.watch_file_path_var.set(path)
+
+    def _on_watch_folder_toggle(self) -> None:
+        """감시를 켜는 순간의 폴더 상태를 기준선으로 삼아, 이후 새로 생긴 파일만 감지한다."""
+        if self.watch_folder_enabled_var.get():
+            self._watch_folder_known = self._list_watch_folder_files()
+        else:
+            self._watch_folder_known = None
+
+    def _list_watch_folder_files(self) -> set[str]:
+        folder = Path(self.watch_folder_path_var.get()).expanduser()
+        pattern = self.watch_folder_pattern_var.get().strip() or "*"
+        try:
+            return {str(item) for item in folder.glob(pattern) if item.is_file()}
+        except OSError:
+            return set()
+
+    def _check_watch_folder_trigger(self) -> bool:
+        if not self.watch_folder_enabled_var.get():
+            return False
+        if self._watch_folder_known is None:
+            self._watch_folder_known = self._list_watch_folder_files()
+            return False
+        current = self._list_watch_folder_files()
+        new_files = current - self._watch_folder_known
+        self._watch_folder_known = current
+        if new_files:
+            self._write_log("INFO", f"폴더 감시 트리거 발동: {', '.join(sorted(new_files))}")
+            return True
+        return False
+
+    def _on_watch_file_toggle(self) -> None:
+        self.status_var.set(
+            "트리거 파일 감시를 켰습니다." if self.watch_file_enabled_var.get() else "트리거 파일 감시를 껐습니다."
+        )
+
+    def _check_watch_file_trigger(self) -> bool:
+        if not self.watch_file_enabled_var.get():
+            return False
+        path_text = self.watch_file_path_var.get().strip()
+        if not path_text:
+            return False
+        path = Path(path_text).expanduser()
+        if not path.exists():
+            return False
+        try:
+            path.unlink()
+        except OSError as error:
+            self._write_log("WARN", f"트리거 파일 삭제 실패: {error}")
+            return False
+        self._write_log("INFO", f"트리거 파일 감지: {path}")
+        return True
+
+    def _check_window_trigger(self) -> bool:
+        if not self.window_trigger_enabled_var.get():
+            return False
+        title = self.window_trigger_title_var.get().strip()
+        if not title:
+            return False
+        try:
+            found = find_window(title, self.window_trigger_regex_var.get()) is not None
+        except ValueError:
+            found = False
+        triggered = found and not self._window_trigger_present
+        self._window_trigger_present = found
+        if triggered:
+            self._write_log("INFO", f"창 열림 감지 트리거 발동: {title}")
+        return triggered
+
+    def _on_hotkey_trigger_toggle(self) -> None:
+        if self.hotkey_trigger_enabled_var.get():
+            self._start_hotkey_listener()
+        else:
+            self._stop_hotkey_listener()
+
+    def _start_hotkey_listener(self) -> None:
+        self._stop_hotkey_listener()
+        if pynput_keyboard is None:
+            messagebox.showerror(
+                "전역 단축키 모듈 없음", "전역 단축키 트리거에는 pynput이 필요합니다.\n\npy -m pip install pynput"
+            )
+            self.hotkey_trigger_enabled_var.set(False)
+            return
+        keys = {
+            generalize_modifier_name(normalize_key_name(item))
+            for item in self.hotkey_trigger_var.get().split("+")
+            if item.strip()
+        }
+        if not keys:
+            messagebox.showerror("전역 단축키 오류", "키 조합을 입력하세요. 예: ctrl+alt+r")
+            self.hotkey_trigger_enabled_var.set(False)
+            return
+        self._hotkey_target = frozenset(keys)
+        self._hotkey_pressed = set()
+        self._hotkey_listener = pynput_keyboard.Listener(
+            on_press=self._on_hotkey_press, on_release=self._on_hotkey_release
+        )
+        self._hotkey_listener.start()
+
+    def _stop_hotkey_listener(self) -> None:
+        if self._hotkey_listener is not None:
+            try:
+                self._hotkey_listener.stop()
+            except Exception:
+                pass
+            self._hotkey_listener = None
+        self._hotkey_pressed = set()
+
+    def _on_hotkey_press(self, key: Any) -> None:
+        name = pynput_key_name(key)
+        if not name:
+            return
+        self._hotkey_pressed.add(generalize_modifier_name(name))
+        if self._hotkey_target and self._hotkey_target <= self._hotkey_pressed:
+            self.root.after(0, self._fire_hotkey_trigger)
+
+    def _on_hotkey_release(self, key: Any) -> None:
+        name = pynput_key_name(key)
+        if name:
+            self._hotkey_pressed.discard(generalize_modifier_name(name))
+
+    def _fire_hotkey_trigger(self) -> None:
+        if self.running or self.recording:
+            return
+        self._write_log("INFO", f"전역 단축키 트리거 발동: {'+'.join(sorted(self._hotkey_target))}")
+        self.start_automation(confirm=False)
 
     def open_log_directory(self) -> None:
         path = Path(self.log_dir_var.get()).expanduser()
@@ -2635,6 +2923,12 @@ class AutomationApp:
                 self.start_automation(confirm=False)
                 if not self.schedule_daily_var.get():
                     self.schedule_enabled_var.set(False)
+            elif not self.running and not self.recording:
+                folder_triggered = self._check_watch_folder_trigger()
+                file_triggered = self._check_watch_file_trigger()
+                window_triggered = self._check_window_trigger()
+                if folder_triggered or file_triggered or window_triggered:
+                    self.start_automation(confirm=False)
         finally:
             if self.root.winfo_exists():
                 self.root.after(1000, self._scheduler_tick)
@@ -2738,6 +3032,7 @@ class AutomationApp:
             if not messagebox.askyesno("실행 중", "자동화를 중지하고 프로그램을 종료할까요?"):
                 return
             self.stop_event.set()
+        self._stop_hotkey_listener()
         self.root.destroy()
 
 
