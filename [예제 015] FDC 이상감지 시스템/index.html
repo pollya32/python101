@@ -2931,22 +2931,26 @@ async function sendMailNow() {
 
   const subject = s.subject || '[FDC이상감지] 이상 감지 현황 리포트';
   const attachReport = document.getElementById('mailAttachReport')?.checked;
+
+  // 전체 보고서 포함 시: _buildReportHtml()의 body 내용을 요약 뒤에 인라인으로 붙임
+  let contents = _buildMailHtml();
+  if (attachReport) {
+    const fullHtml = _buildReportHtml();
+    const m = fullHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    const reportBody = m ? m[1] : fullHtml;
+    contents += `<hr style="margin:28px 0;border:none;border-top:2px solid #1a233e">
+<p style="font-size:11px;color:#888;margin-bottom:12px">※ 아래는 전체 분석 보고서 (인라인 포함)</p>
+${reportBody}`;
+  }
+
   const mailJson = {
     subject,
-    contents: _buildMailHtml(),
+    contents,
     contentType: 'HTML',
     docSecuType: 'PERSONAL',
     sender: { emailAddress: `${s.senderId}@samsung.com` },
     recipients: s.recipients.map(r => ({ emailAddress: `${r}@samsung.com`, recipientType: 'TO' })),
   };
-
-  if (attachReport) {
-    mailJson.attachFiles = [{
-      attachFileName: `fdc_report_${today()}.html`,
-      attachFileContent: _htmlToBase64(_buildReportHtml()),
-      attachFileMimeType: 'text/html',
-    }];
-  }
 
   try {
     const res = await fetch(
@@ -3024,7 +3028,7 @@ function toast(msg,type=''){
       <!-- 발송 -->
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx1);cursor:pointer;user-select:none;">
         <input type="checkbox" id="mailAttachReport" checked style="width:15px;height:15px;accent-color:var(--ac1);">
-        HTML 분석 보고서 첨부 (전체 통계 + 이상 목록 + 원본 데이터)
+        전체 분석 보고서 본문 포함 (통계 + 전체 이상 목록 + 원본 데이터)
       </label>
       <button class="mail-send-btn" id="mailSendBtn" onclick="sendMailNow()">📤 지금 바로 발송</button>
       <div class="mail-status" id="mailStatusMsg"></div>
