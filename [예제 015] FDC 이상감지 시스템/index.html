@@ -1285,6 +1285,7 @@ async function renderRanking(results) {
           }
         }
       });
+      _throttleChartHover(gRankCharts[key]);
     },0);
   }
 }
@@ -1379,7 +1380,25 @@ async function renderCharts(results, stats) {
     const datasets = [];
     let gi = 0;
 
-    gkeyMap.forEach((rows, gk) => {
+    // 그룹 수 > MAX_DS 시 이상 건수 상위 N개만 렌더 (포인트 폭발 방지: N×600 → 20×600)
+    const MAX_DS = 20;
+    const _allEntries = [...gkeyMap.entries()];
+    const _renderEntries = _allEntries.length > MAX_DS
+      ? _allEntries
+          .map(([gk, rows]) => ({ gk, rows, ac: rows.reduce((s,r) => s+(r.isAnom?1:0), 0) }))
+          .sort((a, b) => b.ac - a.ac)
+          .slice(0, MAX_DS)
+          .map(({gk, rows}) => [gk, rows])
+      : _allEntries;
+    const _dsOmitted = _allEntries.length - _renderEntries.length;
+    if (_dsOmitted > 0) {
+      const _note = document.createElement('div');
+      _note.style.cssText = 'font-size:11px;color:var(--tx2);text-align:center;padding:2px 0 6px';
+      _note.textContent = `이상 건수 상위 ${MAX_DS}개 그룹 표시 중 (총 ${_allEntries.length}개 중 ${_dsOmitted}개 생략)`;
+      panel.insertBefore(_note, wrap);
+    }
+
+    for (const [gk, rows] of _renderEntries) {
       const [eqp, lot, ch] = gk.split('|');
       rows.sort((a, b) => hasTime ? ((a._time ?? a._slot) - (b._time ?? b._slot)) : a._slot - b._slot);
       const color = PALETTE[gi++ % PALETTE.length];
@@ -1440,7 +1459,7 @@ async function renderCharts(results, stats) {
           if (s.lcl > 0) datasets.push(mkLine(s.lcl, 'rgba(248,81,73,0.65)', [6, 3], 'LCL'));
         }
       }
-    });
+    }
 
     // Chart.js 옵션 객체 사전 구성 (클로저로 hasTime/tRef/tRange/param 캡처)
     const _chartOpts = {
@@ -1515,6 +1534,7 @@ function _flushPendingChart(param) {
     if(!canvas||gCharts[param]) return;
     const ctx=canvas.getContext('2d');
     gCharts[param]=new Chart(ctx,{type:'line',data:{datasets:cfg.datasets},options:cfg.opts});
+    _throttleChartHover(gCharts[param]);
     setupDragSelect(cfg.wrapEl,()=>gCharts[param],cfg.dragInfoId);
   },0);
 }
@@ -1680,6 +1700,7 @@ function renderEqpScatter() {
   gScatterChart = new Chart(ctx, {
     type:'line',
     data:{datasets},
+
     options:{
       responsive:true, maintainAspectRatio:false,
       animation:false,
@@ -1733,6 +1754,7 @@ function renderEqpScatter() {
       }
     }
   });
+  _throttleChartHover(gScatterChart);
   const scWrap = document.getElementById('scatterCanvas')?.closest('.chart-wrap');
   if (scWrap) setupDragSelect(scWrap, ()=>gScatterChart, 'scatterDragInfo');
 }
@@ -2059,6 +2081,14 @@ function _setProgress(pct, msg) {
 }
 function _tick() { return new Promise(r=>setTimeout(r,0)); }
 function _debounce(fn, ms) { let t; return function(...a){ clearTimeout(t); t=setTimeout(()=>fn.apply(this,a),ms); }; }
+// mousemove를 캡처 단계에서 33ms(≈30fps) 이내 이벤트 차단 → Chart.js canvas 재렌더 최소화
+function _throttleChartHover(chart) {
+  let _lt = 0;
+  chart.canvas.addEventListener('mousemove', e => {
+    const n = performance.now();
+    if (n - _lt < 33) e.stopImmediatePropagation(); else _lt = n;
+  }, true);
+}
 
 async function runAnalysis(){
   const text=document.getElementById('dataInput').value.trim();
@@ -3572,6 +3602,7 @@ function renderParetoChart() {
     },
     options: {
       responsive: true, maintainAspectRatio: false,
+      animation: false,
       plugins: { legend: { labels: { color: tickColor } } },
       scales: {
         x: { ticks: { color: tickColor, maxRotation: 45 }, grid: { color: gridColor } },
@@ -3581,6 +3612,7 @@ function renderParetoChart() {
       },
     },
   });
+  _throttleChartHover(gParetoChart);
 }
 
 /* ══════════════════════════════════════════════════════
@@ -3644,6 +3676,7 @@ async function renderTrendChart() {
     data: { labels: dates, datasets },
     options: {
       responsive: true, maintainAspectRatio: false,
+      animation: false,
       plugins: { legend: { labels: { color: tickColor, boxWidth: 12 } } },
       scales: {
         x: { ticks: { color: tickColor, maxRotation: 45, maxTicksLimit: 20 }, grid: { color: gridColor } },
@@ -3652,6 +3685,7 @@ async function renderTrendChart() {
       },
     },
   });
+  _throttleChartHover(gTrendChart);
 }
 
 /* ══════════════════════════════════════════════════════
