@@ -314,11 +314,6 @@
         <input type="number" id="cusumK" value="0.5" min="0.1" max="2" step="0.1">
         <span style="font-size:11px;color:var(--tx2)">보통 0.5</span>
       </div>
-      <!-- SPC -->
-      <div class="ctrl-group">
-        <input type="checkbox" id="showSPC">
-        <label for="showSPC" style="cursor:pointer;font-size:13px">SPC ±3σ 관리한계선</label>
-      </div>
       <!-- 이상률 경보 임계값 -->
       <div class="ctrl-group">
         <span style="font-size:12px;color:var(--tx2)">🔔 경보 이상률:</span>
@@ -451,38 +446,6 @@
     </div>
 
     <!-- 그래프 -->
-    <div class="card" id="cardChart">
-      <div class="card-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;">
-        <span>📈 PPID 별 공정 추이 차트 (X축: 날짜)</span>
-        <div style="display:flex;align-items:center;gap:16px;margin-left:auto;flex-wrap:wrap;">
-          <div class="ctrl-group" style="gap:6px">
-            <label style="font-size:12px;color:var(--tx2)">EQP</label>
-            <select id="cEqp" onchange="onChartFilterChange()" style="font-size:12px;padding:3px 6px;background:var(--bg2);color:var(--tx1);border:1px solid var(--bd);border-radius:4px"></select>
-          </div>
-          <div class="ctrl-group" style="gap:6px">
-            <label style="font-size:12px;color:var(--tx2)">CH</label>
-            <select id="cCh" onchange="onChartFilterChange()" style="font-size:12px;padding:3px 6px;background:var(--bg2);color:var(--tx1);border:1px solid var(--bd);border-radius:4px"></select>
-          </div>
-          <div class="ctrl-group" style="gap:6px">
-            <span style="font-size:12px">높이:</span>
-            <input type="range" id="chartHeight" min="200" max="800" value="360" step="20"
-                   style="width:110px;accent-color:var(--blue);cursor:pointer"
-                   oninput="updateChartHeight(this.value)">
-            <span id="chartHeightVal" style="font-size:12px;color:var(--tx2);min-width:38px">360px</span>
-          </div>
-          <div class="ctrl-group" style="gap:6px">
-            <span style="font-size:12px">점 크기:</span>
-            <input type="range" id="pointSize" min="2" max="20" value="5" step="1"
-                   style="width:80px;accent-color:var(--blue);cursor:pointer"
-                   oninput="updatePointSize(this.value)">
-            <span id="pointSizeVal" style="font-size:12px;color:var(--tx2);min-width:28px">5px</span>
-          </div>
-        </div>
-      </div>
-      <div class="tab-row"  id="chartTabs"></div>
-      <div id="chartPanels"></div>
-    </div>
-
     <!-- EQP / CH 선택 산점도 -->
     <div class="card" id="cardScatter">
       <div class="card-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:12px">
@@ -509,6 +472,15 @@
                 oninput="document.getElementById('scXPadVal').textContent=this.value+'%';renderEqpScatter()"
                 style="width:80px;accent-color:var(--acc,#58a6ff);cursor:pointer">
               <span id="scXPadVal" style="font-size:11px;color:var(--tx2);min-width:26px;text-align:right">4%</span>
+            </div>
+          </div>
+          <div class="ctrl-group" style="gap:6px">
+            <label style="font-size:12px;color:var(--tx2)">점 크기</label>
+            <div style="display:flex;align-items:center;gap:5px">
+              <input type="range" id="pointSize" min="2" max="20" value="5" step="1"
+                oninput="document.getElementById('pointSizeVal').textContent=this.value+'px';renderEqpScatter()"
+                style="width:70px;accent-color:var(--acc,#58a6ff);cursor:pointer">
+              <span id="pointSizeVal" style="font-size:11px;color:var(--tx2);min-width:26px;text-align:right">5px</span>
             </div>
           </div>
         </div>
@@ -569,15 +541,13 @@
 /* ══════════════════════════════════════════════════════
    STATE
 ══════════════════════════════════════════════════════ */
-let gResults=[], gCharts={}, gRankCharts={}, gThreshold=10, gHeaders=[];
-let gFilteredResults=null;          // null = 필터 없음 (전체)
-let gAnoms=[];                      // 현재 표시 이상감지 목록 (필터/정렬 반영)
-let gAnomsAll=[];                   // 전체 이상 목록 (드릴다운 필터 전 원본)
-let gStats=[];                      // calcStats 결과 캐시 (renderCharts 재사용)
-let gIndex=null;                    // 메타데이터 인덱스 (buildIndex 결과)
+let gResults=[], gRankCharts={}, gThreshold=10, gHeaders=[];
+let gFilteredResults=null;
+let gAnoms=[];
+let gAnomsAll=[];
+let gStats=[];
+let gIndex=null;
 const gPage={full:1, pageSize:200, anom:1, anomPageSize:200};
-const _pendingCharts=new Map();     // 파라미터별 지연 차트 설정
-let _chartGen=0;                    // 차트 렌더 세대 (stale setTimeout 무효화용)
 
 /* ══════════════════════════════════════════════════════
    COLUMN ALIAS MAP (자동 감지용)
@@ -1314,281 +1284,6 @@ function _decimateDataset(pts, rows, maxPts=600) {
   return {pts:kept.map(i=>pts[i]), rows:kept.map(i=>rows[i])};
 }
 
-async function renderCharts(results, stats) {
-  Object.values(gCharts).forEach(c=>c.destroy()); gCharts={};
-  _pendingCharts.clear();
-  const _gen=++_chartGen;  // 이 렌더 세대 ID (stale setTimeout 무효화용)
-  const showSPC = document.getElementById('showSPC').checked;
-  const fCEqp   = document.getElementById('cEqp')?.value || '';
-  const fCCh    = document.getElementById('cCh')?.value  || '';
-  const ps      = parseInt(document.getElementById('pointSize')?.value) || 5;
-
-  // O(N) 사전 그루핑: param → gkey → rows (반복 filter 제거)
-  const preGroup = new Map();
-  { let yT = performance.now();
-    for (let i = 0; i < results.length; i++) {
-      const r = results[i];
-      if (fCEqp && r['EQP ID'] !== fCEqp) continue;
-      if (fCCh  && r['CH']     !== fCCh)  continue;
-      const p = r['PPID'];
-      if (!preGroup.has(p)) preGroup.set(p, new Map());
-      const gk = `${r['EQP ID']}|${r['LOTID']}|${r['CH']}`;
-      const m = preGroup.get(p);
-      if (!m.has(gk)) m.set(gk, []);
-      m.get(gk).push(r);
-      if ((i & 0xFFF) === 0 && performance.now() - yT >= 16) { await _tick(); yT = performance.now(); }
-    }
-  }
-  const params = [...preGroup.keys()];
-
-  const tabsEl = document.getElementById('chartTabs');
-  const panelEl = document.getElementById('chartPanels');
-  tabsEl.innerHTML = panelEl.innerHTML = '';
-
-  for (let pi = 0; pi < params.length; pi++) {
-    const param = params[pi];
-
-    /* Tab */
-    const tab = document.createElement('button');
-    tab.className = 'tab-btn' + (pi === 0 ? ' active' : '');
-    tab.textContent = param; tab.dataset.param = param;
-    tab.onclick = () => switchTab(param);
-    tabsEl.appendChild(tab);
-
-    /* Panel */
-    const panel   = document.createElement('div');
-    panel.className = 'tab-panel' + (pi === 0 ? ' active' : '');
-    panel.dataset.param = param;
-    const canvas  = document.createElement('canvas');
-    canvas.id     = `cv_${pi}`;
-    const wrap    = document.createElement('div');
-    wrap.className = 'chart-wrap';
-    wrap.appendChild(canvas);
-    panel.appendChild(wrap);
-    const dragInfoDiv = document.createElement('div');
-    dragInfoDiv.id        = `drag_info_${pi}`;
-    dragInfoDiv.className = 'drag-select-info';
-    dragInfoDiv.style.display = 'none';
-    panel.appendChild(dragInfoDiv);
-    panelEl.appendChild(panel);
-
-    /* Build datasets using pre-grouped data (no repeated filter) */
-    const gkeyMap = preGroup.get(param);
-
-    // 단일 패스로 tRef / tMax 계산 (spread 연산자 제거)
-    let tRef = Infinity, tMax = -Infinity, hasTime = false;
-    gkeyMap.forEach(rows => rows.forEach(r => {
-      if (r._time == null) return;
-      hasTime = true;
-      if (r._time < tRef) tRef = r._time;
-      if (r._time > tMax) tMax = r._time;
-    }));
-    if (!hasTime) { tRef = 0; tMax = 0; }
-    const tRange = hasTime ? (tMax - tRef) / 86400000 : 0;
-
-    const datasets = [];
-    let gi = 0;
-
-    // 그룹 수 > MAX_DS 시 이상 건수 상위 N개만 렌더 (포인트 폭발 방지: N×600 → 20×600)
-    const MAX_DS = 20;
-    const _allEntries = [...gkeyMap.entries()];
-    const _renderEntries = _allEntries.length > MAX_DS
-      ? _allEntries
-          .map(([gk, rows]) => ({ gk, rows, ac: rows.reduce((s,r) => s+(r.isAnom?1:0), 0) }))
-          .sort((a, b) => b.ac - a.ac)
-          .slice(0, MAX_DS)
-          .map(({gk, rows}) => [gk, rows])
-      : _allEntries;
-    const _dsOmitted = _allEntries.length - _renderEntries.length;
-    if (_dsOmitted > 0) {
-      const _note = document.createElement('div');
-      _note.style.cssText = 'font-size:11px;color:var(--tx2);text-align:center;padding:2px 0 6px';
-      _note.textContent = `이상 건수 상위 ${MAX_DS}개 그룹 표시 중 (총 ${_allEntries.length}개 중 ${_dsOmitted}개 생략)`;
-      panel.insertBefore(_note, wrap);
-    }
-
-    for (const [gk, _rawRows] of _renderEntries) {
-      const [eqp, lot, ch] = gk.split('|');
-      // hasTime 모드: _time=null 행 제거 후 순수 시간 정렬
-      const rows = hasTime
-        ? _rawRows.filter(r => r._time != null).sort((a, b) => a._time - b._time)
-        : [..._rawRows].sort((a, b) => a._slot - b._slot);
-      const color = PALETTE[gi++ % PALETTE.length];
-      const label = ch ? `${eqp}/${lot}/${ch}` : `${eqp}/${lot}`;
-
-      let pts = rows.map(r => ({
-        x: hasTime ? (r._time - tRef) / 1000 : r._slot,
-        y: r._val
-      }));
-
-      const dec = _decimateDataset(pts, rows, 600);
-      pts = dec.pts; const dRows = dec.rows;
-
-      // 단일 패스로 6개 per-point 배열 동시 생성 (isAnom 6회 평가 → 1회)
-      const psA = Math.round(ps * 2.2), psN = ps;
-      const pRadius = [], pHover = [], pBg = [], pBd = [], pBw = [];
-      for (let k = 0; k < dRows.length; k++) {
-        const a = dRows[k].isAnom;
-        pRadius.push(a ? psA     : psN);
-        pHover .push(a ? psA + 3 : psN + 3);
-        pBg    .push(a ? '#f85149' : color);
-        pBd    .push(a ? '#ff4040' : color);
-        pBw    .push(a ? 2 : 1);
-      }
-
-      datasets.push({
-        type: 'line', label, data: pts, _rows: dRows,
-        borderColor: color, borderWidth: 0, showLine: false, fill: false, tension: 0,
-        pointRadius: pRadius, pointHoverRadius: pHover,
-        pointBackgroundColor: pBg, pointBorderColor: pBd,
-        pointStyle: 'circle',  // triangle 제거: arc() 단순 호출, 커스텀 path 불필요
-        pointBorderWidth: pBw,
-        spanGaps: true,
-      });
-
-      /* SPC 관리한계선 — spread 없이 단일 패스로 xMin/xMax 계산 */
-      if (showSPC) {
-        const s = stats.find(x => x.eqp === eqp && x.ch === ch && x.param === param);
-        if (s && s.std > 0) {
-          let xMin, xMax;
-          if (hasTime) {
-            let tMn = Infinity, tMx = -Infinity;
-            rows.forEach(r => { if (r._time != null) { if (r._time < tMn) tMn = r._time; if (r._time > tMx) tMx = r._time; } });
-            xMin = (tMn - tRef) / 1000; xMax = (tMx - tRef) / 1000;
-          } else {
-            let sMn = Infinity, sMx = -Infinity;
-            rows.forEach(r => { if (r._slot < sMn) sMn = r._slot; if (r._slot > sMx) sMx = r._slot; });
-            xMin = sMn; xMax = sMx;
-          }
-          const mkLine = (y, clr, dash, lbl) => ({
-            type: 'line', label: `_spc_${lbl}_${label}`,
-            data: [{x: xMin, y}, {x: xMax, y}],
-            borderColor: clr, borderDash: dash,
-            pointRadius: 0, borderWidth: 1.5, fill: false, tension: 0,
-          });
-          datasets.push(mkLine(s.ucl,  'rgba(248,81,73,0.65)',   [6, 3], 'UCL'));
-          datasets.push(mkLine(s.mean, 'rgba(139,148,158,0.55)', [4, 2], 'AVG'));
-          if (s.lcl > 0) datasets.push(mkLine(s.lcl, 'rgba(248,81,73,0.65)', [6, 3], 'LCL'));
-        }
-      }
-    }
-
-    // Chart.js 옵션 객체 사전 구성 (클로저로 hasTime/tRef/tRange/param 캡처)
-    const _chartOpts = {
-      responsive: true, maintainAspectRatio: false,
-      animation: false,
-      interaction: {mode: 'nearest', intersect: false},
-      plugins: {
-        legend: {labels: {color: '#e6edf3', font: {size: 11}, usePointStyle: false, padding: 14, filter: item => !item.text.startsWith('_spc_')}},
-        tooltip: {
-          backgroundColor: '#1c2128', borderColor: '#30363d', borderWidth: 1,
-          titleColor: '#e6edf3', bodyColor: '#8b949e',
-          callbacks: {
-            title(items) {
-              const item = items[0]; if (!item) return '';
-              const row = item.dataset._rows?.[item.dataIndex];
-              return row ? `${row['날짜']}  (SLOT ${row['SLOT']})` : item.label || '';
-            },
-            label(item) {
-              if (item.dataset.label?.startsWith('_spc_')) return null;
-              const row = item.dataset._rows?.[item.dataIndex];
-              if (!row) return ` ${item.dataset.label}: ${item.raw.y}`;
-              const lines = [` ${item.dataset.label}: ${row['REAL DATA']}`];
-              if (row.diff !== null) lines.push(` 편차/변화량: ${row.diff.toFixed(4)}`);
-              if (row.isAnom) lines.push(' ⚠️ 이상감지!');
-              return lines;
-            }
-          }
-        },
-      },
-      scales: {
-        x: {
-          type: 'linear',
-          ticks: {
-            color: '#8b949e', font: {size: 10}, maxTicksLimit: 10,
-            callback: hasTime
-              ? v => { const d = new Date(tRef + v * 1000); const p = n => String(n).padStart(2, '0'); return tRange > 1 ? `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}\n${p(d.getHours())}:${p(d.getMinutes())}` : `${p(d.getMonth()+1)}/${p(d.getDate())}\n${p(d.getHours())}:${p(d.getMinutes())}`; }
-              : v => `SLOT ${v}`
-          },
-          grid: {color: 'rgba(48,54,61,.45)'},
-          title: {display: true, text: hasTime ? '날짜/시간' : 'SLOT', color: '#8b949e', font: {size: 12}}
-        },
-        y: {
-          ticks: {color: '#8b949e', font: {size: 11}},
-          grid: {color: 'rgba(48,54,61,.45)'},
-          title: {display: true, text: param, color: '#8b949e', font: {size: 12}}
-        }
-      }
-    };
-
-    // 지연 차트 설정 저장 (즉시 생성 ×) — _flushPendingChart에서 탭 활성화 시 생성
-    _pendingCharts.set(param, {canvasId:`cv_${pi}`, wrapEl:wrap, dragInfoId:`drag_info_${pi}`, datasets, opts:_chartOpts, gen:_gen});
-
-    // 파라미터 간 UI 양보 (다수 파라미터 시 블로킹 방지)
-    if (pi < params.length - 1) await _tick();
-  }
-
-  // 첫 번째(활성) 탭의 차트만 즉시 렌더링 — 나머지는 탭 클릭 시 지연 생성
-  if (params.length > 0) _flushPendingChart(params[0]);
-}
-
-// 지연 차트 생성: 해당 파라미터 탭이 처음 활성화될 때 호출
-function _flushPendingChart(param) {
-  const cfg=_pendingCharts.get(param);
-  if(!cfg) return;                    // 이미 생성됨 or 없음
-  if(gCharts[param]) return;          // 이미 렌더됨
-  if(cfg.gen!==_chartGen) return;     // 오래된 세대 (renderCharts 재호출됨)
-  _pendingCharts.delete(param);       // 중복 생성 방지
-
-  setTimeout(()=>{
-    if(cfg.gen!==_chartGen) return;   // setTimeout 사이 renderCharts 재호출 대비
-    const canvas=document.getElementById(cfg.canvasId);
-    if(!canvas||gCharts[param]) return;
-    const ctx=canvas.getContext('2d');
-    gCharts[param]=new Chart(ctx,{type:'line',data:{datasets:cfg.datasets},options:cfg.opts});
-    _throttleChartHover(gCharts[param]);
-    setupDragSelect(cfg.wrapEl,()=>gCharts[param],cfg.dragInfoId);
-  },0);
-}
-
-function switchTab(param){
-  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.param===param));
-  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.dataset.param===param));
-  _flushPendingChart(param);  // 탭 전환 시 해당 차트 지연 생성
-}
-
-/* ── 차트 EQP / CH 필터 ── */
-function initChartFilters(results) {
-  if(!gIndex) return;
-  const eqps=[...gIndex.eqpSet].sort();
-  const cEqp=document.getElementById('cEqp');
-  if(!cEqp) return;
-  const prevE=cEqp.value;
-  cEqp.innerHTML='<option value="">전체</option>'+eqps.map(e=>`<option value="${e}">${e}</option>`).join('');
-  if(eqps.includes(prevE)) cEqp.value=prevE;
-  _updateChartCh(results);
-}
-
-function _updateChartCh(results) {
-  if(!gIndex) return;
-  const eqp=document.getElementById('cEqp')?.value||'';
-  // gIndex.eqpChs로 O(1) 조회 — O(N) filter+map 제거
-  const chs=eqp&&gIndex.eqpChs.has(eqp)
-    ? [...gIndex.eqpChs.get(eqp)].sort()
-    : [...new Set([...gIndex.eqpChs.values()].flatMap(s=>[...s]))].sort();
-  const cCh=document.getElementById('cCh');
-  if(!cCh) return;
-  const prevC=cCh.value;
-  cCh.innerHTML='<option value="">전체</option>'+chs.map(c=>`<option value="${c}">${c||'(없음)'}</option>`).join('');
-  if(chs.includes(prevC)) cCh.value=prevC;
-}
-
-function _onChartFilterChangeNow() {
-  _updateChartCh(gResults);
-  renderCharts(gResults, gStats);
-}
-const onChartFilterChange = _debounce(_onChartFilterChangeNow, 150);
-
 /* ══════════════════════════════════════════════════════
    EQP / CH 상세 산점도
 ══════════════════════════════════════════════════════ */
@@ -1766,26 +1461,32 @@ function renderEqpScatter() {
         },
       },
       scales:{
-        x:{
-          type:'linear',
-          min: _xScaleMin,
-          max: _xMax + _xPad,
-          ticks:{
-            color:'#8b949e', font:{size:10},
-            ...(hasTime
-              ? {stepSize: 3600, maxTicksLimit: 120, autoSkip: true}
-              : {maxTicksLimit: 10}),
-            callback: hasTime
-              ? v=>{
-                  const dd=new Date(tRef+v*1000);
-                  const p=n=>String(n).padStart(2,'0');
-                  return `${p(dd.getMonth()+1)}/${p(dd.getDate())}\n${p(dd.getHours())}:${p(dd.getMinutes())}`;
-                }
-              : v=>`SLOT ${v}`
-          },
-          grid:{color:'rgba(48,54,61,.45)'},
-          title:{display:true,text:hasTime?'날짜/시간':'SLOT',color:'#8b949e',font:{size:12}}
-        },
+        x:(()=>{
+          // 날짜 변경 시 1회만 날짜 표기, 나머지는 시간만 (클로저로 상태 추적)
+          let _lastDay = null;
+          const _tickCb = hasTime
+            ? v => {
+                const dd = new Date(tRef + v * 1000);
+                const p  = n => String(n).padStart(2, '0');
+                const day  = `${p(dd.getMonth()+1)}/${p(dd.getDate())}`;
+                const time = `${p(dd.getHours())}:${p(dd.getMinutes())}`;
+                if (day !== _lastDay) { _lastDay = day; return `${day}\n${time}`; }
+                return time;
+              }
+            : v => `SLOT ${v}`;
+          return {
+            type: 'linear',
+            min: _xScaleMin,
+            max: _xMax + _xPad,
+            ticks: {
+              color: '#8b949e', font: {size: 10},
+              ...(hasTime ? {stepSize: 3600, maxTicksLimit: 200} : {maxTicksLimit: 10}),
+              callback: _tickCb,
+            },
+            grid: {color:'rgba(48,54,61,.45)'},
+            title: {display:true, text:hasTime?'날짜/시간':'SLOT', color:'#8b949e', font:{size:12}},
+          };
+        })(),
         y:{
           ticks:{color:'#8b949e',font:{size:11}},
           grid:{color:'rgba(48,54,61,.45)'},
@@ -1915,32 +1616,6 @@ function showDragSelection(selected, infoElemId) {
       </tbody>
     </table>
     </div>`;
-}
-
-const _applyChartHeight = _debounce(function(h) {
-  document.querySelectorAll('#chartPanels .chart-wrap').forEach(w=>w.style.height=h+'px');
-  Object.values(gCharts).forEach(c=>c.resize());
-}, 150);
-function updateChartHeight(h) {
-  document.getElementById('chartHeightVal').textContent=h+'px';
-  _applyChartHeight(h);
-}
-
-const _applyPointSize = _debounce(function(sz) {
-  const s = parseInt(sz);
-  Object.values(gCharts).forEach(chart => {
-    chart.data.datasets.forEach(ds => {
-      if (ds._rows) {
-        ds.pointRadius      = ds._rows.map(r=>r.isAnom?Math.round(s*2.2):s);
-        ds.pointHoverRadius = ds._rows.map(r=>r.isAnom?Math.round(s*2.2)+3:s+3);
-      }
-    });
-    chart.update();
-  });
-}, 150);
-function updatePointSize(sz) {
-  document.getElementById('pointSizeVal').textContent = sz+'px';
-  _applyPointSize(sz);
 }
 
 /* ── Tables ── */
@@ -2191,11 +1866,7 @@ async function runAnalysis(){
     _setProgress(68,'히트맵 렌더링 중...'); await _tick();
     await renderHeatmap(gResults);
 
-    _setProgress(75,'차트 렌더링 중...'); await _tick();
-    initChartFilters(gResults);
-    await renderCharts(gResults, gStats);
-
-    _setProgress(82,'테이블 렌더링 중...'); await _tick();
+    _setProgress(75,'테이블 렌더링 중...'); await _tick();
     renderTables(gResults);
 
     _setProgress(86,'필터/산점도 초기화 중...'); await _tick();
@@ -2226,13 +1897,10 @@ function clearAll(){
   document.getElementById('dataInput').value='';
   document.getElementById('colMapWrap').style.display='none';
   document.getElementById('results').style.display='none';
-  document.getElementById('chartHeight').value=360;
-  document.getElementById('chartHeightVal').textContent='360px';
   document.getElementById('fDateFrom').value='';
   document.getElementById('fDateTo').value='';
   gResults=[]; gHeaders=[]; gAnoms=[]; gAnomsAll=[]; gFilteredResults=null; gStats=[]; gIndex=null;
-  _timeCache.clear(); _pendingCharts.clear();
-  Object.values(gCharts).forEach(c=>c.destroy());     gCharts={};
+  _timeCache.clear();
   Object.values(gRankCharts).forEach(c=>c.destroy()); gRankCharts={};
 }
 
@@ -2466,7 +2134,6 @@ function saveSettings() {
       winSize:   document.getElementById('winSize').value,
       lambda:    document.getElementById('ewmaLambda').value,
       cusumK:    document.getElementById('cusumK').value,
-      showSPC:   document.getElementById('showSPC').checked,
     }));
   } catch(e) {}
 }
@@ -2478,7 +2145,6 @@ function loadSettings() {
     if (s.winSize)            document.getElementById('winSize').value      = s.winSize;
     if (s.lambda)             document.getElementById('ewmaLambda').value   = s.lambda;
     if (s.cusumK)             document.getElementById('cusumK').value       = s.cusumK;
-    if (s.showSPC !== undefined) document.getElementById('showSPC').checked = s.showSPC;
     onMethodChange();
   } catch(e) {}
 }
@@ -2602,7 +2268,6 @@ async function saveAnalysis() {
       winSize:   document.getElementById('winSize').value,
       lambda:    document.getElementById('ewmaLambda').value,
       cusumK:    document.getElementById('cusumK').value,
-      showSPC:   document.getElementById('showSPC').checked,
     },
     colMap: FIELDS.reduce((m,f)=>{ const el=document.getElementById(f.id); m[f.id]=el?el.value:'-1'; return m; },{}),
     summary: {
@@ -2721,12 +2386,11 @@ async function applySnapshot(snap) {
   // 2. 분석 설정 복원
   if (snap.settings) {
     const s = snap.settings;
-    if (s.method)                document.getElementById('detectMethod').value = s.method;
-    if (s.threshold)             document.getElementById('threshold').value    = s.threshold;
-    if (s.winSize)               document.getElementById('winSize').value      = s.winSize;
-    if (s.lambda)                document.getElementById('ewmaLambda').value   = s.lambda;
-    if (s.cusumK)                document.getElementById('cusumK').value       = s.cusumK;
-    if (s.showSPC !== undefined) document.getElementById('showSPC').checked    = s.showSPC;
+    if (s.method)    document.getElementById('detectMethod').value = s.method;
+    if (s.threshold) document.getElementById('threshold').value    = s.threshold;
+    if (s.winSize)   document.getElementById('winSize').value      = s.winSize;
+    if (s.lambda)    document.getElementById('ewmaLambda').value   = s.lambda;
+    if (s.cusumK)    document.getElementById('cusumK').value       = s.cusumK;
     onMethodChange();
   }
 
@@ -2776,11 +2440,7 @@ async function applySnapshot(snap) {
     _setProgress(30, '히트맵 렌더링 중...'); await _tick();
     await renderHeatmap(gResults);
 
-    _setProgress(50, '차트 렌더링 중...'); await _tick();
-    initChartFilters(gResults);
-    await renderCharts(gResults, gStats);
-
-    _setProgress(75, '테이블 렌더링 중...'); await _tick();
+    _setProgress(50, '테이블 렌더링 중...'); await _tick();
     renderTables(gResults);
 
     _setProgress(90, '필터 초기화 중...'); await _tick();
@@ -2996,7 +2656,6 @@ const CARD_DEFAULTS = [
   { id: 'heatmapCard', label: '🌡️ EQP×PPID 히트맵' },
   { id: 'trendCard',   label: '📈 날짜별 이상 트렌드' },
   { id: 'cardAnom',    label: '🚨 이상감지 목록' },
-  { id: 'cardChart',   label: '📈 PPID별 공정 추이 차트' },
   { id: 'cardScatter', label: '🔬 EQP/CH 상세 산점도' },
   { id: 'cardData',    label: '📋 전체 데이터' },
 ];
