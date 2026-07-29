@@ -6,8 +6,6 @@
   <title>FDC RAW DATA 이상감지 시스템</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%231A233E'/%3E%3Crect x='8' y='40' width='10' height='16' rx='2' fill='%232E86C1'/%3E%3Crect x='22' y='28' width='10' height='28' rx='2' fill='%232ECC71'/%3E%3Crect x='36' y='18' width='10' height='38' rx='2' fill='%23F39C12'/%3E%3Crect x='50' y='8' width='10' height='48' rx='2' fill='%23E84040'/%3E%3Cpolyline points='13,38 27,26 41,16 55,6' fill='none' stroke='%23FFFFFF' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='55' cy='6' r='3' fill='%23E84040'/%3E%3C/svg%3E">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
     :root{
@@ -206,16 +204,6 @@
     .pareto-wrap{position:relative;height:320px}
     /* ── 트렌드 차트 ── */
     .trend-wrap{position:relative;height:280px}
-    /* ── 연속 이상 배지 ── */
-    .consec-badge{background:#ff6b35;color:#fff;border-radius:4px;padding:1px 5px;font-size:10px;font-weight:700;margin-left:4px;vertical-align:middle}
-    /* ── LOT 집계 ── */
-    .lot-anom-rate{font-weight:700;color:#c9303a}
-    /* ── PPID 상관 히트맵 ── */
-    .corr-scroll{overflow:auto;max-height:420px}
-    .corr-tbl{border-collapse:collapse;font-size:11px}
-    .corr-tbl th,.corr-tbl td{padding:4px 8px;border:1px solid var(--bd);white-space:nowrap;text-align:center;min-width:40px}
-    .corr-tbl th{background:var(--bg1);color:var(--tx2);position:sticky;top:0}
-    .corr-tbl td.diag{background:var(--bg1);font-weight:600}
     /* ── 필터 프리셋 ── */
     .preset-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:var(--bg1);border:1px solid var(--bd);border-radius:8px;margin-bottom:10px}
     .preset-bar-label{font-size:11px;font-weight:600;color:var(--tx2);white-space:nowrap}
@@ -223,15 +211,7 @@
     .preset-chip:hover{border-color:var(--ac1);color:var(--ac1)}
     .preset-chip .pdel{color:var(--tx2);font-size:11px;margin-left:2px;cursor:pointer}
     .preset-chip .pdel:hover{color:#f85149}
-    /* ── 비교 분석 ── */
-    .compare-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-    .compare-col{background:var(--bg1);border:1px solid var(--bd);border-radius:8px;padding:14px}
-    .compare-col-title{font-size:13px;font-weight:700;color:var(--tx1);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--bd)}
-    .compare-stat-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--bd);font-size:13px}
-    .compare-stat-row:last-child{border-bottom:none}
-    .compare-win{color:#2ecc71;font-weight:700}
-    .compare-lose{color:#c9303a}
-    @media(max-width:700px){main{padding:14px;}header{padding:14px;}.compare-grid{grid-template-columns:1fr}}
+    @media(max-width:700px){main{padding:14px;}header{padding:14px;}}
   </style>
 </head>
 <body>
@@ -470,39 +450,6 @@
       <div class="pagination" id="anomPagination"></div>
     </div>
 
-    <!-- LOT별 불량 집계 -->
-    <div class="card" id="lotCard">
-      <div class="tbl-header">
-        <span class="title">🏭 LOT별 불량 집계</span>
-        <span class="cnt-badge" id="lotCnt">0건</span>
-        <div style="margin-left:auto">
-          <button class="btn btn-secondary btn-sm" onclick="exportLotCSV()">⬇ CSV</button>
-        </div>
-      </div>
-      <div class="tbl-scroll"><div class="tbl-wrap">
-        <table>
-          <thead><tr>
-            <th class="sortable" onclick="sortLotTable(0)">LOTID</th>
-            <th class="sortable" onclick="sortLotTable(1)">EQP ID</th>
-            <th class="sortable" onclick="sortLotTable(2)">총 건수</th>
-            <th class="sortable" onclick="sortLotTable(3)">이상 건수</th>
-            <th class="sortable" onclick="sortLotTable(4)">이상률</th>
-            <th>이상 PPID 목록</th>
-          </tr></thead>
-          <tbody id="lotTbody"></tbody>
-        </table>
-      </div></div>
-    </div>
-
-    <!-- PPID 이상 동시 발생 상관 히트맵 -->
-    <div class="card" id="corrCard">
-      <div class="tbl-header" style="padding:0 0 10px">
-        <span class="card-title" style="margin:0">🔗 PPID 이상 동시 발생 상관 히트맵</span>
-        <span style="font-size:11px;color:var(--tx2);margin-left:8px">같은 날짜+EQP에서 동시 이상 발생 횟수</span>
-      </div>
-      <div class="corr-scroll" id="corrHeatmap"></div>
-    </div>
-
     <!-- 그래프 -->
     <div class="card" id="cardChart">
       <div class="card-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;">
@@ -515,10 +462,6 @@
           <div class="ctrl-group" style="gap:6px">
             <label style="font-size:12px;color:var(--tx2)">CH</label>
             <select id="cCh" onchange="onChartFilterChange()" style="font-size:12px;padding:3px 6px;background:var(--bg2);color:var(--tx1);border:1px solid var(--bd);border-radius:4px"></select>
-          </div>
-          <div class="ctrl-group">
-            <input type="checkbox" id="showDataLabels" onchange="toggleDataLabels()">
-            <label for="showDataLabels" style="cursor:pointer;font-size:12px;color:var(--tx1)">데이터 레이블 표시</label>
           </div>
           <div class="ctrl-group" style="gap:6px">
             <span style="font-size:12px">높이:</span>
@@ -611,22 +554,6 @@
     </div>
   </div>
 
-  <!-- ── 비교 분석 (항상 표시) ── -->
-  <div class="card" style="margin-top:16px">
-    <div class="tbl-header" style="padding:0 0 10px">
-      <span class="card-title" style="margin:0">⚖️ 데이터 비교 분석</span>
-      <button class="btn btn-secondary btn-sm" id="btnToggleCompare" onclick="toggleCompare()" style="margin-left:auto">비교 모드 열기</button>
-    </div>
-    <div id="compareBody" style="display:none">
-      <div style="margin-bottom:12px;display:flex;gap:10px;align-items:flex-start">
-        <textarea id="dataInput2" rows="5"
-          style="flex:1;background:var(--bg1);color:var(--tx1);border:1px solid var(--bd);border-radius:6px;padding:8px;font-size:12px;resize:vertical"
-          placeholder="비교할 두 번째 데이터를 붙여넣으세요 (첫 번째와 동일한 컬럼 형식)"></textarea>
-        <button class="btn btn-primary" onclick="runComparison()">⚖️ 비교 실행</button>
-      </div>
-      <div id="compareResult"></div>
-    </div>
-  </div>
 </main>
 
 <script>
@@ -1530,12 +1457,6 @@ async function renderCharts(results, stats) {
             }
           }
         },
-        datalabels: {
-          display: false,
-          color: ctx => ctx.dataset._rows?.[ctx.dataIndex]?.isAnom ? '#f85149' : '#8b949e',
-          font: {size: 9, weight: 'bold'}, anchor: 'end', align: 'top', offset: 3, clip: true,
-          formatter: (val, ctx) => { const row = ctx.dataset._rows?.[ctx.dataIndex]; return row ? `S${row['SLOT']}` : ''; }
-        }
       },
       scales: {
         x: {
@@ -1581,7 +1502,7 @@ function _flushPendingChart(param) {
     const canvas=document.getElementById(cfg.canvasId);
     if(!canvas||gCharts[param]) return;
     const ctx=canvas.getContext('2d');
-    gCharts[param]=new Chart(ctx,{type:'line',plugins:[ChartDataLabels],data:{datasets:cfg.datasets},options:cfg.opts});
+    gCharts[param]=new Chart(ctx,{type:'line',data:{datasets:cfg.datasets},options:cfg.opts});
     setupDragSelect(cfg.wrapEl,()=>gCharts[param],cfg.dragInfoId);
   },0);
 }
@@ -1733,7 +1654,6 @@ function renderEqpScatter() {
 
   gScatterChart = new Chart(ctx, {
     type:'line',
-    plugins:[ChartDataLabels],
     data:{datasets},
     options:{
       responsive:true, maintainAspectRatio:false,
@@ -1760,7 +1680,6 @@ function renderEqpScatter() {
             }
           }
         },
-        datalabels:{display:false}
       },
       scales:{
         x:{
@@ -1917,17 +1836,6 @@ const _applyChartHeight = _debounce(function(h) {
 function updateChartHeight(h) {
   document.getElementById('chartHeightVal').textContent=h+'px';
   _applyChartHeight(h);
-}
-
-function toggleDataLabels() {
-  const show=document.getElementById('showDataLabels').checked;
-  Object.values(gCharts).forEach(chart=>{
-    chart.options.plugins.datalabels.display=ctx=>{
-      if (!show) return false;
-      return !ctx.dataset.label?.startsWith('_spc_');
-    };
-    chart.update();
-  });
 }
 
 const _applyPointSize = _debounce(function(sz) {
@@ -2174,19 +2082,11 @@ async function runAnalysis(){
     populateFilters(gResults);
     initScatterSelects(gResults);
 
-    _setProgress(89,'연속 이상 감지 중...'); await _tick();
-    await detectConsecutiveAnoms(3);
-    renderConsecBanner();
     checkAnomalyRateAlert();
 
     _setProgress(92,'파레토·트렌드 차트 중...'); await _tick();
     renderParetoChart();
     await renderTrendChart();
-
-    _setProgress(95,'LOT 집계·상관 분석 중...'); await _tick();
-    await buildLotStatsAsync();
-    renderLotTable();
-    await renderCorrelHeatmap();
 
     _setProgress(98,'마무리 중...'); await _tick();
     renderPresets();
@@ -2206,7 +2106,6 @@ function clearAll(){
   document.getElementById('dataInput').value='';
   document.getElementById('colMapWrap').style.display='none';
   document.getElementById('results').style.display='none';
-  document.getElementById('showDataLabels').checked=false;
   document.getElementById('chartHeight').value=360;
   document.getElementById('chartHeightVal').textContent='360px';
   document.getElementById('fDateFrom').value='';
@@ -2977,8 +2876,6 @@ const CARD_DEFAULTS = [
   { id: 'heatmapCard', label: '🌡️ EQP×PPID 히트맵' },
   { id: 'trendCard',   label: '📈 날짜별 이상 트렌드' },
   { id: 'cardAnom',    label: '🚨 이상감지 목록' },
-  { id: 'lotCard',     label: '🏭 LOT별 불량 집계' },
-  { id: 'corrCard',    label: '🔗 PPID 상관 히트맵' },
   { id: 'cardChart',   label: '📈 PPID별 공정 추이 차트' },
   { id: 'cardScatter', label: '🔬 EQP/CH 상세 산점도' },
   { id: 'cardData',    label: '📋 전체 데이터' },
@@ -3611,74 +3508,6 @@ function checkAnomalyRateAlert() {
 }
 
 /* ══════════════════════════════════════════════════════
-   4. 연속 이상 감지
-══════════════════════════════════════════════════════ */
-let gConsecGroups = [];  // [{eqp, ppid, ch, rows, count}]
-
-async function detectConsecutiveAnoms(minRun = 3) {
-  gConsecGroups = [];
-  if (!gAnomsAll.length) return;
-
-  // _statsKey 사전 계산 키로 그룹화 (O(N) 단순 순회)
-  const groups = {};
-  let yT = performance.now();
-  for (let i = 0; i < gResults.length; i++) {
-    const r = gResults[i];
-    const k = `${r['EQP ID']}|||${r['CH']||''}|||${r['PPID']}`;
-    if (!groups[k]) groups[k] = [];
-    groups[k].push(r);
-    if ((i & 0xFFF) === 0 && performance.now() - yT >= 16) { await _tick(); yT = performance.now(); }
-  }
-
-  const consecSet = new Set();
-  const entries = Object.entries(groups);
-  for (let gi = 0; gi < entries.length; gi++) {
-    const [k, rows] = entries[gi];
-    rows.sort((a, b) => (a._time||0) - (b._time||0));
-    let run = [];
-    for (const r of rows) {
-      if (r.isAnom) { run.push(r); }
-      else {
-        if (run.length >= minRun) {
-          const [eqp,,ppid] = k.split('|||');
-          gConsecGroups.push({ eqp, ppid, ch: run[0]['CH']||'', count: run.length, rows: [...run] });
-          run.forEach(x => consecSet.add(x));
-        }
-        run = [];
-      }
-    }
-    if (run.length >= minRun) {
-      const [eqp,,ppid] = k.split('|||');
-      gConsecGroups.push({ eqp, ppid, ch: run[0]['CH']||'', count: run.length, rows: [...run] });
-      run.forEach(x => consecSet.add(x));
-    }
-    if ((gi & 0xFF) === 0 && performance.now() - yT >= 16) { await _tick(); yT = performance.now(); }
-  }
-
-  // 플래그 설정
-  yT = performance.now();
-  for (let i = 0; i < gResults.length; i++) {
-    gResults[i]._consec = consecSet.has(gResults[i]);
-    if ((i & 0xFFF) === 0 && performance.now() - yT >= 16) { await _tick(); yT = performance.now(); }
-  }
-}
-
-function renderConsecBanner() {
-  if (!gConsecGroups.length) return;
-  const banner = document.getElementById('alertBanner');
-  const top5 = gConsecGroups.sort((a, b) => b.count - a.count).slice(0, 5);
-  const lines = top5.map(g => `${g.eqp} / ${g.ppid}${g.ch?' / CH'+g.ch:''} — <strong>${g.count}회 연속</strong>`).join('<br>');
-  const el = document.createElement('div');
-  el.className = 'alert-bar danger';
-  el.style.cssText = 'background:rgba(255,107,53,.12);border-color:#ff6b35;margin-top:8px';
-  el.innerHTML = `<span class="alert-icon">⚡</span><div>
-    <strong>연속 이상 감지 ${gConsecGroups.length}건</strong> (3회 이상 연속)<br>
-    <span style="font-size:12px">${lines}</span>
-  </div>`;
-  banner.appendChild(el);
-}
-
-/* ══════════════════════════════════════════════════════
    5. 파레토 차트
 ══════════════════════════════════════════════════════ */
 let gParetoChart = null;
@@ -3797,196 +3626,6 @@ async function renderTrendChart() {
       },
     },
   });
-}
-
-/* ══════════════════════════════════════════════════════
-   7. LOT별 불량 집계
-══════════════════════════════════════════════════════ */
-let gLotData = [];
-let gLotSortCol = 4, gLotSortAsc = false;
-
-async function buildLotStatsAsync() {
-  const map = {};
-  let yT = performance.now();
-  for (let i = 0; i < gResults.length; i++) {
-    const r = gResults[i];
-    const lot = r['LOTID']||'?', eqp = r['EQP ID']||'?';
-    const k = `${lot}|||${eqp}`;
-    if (!map[k]) map[k] = { lot, eqp, total: 0, anom: 0, ppids: new Set() };
-    map[k].total++;
-    if (r.isAnom) { map[k].anom++; map[k].ppids.add(r['PPID']||'?'); }
-    if ((i & 0xFFF) === 0 && performance.now() - yT >= 16) { await _tick(); yT = performance.now(); }
-  }
-  gLotData = Object.values(map).map(v => ({
-    ...v, rate: v.total ? v.anom / v.total * 100 : 0, ppids: [...v.ppids]
-  }));
-}
-
-function sortLotTable(col) {
-  if (gLotSortCol === col) gLotSortAsc = !gLotSortAsc;
-  else { gLotSortCol = col; gLotSortAsc = col < 2; }
-  renderLotTable();
-}
-
-function renderLotTable() {
-  const col = gLotSortCol, asc = gLotSortAsc;
-  const sorted = [...gLotData].sort((a, b) => {
-    const vals = [a.lot, a.eqp, a.total, a.anom, a.rate];
-    const bVals= [b.lot, b.eqp, b.total, b.anom, b.rate];
-    const cmp  = typeof vals[col]==='string' ? vals[col].localeCompare(bVals[col]) : vals[col]-bVals[col];
-    return asc ? cmp : -cmp;
-  });
-
-  document.getElementById('lotCnt').textContent = `${sorted.filter(r=>r.anom>0).length}건 (이상 LOT)`;
-  document.getElementById('lotTbody').innerHTML = sorted.map(r => `
-    <tr>
-      <td>${r.lot}</td>
-      <td>${r.eqp}</td>
-      <td style="text-align:right">${r.total}</td>
-      <td style="text-align:right;color:${r.anom?'#c9303a':'inherit'}">${r.anom}</td>
-      <td style="text-align:right" class="${r.rate>=10?'lot-anom-rate':''}">${r.rate.toFixed(1)}%</td>
-      <td style="font-size:11px;color:var(--tx2)">${r.ppids.slice(0,5).join(', ')}${r.ppids.length>5?' …':''}</td>
-    </tr>`).join('');
-}
-
-function exportLotCSV() {
-  if (!gLotData.length) return;
-  const rows = [['LOTID','EQP ID','총건수','이상건수','이상률(%)','이상PPID']];
-  gLotData.forEach(r => rows.push([r.lot, r.eqp, r.total, r.anom, r.rate.toFixed(1), r.ppids.join('|')]));
-  const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n');
-  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob(['﻿'+csv],{type:'text/csv'})), download:'lot_stats.csv' });
-  a.click();
-}
-
-/* ══════════════════════════════════════════════════════
-   8. PPID 이상 동시 발생 상관 히트맵
-══════════════════════════════════════════════════════ */
-async function renderCorrelHeatmap() {
-  const ppids = [...(gIndex?.paramSet || new Set(gAnomsAll.map(r=>r['PPID'])))].filter(Boolean);
-  if (ppids.length < 2) { document.getElementById('corrHeatmap').innerHTML='<div style="padding:16px;color:var(--tx2)">PPID가 2개 이상이어야 합니다.</div>'; return; }
-  const MAX_PPID = 30;
-  const topPpids = ppids.slice(0, MAX_PPID);
-
-  // 날짜+EQP 그룹별 이상 PPID 집합 구성
-  const groups = {};
-  let yT = performance.now();
-  for (let i = 0; i < gAnomsAll.length; i++) {
-    const r = gAnomsAll[i];
-    const k = `${_dateStr(r)}|||${r['EQP ID']||''}`;
-    if (!groups[k]) groups[k] = new Set();
-    groups[k].add(r['PPID']);
-    if ((i & 0xFFF) === 0 && performance.now() - yT >= 16) { await _tick(); yT = performance.now(); }
-  }
-
-  // 공동 발생 횟수 행렬
-  const idx = {};
-  topPpids.forEach((p, i) => { idx[p] = i; });
-  const mat = Array.from({length: topPpids.length}, () => new Array(topPpids.length).fill(0));
-  const groupEntries = Object.values(groups);
-  yT = performance.now();
-  for (let gi = 0; gi < groupEntries.length; gi++) {
-    const set = groupEntries[gi];
-    const ps = topPpids.filter(p => set.has(p));
-    for (let i = 0; i < ps.length; i++)
-      for (let j = 0; j < ps.length; j++)
-        if (i !== j) mat[idx[ps[i]]][idx[ps[j]]]++;
-    if ((gi & 0xFF) === 0 && performance.now() - yT >= 16) { await _tick(); yT = performance.now(); }
-  }
-
-  const maxVal = Math.max(1, ...mat.flat());
-  function cellBg(v, isSelf) {
-    if (isSelf) return 'var(--bg1)';
-    if (!v) return 'var(--bg2)';
-    const t = Math.min(v / maxVal, 1);
-    return `rgba(201,48,58,${(0.1 + t * 0.85).toFixed(2)})`;
-  }
-
-  const header = `<tr><th style="position:sticky;left:0;z-index:2;background:var(--bg1)">PPID ↓ / →</th>${topPpids.map(p=>`<th title="${p}">${p.length>10?p.slice(0,10)+'…':p}</th>`).join('')}</tr>`;
-  const body = topPpids.map((rp, ri) =>
-    `<tr><th style="text-align:left;position:sticky;left:0;background:var(--bg1)" title="${rp}">${rp.length>10?rp.slice(0,10)+'…':rp}</th>
-    ${topPpids.map((cp, ci) => {
-      const v = mat[ri][ci], self = ri===ci;
-      return `<td class="${self?'diag':''}" style="background:${cellBg(v,self)};color:${v>0&&!self?'#fff':'var(--tx1)'}">${self?'-':v||''}</td>`;
-    }).join('')}</tr>`
-  ).join('');
-
-  document.getElementById('corrHeatmap').innerHTML =
-    `<div class="corr-scroll"><table class="corr-tbl"><thead>${header}</thead><tbody>${body}</tbody></table></div>`;
-}
-
-/* ══════════════════════════════════════════════════════
-   9. 데이터 비교 분석
-══════════════════════════════════════════════════════ */
-function toggleCompare() {
-  const body = document.getElementById('compareBody');
-  const btn  = document.getElementById('btnToggleCompare');
-  const open = body.style.display === 'none';
-  body.style.display = open ? '' : 'none';
-  btn.textContent = open ? '비교 모드 닫기' : '비교 모드 열기';
-}
-
-async function runComparison() {
-  if (!gResults.length) { toast('먼저 기본 데이터를 분석하세요.', 'err'); return; }
-  const text2 = document.getElementById('dataInput2').value.trim();
-  if (!text2) { toast('비교할 두 번째 데이터를 붙여넣으세요.', 'err'); return; }
-
-  try {
-    const method  = document.getElementById('detectMethod').value;
-    const thr     = gThreshold;
-    const winSize = parseInt(document.getElementById('winSize').value)||3;
-    const lambda  = parseFloat(document.getElementById('ewmaLambda').value)||0.2;
-    const kCusum  = parseFloat(document.getElementById('cusumK').value)||0.5;
-
-    const data2    = await parseExcel(text2);
-    const results2 = await detectAnomalies(data2, thr, method, winSize, lambda, kCusum);
-    const anoms2   = results2.filter(r => r.isAnom);
-
-    const r1 = gResults, a1 = gAnomsAll, r2 = results2, a2 = anoms2;
-    const rate1 = r1.length ? (a1.length/r1.length*100) : 0;
-    const rate2 = r2.length ? (a2.length/r2.length*100) : 0;
-    const eqp1  = new Set(r1.map(r=>r['EQP ID'])).size;
-    const eqp2  = new Set(r2.map(r=>r['EQP ID'])).size;
-    const ppid1 = new Set(r1.map(r=>r['PPID'])).size;
-    const ppid2 = new Set(r2.map(r=>r['PPID'])).size;
-
-    function row(label, v1, v2, higherIsBetter = false) {
-      const better = higherIsBetter ? v1 > v2 : v1 < v2;
-      const f1 = typeof v1 === 'number' ? v1.toFixed(typeof v1==='number'&&v1%1!==0?1:0) : v1;
-      const f2 = typeof v2 === 'number' ? v2.toFixed(typeof v2==='number'&&v2%1!==0?1:0) : v2;
-      return `<div class="compare-stat-row">
-        <span style="color:var(--tx2);font-size:12px">${label}</span>
-        <span class="${better?'compare-win':'compare-lose'}">${f1}${typeof v1==='number'&&label.includes('%')?'%':''}</span>
-        <span style="color:var(--tx2)">vs</span>
-        <span class="${!better?'compare-win':'compare-lose'}">${f2}${typeof v2==='number'&&label.includes('%')?'%':''}</span>
-      </div>`;
-    }
-
-    document.getElementById('compareResult').innerHTML = `
-      <div class="compare-grid">
-        <div class="compare-col">
-          <div class="compare-col-title">📌 데이터셋 A (현재 분석)</div>
-          ${row('총 데이터 건수', r1.length, r2.length, true)}
-          ${row('이상 건수', a1.length, a2.length)}
-          ${row('이상률(%)', rate1, rate2)}
-          ${row('EQP 수', eqp1, eqp2, true)}
-          ${row('PPID 수', ppid1, ppid2, true)}
-        </div>
-        <div class="compare-col">
-          <div class="compare-col-title">📋 데이터셋 B (비교 데이터)</div>
-          ${row('총 데이터 건수', r2.length, r1.length, true)}
-          ${row('이상 건수', a2.length, a1.length)}
-          ${row('이상률(%)', rate2, rate1)}
-          ${row('EQP 수', eqp2, eqp1, true)}
-          ${row('PPID 수', ppid2, ppid1, true)}
-        </div>
-      </div>
-      <div style="margin-top:12px;padding:10px 14px;background:var(--bg1);border-radius:8px;border:1px solid var(--bd);font-size:13px">
-        <strong>비교 결과:</strong>
-        이상률 ${rate1<rate2?'A가 '+( rate2-rate1).toFixed(1)+'%p 낮음 ✅':'B가'+(rate1-rate2).toFixed(1)+'%p 낮음 ✅'}
-        &nbsp;|&nbsp; 이상 건수 차이: ${Math.abs(a1.length-a2.length)}건
-      </div>`;
-    toast('비교 분석 완료', 'ok');
-  } catch(e) { toast('비교 분석 오류: ' + e.message, 'err'); }
 }
 
 /* ══════════════════════════════════════════════════════
