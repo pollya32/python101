@@ -721,8 +721,10 @@ function _parseTime(s) {
     if (!isNaN(d.getTime())) return d.getTime();
   }
 
-  // YYYY[-./]MM[-./]DD [HH:MM[:SS]] (ISO 및 점/슬래시 변형, 밀리초 없는 형식)
-  let n = s.replace(/[./]/g, '-');
+  // 나머지 모든 형식 — 밀리초/마이크로초 먼저 제거 후 점/슬래시→대시 변환
+  // 순서 중요: replace(/[./]/g,'-') 전에 ".000" 을 먼저 떼야 "-000" 오파스 방지
+  let n = s.replace(/(\d{1,2}:\d{2}(?::\d{2})?)[.,]\d+/, '$1'); // HH:MM:SS.mmm → HH:MM:SS
+  n = n.replace(/[./]/g, '-');
   n = n.replace(/(\d{4}-\d{1,2}-\d{1,2})\s+(\d{1,2}:\d{2}(?::\d{2})?)/, '$1T$2');
   const d = new Date(n);
   return isNaN(d.getTime()) ? null : d.getTime();
@@ -1392,14 +1394,14 @@ function renderEqpScatter() {
 
   // hasTime 모드에서 _time=null 행은 시간축에 배치 불가 → 제외 후 순수 시간 정렬
   // (null 행에 slot 값을 쓰면 초 단위 시간축에 0~25가 찍혀 좌측 몰림·순서 오류 발생)
-  const nullAnomCount = hasTime
-    ? base.filter(r => r._time == null && r.isAnom).length
-    : 0;
+  const nullAnomRows = hasTime ? base.filter(r => r._time == null && r.isAnom) : [];
+  const nullAnomCount = nullAnomRows.length;
   const noteEl = document.getElementById('scatterNullNote');
   if (noteEl) {
     if (nullAnomCount > 0) {
+      const sampleDate = nullAnomRows[0]?.['날짜'] ?? '';
       noteEl.style.display = '';
-      noteEl.textContent = `⚠️ 날짜 미확인 이상감지 ${nullAnomCount}건은 시간축에 표시할 수 없습니다. 이상감지 목록 테이블에서 확인하세요.`;
+      noteEl.textContent = `⚠️ 날짜 파싱 실패 이상감지 ${nullAnomCount}건: 시간축 표시 불가.${sampleDate ? ` 날짜값 샘플: "${sampleDate}"` : ''} 이상감지 목록 테이블에서 확인하세요.`;
     } else {
       noteEl.style.display = 'none';
     }
