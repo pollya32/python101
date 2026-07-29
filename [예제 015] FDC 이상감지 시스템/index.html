@@ -1709,9 +1709,9 @@ function renderEqpScatter() {
     _xMin = 0;
     _xMax = (tMaxSc - tRef) / 1000;
     _xPad = _padPct === 0 ? 0 : Math.max(_xMax * _padPct, 3600);
-    // 4시간(14400s) 경계에 맞춰 scale min 정렬
-    const _4hMs = 4 * 3600 * 1000;
-    _xScaleMin = (Math.floor((tRef - _xPad * 1000) / _4hMs) * _4hMs - tRef) / 1000;
+    // 1시간(3600s) 경계에 맞춰 scale min 정렬
+    const _1hMs = 3600 * 1000;
+    _xScaleMin = (Math.floor((tRef - _xPad * 1000) / _1hMs) * _1hMs - tRef) / 1000;
   } else {
     const _allX = datasets.flatMap(ds => ds.data.map(p => p.x)).filter(v => isFinite(v));
     _xMin = _allX.length ? Math.min(..._allX) : 0;
@@ -1763,7 +1763,7 @@ function renderEqpScatter() {
           ticks:{
             color:'#8b949e', font:{size:10},
             ...(hasTime
-              ? {stepSize: 14400, maxTicksLimit: 60, autoSkip: true}
+              ? {stepSize: 3600, maxTicksLimit: 120, autoSkip: true}
               : {maxTicksLimit: 10}),
             callback: hasTime
               ? v=>{
