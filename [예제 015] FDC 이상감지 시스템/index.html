@@ -1209,13 +1209,15 @@ async function detectAnomalies(data, threshold, method, winSize, ewmaLambda=0.2,
 /* ══════════════════════════════════════════════════════
    STATS
 ══════════════════════════════════════════════════════ */
-function calcStats(results) {
+async function calcStatsAsync(results) {
   const groups={};
-  results.forEach(r=>{
-    // _statsKey: parseExcel에서 사전 계산 (구버전 스냅샷 호환: 없으면 즉석 계산)
-    const k=r._statsKey||`${r['EQP ID']}|||${r['CH']}|||${r['PPID']}`;
+  let yT = performance.now();
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    const k = r._statsKey||`${r['EQP ID']}|||${r['CH']}|||${r['PPID']}`;
     (groups[k]=groups[k]||[]).push(r);
-  });
+    if ((i & 0xFFF) === 0 && performance.now() - yT >= 16) { await _tick(); yT = performance.now(); }
+  }
   return Object.entries(groups).map(([k,rows])=>{
     const [eqp,ch,param]=k.split('|||');
     let ac=0;
@@ -1230,6 +1232,7 @@ function calcStats(results) {
             ucl:mean+3*std, lcl:mean-3*std, anomCount:ac, anomRate:ac/n*100};
   }).sort((a,b)=>b.anomCount-a.anomCount);
 }
+function calcStats(results) { return gStats && gStats.length ? gStats : []; }
 
 /* ══════════════════════════════════════════════════════
    METADATA INDEX — 단일 O(N) 패스로 5개+ 함수 공유
@@ -1315,24 +1318,27 @@ const RANK_DIMS=[
   {key:'PPID',label:'PPID별 이상 건수'},
   {key:'SLOT',  label:'SLOT별 이상 건수'},
 ];
-function renderRanking(results) {
+async function renderRanking(results) {
   Object.values(gRankCharts).forEach(c=>c.destroy()); gRankCharts={};
-  const anoms=gAnomsAll;  // 사전 계산 캐시 사용 — filter 재실행 불필요
+  const anoms=gAnomsAll;
   const grid=document.getElementById('rankGrid');
   grid.innerHTML='';
-  RANK_DIMS.forEach(({key,label})=>{
+  let yT = performance.now();
+  for (const {key,label} of RANK_DIMS) {
     const counts={};
-    anoms.forEach(r=>{
+    for (let i=0; i<anoms.length; i++) {
+      const r=anoms[i];
       const v=(key==='SLOT'?`SLOT ${r['SLOT']}`:r[key])||'(없음)';
       counts[v]=(counts[v]||0)+1;
-    });
+      if ((i & 0xFFF)===0 && performance.now()-yT>=16) { await _tick(); yT=performance.now(); }
+    }
     const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,8);
     const wrap=document.createElement('div');
     wrap.className='rank-item';
     wrap.innerHTML=`<div class="rank-item-title">📌 ${label}</div>
       <div class="rank-chart-wrap"><canvas id="rc_${key.replace(/\s/g,'_')}"></canvas></div>`;
     grid.appendChild(wrap);
-    if (!sorted.length) { wrap.querySelector('.rank-chart-wrap').innerHTML=`<div class="no-data" style="padding:20px">이상 없음</div>`; return; }
+    if (!sorted.length) { wrap.querySelector('.rank-chart-wrap').innerHTML=`<div class="no-data" style="padding:20px">이상 없음</div>`; continue; }
     setTimeout(()=>{
       const ctx=wrap.querySelector('canvas').getContext('2d');
       gRankCharts[key]=new Chart(ctx,{
@@ -1352,7 +1358,7 @@ function renderRanking(results) {
         }
       });
     },0);
-  });
+  }
 }
 
 /* ── SPC 관리도 스타일 라인 차트 ── */
@@ -1381,16 +1387,20 @@ async function renderCharts(results, stats) {
 
   // O(N) 사전 그루핑: param → gkey → rows (반복 filter 제거)
   const preGroup = new Map();
-  results.forEach(r => {
-    if (fCEqp && r['EQP ID'] !== fCEqp) return;
-    if (fCCh  && r['CH']     !== fCCh)  return;
-    const p = r['PPID'];
-    if (!preGroup.has(p)) preGroup.set(p, new Map());
-    const gk = `${r['EQP ID']}|${r['LOTID']}|${r['CH']}`;
-    const m = preGroup.get(p);
-    if (!m.has(gk)) m.set(gk, []);
-    m.get(gk).push(r);
-  });
+  { let yT = performance.now();
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      if (fCEqp && r['EQP ID'] !== fCEqp) continue;
+      if (fCCh  && r['CH']     !== fCCh)  continue;
+      const p = r['PPID'];
+      if (!preGroup.has(p)) preGroup.set(p, new Map());
+      const gk = `${r['EQP ID']}|${r['LOTID']}|${r['CH']}`;
+      const m = preGroup.get(p);
+      if (!m.has(gk)) m.set(gk, []);
+      m.get(gk).push(r);
+      if ((i & 0xFFF) === 0 && performance.now() - yT >= 16) { await _tick(); yT = performance.now(); }
+    }
+  }
   const params = [...preGroup.keys()];
 
   const tabsEl = document.getElementById('chartTabs');
@@ -1608,10 +1618,11 @@ function _updateChartCh(results) {
   if(chs.includes(prevC)) cCh.value=prevC;
 }
 
-function onChartFilterChange() {
+function _onChartFilterChangeNow() {
   _updateChartCh(gResults);
   renderCharts(gResults, gStats);
 }
+const onChartFilterChange = _debounce(_onChartFilterChangeNow, 150);
 
 /* ══════════════════════════════════════════════════════
    EQP / CH 상세 산점도
@@ -1899,10 +1910,13 @@ function showDragSelection(selected, infoElemId) {
     </div>`;
 }
 
-function updateChartHeight(h) {
-  document.getElementById('chartHeightVal').textContent=h+'px';
+const _applyChartHeight = _debounce(function(h) {
   document.querySelectorAll('#chartPanels .chart-wrap').forEach(w=>w.style.height=h+'px');
   Object.values(gCharts).forEach(c=>c.resize());
+}, 150);
+function updateChartHeight(h) {
+  document.getElementById('chartHeightVal').textContent=h+'px';
+  _applyChartHeight(h);
 }
 
 function toggleDataLabels() {
@@ -1916,8 +1930,7 @@ function toggleDataLabels() {
   });
 }
 
-function updatePointSize(sz) {
-  document.getElementById('pointSizeVal').textContent = sz+'px';
+const _applyPointSize = _debounce(function(sz) {
   const s = parseInt(sz);
   Object.values(gCharts).forEach(chart => {
     chart.data.datasets.forEach(ds => {
@@ -1928,13 +1941,17 @@ function updatePointSize(sz) {
     });
     chart.update();
   });
+}, 150);
+function updatePointSize(sz) {
+  document.getElementById('pointSizeVal').textContent = sz+'px';
+  _applyPointSize(sz);
 }
 
 /* ── Tables ── */
 function renderTables(results) {
   document.getElementById('totalCnt').textContent=`${results.length}건`;
-  // gAnomsAll은 runAnalysis/applySnapshot에서 이미 설정됨
-  gAnoms = gAnomsAll;
+  // gAnomsAll은 runAnalysis/applySnapshot에서 이미 설정됨 (복사본: sort 부작용 방지)
+  gAnoms = [...gAnomsAll];
   gPage.anom = 1;
   renderAnomPage();
   // 전체 데이터: 페이지네이션
@@ -2047,7 +2064,7 @@ function populateFilters(results){
   document.getElementById('fCh').innerHTML=mk(gIndex.chSet);
   document.getElementById('fParam').innerHTML=mk(gIndex.paramSet);
 }
-function applyFilter(){
+function _applyFilterNow(){
   const eqp=document.getElementById('fEqp').value,
         ch=document.getElementById('fCh').value,
         param=document.getElementById('fParam').value,
@@ -2076,12 +2093,13 @@ function applyFilter(){
   gPage.full=1;
   renderFullPage(gFilteredResults??gResults);
 }
+const applyFilter = _debounce(_applyFilterNow, 150);
 
 /* ══════════════════════════════════════════════════════
    CSV
 ══════════════════════════════════════════════════════ */
 function exportCSV(type){
-  const rows=type==='anomaly'?gResults.filter(r=>r.isAnom):gResults;
+  const rows=type==='anomaly'?gAnomsAll:gResults;
   if (!rows.length){toast('내보낼 데이터가 없습니다.','err');return;}
   const hdr=['날짜','EQP ID','LOTID','SLOT','CH','PPID','REAL DATA','참조값','편차/변화량','임계값','감지방식','상태'];
   const body=rows.map(r=>[
@@ -2106,6 +2124,7 @@ function _setProgress(pct, msg) {
   document.getElementById('progressLabel').textContent = msg;
 }
 function _tick() { return new Promise(r=>setTimeout(r,0)); }
+function _debounce(fn, ms) { let t; return function(...a){ clearTimeout(t); t=setTimeout(()=>fn.apply(this,a),ms); }; }
 
 async function runAnalysis(){
   const text=document.getElementById('dataInput').value.trim();
@@ -2134,12 +2153,15 @@ async function runAnalysis(){
     gIndex=buildIndex(gResults);
     onMethodChange(); gFilteredResults=null;
 
-    _setProgress(58,'통계 요약 렌더링 중...'); await _tick();
-    gStats=calcStats(gResults);
-    renderSummary(gResults); renderBanner(gResults); renderStats(gStats); renderRanking(gResults);
+    _setProgress(55,'통계 집계 중...'); await _tick();
+    gStats=await calcStatsAsync(gResults);
+    renderSummary(gResults); renderBanner(gResults); renderStats(gStats);
+
+    _setProgress(62,'이상 랭킹 렌더링 중...'); await _tick();
+    await renderRanking(gResults);
 
     _setProgress(68,'히트맵 렌더링 중...'); await _tick();
-    renderHeatmap(gResults);
+    await renderHeatmap(gResults);
 
     _setProgress(75,'차트 렌더링 중...'); await _tick();
     initChartFilters(gResults);
@@ -2265,53 +2287,52 @@ function handleFileDrop(e) {
 /* ══════════════════════════════════════════════════════
    EQP × PPID 이상률 히트맵
 ══════════════════════════════════════════════════════ */
-function renderHeatmap(results) {
+async function renderHeatmap(results) {
   const eqps   = [...new Set(results.map(r=>r['EQP ID']))].sort();
   const params = [...new Set(results.map(r=>r['PPID']))].sort();
 
-  // O(N) 사전 집계 — 중첩 filter() 제거
+  // O(N) 사전 집계 — yield 포함
   const agg={};
-  results.forEach(r=>{
+  let yT = performance.now();
+  for (let i=0; i<results.length; i++) {
+    const r=results[i];
     const e=r['EQP ID'], p=r['PPID'];
     if(!agg[e]) agg[e]={};
     if(!agg[e][p]) agg[e][p]={total:0,anom:0};
     agg[e][p].total++;
     if(r.isAnom) agg[e][p].anom++;
-  });
+    if ((i & 0xFFF)===0 && performance.now()-yT>=16) { await _tick(); yT=performance.now(); }
+  }
   const cell = (e,p) => {
     const d=agg[e]?.[p];
-    if(!d||d.total===0) return {total:0,anom:0,rate:-1};
+    if(!d||d.total===0) return null;
     return {...d, rate:d.anom/d.total*100};
   };
 
-  // flatMap+filter 중간 배열 제거 — 인라인 최대값 탐색
   let maxRate=0.01;
-  eqps.forEach(e=>params.forEach(p=>{ const r=cell(e,p).rate; if(r>maxRate) maxRate=r; }));
+  eqps.forEach(e=>params.forEach(p=>{ const d=cell(e,p); if(d&&d.rate>maxRate) maxRate=d.rate; }));
 
-  let html = `<table class="heatmap-table"><thead><tr>
-    <th style="text-align:left">EQP \\ PARAM</th>
-    ${params.map(p=>`<th>${p}</th>`).join('')}</tr></thead><tbody>`;
-
-  eqps.forEach(e => {
-    html += `<tr><th style="text-align:left">${e}</th>`;
-    params.forEach(p => {
+  const esc = s => s.replace(/'/g,"\\'");
+  // 배열 누적 후 join — string += 반복 제거
+  const rowParts = eqps.map(e => {
+    const cells = params.map(p => {
       const d = cell(e, p);
-      if (d.total === 0) {
-        html += `<td class="hm-cell" style="background:var(--bg1);color:var(--tx2)">—</td>`;
-        return;
-      }
+      if (!d) return `<td class="hm-cell" style="background:var(--bg1);color:var(--tx2)">—</td>`;
       const t  = d.rate / maxRate;
       const bg = d.rate === 0
         ? 'rgba(63,185,80,0.25)'
         : `rgba(248,${Math.round(81*(1-t))},${Math.round(73*t+80*(1-t))},${(0.2+t*0.7).toFixed(2)})`;
       const lbl = d.rate === 0 ? 'OK' : `${d.rate.toFixed(1)}%`;
-      const esc = s => s.replace(/'/g,"\\'");
-      html += `<td class="hm-cell" style="background:${bg};cursor:pointer" onclick="drillDown('${esc(e)}','${esc(p)}')" title="${e} / ${p}: 이상 ${d.anom}건 / 전체 ${d.total}건 (${d.rate.toFixed(1)}%) — 클릭하여 드릴다운">${lbl}</td>`;
+      return `<td class="hm-cell" style="background:${bg};cursor:pointer" onclick="drillDown('${esc(e)}','${esc(p)}')" title="${e} / ${p}: 이상 ${d.anom}건 / 전체 ${d.total}건 (${d.rate.toFixed(1)}%) — 클릭하여 드릴다운">${lbl}</td>`;
     });
-    html += `</tr>`;
+    return `<tr><th style="text-align:left">${e}</th>${cells.join('')}</tr>`;
   });
-  html += `</tbody></table>`;
-  document.getElementById('heatmapTable').innerHTML = html;
+
+  document.getElementById('heatmapTable').innerHTML =
+    `<table class="heatmap-table"><thead><tr>
+      <th style="text-align:left">EQP \\ PARAM</th>
+      ${params.map(p=>`<th>${p}</th>`).join('')}
+    </tr></thead><tbody>${rowParts.join('')}</tbody></table>`;
 }
 
 /* ══════════════════════════════════════════════════════
@@ -2382,7 +2403,7 @@ function drillDown(eqp, param) {
   const fParam = document.getElementById('fParam');
   if ([...fEqp.options].some(o=>o.value===eqp))   fEqp.value   = eqp;
   if ([...fParam.options].some(o=>o.value===param)) fParam.value = param;
-  applyFilter();
+  _applyFilterNow();
 
   // 이상감지 목록 필터
   filterAnomTable(eqp, param);
@@ -2399,7 +2420,7 @@ function drillDown(eqp, param) {
 function clearDrillDown() {
   document.getElementById('fEqp').value   = '';
   document.getElementById('fParam').value = '';
-  applyFilter();
+  _applyFilterNow();
   filterAnomTable('', '');
   document.getElementById('drilldownBar').style.display = 'none';
 }
@@ -2726,12 +2747,15 @@ async function applySnapshot(snap) {
   const pw = document.getElementById('progressWrap');
   pw.style.display = 'block';
   try {
-    _setProgress(10, '요약/통계 렌더링 중...'); await _tick();
-    gStats = calcStats(gResults);
-    renderSummary(gResults); renderBanner(gResults); renderStats(gStats); renderRanking(gResults);
+    _setProgress(10, '통계 집계 중...'); await _tick();
+    gStats = await calcStatsAsync(gResults);
+    renderSummary(gResults); renderBanner(gResults); renderStats(gStats);
+
+    _setProgress(20, '이상 랭킹 렌더링 중...'); await _tick();
+    await renderRanking(gResults);
 
     _setProgress(30, '히트맵 렌더링 중...'); await _tick();
-    renderHeatmap(gResults);
+    await renderHeatmap(gResults);
 
     _setProgress(50, '차트 렌더링 중...'); await _tick();
     initChartFilters(gResults);
@@ -3540,7 +3564,7 @@ function applyPreset(idx) {
   document.getElementById('fCh').value       = p.ch       || '';
   document.getElementById('fParam').value    = p.param    || '';
   document.getElementById('fStatus').value   = p.status   || '';
-  applyFilter();
+  _applyFilterNow();
   toast(`프리셋 "${p.name}" 적용됨`, 'ok');
 }
 
@@ -3610,7 +3634,7 @@ async function detectConsecutiveAnoms(minRun = 3) {
   const entries = Object.entries(groups);
   for (let gi = 0; gi < entries.length; gi++) {
     const [k, rows] = entries[gi];
-    rows.sort((a, b) => String(a['날짜']).localeCompare(String(b['날짜'])));
+    rows.sort((a, b) => (a._time||0) - (b._time||0));
     let run = [];
     for (const r of rows) {
       if (r.isAnom) { run.push(r); }
@@ -3869,7 +3893,7 @@ async function renderCorrelHeatmap() {
     if ((gi & 0xFF) === 0 && performance.now() - yT >= 16) { await _tick(); yT = performance.now(); }
   }
 
-  const maxVal = Math.max(1, ...mat.flat().filter((v,_,a)=>v!==Math.max(...a)));
+  const maxVal = Math.max(1, ...mat.flat());
   function cellBg(v, isSelf) {
     if (isSelf) return 'var(--bg1)';
     if (!v) return 'var(--bg2)';
