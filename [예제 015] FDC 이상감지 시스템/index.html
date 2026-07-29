@@ -721,6 +721,18 @@ function _parseTime(s) {
     if (!isNaN(d.getTime())) return d.getTime();
   }
 
+  // AM/PM 12시간 형식: YYYY[-./]MM[-./]DD H:MM[:SS[.mmm]] AM/PM
+  // 예: "2026-07-28 8:15:49 AM", "2024/01/15 12:30:00 PM"
+  const ap = s.match(/^(\d{4})[.\/-](\d{1,2})[.\/-](\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?\s*(AM|PM)$/i);
+  if (ap) {
+    let h = +ap[4];
+    const isPM = /pm/i.test(ap[7]);
+    if (h === 12) h = isPM ? 12 : 0;
+    else if (isPM) h += 12;
+    const d = new Date(+ap[1], +ap[2]-1, +ap[3], h, +ap[5], +(ap[6]||0));
+    if (!isNaN(d.getTime())) return d.getTime();
+  }
+
   // 나머지 모든 형식 — 밀리초/마이크로초 먼저 제거 후 점/슬래시→대시 변환
   // 순서 중요: replace(/[./]/g,'-') 전에 ".000" 을 먼저 떼야 "-000" 오파스 방지
   let n = s.replace(/(\d{1,2}:\d{2}(?::\d{2})?)[.,]\d+/, '$1'); // HH:MM:SS.mmm → HH:MM:SS
