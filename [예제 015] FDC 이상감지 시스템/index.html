@@ -2652,7 +2652,6 @@ const CARD_DEFAULTS = [
   { id: 'cardStats',   label: '📊 통계 요약' },
   { id: 'cardRank',    label: '🏆 이상감지 집중 랭킹' },
   { id: 'paretoCard',  label: '📊 파레토 차트' },
-  { id: 'heatmapCard', label: '🌡️ EQP×PPID 히트맵' },
   { id: 'trendCard',   label: '📈 날짜별 이상 트렌드' },
   { id: 'cardAnom',    label: '🚨 이상감지 목록' },
   { id: 'cardScatter', label: '🔬 EQP/CH 상세 산점도' },
@@ -2663,10 +2662,12 @@ function _loadLayout() {
   try {
     const saved = JSON.parse(localStorage.getItem(LAYOUT_LS_KEY)||'null');
     if (!Array.isArray(saved)) return CARD_DEFAULTS.map(c=>({...c,visible:true}));
-    // saved에 없는 신규 카드 뒤에 추가
-    const ids = new Set(saved.map(c=>c.id));
+    const validIds = new Set(CARD_DEFAULTS.map(c=>c.id));
+    // CARD_DEFAULTS에 없는 삭제된 카드 항목은 제외
+    const filtered = saved.filter(c=>validIds.has(c.id));
+    const ids = new Set(filtered.map(c=>c.id));
     const extra = CARD_DEFAULTS.filter(c=>!ids.has(c.id)).map(c=>({...c,visible:true}));
-    return [...saved, ...extra];
+    return [...filtered, ...extra];
   } catch { return CARD_DEFAULTS.map(c=>({...c,visible:true})); }
 }
 
