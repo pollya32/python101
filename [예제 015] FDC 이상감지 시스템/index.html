@@ -657,8 +657,17 @@ onMethodChange();
 ══════════════════════════════════════════════════════ */
 const _timeCache = new Map();
 function _parseTime(s) {
-  // AM/PM 12시간제 → 24시간제 선행 정규화 (이후 모든 핸들러가 AM/PM 없는 24h 형식으로 처리)
-  // 예: "2026-07-28 8:15:49 AM" → "2026-07-28 8:15:49", "1:30 PM" → "13:30"
+  // YYYY[-./]MM[-./]DD H:MM[:SS[.ms]] AM/PM → new Date(y,m,d,h,min,sec) 직접 생성 (문자열 파싱 없음)
+  const apY = s.match(/^(\d{4})[.\/-](\d{1,2})[.\/-](\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?\s+(AM|PM)\s*$/i);
+  if (apY) {
+    let h = +apY[4];
+    const pm = /pm/i.test(apY[7]);
+    if (h === 12) h = pm ? 12 : 0; else if (pm) h += 12;
+    const d = new Date(+apY[1], +apY[2]-1, +apY[3], h, +apY[5], +(apY[6]||0));
+    if (!isNaN(d.getTime())) return d.getTime();
+  }
+
+  // 기타 AM/PM 형식 → 24시간제로 정규화 후 하위 핸들러 처리
   const _apM = s.match(/^(.*?)\b(\d{1,2})(:\d{2}(?::\d{2})?(?:[.,]\d+)?)\s+(AM|PM)\s*$/i);
   if (_apM) {
     let _h = +_apM[2];
