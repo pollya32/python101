@@ -446,48 +446,18 @@
     </div>
 
     <!-- 그래프 -->
-    <!-- EQP / CH 선택 산점도 -->
+    <!-- EQP / CH 선택 산점도 (멀티패널) -->
     <div class="card" id="cardScatter">
-      <div class="card-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:12px">
+      <div class="card-title" style="display:flex;align-items:center;gap:12px">
         <span>🔬 EQP / CH 상세 산점도</span>
-        <div style="display:flex;align-items:center;gap:10px;margin-left:auto;flex-wrap:wrap">
-          <div class="ctrl-group" style="gap:6px">
-            <label style="font-size:12px;color:var(--tx2)">EQP ID</label>
-            <select id="scEqp" onchange="onScatterChange()" style="font-size:12px;padding:4px 8px;background:var(--bg2);color:var(--tx1);border:1px solid var(--bd);border-radius:4px"></select>
-          </div>
-          <div class="ctrl-group" style="gap:6px">
-            <label style="font-size:12px;color:var(--tx2)">CH</label>
-            <select id="scCh" onchange="renderEqpScatter()" style="font-size:12px;padding:4px 8px;background:var(--bg2);color:var(--tx1);border:1px solid var(--bd);border-radius:4px"></select>
-          </div>
-          <div class="ctrl-group" style="gap:6px">
-            <label style="font-size:12px;color:var(--tx2)">PPID</label>
-            <select id="scParam" onchange="renderEqpScatter()" style="font-size:12px;padding:4px 8px;background:var(--bg2);color:var(--tx1);border:1px solid var(--bd);border-radius:4px">
-              <option value="">전체</option>
-            </select>
-          </div>
-          <div class="ctrl-group" style="gap:6px">
-            <label style="font-size:12px;color:var(--tx2)">X축 여백</label>
-            <div style="display:flex;align-items:center;gap:5px">
-              <input type="range" id="scXPad" min="0" max="30" value="4" step="1"
-                oninput="document.getElementById('scXPadVal').textContent=this.value+'%';renderEqpScatter()"
-                style="width:80px;accent-color:var(--acc,#58a6ff);cursor:pointer">
-              <span id="scXPadVal" style="font-size:11px;color:var(--tx2);min-width:26px;text-align:right">4%</span>
-            </div>
-          </div>
-          <div class="ctrl-group" style="gap:6px">
-            <label style="font-size:12px;color:var(--tx2)">점 크기</label>
-            <div style="display:flex;align-items:center;gap:5px">
-              <input type="range" id="pointSize" min="2" max="20" value="5" step="1"
-                oninput="document.getElementById('pointSizeVal').textContent=this.value+'px';renderEqpScatter()"
-                style="width:70px;accent-color:var(--acc,#58a6ff);cursor:pointer">
-              <span id="pointSizeVal" style="font-size:11px;color:var(--tx2);min-width:26px;text-align:right">5px</span>
-            </div>
-          </div>
-        </div>
+        <button id="btnAddScatter" onclick="addScatterPanel()"
+          style="margin-left:auto;display:flex;align-items:center;gap:5px;padding:5px 12px;font-size:12px;font-weight:600;background:var(--bg2);color:var(--ac1);border:1px solid var(--ac1);border-radius:6px;cursor:pointer"
+          onmouseover="this.style.background='var(--ac1)';this.style.color='#fff'"
+          onmouseout="this.style.background='var(--bg2)';this.style.color='var(--ac1)'">
+          ＋ 차트 추가
+        </button>
       </div>
-      <div class="chart-wrap" style="height:360px"><canvas id="scatterCanvas"></canvas></div>
-      <div id="scatterDragInfo" class="drag-select-info" style="display:none"></div>
-      <div id="scatterNullNote" style="display:none;font-size:11px;color:#d29922;padding:6px 8px;background:rgba(210,153,34,.1);border-radius:4px;margin-top:6px"></div>
+      <div id="scatterPanelsWrap"></div>
     </div>
 
     <!-- 전체 데이터 -->
@@ -1324,86 +1294,164 @@ function _decimateDataset(pts, rows, maxPts=600) {
 /* ══════════════════════════════════════════════════════
    EQP / CH 상세 산점도
 ══════════════════════════════════════════════════════ */
-let gScatterChart = null;
+/* 멀티 산점도 패널 관리 */
+let _scPanelSeq = 0;
+const gScatterPanels = new Map(); // panelId → Chart instance
+
+function _scPanelHtml(pid) {
+  const notFirst = pid > 1;
+  return `<div class="scatter-panel" id="scatter-panel-${pid}"
+    style="${notFirst?'border-top:1px solid var(--bd);margin-top:18px;padding-top:14px':''}position:relative">
+  <div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+    <div class="ctrl-group" style="gap:6px">
+      <label style="font-size:12px;color:var(--tx2)">EQP ID</label>
+      <select id="scEqp-${pid}" onchange="onScatterPanelChange(${pid})"
+        style="font-size:12px;padding:4px 8px;background:var(--bg2);color:var(--tx1);border:1px solid var(--bd);border-radius:4px"></select>
+    </div>
+    <div class="ctrl-group" style="gap:6px">
+      <label style="font-size:12px;color:var(--tx2)">CH</label>
+      <select id="scCh-${pid}" onchange="renderScatterPanel(${pid})"
+        style="font-size:12px;padding:4px 8px;background:var(--bg2);color:var(--tx1);border:1px solid var(--bd);border-radius:4px"></select>
+    </div>
+    <div class="ctrl-group" style="gap:6px">
+      <label style="font-size:12px;color:var(--tx2)">PPID</label>
+      <select id="scParam-${pid}" onchange="renderScatterPanel(${pid})"
+        style="font-size:12px;padding:4px 8px;background:var(--bg2);color:var(--tx1);border:1px solid var(--bd);border-radius:4px">
+        <option value="">전체</option>
+      </select>
+    </div>
+    <div class="ctrl-group" style="gap:6px">
+      <label style="font-size:12px;color:var(--tx2)">X축 여백</label>
+      <div style="display:flex;align-items:center;gap:5px">
+        <input type="range" id="scXPad-${pid}" min="0" max="30" value="4" step="1"
+          oninput="document.getElementById('scXPadVal-${pid}').textContent=this.value+'%';renderScatterPanel(${pid})"
+          style="width:80px;accent-color:var(--acc,#58a6ff);cursor:pointer">
+        <span id="scXPadVal-${pid}" style="font-size:11px;color:var(--tx2);min-width:26px;text-align:right">4%</span>
+      </div>
+    </div>
+    <div class="ctrl-group" style="gap:6px">
+      <label style="font-size:12px;color:var(--tx2)">점 크기</label>
+      <div style="display:flex;align-items:center;gap:5px">
+        <input type="range" id="pointSize-${pid}" min="2" max="20" value="5" step="1"
+          oninput="document.getElementById('pointSizeVal-${pid}').textContent=this.value+'px';renderScatterPanel(${pid})"
+          style="width:70px;accent-color:var(--acc,#58a6ff);cursor:pointer">
+        <span id="pointSizeVal-${pid}" style="font-size:11px;color:var(--tx2);min-width:26px;text-align:right">5px</span>
+      </div>
+    </div>
+    <button class="sc-remove-btn" onclick="removeScatterPanel(${pid})" title="이 차트 제거"
+      style="margin-left:auto;font-size:20px;line-height:1;background:none;border:none;color:var(--tx2);cursor:pointer;padding:2px 8px;border-radius:4px;display:none"
+      onmouseover="this.style.color='#f85149'" onmouseout="this.style.color='var(--tx2)'">×</button>
+  </div>
+  <div class="chart-wrap" style="height:360px"><canvas id="scatterCanvas-${pid}"></canvas></div>
+  <div id="scatterDragInfo-${pid}" class="drag-select-info" style="display:none"></div>
+  <div id="scatterNullNote-${pid}" style="display:none;font-size:11px;color:#d29922;padding:6px 8px;background:rgba(210,153,34,.1);border-radius:4px;margin-top:6px"></div>
+</div>`;
+}
+
+function addScatterPanel(opts={}) {
+  if (!gIndex) return;
+  const pid = ++_scPanelSeq;
+  const wrap = document.getElementById('scatterPanelsWrap');
+  if (!wrap) return;
+  wrap.insertAdjacentHTML('beforeend', _scPanelHtml(pid));
+  gScatterPanels.set(pid, null);
+  _updateScRemoveButtons();
+  const eqps = [...gIndex.eqpSet].sort();
+  const scEqp = document.getElementById(`scEqp-${pid}`);
+  scEqp.innerHTML = eqps.map(e=>`<option value="${e}">${e}</option>`).join('');
+  if (opts.eqp && eqps.includes(opts.eqp)) scEqp.value = opts.eqp;
+  _updateScPanelCh(pid);
+  _updateScPanelParam(pid);
+  renderScatterPanel(pid);
+}
+
+function removeScatterPanel(pid) {
+  if (gScatterPanels.size <= 1) return;
+  const ch = gScatterPanels.get(pid);
+  if (ch) ch.destroy();
+  gScatterPanels.delete(pid);
+  document.getElementById(`scatter-panel-${pid}`)?.remove();
+  _updateScRemoveButtons();
+}
+
+function _updateScRemoveButtons() {
+  const single = gScatterPanels.size <= 1;
+  document.querySelectorAll('.sc-remove-btn').forEach(b => b.style.display = single ? 'none' : '');
+}
 
 function initScatterSelects(results) {
-  if(!gIndex) return;
-  const eqps=[...gIndex.eqpSet].sort();
-  const scEqp=document.getElementById('scEqp');
-  scEqp.innerHTML=eqps.map(e=>`<option value="${e}">${e}</option>`).join('');
-  _updateScCh(results);
-  _updateScParam(results);
-  renderEqpScatter();
+  if (!gIndex) return;
+  gScatterPanels.forEach(ch => { if (ch) ch.destroy(); });
+  gScatterPanels.clear();
+  _scPanelSeq = 0;
+  const wrap = document.getElementById('scatterPanelsWrap');
+  if (wrap) wrap.innerHTML = '';
+  addScatterPanel();
 }
 
-function onScatterChange() {
-  _updateScCh(gResults);
-  _updateScParam(gResults);
-  renderEqpScatter();
+function onScatterPanelChange(pid) {
+  _updateScPanelCh(pid);
+  _updateScPanelParam(pid);
+  renderScatterPanel(pid);
 }
 
-function _updateScCh(results) {
-  if(!gIndex) return;
-  const eqp=document.getElementById('scEqp').value;
-  // gIndex.eqpChs 맵으로 O(1) 조회
-  const chs=eqp&&gIndex.eqpChs.has(eqp)
-    ? [...gIndex.eqpChs.get(eqp)].sort()
-    : [];
-  const scCh=document.getElementById('scCh');
-  const prev=scCh.value;
-  scCh.innerHTML=(chs.length>1?'<option value="">전체</option>':'')+
+function _updateScPanelCh(pid) {
+  if (!gIndex) return;
+  const eqp = document.getElementById(`scEqp-${pid}`)?.value;
+  const chs = eqp && gIndex.eqpChs.has(eqp) ? [...gIndex.eqpChs.get(eqp)].sort() : [];
+  const el = document.getElementById(`scCh-${pid}`);
+  if (!el) return;
+  const prev = el.value;
+  el.innerHTML = (chs.length>1?'<option value="">전체</option>':'') +
     chs.map(c=>`<option value="${c}">${c||'(없음)'}</option>`).join('');
-  if(chs.includes(prev)) scCh.value=prev;
+  if (chs.includes(prev)) el.value = prev;
 }
 
-function _updateScParam(results) {
-  if(!gIndex) return;
-  const eqp=document.getElementById('scEqp').value;
-  const ch =document.getElementById('scCh').value;
+function _updateScPanelParam(pid) {
+  if (!gIndex) return;
+  const eqp = document.getElementById(`scEqp-${pid}`)?.value;
+  const ch  = document.getElementById(`scCh-${pid}`)?.value;
   let params;
-  if(ch) {
-    // 특정 CH: eqp+ch 키로 O(1) 조회
-    const eck=`${eqp}|${ch}`;
-    params=gIndex.eqpChParams.has(eck)?[...gIndex.eqpChParams.get(eck)].sort():[];
+  if (ch) {
+    const eck = `${eqp}|${ch}`;
+    params = gIndex.eqpChParams.has(eck) ? [...gIndex.eqpChParams.get(eck)].sort() : [];
   } else {
-    // 전체 CH: eqp의 모든 CH 파라미터 합집합
-    const ps=new Set();
-    if(gIndex.eqpChs.has(eqp)){
-      gIndex.eqpChs.get(eqp).forEach(c=>{
-        const eck=`${eqp}|${c}`;
-        if(gIndex.eqpChParams.has(eck)) gIndex.eqpChParams.get(eck).forEach(p=>ps.add(p));
+    const ps = new Set();
+    if (gIndex.eqpChs.has(eqp)) {
+      gIndex.eqpChs.get(eqp).forEach(c => {
+        const eck = `${eqp}|${c}`;
+        if (gIndex.eqpChParams.has(eck)) gIndex.eqpChParams.get(eck).forEach(p=>ps.add(p));
       });
     }
-    params=[...ps].sort();
+    params = [...ps].sort();
   }
-  const scParam=document.getElementById('scParam');
-  const prev=scParam.value;
-  scParam.innerHTML='<option value="">전체</option>'+params.map(p=>`<option value="${p}">${p}</option>`).join('');
-  if(params.includes(prev)) scParam.value=prev;
+  const el = document.getElementById(`scParam-${pid}`);
+  if (!el) return;
+  const prev = el.value;
+  el.innerHTML = '<option value="">전체</option>' + params.map(p=>`<option value="${p}">${p}</option>`).join('');
+  if (params.includes(prev)) el.value = prev;
 }
 
-function renderEqpScatter() {
+function renderScatterPanel(pid) {
   if (!gResults.length) return;
-  const eqp   = document.getElementById('scEqp')?.value;
-  const ch    = document.getElementById('scCh')?.value   ?? '';
-  const param = document.getElementById('scParam')?.value ?? '';
+  const eqp   = document.getElementById(`scEqp-${pid}`)?.value;
+  const ch    = document.getElementById(`scCh-${pid}`)?.value   ?? '';
+  const param = document.getElementById(`scParam-${pid}`)?.value ?? '';
   if (!eqp) return;
 
   const base = gResults.filter(r =>
     r['EQP ID'] === eqp &&
-    (ch    === '' || r['CH']        === ch)    &&
+    (ch    === '' || r['CH']   === ch)    &&
     (param === '' || r['PPID'] === param)
   );
 
-  const params = [...new Set(base.map(r=>r['PPID']))];
+  const params   = [...new Set(base.map(r=>r['PPID']))];
   const allTimes = base.filter(r=>r._time!=null).map(r=>r._time);
   const hasTime  = allTimes.length > 0;
   const tRef     = hasTime ? allTimes.reduce((a,b)=>a<b?a:b, Infinity)  : 0;
   const tMaxSc   = hasTime ? allTimes.reduce((a,b)=>a>b?a:b, -Infinity) : 0;
-  const tRange   = hasTime ? (tMaxSc - tRef) / 86400000 : 0;
-  const ps       = parseInt(document.getElementById('pointSize')?.value)||5;
+  const ps       = parseInt(document.getElementById(`pointSize-${pid}`)?.value)||5;
 
-  // O(N) pre-group by PPID (avoid repeated base.filter per param)
   const byParam = new Map();
   for (const r of base) {
     const p = r['PPID'];
@@ -1411,11 +1459,9 @@ function renderEqpScatter() {
     byParam.get(p).push(r);
   }
 
-  // hasTime 모드에서 _time=null 행은 시간축에 배치 불가 → 제외 후 순수 시간 정렬
-  // (null 행에 slot 값을 쓰면 초 단위 시간축에 0~25가 찍혀 좌측 몰림·순서 오류 발생)
-  const nullAnomRows = hasTime ? base.filter(r => r._time == null && r.isAnom) : [];
+  const nullAnomRows  = hasTime ? base.filter(r => r._time == null && r.isAnom) : [];
   const nullAnomCount = nullAnomRows.length;
-  const noteEl = document.getElementById('scatterNullNote');
+  const noteEl = document.getElementById(`scatterNullNote-${pid}`);
   if (noteEl) {
     if (nullAnomCount > 0) {
       const sampleDate = nullAnomRows[0]?.['날짜'] ?? '';
@@ -1449,25 +1495,19 @@ function renderEqpScatter() {
       pBg.push(a?'#f85149':color); pBd.push(a?'#ff4040':color); pBw.push(a?2:1);
     }
     return {
-      label: p,
-      data:  pts,
-      _rows: dr,
+      label: p, data: pts, _rows: dr,
       type: 'line', showLine: false, borderWidth: 0, fill: false,
       pointRadius: pRadius, pointHoverRadius: pHover,
       pointBackgroundColor: pBg, pointBorderColor: pBd,
-      pointStyle: 'circle',
-      pointBorderWidth: pBw,
+      pointStyle: 'circle', pointBorderWidth: pBw,
     };
   });
 
-  // X축 패딩 계산 (시작점 데이터 쏠림 방지 — 슬라이더 값 사용)
-  const _padPct = (parseInt(document.getElementById('scXPad')?.value) ?? 4) / 100;
+  const _padPct = (parseInt(document.getElementById(`scXPad-${pid}`)?.value) ?? 4) / 100;
   let _xMin, _xMax, _xPad, _xScaleMin;
   if (hasTime) {
-    _xMin = 0;
     _xMax = (tMaxSc - tRef) / 1000;
     _xPad = _padPct === 0 ? 0 : Math.max(_xMax * _padPct, 3600);
-    // 1시간(3600s) 경계에 맞춰 scale min 정렬
     const _1hMs = 3600 * 1000;
     _xScaleMin = (Math.floor((tRef - _xPad * 1000) / _1hMs) * _1hMs - tRef) / 1000;
   } else {
@@ -1478,14 +1518,14 @@ function renderEqpScatter() {
     _xScaleMin = _xMin - _xPad;
   }
 
-  if (gScatterChart) { gScatterChart.destroy(); gScatterChart=null; }
-  const ctx = document.getElementById('scatterCanvas')?.getContext('2d');
+  const prevChart = gScatterPanels.get(pid);
+  if (prevChart) prevChart.destroy();
+  const ctx = document.getElementById(`scatterCanvas-${pid}`)?.getContext('2d');
   if (!ctx) return;
 
-  gScatterChart = new Chart(ctx, {
+  const newChart = new Chart(ctx, {
     type:'line',
     data:{datasets},
-
     options:{
       responsive:true, maintainAspectRatio:false,
       animation:false,
@@ -1515,7 +1555,6 @@ function renderEqpScatter() {
       },
       scales:{
         x:(()=>{
-          // 날짜 변경 시 1회만 날짜 표기, 나머지는 시간만 (클로저로 상태 추적)
           let _lastDay = null;
           const _tickCb = hasTime
             ? v => {
@@ -1548,9 +1587,10 @@ function renderEqpScatter() {
       }
     }
   });
-  _throttleChartHover(gScatterChart);
-  const scWrap = document.getElementById('scatterCanvas')?.closest('.chart-wrap');
-  if (scWrap) setupDragSelect(scWrap, ()=>gScatterChart, 'scatterDragInfo');
+  gScatterPanels.set(pid, newChart);
+  _throttleChartHover(newChart);
+  const scWrap = document.getElementById(`scatterCanvas-${pid}`)?.closest('.chart-wrap');
+  if (scWrap) setupDragSelect(scWrap, ()=>gScatterPanels.get(pid), `scatterDragInfo-${pid}`);
 }
 
 /* ══════════════════════════════════════════════════════
@@ -1955,6 +1995,9 @@ function clearAll(){
   gResults=[]; gHeaders=[]; gAnoms=[]; gAnomsAll=[]; gFilteredResults=null; gStats=[]; gIndex=null;
   _timeCache.clear();
   Object.values(gRankCharts).forEach(c=>c.destroy()); gRankCharts={};
+  gScatterPanels.forEach(ch => { if (ch) ch.destroy(); });
+  gScatterPanels.clear(); _scPanelSeq=0;
+  const scWrap=document.getElementById('scatterPanelsWrap'); if(scWrap) scWrap.innerHTML='';
 }
 
 /* ══════════════════════════════════════════════════════
@@ -3037,9 +3080,10 @@ function _buildMailHtml() {
 
   ${(()=>{
     if (!document.getElementById('mailIncludeScatter')?.checked) return '';
-    const eqp   = document.getElementById('scEqp')?.value   || '';
-    const ch    = document.getElementById('scCh')?.value    || '';
-    const param = document.getElementById('scParam')?.value || '전체';
+    const firstPid = gScatterPanels.keys().next().value ?? 1;
+    const eqp   = document.getElementById(`scEqp-${firstPid}`)?.value   || '';
+    const ch    = document.getElementById(`scCh-${firstPid}`)?.value    || '';
+    const param = document.getElementById(`scParam-${firstPid}`)?.value || '전체';
     const img   = _captureScatterChart();
     if (!img) return '';
     const label = [eqp, ch, param].filter(Boolean).join(' / ');
@@ -3057,10 +3101,13 @@ function _buildMailHtml() {
 </div>`;
 }
 
-/* 산점도 차트 캔버스 → 흰 배경 PNG base64 */
+/* 산점도 차트 캔버스 → 흰 배경 PNG base64 (첫 번째 패널 기준) */
 function _captureScatterChart() {
-  const canvas = document.getElementById('scatterCanvas');
-  if (!canvas || !gScatterChart) return null;
+  const firstPid = gScatterPanels.keys().next().value;
+  if (firstPid == null) return null;
+  const chart  = gScatterPanels.get(firstPid);
+  const canvas = document.getElementById(`scatterCanvas-${firstPid}`);
+  if (!canvas || !chart) return null;
   try {
     const tmp = document.createElement('canvas');
     tmp.width  = canvas.width;
