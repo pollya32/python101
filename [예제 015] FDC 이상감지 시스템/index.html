@@ -2996,9 +2996,8 @@ function _buildMailHtml() {
   const anomRate  = totalRows ? (anomCount/totalRows*100).toFixed(1) : 0;
   const eqpCount  = gIndex ? gIndex.eqpSet.size : new Set(gResults.map(r=>r['EQP ID'])).size;
   const paramCount= gIndex ? gIndex.paramSet.size: new Set(gResults.map(r=>r['PPID'])).size;
-  const method    = document.getElementById('methodSel')?.value || '';
-  const methodLabel= (typeof METHOD_LABEL!=='undefined'&&METHOD_LABEL[method]) || method;
-  const now       = new Date().toLocaleString('ko-KR');
+  const methodLabel = document.getElementById('detectMethod')?.selectedOptions?.[0]?.text || '';
+  const now         = new Date().toLocaleString('ko-KR');
 
   // 공통 셀 스타일
   const td = 'border:1px solid #ddd;padding:6px 10px;font-size:12px;text-align:center';
@@ -3054,6 +3053,9 @@ function _buildMailHtml() {
       <td style="${td}"><b>PPID 수</b></td><td style="${td}">${paramCount}</td>
       <td style="${td}"><b>임계값</b></td><td style="${td}">${gThreshold}</td>
     </tr>
+    <tr>
+      <td style="${td}"><b>이상감지 방식</b></td><td style="${td};color:#1a5fb4;font-weight:600" colspan="3">${methodLabel}</td>
+    </tr>
   </table>
 
   <h3 style="color:#1a233e;margin-bottom:8px;text-align:center">🏭 EQP별 이상 건수</h3>
@@ -3080,19 +3082,16 @@ function _buildMailHtml() {
 
   ${(()=>{
     if (!document.getElementById('mailIncludeScatter')?.checked) return '';
-    const firstPid = gScatterPanels.keys().next().value ?? 1;
-    const eqp   = document.getElementById(`scEqp-${firstPid}`)?.value   || '';
-    const ch    = document.getElementById(`scCh-${firstPid}`)?.value    || '';
-    const param = document.getElementById(`scParam-${firstPid}`)?.value || '전체';
-    const img   = _captureScatterChart();
-    if (!img) return '';
-    const label = [eqp, ch, param].filter(Boolean).join(' / ');
-    return `
-  <h3 style="color:#1a233e;margin-bottom:8px;text-align:center">🔬 EQP/CH 상세 산점도</h3>
-  <div style="text-align:center;margin-bottom:20px">
+    const charts = _captureAllScatterCharts();
+    if (!charts.length) return '';
+    return charts.map(({eqp, ch, param, img}) => {
+      const label = [eqp, ch, param].filter(Boolean).join(' / ');
+      return `
+  <h3 style="color:#1a233e;margin-bottom:8px;text-align:center">🔬 EQP/CH 상세 산점도 — ${label}</h3>
+  <div style="text-align:center;margin-bottom:24px">
     <img src="${img}" style="max-width:100%;border:1px solid #ddd;border-radius:4px;display:block;margin:0 auto">
-    <p style="font-size:11px;color:#888;margin:6px 0 0">※ 선택 조건: ${label}</p>
   </div>`;
+    }).join('');
   })()}
 
   <div style="border-top:1px solid #ddd;padding-top:10px;margin-top:8px;color:#888;font-size:11px;text-align:center">
@@ -3101,23 +3100,30 @@ function _buildMailHtml() {
 </div>`;
 }
 
-/* 산점도 차트 캔버스 → 흰 배경 PNG base64 (첫 번째 패널 기준) */
-function _captureScatterChart() {
-  const firstPid = gScatterPanels.keys().next().value;
-  if (firstPid == null) return null;
-  const chart  = gScatterPanels.get(firstPid);
-  const canvas = document.getElementById(`scatterCanvas-${firstPid}`);
-  if (!canvas || !chart) return null;
-  try {
-    const tmp = document.createElement('canvas');
-    tmp.width  = canvas.width;
-    tmp.height = canvas.height;
-    const tCtx = tmp.getContext('2d');
-    tCtx.fillStyle = '#ffffff';
-    tCtx.fillRect(0, 0, tmp.width, tmp.height);
-    tCtx.drawImage(canvas, 0, 0);
-    return tmp.toDataURL('image/png');
-  } catch { return null; }
+/* 모든 산점도 패널 캔버스 → 흰 배경 PNG base64 배열 */
+function _captureAllScatterCharts() {
+  const results = [];
+  for (const [pid, chart] of gScatterPanels) {
+    const canvas = document.getElementById(`scatterCanvas-${pid}`);
+    if (!canvas || !chart) continue;
+    try {
+      const tmp = document.createElement('canvas');
+      tmp.width  = canvas.width;
+      tmp.height = canvas.height;
+      const tCtx = tmp.getContext('2d');
+      tCtx.fillStyle = '#ffffff';
+      tCtx.fillRect(0, 0, tmp.width, tmp.height);
+      tCtx.drawImage(canvas, 0, 0);
+      results.push({
+        pid,
+        img:   tmp.toDataURL('image/png'),
+        eqp:   document.getElementById(`scEqp-${pid}`)?.value   || '',
+        ch:    document.getElementById(`scCh-${pid}`)?.value     || '',
+        param: document.getElementById(`scParam-${pid}`)?.value  || '전체',
+      });
+    } catch {}
+  }
+  return results;
 }
 
 /* 이메일 전용 전체 보고서 — 완전 인라인 스타일 */
@@ -3257,14 +3263,8 @@ async function sendMailNow() {
   btn.disabled = true;
   msg.textContent = '발송 중...';
 
-  const subject = s.subject || '[FDC이상감지] 이상 감지 현황 리포트';
-  const attachReport = document.getElementById('mailAttachReport')?.checked;
-
-  let contents = _buildMailHtml();
-  if (attachReport) {
-    contents += `<hr style="margin:32px 0;border:none;border-top:2px solid #1a233e">
-${_buildMailReportHtml()}`;
-  }
+  const subject  = s.subject || '[FDC이상감지] 이상 감지 현황 리포트';
+  const contents = _buildMailHtml();
 
   const mailJson = {
     subject,
@@ -3617,12 +3617,8 @@ function toast(msg,type=''){
       <div class="mail-divider"></div>
       <!-- 발송 -->
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx1);cursor:pointer;user-select:none;">
-        <input type="checkbox" id="mailAttachReport" checked style="width:15px;height:15px;accent-color:var(--ac1);">
-        전체 분석 보고서 본문 포함 (통계 + 전체 이상 목록 + 원본 데이터)
-      </label>
-      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx1);cursor:pointer;user-select:none;">
         <input type="checkbox" id="mailIncludeScatter" checked style="width:15px;height:15px;accent-color:var(--ac1);">
-        🔬 산점도 차트 이미지 본문 삽입 (현재 선택된 EQP/CH/PPID 기준)
+        🔬 산점도 차트 이미지 삽입 (현재 표시된 모든 패널)
       </label>
       <button class="mail-send-btn" id="mailSendBtn" onclick="sendMailNow()">📤 지금 바로 발송</button>
       <div class="mail-status" id="mailStatusMsg"></div>
