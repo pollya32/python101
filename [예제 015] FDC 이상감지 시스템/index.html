@@ -1277,6 +1277,7 @@ async function renderRanking(results) {
         }]},
         options:{
           indexAxis:'y',responsive:true,maintainAspectRatio:false,
+          animation:false,
           plugins:{legend:{display:false},tooltip:{backgroundColor:'#1c2128',borderColor:'#30363d',borderWidth:1,titleColor:'#e6edf3',bodyColor:'#8b949e',callbacks:{label:item=>` 이상 ${item.raw}건`}}},
           scales:{
             x:{ticks:{color:'#8b949e',font:{size:10}},grid:{color:'rgba(48,54,61,.4)'}},
@@ -1392,15 +1393,25 @@ async function renderCharts(results, stats) {
       const dec = _decimateDataset(pts, rows, 600);
       pts = dec.pts; const dRows = dec.rows;
 
+      // 단일 패스로 6개 per-point 배열 동시 생성 (isAnom 6회 평가 → 1회)
+      const psA = Math.round(ps * 2.2), psN = ps;
+      const pRadius = [], pHover = [], pBg = [], pBd = [], pBw = [];
+      for (let k = 0; k < dRows.length; k++) {
+        const a = dRows[k].isAnom;
+        pRadius.push(a ? psA     : psN);
+        pHover .push(a ? psA + 3 : psN + 3);
+        pBg    .push(a ? '#f85149' : color);
+        pBd    .push(a ? '#ff4040' : color);
+        pBw    .push(a ? 2 : 1);
+      }
+
       datasets.push({
         type: 'line', label, data: pts, _rows: dRows,
         borderColor: color, borderWidth: 0, showLine: false, fill: false, tension: 0,
-        pointRadius:          dRows.map(r => r.isAnom ? Math.round(ps * 2.2) : ps),
-        pointHoverRadius:     dRows.map(r => r.isAnom ? Math.round(ps * 2.2) + 3 : ps + 3),
-        pointBackgroundColor: dRows.map(r => r.isAnom ? '#f85149' : color),
-        pointBorderColor:     dRows.map(r => r.isAnom ? '#ff4040' : color),
-        pointStyle:           dRows.map(r => r.isAnom ? 'triangle' : 'circle'),
-        pointBorderWidth:     dRows.map(r => r.isAnom ? 2 : 1),
+        pointRadius: pRadius, pointHoverRadius: pHover,
+        pointBackgroundColor: pBg, pointBorderColor: pBd,
+        pointStyle: 'circle',  // triangle 제거: arc() 단순 호출, 커스텀 path 불필요
+        pointBorderWidth: pBw,
         spanGaps: true,
       });
 
@@ -1434,9 +1445,10 @@ async function renderCharts(results, stats) {
     // Chart.js 옵션 객체 사전 구성 (클로저로 hasTime/tRef/tRange/param 캡처)
     const _chartOpts = {
       responsive: true, maintainAspectRatio: false,
-      interaction: {mode: 'index', intersect: false},
+      animation: false,
+      interaction: {mode: 'nearest', intersect: false},
       plugins: {
-        legend: {labels: {color: '#e6edf3', font: {size: 11}, usePointStyle: true, padding: 14, filter: item => !item.text.startsWith('_spc_')}},
+        legend: {labels: {color: '#e6edf3', font: {size: 11}, usePointStyle: false, padding: 14, filter: item => !item.text.startsWith('_spc_')}},
         tooltip: {
           backgroundColor: '#1c2128', borderColor: '#30363d', borderWidth: 1,
           titleColor: '#e6edf3', bodyColor: '#8b949e',
@@ -1627,24 +1639,37 @@ function renderEqpScatter() {
   const tRange   = hasTime ? (tMaxSc - tRef) / 86400000 : 0;
   const ps       = parseInt(document.getElementById('pointSize')?.value)||5;
 
+  // O(N) pre-group by PPID (avoid repeated base.filter per param)
+  const byParam = new Map();
+  for (const r of base) {
+    const p = r['PPID'];
+    if (!byParam.has(p)) byParam.set(p, []);
+    byParam.get(p).push(r);
+  }
+
+  const psA = Math.round(ps * 2.2);
   const datasets = params.map((p, pi) => {
-    const rows = base.filter(r=>r['PPID']===p);
+    const rows = byParam.get(p) || [];
     rows.sort((a,b)=> hasTime ? ((a._time??a._slot)-(b._time??b._slot)) : a._slot-b._slot);
     const color = PALETTE[pi % PALETTE.length];
     let pts = rows.map(r=>({ x: hasTime&&r._time!=null?(r._time-tRef)/1000:r._slot, y:r._val }));
     const dec = _decimateDataset(pts, rows, 600);
     pts = dec.pts; const dr = dec.rows;
+    const pRadius=[], pHover=[], pBg=[], pBd=[], pBw=[];
+    for (let k=0;k<dr.length;k++){
+      const a=dr[k].isAnom;
+      pRadius.push(a?psA:ps); pHover.push(a?psA+3:ps+3);
+      pBg.push(a?'#f85149':color); pBd.push(a?'#ff4040':color); pBw.push(a?2:1);
+    }
     return {
       label: p,
       data:  pts,
       _rows: dr,
       type: 'line', showLine: false, borderWidth: 0, fill: false,
-      pointRadius:          dr.map(r=>r.isAnom?Math.round(ps*2.2):ps),
-      pointHoverRadius:     dr.map(r=>r.isAnom?Math.round(ps*2.2)+3:ps+3),
-      pointBackgroundColor: dr.map(r=>r.isAnom?'#f85149':color),
-      pointBorderColor:     dr.map(r=>r.isAnom?'#ff4040':color),
-      pointStyle:           dr.map(r=>r.isAnom?'triangle':'circle'),
-      pointBorderWidth:     dr.map(r=>r.isAnom?2:1),
+      pointRadius: pRadius, pointHoverRadius: pHover,
+      pointBackgroundColor: pBg, pointBorderColor: pBd,
+      pointStyle: 'circle',
+      pointBorderWidth: pBw,
     };
   });
 
@@ -1657,9 +1682,10 @@ function renderEqpScatter() {
     data:{datasets},
     options:{
       responsive:true, maintainAspectRatio:false,
-      interaction:{mode:'index',intersect:false},
+      animation:false,
+      interaction:{mode:'nearest',intersect:false},
       plugins:{
-        legend:{labels:{color:'#e6edf3',font:{size:11},usePointStyle:true,padding:14}},
+        legend:{labels:{color:'#e6edf3',font:{size:11},usePointStyle:false,padding:14}},
         tooltip:{
           backgroundColor:'#1c2128',borderColor:'#30363d',borderWidth:1,
           titleColor:'#e6edf3',bodyColor:'#8b949e',
