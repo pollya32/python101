@@ -3312,7 +3312,7 @@ function saveColMapping() {
   const selects = document.querySelectorAll('#colMapGrid select');
   if (!selects.length) { toast('매핑 정보가 없습니다.', 'err'); return; }
   const map = {};
-  selects.forEach(s => { map[s.dataset.key] = s.value; });
+  selects.forEach(s => { map[s.id] = s.value; });
   localStorage.setItem(COL_MAP_LS, JSON.stringify({ map, headers: gHeaders }));
   toast('컬럼 매핑이 저장되었습니다.', 'ok');
 }
@@ -3322,9 +3322,8 @@ function loadColMapping() {
   if (!saved) { toast('저장된 매핑이 없습니다.', 'err'); return; }
   const selects = document.querySelectorAll('#colMapGrid select');
   selects.forEach(s => {
-    const savedVal = saved.map[s.dataset.key];
+    const savedVal = saved.map[s.id];
     if (savedVal !== undefined) {
-      // 현재 헤더에 저장된 값이 있으면 선택
       const opt = [...s.options].find(o => o.value === savedVal);
       if (opt) s.value = savedVal;
     }
