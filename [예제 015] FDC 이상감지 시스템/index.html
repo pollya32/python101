@@ -3155,14 +3155,14 @@ function _buildMailHeatmapHtml() {
   let maxRate = 0.01;
   eqps.forEach(e => params.forEach(p => { const d=cell(e,p); if(d&&d.rate>maxRate) maxRate=d.rate; }));
 
-  const TH_corner = 'border:1px solid #ccc;padding:5px 8px;font-size:10px;background:#e8eef7;color:#333;font-weight:600;white-space:nowrap;text-align:left;min-width:80px';
-  const TH_col    = 'border:1px solid #ccc;padding:5px 6px;font-size:10px;font-weight:600;background:#1e3a5f;color:#fff;white-space:nowrap;text-align:center';
-  const TH_row    = 'border:1px solid #ccc;padding:5px 8px;font-size:10px;font-weight:600;background:#e8eef7;color:#333;white-space:nowrap;text-align:left';
+  const TH_corner = 'border:1px solid #ccc;padding:6px 10px;font-size:10px;background:#e8eef7;color:#333;font-weight:600;white-space:nowrap;text-align:center;min-width:80px';
+  const TH_col    = 'border:1px solid #ccc;padding:6px 12px;font-size:10px;font-weight:600;background:#1e3a5f;color:#fff;white-space:nowrap;text-align:center;min-width:70px';
+  const TH_row    = 'border:1px solid #ccc;padding:6px 10px;font-size:10px;font-weight:600;background:#e8eef7;color:#333;white-space:nowrap;text-align:center';
 
   let tbl = `<table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:10px">
     <thead><tr>
       <th style="${TH_corner}">EQP \\ PPID</th>
-      ${params.map(p=>`<th style="${TH_col}" title="${p}">${p.length>10?p.slice(0,9)+'…':p}</th>`).join('')}
+      ${params.map(p=>`<th style="${TH_col}">${p}</th>`).join('')}
     </tr></thead><tbody>`;
 
   eqps.forEach(e => {
@@ -3203,6 +3203,9 @@ function _buildMailHtml() {
   const methodLabel= (typeof METHOD_LABEL!=='undefined'&&METHOD_LABEL[method]) || method;
   const now       = new Date().toLocaleString('ko-KR');
 
+  // 공통 셀 스타일
+  const td = 'border:1px solid #ddd;padding:6px 10px;font-size:12px;text-align:center';
+
   // EQP별 이상 집계
   const eqpMap = {};
   gAnomsAll.forEach(r => {
@@ -3214,70 +3217,71 @@ function _buildMailHtml() {
   });
   const eqpRows = Object.entries(eqpMap)
     .sort((a,b)=>b[1].total-a[1].total)
-    .map(([e,v])=>`<tr><td>${e}</td><td style="text-align:right;color:#e84040;font-weight:600">${v.total}</td></tr>`)
+    .map(([e,v])=>`<tr><td style="${td}">${e}</td><td style="${td};color:#e84040;font-weight:600">${v.total}</td></tr>`)
     .join('');
 
   // 이상 목록 상위 30건
-  const td = 'border:1px solid #ddd;padding:6px 10px;font-size:12px';
-  const anomRows = gAnomsAll.slice(0,30).map(r=>`
+  const anomRows = gAnomsAll.slice(0, 30).map(r=>`
     <tr>
       <td style="${td}">${String(r['날짜']).slice(0,16)}</td>
       <td style="${td}">${r['EQP ID']||''}</td>
       <td style="${td}">${r['LOTID']||''}</td>
       <td style="${td}">${r['CH']||''}</td>
       <td style="${td}">${r['PPID']||''}</td>
-      <td style="${td};text-align:right">${Number(r['REAL DATA']).toFixed(3)}</td>
-      <td style="${td};text-align:right;color:#e84040">${r.diff!=null?Number(r.diff).toFixed(3):'-'}</td>
+      <td style="${td};color:#333">${Number(r['REAL DATA']).toFixed(3)}</td>
+      <td style="${td};color:#e84040">${r.diff!=null?Number(r.diff).toFixed(3):'-'}</td>
     </tr>`).join('');
 
+  const TH = `border:1px solid #ddd;padding:6px 10px;font-size:12px;text-align:center;background:#1a233e;color:#fff;font-weight:600`;
+
   return `
-<div style="font-family:Arial,sans-serif;max-width:760px;margin:0 auto;color:#222">
-  <h2 style="background:#1a233e;color:#fff;padding:14px 20px;margin:0;border-radius:8px 8px 0 0">
+<div style="font-family:Arial,sans-serif;max-width:820px;margin:0 auto;color:#222">
+  <h2 style="background:#1a233e;color:#fff;padding:14px 20px;margin:0;border-radius:8px 8px 0 0;text-align:center">
     📊 FDC RAW DATA 이상감지 시스템 — 현황 리포트
   </h2>
-  <div style="background:#f8f9fa;border:1px solid #ddd;border-top:none;padding:14px 20px;border-radius:0 0 8px 8px;margin-bottom:16px">
+  <div style="background:#f8f9fa;border:1px solid #ddd;border-top:none;padding:10px 20px;border-radius:0 0 8px 8px;margin-bottom:20px;text-align:center">
     <span style="color:#666;font-size:12px">생성일시: ${now} &nbsp;|&nbsp; 감지 방식: ${methodLabel}</span>
   </div>
 
-  <h3 style="color:#1a233e;margin-bottom:8px">📋 분석 요약</h3>
+  <h3 style="color:#1a233e;margin-bottom:8px;text-align:center">📋 분석 요약</h3>
   <table style="border-collapse:collapse;width:100%;margin-bottom:20px">
     <tr style="background:#eaf2ff">
-      <td style="${td}"><b>전체 데이터 건수</b></td><td style="${td};text-align:right">${totalRows.toLocaleString()}</td>
-      <td style="${td}"><b>이상 감지 건수</b></td><td style="${td};text-align:right;color:#e84040;font-weight:700">${anomCount.toLocaleString()}</td>
+      <td style="${td}"><b>전체 데이터 건수</b></td><td style="${td}">${totalRows.toLocaleString()}</td>
+      <td style="${td}"><b>이상 감지 건수</b></td><td style="${td};color:#e84040;font-weight:700">${anomCount.toLocaleString()}</td>
     </tr>
     <tr>
-      <td style="${td}"><b>이상률</b></td><td style="${td};text-align:right">${anomRate}%</td>
-      <td style="${td}"><b>EQP 수</b></td><td style="${td};text-align:right">${eqpCount}</td>
+      <td style="${td}"><b>이상률</b></td><td style="${td}">${anomRate}%</td>
+      <td style="${td}"><b>EQP 수</b></td><td style="${td}">${eqpCount}</td>
     </tr>
     <tr style="background:#eaf2ff">
-      <td style="${td}"><b>PPID 수</b></td><td style="${td};text-align:right">${paramCount}</td>
-      <td style="${td}"><b>임계값</b></td><td style="${td};text-align:right">${gThreshold}</td>
+      <td style="${td}"><b>PPID 수</b></td><td style="${td}">${paramCount}</td>
+      <td style="${td}"><b>임계값</b></td><td style="${td}">${gThreshold}</td>
     </tr>
   </table>
 
-  <h3 style="color:#1a233e;margin-bottom:8px">🏭 EQP별 이상 건수</h3>
+  <h3 style="color:#1a233e;margin-bottom:8px;text-align:center">🏭 EQP별 이상 건수</h3>
   <table style="border-collapse:collapse;width:100%;margin-bottom:20px">
-    <tr style="background:#1a233e;color:#fff"><th style="${td}">EQP ID</th><th style="${td};text-align:right">이상 건수</th></tr>
+    <tr><th style="${TH}">EQP ID</th><th style="${TH}">이상 건수</th></tr>
     ${eqpRows||'<tr><td colspan="2" style="'+td+';color:#888">이상 없음</td></tr>'}
   </table>
 
-  <h3 style="color:#1a233e;margin-bottom:8px">🌡️ EQP × PPID 이상률 히트맵</h3>
-  <div style="overflow-x:auto;margin-bottom:20px">
+  <h3 style="color:#1a233e;margin-bottom:8px;text-align:center">🌡️ EQP × PPID 이상률 히트맵</h3>
+  <div style="overflow-x:auto;margin-bottom:20px;text-align:center">
     ${_buildMailHeatmapHtml()}
   </div>
 
-  <h3 style="color:#1a233e;margin-bottom:8px">⚠️ 이상 감지 목록 (상위 ${Math.min(30,anomCount)}건)</h3>
+  <h3 style="color:#1a233e;margin-bottom:8px;text-align:center">⚠️ 이상 감지 목록 (상위 ${Math.min(30,anomCount)}건)</h3>
   <table style="border-collapse:collapse;width:100%;margin-bottom:20px">
-    <tr style="background:#1a233e;color:#fff">
-      <th style="${td}">날짜</th><th style="${td}">EQP ID</th><th style="${td}">LOTID</th>
-      <th style="${td}">CH</th><th style="${td}">PPID</th>
-      <th style="${td};text-align:right">측정값</th><th style="${td};text-align:right">이탈량</th>
+    <tr>
+      <th style="${TH}">날짜</th><th style="${TH}">EQP ID</th><th style="${TH}">LOTID</th>
+      <th style="${TH}">CH</th><th style="${TH}">PPID</th>
+      <th style="${TH}">측정값</th><th style="${TH}">이탈량</th>
     </tr>
     ${anomRows||'<tr><td colspan="7" style="'+td+';color:#888">이상 없음</td></tr>'}
   </table>
-  ${anomCount>30?`<p style="color:#888;font-size:12px">※ 전체 ${anomCount}건 중 상위 30건만 표시</p>`:''}
+  ${anomCount>30?`<p style="color:#888;font-size:12px;text-align:center">※ 전체 ${anomCount}건 중 상위 30건만 표시</p>`:''}
 
-  <div style="border-top:1px solid #ddd;padding-top:10px;margin-top:8px;color:#888;font-size:11px">
+  <div style="border-top:1px solid #ddd;padding-top:10px;margin-top:8px;color:#888;font-size:11px;text-align:center">
     FDC 이상감지 시스템 — 자동 생성 리포트
   </div>
 </div>`;
