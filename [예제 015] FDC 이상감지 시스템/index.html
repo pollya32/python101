@@ -180,7 +180,8 @@
     .layout-move:hover{color:var(--tx1);}
     /* ── 메일 모달 ── */
     .mail-modal{width:min(520px,95vw);}
-    .mail-modal-body{padding:18px 22px;display:flex;flex-direction:column;gap:14px;}
+    .mail-modal-body{padding:18px 22px;display:flex;flex-direction:column;gap:14px;flex:1;overflow-y:auto;}
+    .mail-recipient-scroll{max-height:120px;overflow-y:auto;border:1px solid var(--bd);border-radius:6px;padding:4px 6px;background:var(--bg1);}
     .mail-field label{font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:4px;display:block;}
     .mail-field input{width:100%;padding:6px 10px;border:1px solid var(--bd);border-radius:6px;background:var(--bg1);color:var(--tx1);font-size:13px;}
     .mail-field input:focus{outline:none;border-color:var(--ac1);}
@@ -3612,7 +3613,7 @@ function toast(msg,type=''){
             <button class="btn btn-secondary btn-sm" onclick="addMailRecipient()">추가</button>
           </div>
         </div>
-        <div id="mailRecipientList"></div>
+        <div id="mailRecipientList" class="mail-recipient-scroll"></div>
       </div>
       <div class="mail-divider"></div>
       <!-- 발송 -->
