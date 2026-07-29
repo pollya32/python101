@@ -3309,10 +3309,13 @@ function _dateStr(r) { return String(r['날짜']||'').slice(0, 10); }
 const COL_MAP_LS = 'fdc_col_mapping';
 
 function saveColMapping() {
-  const selects = document.querySelectorAll('#colMapGrid select');
-  if (!selects.length) { toast('매핑 정보가 없습니다.', 'err'); return; }
+  const first = document.getElementById(FIELDS[0].id);
+  if (!first) { toast('매핑 정보가 없습니다.', 'err'); return; }
   const map = {};
-  selects.forEach(s => { map[s.id] = s.value; });
+  FIELDS.forEach(f => {
+    const el = document.getElementById(f.id);
+    if (el) map[f.key] = el.value;          // key = '날짜', 'EQP ID' 등 필드명
+  });
   localStorage.setItem(COL_MAP_LS, JSON.stringify({ map, headers: gHeaders }));
   toast('컬럼 매핑이 저장되었습니다.', 'ok');
 }
@@ -3320,15 +3323,17 @@ function saveColMapping() {
 function loadColMapping() {
   const saved = JSON.parse(localStorage.getItem(COL_MAP_LS) || 'null');
   if (!saved) { toast('저장된 매핑이 없습니다.', 'err'); return; }
-  const selects = document.querySelectorAll('#colMapGrid select');
-  selects.forEach(s => {
-    const savedVal = saved.map[s.id];
-    if (savedVal !== undefined) {
-      const opt = [...s.options].find(o => o.value === savedVal);
-      if (opt) s.value = savedVal;
-    }
+  let applied = 0;
+  FIELDS.forEach(f => {
+    const el = document.getElementById(f.id);
+    if (!el) return;
+    const savedVal = saved.map[f.key];      // f.key = '날짜', 'EQP ID' 등
+    if (savedVal == null) return;
+    const opt = [...el.options].find(o => o.value === String(savedVal));
+    if (opt) { el.value = String(savedVal); applied++; }
   });
-  toast('저장된 매핑을 불러왔습니다.', 'ok');
+  if (applied > 0) toast('저장된 매핑을 불러왔습니다.', 'ok');
+  else toast('저장된 매핑이 현재 파일 헤더와 맞지 않습니다. 다시 저장해주세요.', 'err');
 }
 
 function _checkSavedColMap() {
