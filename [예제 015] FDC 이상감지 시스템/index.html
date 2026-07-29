@@ -1377,16 +1377,15 @@ function renderEqpScatter() {
   const psA = Math.round(ps * 2.2);
   const datasets = params.map((p, pi) => {
     let rows = byParam.get(p) || [];
-    // hasTime 모드에서 _time=null 행을 제거 후 순수 시간 정렬
-    // (_time ?? _slot 혼용 시 epoch ms와 slot 정수 스케일이 달라 정렬 오류 발생)
     if (hasTime) {
-      rows = rows.filter(r => r._time != null);
-      rows.sort((a, b) => a._time - b._time);
+      // _time=null 행은 끝으로 정렬(Infinity)하되 제거하지 않아 이상감지 표기 유지
+      rows = [...rows].sort((a, b) => (a._time ?? Infinity) - (b._time ?? Infinity));
     } else {
       rows = [...rows].sort((a, b) => a._slot - b._slot);
     }
     const color = PALETTE[pi % PALETTE.length];
-    let pts = rows.map(r=>({ x: hasTime ? (r._time-tRef)/1000 : r._slot, y:r._val }));
+    // _time=null인 경우 _slot을 X fallback으로 사용(이상감지 점 누락 방지)
+    let pts = rows.map(r=>({ x: hasTime && r._time != null ? (r._time-tRef)/1000 : r._slot, y:r._val }));
     const dec = _decimateDataset(pts, rows, 600);
     pts = dec.pts; const dr = dec.rows;
     const pRadius=[], pHover=[], pBg=[], pBd=[], pBw=[];
