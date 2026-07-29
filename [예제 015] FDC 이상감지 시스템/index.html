@@ -706,7 +706,22 @@ function _parseTime(s) {
     if (!isNaN(d.getTime())) return d.getTime();
   }
 
-  // YYYY[-./]MM[-./]DD [HH:MM[:SS]] (ISO 및 점/슬래시 변형)
+  // ISO 8601 T 구분자 형식 — 밀리초(.mmm)·타임존(Z/+HH:MM) 포함 가능
+  // "2024-01-15T08:00:00.000Z", "2024-01-15T08:00:00+09:00" 등
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) return d.getTime();
+  }
+
+  // YYYY[-./]MM[-./]DD HH:MM:SS.mmm — 밀리초 포함 공백 구분 형식
+  // ".replace(/[./]/g,'-')" 전에 처리해야 밀리초 점이 대시로 깨지는 것을 방지
+  const msM = s.match(/^(\d{4})[.\/-](\d{1,2})[.\/-](\d{1,2})[T ](\d{1,2}):(\d{2}):(\d{2})[.,]\d/);
+  if (msM) {
+    const d = new Date(+msM[1], +msM[2]-1, +msM[3], +msM[4], +msM[5], +msM[6]);
+    if (!isNaN(d.getTime())) return d.getTime();
+  }
+
+  // YYYY[-./]MM[-./]DD [HH:MM[:SS]] (ISO 및 점/슬래시 변형, 밀리초 없는 형식)
   let n = s.replace(/[./]/g, '-');
   n = n.replace(/(\d{4}-\d{1,2}-\d{1,2})\s+(\d{1,2}:\d{2}(?::\d{2})?)/, '$1T$2');
   const d = new Date(n);
