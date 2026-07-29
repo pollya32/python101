@@ -1407,14 +1407,17 @@ async function renderCharts(results, stats) {
       panel.insertBefore(_note, wrap);
     }
 
-    for (const [gk, rows] of _renderEntries) {
+    for (const [gk, _rawRows] of _renderEntries) {
       const [eqp, lot, ch] = gk.split('|');
-      rows.sort((a, b) => hasTime ? ((a._time ?? a._slot) - (b._time ?? b._slot)) : a._slot - b._slot);
+      // hasTime 모드: _time=null 행 제거 후 순수 시간 정렬
+      const rows = hasTime
+        ? _rawRows.filter(r => r._time != null).sort((a, b) => a._time - b._time)
+        : [..._rawRows].sort((a, b) => a._slot - b._slot);
       const color = PALETTE[gi++ % PALETTE.length];
       const label = ch ? `${eqp}/${lot}/${ch}` : `${eqp}/${lot}`;
 
       let pts = rows.map(r => ({
-        x: hasTime && r._time != null ? (r._time - tRef) / 1000 : r._slot,
+        x: hasTime ? (r._time - tRef) / 1000 : r._slot,
         y: r._val
       }));
 
@@ -1678,10 +1681,17 @@ function renderEqpScatter() {
 
   const psA = Math.round(ps * 2.2);
   const datasets = params.map((p, pi) => {
-    const rows = byParam.get(p) || [];
-    rows.sort((a,b)=> hasTime ? ((a._time??a._slot)-(b._time??b._slot)) : a._slot-b._slot);
+    let rows = byParam.get(p) || [];
+    // hasTime 모드에서 _time=null 행을 제거 후 순수 시간 정렬
+    // (_time ?? _slot 혼용 시 epoch ms와 slot 정수 스케일이 달라 정렬 오류 발생)
+    if (hasTime) {
+      rows = rows.filter(r => r._time != null);
+      rows.sort((a, b) => a._time - b._time);
+    } else {
+      rows = [...rows].sort((a, b) => a._slot - b._slot);
+    }
     const color = PALETTE[pi % PALETTE.length];
-    let pts = rows.map(r=>({ x: hasTime&&r._time!=null?(r._time-tRef)/1000:r._slot, y:r._val }));
+    let pts = rows.map(r=>({ x: hasTime ? (r._time-tRef)/1000 : r._slot, y:r._val }));
     const dec = _decimateDataset(pts, rows, 600);
     pts = dec.pts; const dr = dec.rows;
     const pRadius=[], pHover=[], pBg=[], pBd=[], pBw=[];
