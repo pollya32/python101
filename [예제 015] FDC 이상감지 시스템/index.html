@@ -1374,18 +1374,37 @@ function renderEqpScatter() {
     byParam.get(p).push(r);
   }
 
+  // hasTime 모드에서 _time=null 행: slot 번호를 전체 시간 범위에 비례 매핑
+  // (_slot 값 그대로 쓰면 초 단위 시간축에 0~25가 찍혀 좌측 몰림 발생)
+  let _nullToX = null;
+  if (hasTime) {
+    const allSlots = base.map(r => r._slot).filter(v => v != null && isFinite(v));
+    const sMin = allSlots.length ? Math.min(...allSlots) : 0;
+    const sMax = allSlots.length ? Math.max(...allSlots) : 1;
+    const sRange = sMax - sMin || 1;
+    const tRangeS = (tMaxSc - tRef) / 1000;
+    _nullToX = s => ((s - sMin) / sRange) * tRangeS;
+  }
+
   const psA = Math.round(ps * 2.2);
   const datasets = params.map((p, pi) => {
     let rows = byParam.get(p) || [];
     if (hasTime) {
-      // _time=null 행은 끝으로 정렬(Infinity)하되 제거하지 않아 이상감지 표기 유지
-      rows = [...rows].sort((a, b) => (a._time ?? Infinity) - (b._time ?? Infinity));
+      rows = [...rows].sort((a, b) => {
+        const ax = a._time != null ? (a._time - tRef) / 1000 : _nullToX(a._slot ?? 0);
+        const bx = b._time != null ? (b._time - tRef) / 1000 : _nullToX(b._slot ?? 0);
+        return ax - bx;
+      });
     } else {
       rows = [...rows].sort((a, b) => a._slot - b._slot);
     }
     const color = PALETTE[pi % PALETTE.length];
-    // _time=null인 경우 _slot을 X fallback으로 사용(이상감지 점 누락 방지)
-    let pts = rows.map(r=>({ x: hasTime && r._time != null ? (r._time-tRef)/1000 : r._slot, y:r._val }));
+    let pts = rows.map(r => ({
+      x: hasTime
+        ? (r._time != null ? (r._time - tRef) / 1000 : _nullToX(r._slot ?? 0))
+        : r._slot,
+      y: r._val,
+    }));
     const dec = _decimateDataset(pts, rows, 600);
     pts = dec.pts; const dr = dec.rows;
     const pRadius=[], pHover=[], pBg=[], pBd=[], pBw=[];
