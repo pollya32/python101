@@ -3028,10 +3028,42 @@ function _buildMailHtml() {
   </table>
   ${anomCount>30?`<p style="color:#888;font-size:12px;text-align:center">※ 전체 ${anomCount}건 중 상위 30건만 표시</p>`:''}
 
+  ${(()=>{
+    if (!document.getElementById('mailIncludeScatter')?.checked) return '';
+    const eqp   = document.getElementById('scEqp')?.value   || '';
+    const ch    = document.getElementById('scCh')?.value    || '';
+    const param = document.getElementById('scParam')?.value || '전체';
+    const img   = _captureScatterChart();
+    if (!img) return '';
+    const label = [eqp, ch, param].filter(Boolean).join(' / ');
+    return `
+  <h3 style="color:#1a233e;margin-bottom:8px;text-align:center">🔬 EQP/CH 상세 산점도</h3>
+  <div style="text-align:center;margin-bottom:20px">
+    <img src="${img}" style="max-width:100%;border:1px solid #ddd;border-radius:4px;display:block;margin:0 auto">
+    <p style="font-size:11px;color:#888;margin:6px 0 0">※ 선택 조건: ${label}</p>
+  </div>`;
+  })()}
+
   <div style="border-top:1px solid #ddd;padding-top:10px;margin-top:8px;color:#888;font-size:11px;text-align:center">
     FDC 이상감지 시스템 — 자동 생성 리포트
   </div>
 </div>`;
+}
+
+/* 산점도 차트 캔버스 → 흰 배경 PNG base64 */
+function _captureScatterChart() {
+  const canvas = document.getElementById('scatterCanvas');
+  if (!canvas || !gScatterChart) return null;
+  try {
+    const tmp = document.createElement('canvas');
+    tmp.width  = canvas.width;
+    tmp.height = canvas.height;
+    const tCtx = tmp.getContext('2d');
+    tCtx.fillStyle = '#ffffff';
+    tCtx.fillRect(0, 0, tmp.width, tmp.height);
+    tCtx.drawImage(canvas, 0, 0);
+    return tmp.toDataURL('image/png');
+  } catch { return null; }
 }
 
 /* 이메일 전용 전체 보고서 — 완전 인라인 스타일 */
@@ -3533,6 +3565,10 @@ function toast(msg,type=''){
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx1);cursor:pointer;user-select:none;">
         <input type="checkbox" id="mailAttachReport" checked style="width:15px;height:15px;accent-color:var(--ac1);">
         전체 분석 보고서 본문 포함 (통계 + 전체 이상 목록 + 원본 데이터)
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx1);cursor:pointer;user-select:none;">
+        <input type="checkbox" id="mailIncludeScatter" checked style="width:15px;height:15px;accent-color:var(--ac1);">
+        🔬 산점도 차트 이미지 본문 삽입 (현재 선택된 EQP/CH/PPID 기준)
       </label>
       <button class="mail-send-btn" id="mailSendBtn" onclick="sendMailNow()">📤 지금 바로 발송</button>
       <div class="mail-status" id="mailStatusMsg"></div>
