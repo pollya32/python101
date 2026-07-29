@@ -502,6 +502,15 @@
               <option value="">전체</option>
             </select>
           </div>
+          <div class="ctrl-group" style="gap:6px">
+            <label style="font-size:12px;color:var(--tx2)">X축 여백</label>
+            <div style="display:flex;align-items:center;gap:5px">
+              <input type="range" id="scXPad" min="0" max="30" value="4" step="1"
+                oninput="document.getElementById('scXPadVal').textContent=this.value+'%';renderEqpScatter()"
+                style="width:80px;accent-color:var(--acc,#58a6ff);cursor:pointer">
+              <span id="scXPadVal" style="font-size:11px;color:var(--tx2);min-width:26px;text-align:right">4%</span>
+            </div>
+          </div>
         </div>
       </div>
       <div class="chart-wrap" style="height:360px"><canvas id="scatterCanvas"></canvas></div>
@@ -1693,17 +1702,18 @@ function renderEqpScatter() {
     };
   });
 
-  // X축 패딩 계산 (시작점 데이터 쏠림 방지)
+  // X축 패딩 계산 (시작점 데이터 쏠림 방지 — 슬라이더 값 사용)
+  const _padPct = (parseInt(document.getElementById('scXPad')?.value) ?? 4) / 100;
   let _xMin, _xMax, _xPad;
   if (hasTime) {
     _xMin = 0;
     _xMax = (tMaxSc - tRef) / 1000;
-    _xPad = Math.max(_xMax * 0.04, 3600);
+    _xPad = _padPct === 0 ? 0 : Math.max(_xMax * _padPct, 3600);
   } else {
     const _allX = datasets.flatMap(ds => ds.data.map(p => p.x)).filter(v => isFinite(v));
     _xMin = _allX.length ? Math.min(..._allX) : 0;
     _xMax = _allX.length ? Math.max(..._allX) : 1;
-    _xPad = Math.max((_xMax - _xMin) * 0.04, 1);
+    _xPad = _padPct === 0 ? 0 : Math.max((_xMax - _xMin) * _padPct, 1);
   }
 
   if (gScatterChart) { gScatterChart.destroy(); gScatterChart=null; }
