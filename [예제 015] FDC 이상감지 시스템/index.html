@@ -487,6 +487,7 @@
       </div>
       <div class="chart-wrap" style="height:360px"><canvas id="scatterCanvas"></canvas></div>
       <div id="scatterDragInfo" class="drag-select-info" style="display:none"></div>
+      <div id="scatterNullNote" style="display:none;font-size:11px;color:#d29922;padding:6px 8px;background:rgba(210,153,34,.1);border-radius:4px;margin-top:6px"></div>
     </div>
 
     <!-- 전체 데이터 -->
@@ -1374,35 +1375,33 @@ function renderEqpScatter() {
     byParam.get(p).push(r);
   }
 
-  // hasTime 모드에서 _time=null 행: slot 번호를 전체 시간 범위에 비례 매핑
-  // (_slot 값 그대로 쓰면 초 단위 시간축에 0~25가 찍혀 좌측 몰림 발생)
-  let _nullToX = null;
-  if (hasTime) {
-    const allSlots = base.map(r => r._slot).filter(v => v != null && isFinite(v));
-    const sMin = allSlots.length ? Math.min(...allSlots) : 0;
-    const sMax = allSlots.length ? Math.max(...allSlots) : 1;
-    const sRange = sMax - sMin || 1;
-    const tRangeS = (tMaxSc - tRef) / 1000;
-    _nullToX = s => ((s - sMin) / sRange) * tRangeS;
+  // hasTime 모드에서 _time=null 행은 시간축에 배치 불가 → 제외 후 순수 시간 정렬
+  // (null 행에 slot 값을 쓰면 초 단위 시간축에 0~25가 찍혀 좌측 몰림·순서 오류 발생)
+  const nullAnomCount = hasTime
+    ? base.filter(r => r._time == null && r.isAnom).length
+    : 0;
+  const noteEl = document.getElementById('scatterNullNote');
+  if (noteEl) {
+    if (nullAnomCount > 0) {
+      noteEl.style.display = '';
+      noteEl.textContent = `⚠️ 날짜 미확인 이상감지 ${nullAnomCount}건은 시간축에 표시할 수 없습니다. 이상감지 목록 테이블에서 확인하세요.`;
+    } else {
+      noteEl.style.display = 'none';
+    }
   }
 
   const psA = Math.round(ps * 2.2);
   const datasets = params.map((p, pi) => {
     let rows = byParam.get(p) || [];
     if (hasTime) {
-      rows = [...rows].sort((a, b) => {
-        const ax = a._time != null ? (a._time - tRef) / 1000 : _nullToX(a._slot ?? 0);
-        const bx = b._time != null ? (b._time - tRef) / 1000 : _nullToX(b._slot ?? 0);
-        return ax - bx;
-      });
+      rows = rows.filter(r => r._time != null);
+      rows.sort((a, b) => a._time - b._time);
     } else {
       rows = [...rows].sort((a, b) => a._slot - b._slot);
     }
     const color = PALETTE[pi % PALETTE.length];
     let pts = rows.map(r => ({
-      x: hasTime
-        ? (r._time != null ? (r._time - tRef) / 1000 : _nullToX(r._slot ?? 0))
-        : r._slot,
+      x: hasTime ? (r._time - tRef) / 1000 : r._slot,
       y: r._val,
     }));
     const dec = _decimateDataset(pts, rows, 600);
