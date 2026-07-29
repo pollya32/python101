@@ -1704,16 +1704,20 @@ function renderEqpScatter() {
 
   // X축 패딩 계산 (시작점 데이터 쏠림 방지 — 슬라이더 값 사용)
   const _padPct = (parseInt(document.getElementById('scXPad')?.value) ?? 4) / 100;
-  let _xMin, _xMax, _xPad;
+  let _xMin, _xMax, _xPad, _xScaleMin;
   if (hasTime) {
     _xMin = 0;
     _xMax = (tMaxSc - tRef) / 1000;
     _xPad = _padPct === 0 ? 0 : Math.max(_xMax * _padPct, 3600);
+    // 4시간(14400s) 경계에 맞춰 scale min 정렬
+    const _4hMs = 4 * 3600 * 1000;
+    _xScaleMin = (Math.floor((tRef - _xPad * 1000) / _4hMs) * _4hMs - tRef) / 1000;
   } else {
     const _allX = datasets.flatMap(ds => ds.data.map(p => p.x)).filter(v => isFinite(v));
     _xMin = _allX.length ? Math.min(..._allX) : 0;
     _xMax = _allX.length ? Math.max(..._allX) : 1;
     _xPad = _padPct === 0 ? 0 : Math.max((_xMax - _xMin) * _padPct, 1);
+    _xScaleMin = _xMin - _xPad;
   }
 
   if (gScatterChart) { gScatterChart.destroy(); gScatterChart=null; }
@@ -1754,17 +1758,18 @@ function renderEqpScatter() {
       scales:{
         x:{
           type:'linear',
-          min: _xMin - _xPad,
+          min: _xScaleMin,
           max: _xMax + _xPad,
           ticks:{
-            color:'#8b949e',font:{size:10},maxTicksLimit:10,
+            color:'#8b949e', font:{size:10},
+            ...(hasTime
+              ? {stepSize: 14400, maxTicksLimit: 60, autoSkip: true}
+              : {maxTicksLimit: 10}),
             callback: hasTime
               ? v=>{
                   const dd=new Date(tRef+v*1000);
                   const p=n=>String(n).padStart(2,'0');
-                  return tRange>1
-                    ? `${dd.getFullYear()}-${p(dd.getMonth()+1)}-${p(dd.getDate())}\n${p(dd.getHours())}:${p(dd.getMinutes())}`
-                    : `${p(dd.getMonth()+1)}/${p(dd.getDate())}\n${p(dd.getHours())}:${p(dd.getMinutes())}`;
+                  return `${p(dd.getMonth()+1)}/${p(dd.getDate())}\n${p(dd.getHours())}:${p(dd.getMinutes())}`;
                 }
               : v=>`SLOT ${v}`
           },
