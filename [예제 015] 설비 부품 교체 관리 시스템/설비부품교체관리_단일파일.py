@@ -3553,6 +3553,9 @@ body {
   --shape-color: var(--pri);
   border: 3px solid var(--shape-color);
   box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
+     여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
+  max-width: 1600px;
 }
 .unit-shape-header {
   text-align: center;
@@ -5539,6 +5542,9 @@ body {
   --shape-color: var(--pri);
   border: 3px solid var(--shape-color);
   box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
+     여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
+  max-width: 1600px;
 }
 .unit-shape-header {
   text-align: center;
@@ -7718,6 +7724,9 @@ body {
   --shape-color: var(--pri);
   border: 3px solid var(--shape-color);
   box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
+     여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
+  max-width: 1600px;
 }
 .unit-shape-header {
   text-align: center;
@@ -10246,6 +10255,9 @@ body {
   --shape-color: var(--pri);
   border: 3px solid var(--shape-color);
   box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
+     여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
+  max-width: 1600px;
 }
 .unit-shape-header {
   text-align: center;
@@ -11889,6 +11901,9 @@ body {
   --shape-color: var(--pri);
   border: 3px solid var(--shape-color);
   box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
+     여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
+  max-width: 1600px;
 }
 .unit-shape-header {
   text-align: center;
@@ -13303,6 +13318,9 @@ body {
   --shape-color: var(--pri);
   border: 3px solid var(--shape-color);
   box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
+     여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
+  max-width: 1600px;
 }
 .unit-shape-header {
   text-align: center;
@@ -14667,6 +14685,9 @@ body {
   --shape-color: var(--pri);
   border: 3px solid var(--shape-color);
   box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
+     여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
+  max-width: 1600px;
 }
 .unit-shape-header {
   text-align: center;
@@ -16147,6 +16168,9 @@ body {
   --shape-color: var(--pri);
   border: 3px solid var(--shape-color);
   box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
+     여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
+  max-width: 1600px;
 }
 .unit-shape-header {
   text-align: center;
@@ -17334,6 +17358,9 @@ body {
   --shape-color: var(--pri);
   border: 3px solid var(--shape-color);
   box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
+     여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
+  max-width: 1600px;
 }
 .unit-shape-header {
   text-align: center;
@@ -18825,6 +18852,9 @@ body {
   --shape-color: var(--pri);
   border: 3px solid var(--shape-color);
   box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
+     여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
+  max-width: 1600px;
 }
 .unit-shape-header {
   text-align: center;
@@ -20205,6 +20235,9 @@ body {
   --shape-color: var(--pri);
   border: 3px solid var(--shape-color);
   box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
+     여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
+  max-width: 1600px;
 }
 .unit-shape-header {
   text-align: center;
@@ -21478,6 +21511,9 @@ body {
   --shape-color: var(--pri);
   border: 3px solid var(--shape-color);
   box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
+     여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
+  max-width: 1600px;
 }
 .unit-shape-header {
   text-align: center;
@@ -22883,6 +22919,9 @@ body {
   --shape-color: var(--pri);
   border: 3px solid var(--shape-color);
   box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
+     여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
+  max-width: 1600px;
 }
 .unit-shape-header {
   text-align: center;
