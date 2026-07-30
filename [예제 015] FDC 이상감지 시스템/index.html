@@ -1362,7 +1362,11 @@ function addScatterPanel(opts={}) {
   scEqp.innerHTML = eqps.map(e=>`<option value="${e}">${e}</option>`).join('');
   if (opts.eqp && eqps.includes(opts.eqp)) scEqp.value = opts.eqp;
   _updateScPanelCh(pid);
+  if (opts.ch)    { const el = document.getElementById(`scCh-${pid}`);    if (el && [...el.options].some(o=>o.value===opts.ch))    el.value = opts.ch; }
   _updateScPanelParam(pid);
+  if (opts.param) { const el = document.getElementById(`scParam-${pid}`); if (el && [...el.options].some(o=>o.value===opts.param)) el.value = opts.param; }
+  if (opts.xpad      != null) { const el = document.getElementById(`scXPad-${pid}`);    const vl = document.getElementById(`scXPadVal-${pid}`);    if (el) { el.value = opts.xpad;      if (vl) vl.textContent = opts.xpad      + '%'; } }
+  if (opts.pointSize != null) { const el = document.getElementById(`pointSize-${pid}`); const vl = document.getElementById(`pointSizeVal-${pid}`); if (el) { el.value = opts.pointSize; if (vl) vl.textContent = opts.pointSize + 'px'; } }
   renderScatterPanel(pid);
 }
 
@@ -2374,6 +2378,13 @@ async function saveAnalysis() {
       params: [...new Set(gResults.map(r=>r['PPID']))].length,
     },
     gResults,
+    scatterPanels: [...gScatterPanels.keys()].map(pid => ({
+      eqp:       document.getElementById(`scEqp-${pid}`)?.value   || '',
+      ch:        document.getElementById(`scCh-${pid}`)?.value    || '',
+      param:     document.getElementById(`scParam-${pid}`)?.value || '',
+      xpad:      document.getElementById(`scXPad-${pid}`)?.value  || '4',
+      pointSize: document.getElementById(`pointSize-${pid}`)?.value || '2',
+    })),
   };
   try {
     await _idbPut(entry);
@@ -2560,10 +2571,19 @@ async function applySnapshot(snap) {
 
     _setProgress(90, '필터 초기화 중...'); await _tick();
     populateFilters(gResults);
-    initScatterSelects(gResults);
+
+    // 산점도 패널 복원
+    gScatterPanels.forEach(ch => { if (ch) ch.destroy(); });
+    gScatterPanels.clear();
+    _scPanelSeq = 0;
+    const _scWrap = document.getElementById('scatterPanelsWrap');
+    if (_scWrap) _scWrap.innerHTML = '';
+    const _savedPanels = snap.scatterPanels?.length ? snap.scatterPanels : [{}];
+    _savedPanels.forEach(p => addScatterPanel(p));
 
     _setProgress(100, '완료');
     document.getElementById('results').style.display = 'block';
+    applyLayout();
     document.getElementById('results').scrollIntoView({behavior:'smooth', block:'start'});
     toast(`불러오기 완료 — ${gResults.length}건 / 이상 ${gAnomsAll.length}건`, gAnomsAll.length?'err':'ok');
   } finally {
