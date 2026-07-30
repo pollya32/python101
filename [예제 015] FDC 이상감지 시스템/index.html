@@ -294,7 +294,7 @@
       <!-- 임계값 -->
       <div class="ctrl-group">
         <span id="thrLabel">임계값:</span>
-        <input type="number" id="threshold" value="10" min="0" step="0.1">
+        <input type="number" id="threshold" value="10" min="0" step="0.1" oninput="saveSettings()">
         <span id="thrUnit" style="font-size:11px;color:var(--tx2)"></span>
       </div>
       <!-- 창 크기 (slope_win 전용) -->
@@ -616,7 +616,7 @@ function onMethodChange() {
   document.getElementById('winRow').style.display   = meta.winRow   ? 'flex':'none';
   document.getElementById('ewmaRow').style.display  = meta.ewmaRow  ? 'flex':'none';
   document.getElementById('cusumRow').style.display = meta.cusumRow ? 'flex':'none';
-  if (meta.thrDef !== undefined) document.getElementById('threshold').value = meta.thrDef;
+  document.getElementById('threshold').placeholder = meta.thrDef !== undefined ? String(meta.thrDef) : '';
   document.querySelectorAll('.th-ref').forEach(th=>th.textContent=meta.ref);
   document.querySelectorAll('.th-diff').forEach(th=>th.textContent=meta.diff);
 }
