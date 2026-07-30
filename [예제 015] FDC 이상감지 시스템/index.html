@@ -14,7 +14,18 @@
       --tx1:#e6edf3;--tx2:#8b949e;
       --blue:#388bfd;--red:#f85149;--green:#3fb950;--yellow:#d29922;--purple:#a371f7;
     }
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif;background:var(--bg0);color:var(--tx1);min-height:100vh;}
+    :root[data-theme="light"]{
+      --bg0:#f6f8fa;--bg1:#ffffff;--bg2:#eef1f5;--bd:#d0d7de;
+      --tx1:#1f2328;--tx2:#57606a;
+      --blue:#0969da;--red:#cf222e;--green:#1a7f37;--yellow:#9a6700;--purple:#6639ba;
+    }
+    :root[data-theme="light"] body{background:var(--bg0);}
+    :root[data-theme="light"] textarea{background:var(--bg1);}
+    :root[data-theme="light"] .toast{box-shadow:0 2px 8px rgba(0,0,0,.12);}
+    :root[data-theme="light"] tr:not(.anom-row):hover{background:rgba(0,0,0,.03);}
+    :root[data-theme="light"] .anom-row{background:rgba(207,34,46,.06);}
+    :root[data-theme="light"] .anom-row:hover{background:rgba(207,34,46,.11);}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif;background:var(--bg0);color:var(--tx1);min-height:100vh;transition:background .2s,color .2s;}
 
     header{background:linear-gradient(135deg,var(--bg2),var(--bg0));border-bottom:1px solid var(--bd);padding:20px 32px;display:flex;align-items:center;gap:14px;}
     header .logo{font-size:30px;}
@@ -221,9 +232,12 @@
 
 <header>
   <div class="logo">⚡</div>
-  <div>
-    <h1>FDC RAW DATA 이상감지 시스템 <span class="chip">v4.1</span></h1>
+  <div style="flex:1">
+    <h1>FDC RAW DATA 이상감지 시스템 <span class="chip">v4.2</span></h1>
     <p>XLSX/CSV 업로드 · 23가지 감지 방식 · 임계값 추천 · 설정 프리셋 · 데이터 품질 체크 · A/B 비교 · Excel 내보내기 · 브라우저 알림</p>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;margin-left:auto;flex-shrink:0">
+    <button id="btnTheme" onclick="toggleTheme()" title="라이트/다크 모드 전환" style="background:none;border:1px solid var(--bd);border-radius:8px;color:var(--tx1);padding:6px 12px;cursor:pointer;font-size:16px;line-height:1;transition:border-color .2s">🌙</button>
   </div>
 </header>
 
@@ -367,6 +381,30 @@
       <button class="btn btn-secondary" onclick="openLayoutModal()">⚙ 화면설정</button>
       <button class="btn btn-secondary" onclick="openMailModal()">📧 메일 발송</button>
       <button class="btn btn-secondary" id="btnNotify" onclick="toggleNotification()" title="분석 완료 시 브라우저 알림">🔕 알림 설정</button>
+      <div class="ctrl-group">
+        <span style="font-size:12px;color:var(--tx2)">📄 페이지당 행:</span>
+        <select id="globalPageSize" onchange="applyGlobalPageSize()" style="width:auto;padding:5px 8px;font-size:12px">
+          <option value="20">20건</option>
+          <option value="50">50건</option>
+          <option value="100">100건</option>
+          <option value="200" selected>200건</option>
+          <option value="500">500건</option>
+          <option value="1000">1000건</option>
+        </select>
+      </div>
+      <!-- K: 자동 재분석 -->
+      <div class="ctrl-group" id="autoRefreshGroup">
+        <span style="font-size:12px;color:var(--tx2)">🔄 자동 재분석:</span>
+        <select id="autoRefreshInterval" style="width:auto;padding:5px 8px;font-size:12px">
+          <option value="0">끄기</option>
+          <option value="10">10초</option>
+          <option value="30">30초</option>
+          <option value="60">1분</option>
+          <option value="300">5분</option>
+        </select>
+        <button class="btn btn-secondary btn-sm" id="btnAutoRefresh" onclick="toggleAutoRefresh()">▶ 시작</button>
+        <span id="autoRefreshCountdown" style="font-size:11px;color:var(--green);display:none;min-width:50px"></span>
+      </div>
     </div>
   </div>
 
@@ -2006,6 +2044,115 @@ function renderMethodPresets() {
     </span>`).join('');
 }
 renderMethodPresets();
+
+/* ══════════════════════════════════════════════════════
+   I: 라이트/다크 모드 토글
+══════════════════════════════════════════════════════ */
+function toggleTheme() {
+  const root = document.documentElement;
+  const isLight = root.getAttribute('data-theme') === 'light';
+  const next = isLight ? 'dark' : 'light';
+  root.setAttribute('data-theme', next);
+  document.getElementById('btnTheme').textContent = next === 'light' ? '☀️' : '🌙';
+  localStorage.setItem('fdcTheme', next);
+  // Chart.js 차트 폰트색·그리드색 동적 업데이트
+  const fg = next === 'light' ? '#57606a' : '#8b949e';
+  const gd = next === 'light' ? 'rgba(0,0,0,.08)' : 'rgba(255,255,255,.08)';
+  Chart.defaults.color = fg;
+  Chart.defaults.borderColor = gd;
+  // 이미 렌더된 차트 모두 업데이트
+  Object.values(Chart.instances).forEach(c => c.update('none'));
+}
+(function _initTheme() {
+  const saved = localStorage.getItem('fdcTheme');
+  if (saved) {
+    document.documentElement.setAttribute('data-theme', saved);
+    const btn = document.getElementById('btnTheme');
+    if (btn) btn.textContent = saved === 'light' ? '☀️' : '🌙';
+    if (saved === 'light') {
+      Chart.defaults.color = '#57606a';
+      Chart.defaults.borderColor = 'rgba(0,0,0,.08)';
+    }
+  }
+})();
+
+/* ══════════════════════════════════════════════════════
+   J: 페이지당 행 수 (전역 기본값)
+══════════════════════════════════════════════════════ */
+function applyGlobalPageSize() {
+  const n = parseInt(document.getElementById('globalPageSize').value) || 200;
+  gPage.pageSize     = n;
+  gPage.anomPageSize = n;
+  gPage.full = 1;
+  gPage.anom = 1;
+  localStorage.setItem('fdcPageSize', String(n));
+  if (gResults.length) {
+    renderAnomPage();
+    renderFullPage(gFilteredResults ?? gResults);
+  }
+  toast(`페이지당 ${n}건으로 변경됨`, 'ok');
+}
+(function _initPageSize() {
+  const saved = parseInt(localStorage.getItem('fdcPageSize'));
+  if (saved) {
+    gPage.pageSize = saved;
+    gPage.anomPageSize = saved;
+    const sel = document.getElementById('globalPageSize');
+    if (sel) {
+      // 옵션에 없는 값이면 추가
+      if (![...sel.options].some(o => +o.value === saved)) {
+        const opt = document.createElement('option');
+        opt.value = saved; opt.textContent = `${saved}건`;
+        sel.appendChild(opt);
+      }
+      sel.value = saved;
+    }
+  }
+})();
+
+/* ══════════════════════════════════════════════════════
+   K: 자동 재분석 모드
+══════════════════════════════════════════════════════ */
+let _arTimer   = null;
+let _arCountdown = 0;
+let _arTickTimer = null;
+
+function toggleAutoRefresh() {
+  if (_arTimer) {
+    // 중지
+    clearInterval(_arTimer);
+    clearInterval(_arTickTimer);
+    _arTimer = null; _arTickTimer = null;
+    document.getElementById('btnAutoRefresh').textContent = '▶ 시작';
+    document.getElementById('btnAutoRefresh').style.color = '';
+    document.getElementById('btnAutoRefresh').style.borderColor = '';
+    document.getElementById('autoRefreshCountdown').style.display = 'none';
+    toast('자동 재분석 중지됨', '');
+    return;
+  }
+  const sec = parseInt(document.getElementById('autoRefreshInterval').value);
+  if (!sec) { toast('간격을 선택하세요', 'err'); return; }
+  if (!document.getElementById('dataInput').value.trim()) { toast('먼저 데이터를 입력하세요', 'err'); return; }
+  const btn = document.getElementById('btnAutoRefresh');
+  const cdEl = document.getElementById('autoRefreshCountdown');
+  btn.textContent = '⏹ 중지';
+  btn.style.color = 'var(--green)';
+  btn.style.borderColor = 'var(--green)';
+  cdEl.style.display = 'inline';
+  _arCountdown = sec;
+  cdEl.textContent = `${_arCountdown}s`;
+  _arTickTimer = setInterval(() => {
+    _arCountdown--;
+    cdEl.textContent = `${_arCountdown}s`;
+    if (_arCountdown <= 0) _arCountdown = sec;
+  }, 1000);
+  _arTimer = setInterval(async () => {
+    _arCountdown = sec;
+    if (document.getElementById('btnRun').disabled) return; // 분석 중이면 스킵
+    await runAnalysis();
+  }, sec * 1000);
+  toast(`자동 재분석 시작 — ${sec}초 간격`, 'ok');
+}
 
 /* ══════════════════════════════════════════════════════
    F: 데이터 품질 사전 체크
