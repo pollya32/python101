@@ -2377,17 +2377,35 @@ async function saveAnalysis() {
   };
   try {
     await _idbPut(entry);
-    toast('분석 저장 완료 (히스토리 + JSON 파일)','ok');
   } catch(e) {
     console.error('IndexedDB save error', e);
-    toast('히스토리 저장 실패 — JSON 파일만 다운로드','err');
   }
-  // JSON 파일 다운로드 (원본 텍스트 포함)
+  // JSON 파일 저장 (원본 텍스트 포함)
   const fileSnap = { ...entry, version:'3.12', text: document.getElementById('dataInput').value };
-  const blob = new Blob([JSON.stringify(fileSnap,null,2)],{type:'application/json'});
+  const jsonStr  = JSON.stringify(fileSnap, null, 2);
+  const fname    = `fdc_snapshot_${today()}.json`;
+  if ('showSaveFilePicker' in window) {
+    try {
+      const handle   = await window.showSaveFilePicker({
+        suggestedName: fname,
+        types: [{ description: 'JSON 파일', accept: { 'application/json': ['.json'] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(jsonStr);
+      await writable.close();
+      toast('분석 저장 완료 (히스토리 + JSON 파일)', 'ok');
+      return;
+    } catch(e) {
+      if (e.name === 'AbortError') { toast('저장 취소됨', 'err'); return; }
+      // 지원 안 되거나 오류 시 일반 다운로드로 폴백
+    }
+  }
+  // 폴백: 일반 다운로드
+  const blob = new Blob([jsonStr], { type: 'application/json' });
   const url  = URL.createObjectURL(blob);
-  Object.assign(document.createElement('a'),{href:url,download:`fdc_snapshot_${today()}.json`}).click();
+  Object.assign(document.createElement('a'), { href: url, download: fname }).click();
   URL.revokeObjectURL(url);
+  toast('분석 저장 완료 (히스토리 + JSON 파일)', 'ok');
 }
 
 const _METHOD_SHORT = { abs:'절대값', sigma:'σ배수', pct:'변화율%', slope_diff:'기울기Δ', slope_win:'이동기울기',
