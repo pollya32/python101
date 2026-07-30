@@ -42,6 +42,7 @@
     textarea{width:100%;height:160px;background:var(--bg1);border:1px solid var(--bd);border-radius:6px;color:var(--tx1);font-family:'Consolas','Monaco',monospace;font-size:12px;padding:12px;resize:vertical;outline:none;transition:border-color .2s;line-height:1.5;}
     textarea:focus{border-color:var(--blue);}
     textarea::placeholder{color:var(--tx2);opacity:.55;}
+    textarea.drag-cell-over{border-color:var(--green);background:rgba(63,185,80,.06);}
 
     /* ── 컬럼 매핑 ── */
     .cm-wrap{margin-top:12px;background:var(--bg1);border:1px solid var(--bd);border-radius:8px;padding:14px 16px;}
@@ -233,7 +234,7 @@
 <header>
   <div class="logo">⚡</div>
   <div style="flex:1">
-    <h1>FDC RAW DATA 이상감지 시스템 <span class="chip">v4.2</span></h1>
+    <h1>FDC RAW DATA 이상감지 시스템 <span class="chip">v4.3</span></h1>
     <p>XLSX/CSV 업로드 · 23가지 감지 방식 · 임계값 추천 · 설정 프리셋 · 데이터 품질 체크 · A/B 비교 · Excel 내보내기 · 브라우저 알림</p>
   </div>
   <div style="display:flex;gap:8px;align-items:center;margin-left:auto;flex-shrink:0">
@@ -245,9 +246,32 @@
   <!-- 데이터 입력 -->
   <div class="card">
     <div class="card-title">📋 데이터 입력</div>
-    <div class="hint">
+    <div class="hint" id="pasteHint">
       엑셀에서 <strong>Ctrl+C</strong> 복사 → 아래에 <strong>Ctrl+V</strong> 붙여넣기<br>
       첫 번째 행을 헤더로 인식하며, 아래 <strong>컬럼 매핑</strong>에서 각 열을 직접 지정할 수 있습니다.
+    </div>
+    <!-- 보안정책 우회 패널 (숨김) -->
+    <div id="securityHint" style="display:none;background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.3);border-radius:8px;padding:12px 16px;margin-bottom:10px;font-size:12px;line-height:1.8">
+      <div style="font-weight:700;color:var(--red);margin-bottom:8px">🔒 보안 정책으로 붙여넣기가 차단된 경우 — 아래 방법을 시도하세요</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
+        <div style="background:var(--bg2);border-radius:6px;padding:10px 12px">
+          <div style="font-weight:600;color:var(--blue);margin-bottom:4px">① 클립보드 버튼 사용</div>
+          <div style="color:var(--tx2)">아래 <strong style="color:var(--tx1)">📋 클립보드 읽기</strong> 버튼 클릭<br>브라우저 권한 허용 시 자동 입력</div>
+        </div>
+        <div style="background:var(--bg2);border-radius:6px;padding:10px 12px">
+          <div style="font-weight:600;color:var(--blue);margin-bottom:4px">② Excel 셀 직접 드래그</div>
+          <div style="color:var(--tx2)">Excel에서 셀 범위 선택 →<br>아래 <strong style="color:var(--tx1)">점선 영역</strong>으로 끌어다 놓기</div>
+        </div>
+        <div style="background:var(--bg2);border-radius:6px;padding:10px 12px">
+          <div style="font-weight:600;color:var(--blue);margin-bottom:4px">③ XLSX/CSV 파일 업로드</div>
+          <div style="color:var(--tx2)">Excel → <strong style="color:var(--tx1)">다른 이름으로 저장</strong><br>→ .xlsx 또는 .csv → 위 드롭존에 업로드</div>
+        </div>
+        <div style="background:var(--bg2);border-radius:6px;padding:10px 12px">
+          <div style="font-weight:600;color:var(--blue);margin-bottom:4px">④ 앱 로컬 실행</div>
+          <div style="color:var(--tx2)"><strong style="color:var(--tx1)">⬇ 앱 다운로드</strong> → index.html을<br>로컬에서 직접 열어 사용</div>
+        </div>
+      </div>
+      <button onclick="document.getElementById('securityHint').style.display='none'" style="margin-top:10px;background:none;border:1px solid var(--bd);border-radius:4px;color:var(--tx2);font-size:11px;padding:3px 10px;cursor:pointer">닫기</button>
     </div>
     <div class="dropzone"
          onclick="document.getElementById('fileInput').click()"
@@ -258,8 +282,16 @@
       <span>CSV / TSV / <strong>XLSX</strong> 파일을 여기에 드래그하거나 클릭하여 선택하세요</span>
       <input type="file" id="fileInput" accept=".csv,.tsv,.txt,.xlsx,.xls" style="display:none" onchange="handleFileDrop(event)">
     </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+      <button class="btn btn-secondary btn-sm" id="btnClipboard" onclick="readClipboard()" title="navigator.clipboard API로 클립보드 직접 읽기 (보안 정책 우회용)">📋 클립보드 읽기</button>
+      <button class="btn btn-secondary btn-sm" onclick="toggleSecurityHint()" title="보안 정책으로 붙여넣기 실패 시 대안 보기" style="color:var(--yellow);border-color:var(--yellow)">🔒 보안정책 우회 도움말</button>
+      <span id="clipStatus" style="font-size:11px;color:var(--tx2)"></span>
+    </div>
     <textarea id="dataInput" oninput="onDataChange()"
-      placeholder="날짜&#9;EQP ID&#9;LOTID&#9;SLOT&#9;CH&#9;PPID&#9;REAL DATA&#10;2024-01-15 08:00&#9;EQP01&#9;LOT001&#9;1&#9;CH1&#9;TEMP&#9;250.3&#10;..."></textarea>
+      ondragover="event.preventDefault();this.classList.add('drag-cell-over')"
+      ondragleave="this.classList.remove('drag-cell-over')"
+      ondrop="handleCellDrag(event)"
+      placeholder="날짜&#9;EQP ID&#9;LOTID&#9;SLOT&#9;CH&#9;PPID&#9;REAL DATA&#10;2024-01-15 08:00&#9;EQP01&#9;LOT001&#9;1&#9;CH1&#9;TEMP&#9;250.3&#10;...&#10;&#10;▶ Excel 셀 선택 후 이 영역으로 직접 끌어다 놓을 수도 있습니다"></textarea>
 
     <!-- 데이터 품질 패널 -->
     <div id="dqPanel" style="display:none;margin-top:10px;background:var(--bg1);border:1px solid var(--bd);border-radius:8px;padding:12px 16px;font-size:12px">
@@ -640,6 +672,106 @@ const FIELDS = [
   {id:'map_param',label:'PPID',        key:'PPID',required:true},
   {id:'map_value',label:'REAL DATA',        key:'REAL DATA',required:true},
 ];
+
+/* ══════════════════════════════════════════════════════
+   보안정책 우회 — 클립보드 읽기 / 셀 드래그 / 실패 감지
+══════════════════════════════════════════════════════ */
+function toggleSecurityHint() {
+  const el = document.getElementById('securityHint');
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+async function readClipboard() {
+  const statusEl = document.getElementById('clipStatus');
+  const btn      = document.getElementById('btnClipboard');
+  if (!navigator.clipboard || !navigator.clipboard.readText) {
+    statusEl.textContent = '이 브라우저는 Clipboard API를 지원하지 않습니다';
+    statusEl.style.color = 'var(--red)';
+    document.getElementById('securityHint').style.display = 'block';
+    return;
+  }
+  btn.disabled = true;
+  statusEl.textContent = '클립보드 읽는 중...';
+  statusEl.style.color = 'var(--tx2)';
+  try {
+    const text = await navigator.clipboard.readText();
+    if (!text.trim()) {
+      statusEl.textContent = '클립보드가 비어 있습니다. Excel에서 셀을 먼저 복사하세요.';
+      statusEl.style.color = 'var(--yellow)';
+      return;
+    }
+    document.getElementById('dataInput').value = text;
+    onDataChange();
+    statusEl.textContent = `✔ 클립보드 읽기 성공 — ${text.split('\n').filter(l=>l.trim()).length}행 로드됨`;
+    statusEl.style.color = 'var(--green)';
+    toast('클립보드 읽기 성공', 'ok');
+  } catch (err) {
+    if (err.name === 'NotAllowedError') {
+      statusEl.textContent = '클립보드 권한이 거부됨 — 브라우저 주소창 자물쇠 → 클립보드 허용 후 재시도';
+    } else {
+      statusEl.textContent = `클립보드 읽기 실패: ${err.message}`;
+    }
+    statusEl.style.color = 'var(--red)';
+    document.getElementById('securityHint').style.display = 'block';
+    toast('클립보드 읽기 실패 — 우회 방법을 확인하세요', 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function handleCellDrag(event) {
+  event.preventDefault();
+  const ta = document.getElementById('dataInput');
+  ta.classList.remove('drag-cell-over');
+  // 파일 드롭은 기존 handleFileDrop으로 위임
+  if (event.dataTransfer.files && event.dataTransfer.files.length) {
+    handleFileDrop(event);
+    return;
+  }
+  // Excel 셀 드래그: text/plain 또는 text/html (표) 처리
+  let text = event.dataTransfer.getData('text/plain');
+  if (!text) {
+    // text/html에서 표 파싱 시도
+    const html = event.dataTransfer.getData('text/html');
+    if (html) text = _parseHtmlTable(html);
+  }
+  if (!text || !text.trim()) {
+    toast('드래그 데이터를 읽을 수 없습니다. Excel 셀을 선택하고 이 영역으로 끌어다 놓으세요.', 'err');
+    return;
+  }
+  ta.value = text;
+  onDataChange();
+  const rows = text.split('\n').filter(l=>l.trim()).length;
+  toast(`셀 드래그 성공 — ${rows}행 로드됨`, 'ok');
+}
+
+function _parseHtmlTable(html) {
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const rows = [...doc.querySelectorAll('tr')];
+    return rows.map(tr =>
+      [...tr.querySelectorAll('td,th')].map(td => td.innerText.replace(/\n/g,' ').trim()).join('\t')
+    ).join('\n');
+  } catch { return ''; }
+}
+
+// 붙여넣기 실패 감지: paste 이벤트가 빈 결과를 반환할 때 도움말 표시
+(function _initPasteGuard() {
+  const ta = document.getElementById('dataInput');
+  if (!ta) return;
+  ta.addEventListener('paste', function(e) {
+    // 브라우저가 paste를 차단하면 clipboardData가 비거나 items가 없음
+    setTimeout(() => {
+      if (!ta.value.trim()) {
+        const hint = document.getElementById('securityHint');
+        hint.style.display = 'block';
+        const statusEl = document.getElementById('clipStatus');
+        statusEl.textContent = '붙여넣기가 차단된 것 같습니다 — 아래 우회 방법을 확인하세요';
+        statusEl.style.color = 'var(--yellow)';
+      }
+    }, 300);
+  });
+})();
 
 function onDataChange() {
   const text = document.getElementById('dataInput').value.trim();
