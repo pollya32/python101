@@ -1333,10 +1333,10 @@ function _scPanelHtml(pid) {
     <div class="ctrl-group" style="gap:6px">
       <label style="font-size:12px;color:var(--tx2)">점 크기</label>
       <div style="display:flex;align-items:center;gap:5px">
-        <input type="range" id="pointSize-${pid}" min="2" max="20" value="5" step="1"
+        <input type="range" id="pointSize-${pid}" min="2" max="20" value="2" step="1"
           oninput="document.getElementById('pointSizeVal-${pid}').textContent=this.value+'px';renderScatterPanel(${pid})"
           style="width:70px;accent-color:var(--acc,#58a6ff);cursor:pointer">
-        <span id="pointSizeVal-${pid}" style="font-size:11px;color:var(--tx2);min-width:26px;text-align:right">5px</span>
+        <span id="pointSizeVal-${pid}" style="font-size:11px;color:var(--tx2);min-width:26px;text-align:right">2px</span>
       </div>
     </div>
     <button class="sc-remove-btn" onclick="removeScatterPanel(${pid})" title="이 차트 제거"
