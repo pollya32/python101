@@ -289,6 +289,13 @@
           <option value="t_step">⑰ t-검정 계단 변화 감지 (평균 level shift)</option>
           <option value="f_var">⑱ F-검정 분산 급변 감지 (노이즈 급증)</option>
           </optgroup>
+          <optgroup label="─── 신규 추가 기능 ───">
+          <option value="rolling_sigma">⑲ 이동 통계 관리한계 (Rolling σ · 동적 이상감지)</option>
+          <option value="fleet_dev">⑳ 설비간 편차 감지 (Fleet Deviation · 다설비 비교)</option>
+          <option value="cpk">㉑ Cp/Cpk 공정 능력 (USL/LSL 기반 공정 이탈)</option>
+          <option value="nelson_full">㉒ Nelson 8개 규칙 (완전 SPC 규칙 복합 적용)</option>
+          <option value="cv_shift">㉓ 변동계수 급변 (CV Shift · LOT간 산포 변화)</option>
+          </optgroup>
         </select>
       </div>
       <!-- 임계값 -->
@@ -314,6 +321,12 @@
         <span>k (허용편차·σ):</span>
         <input type="number" id="cusumK" value="0.5" min="0.1" max="2" step="0.1">
         <span style="font-size:11px;color:var(--tx2)">보통 0.5</span>
+      </div>
+      <!-- USL / LSL (Cpk 전용) -->
+      <div class="ctrl-group" id="cpkRow" style="display:none">
+        <span>USL / LSL:</span>
+        <input type="number" id="cpkUSL" step="any" placeholder="상한 규격 (USL)" style="width:110px">
+        <input type="number" id="cpkLSL" step="any" placeholder="하한 규격 (LSL)" style="width:110px">
       </div>
       <!-- 이상률 경보 임계값 -->
       <div class="ctrl-group">
@@ -606,6 +619,11 @@ const METHOD_META = {
   lot2lot:   {thr:'임계값:',         unit:'전 LOT 대비 현 LOT 평균 변화량',ref:'전 LOT 평균', diff:'LOT 평균 차', winRow:false},
   t_step:    {thr:'t-통계량 임계값:',unit:'윈도우 전·후 평균 차 t-검정',  ref:'전반 창 평균',diff:'t-통계량',    winRow:true,  thrDef:2.0},
   f_var:     {thr:'F-비율 임계값:',  unit:'윈도우 전·후 분산비 F-검정',   ref:'전반 창 분산',diff:'F-비율',      winRow:true,  thrDef:3.0},
+  rolling_sigma:{thr:'N (σ배수):',   unit:'이동 창 평균 ± N×σ 이탈',      ref:'이동 평균',   diff:'이동σ 편차',  winRow:true,  thrDef:3},
+  fleet_dev: {thr:'임계값(σ):',      unit:'설비 평균 vs 전체 설비 평균의 편차', ref:'전체 설비 평균',diff:'설비 편차', winRow:false, thrDef:2},
+  cpk:       {thr:'최소 Cpk:',       unit:'Cpk < 임계값인 그룹 이상 (USL/LSL)',  ref:'그룹 평균',  diff:'Cpk 지수',  winRow:false, thrDef:1.33, cpkRow:true},
+  nelson_full:{thr:'σ배수 (Rule1·5·6):',unit:'Nelson 8개 규칙 복합 적용',  ref:'그룹 평균',   diff:'σ 편차',     winRow:false, thrDef:3},
+  cv_shift:  {thr:'CV 변화 임계값:', unit:'LOT간 변동계수(σ/μ) 급변',      ref:'직전 LOT CV', diff:'CV 변화량',  winRow:false, thrDef:0.3},
 };
 
 function onMethodChange() {
@@ -616,6 +634,7 @@ function onMethodChange() {
   document.getElementById('winRow').style.display   = meta.winRow   ? 'flex':'none';
   document.getElementById('ewmaRow').style.display  = meta.ewmaRow  ? 'flex':'none';
   document.getElementById('cusumRow').style.display = meta.cusumRow ? 'flex':'none';
+  document.getElementById('cpkRow').style.display   = meta.cpkRow   ? 'flex':'none';
   document.getElementById('threshold').placeholder = meta.thrDef !== undefined ? String(meta.thrDef) : '';
   document.querySelectorAll('.th-ref').forEach(th=>th.textContent=meta.ref);
   document.querySelectorAll('.th-diff').forEach(th=>th.textContent=meta.diff);
@@ -1903,7 +1922,7 @@ function _getWorker() {
   }
   return _gWorker;
 }
-function _runWorker(data, threshold, method, winSize, ewmaLambda, cusumK) {
+function _runWorker(data, threshold, method, winSize, ewmaLambda, cusumK, usl=null, lsl=null) {
   return new Promise((resolve, reject) => {
     const w = _getWorker();
     w.onmessage = e => {
@@ -1913,7 +1932,7 @@ function _runWorker(data, threshold, method, winSize, ewmaLambda, cusumK) {
       else reject(new Error(d.message || '분석 워커 오류'));
     };
     w.onerror = e => reject(new Error(e.message));
-    w.postMessage({data, threshold, method, winSize, ewmaLambda, cusumK});
+    w.postMessage({data, threshold, method, winSize, ewmaLambda, cusumK, usl, lsl});
   });
 }
 
@@ -1946,8 +1965,11 @@ async function runAnalysis(){
     // Web Worker: 이상감지 + 통계를 별도 스레드에서 실행 → 분석 중 UI 완전 응답
     const lambdaEWMA=parseFloat(document.getElementById('ewmaLambda').value)||0.2;
     const kCUSUM=parseFloat(document.getElementById('cusumK').value)||0.5;
+    const uslVal=parseFloat(document.getElementById('cpkUSL').value);
+    const lslVal=parseFloat(document.getElementById('cpkLSL').value);
+    if(method==='cpk'&&isNaN(uslVal)&&isNaN(lslVal)){toast('Cpk 방식은 USL 또는 LSL을 입력해야 합니다.','err');btn.disabled=false;pw.style.display='none';return;}
     _setProgress(10,'백그라운드 분석 중... (스크롤·클릭 가능)'); await _tick();
-    const _wr = await _runWorker(data, thr, method, winSize, lambdaEWMA, kCUSUM);
+    const _wr = await _runWorker(data, thr, method, winSize, lambdaEWMA, kCUSUM, isNaN(uslVal)?null:uslVal, isNaN(lslVal)?null:lslVal);
     gResults = _wr.results;
     gStats   = _wr.stats;
     // 이상 목록·메타 인덱스를 분석 직후 1회 계산 — 이후 모든 렌더 함수 재사용
@@ -2235,6 +2257,8 @@ function saveSettings() {
       winSize:   document.getElementById('winSize').value,
       lambda:    document.getElementById('ewmaLambda').value,
       cusumK:    document.getElementById('cusumK').value,
+      cpkUSL:    document.getElementById('cpkUSL').value,
+      cpkLSL:    document.getElementById('cpkLSL').value,
     }));
   } catch(e) {}
 }
@@ -2246,6 +2270,8 @@ function loadSettings() {
     if (s.winSize)            document.getElementById('winSize').value      = s.winSize;
     if (s.lambda)             document.getElementById('ewmaLambda').value   = s.lambda;
     if (s.cusumK)             document.getElementById('cusumK').value       = s.cusumK;
+    if (s.cpkUSL !== undefined) document.getElementById('cpkUSL').value    = s.cpkUSL;
+    if (s.cpkLSL !== undefined) document.getElementById('cpkLSL').value    = s.cpkLSL;
     onMethodChange();
   } catch(e) {}
 }
@@ -3729,10 +3755,71 @@ function linRegSlope(vals) {
   return den?num/den:0;
 }
 /* ── detectAnomalies (동기 — Worker는 UI 블로킹 없음) ── */
-function detectAnomaliesSync(data,threshold,method,winSize,ewmaLambda,cusumK) {
+function detectAnomaliesSync(data,threshold,method,winSize,ewmaLambda,cusumK,usl,lsl) {
   const groups={};
   data.forEach(row=>{ (groups[row._key]=groups[row._key]||[]).push(row); });
   Object.values(groups).forEach(g=>g.sort((a,b)=>a._slot-b._slot));
+
+  /* ── ⑲ rolling_sigma: 사전 계산 없음 (그룹 내 이동 창으로 계산) ── */
+
+  /* ── ⑳ fleet_dev: PPID별 EQP 평균 및 전체 설비 평균·σ 사전 계산 ── */
+  const fleetDevMap={};
+  if(method==='fleet_dev'){
+    const g2={};
+    data.forEach(r=>{const k=r['PPID']+'|||'+r['EQP ID'];(g2[k]=g2[k]||[]).push(r._val);});
+    const ppidEqp={};
+    Object.entries(g2).forEach(([k,vals])=>{
+      const [ppid,eqp]=k.split('|||');
+      if(!ppidEqp[ppid])ppidEqp[ppid]={};
+      ppidEqp[ppid][eqp]=vals.reduce((a,b)=>a+b,0)/vals.length;
+    });
+    Object.entries(ppidEqp).forEach(([ppid,em])=>{
+      const means=Object.values(em);
+      const fm=means.reduce((a,b)=>a+b,0)/means.length;
+      const fs=Math.sqrt(means.reduce((a,v)=>a+(v-fm)**2,0)/means.length);
+      fleetDevMap[ppid]={eqpMeans:em,fleetMean:fm,fleetStd:fs};
+    });
+  }
+
+  /* ── ㉑ cpk: EQP+CH+PPID 단위로 Cpk 사전 계산 ── */
+  const cpkPreMap={};
+  if(method==='cpk'){
+    const g2={};
+    data.forEach(r=>{const k=r['EQP ID']+'|||'+(r['CH']||'')+'|||'+r['PPID'];(g2[k]=g2[k]||[]).push(r._val);});
+    Object.entries(g2).forEach(([k,vals])=>{
+      const n=vals.length,mean=vals.reduce((a,b)=>a+b,0)/n;
+      const std=Math.sqrt(vals.reduce((a,v)=>a+(v-mean)**2,0)/n);
+      let cpkVal=null;
+      if(std>0){
+        if(usl!=null&&lsl!=null)cpkVal=Math.min((usl-mean)/(3*std),(mean-lsl)/(3*std));
+        else if(usl!=null)cpkVal=(usl-mean)/(3*std);
+        else if(lsl!=null)cpkVal=(mean-lsl)/(3*std);
+      }
+      cpkPreMap[k]={mean,std,cpkVal};
+    });
+  }
+
+  /* ── ㉓ cv_shift: EQP+CH+PPID 단위로 LOT별 CV 사전 계산 ── */
+  const cvShiftMap={};
+  if(method==='cv_shift'){
+    const g2={};
+    data.forEach(r=>{const k=r['EQP ID']+'|||'+(r['CH']||'')+'|||'+r['PPID'];(g2[k]=g2[k]||[]).push(r);});
+    Object.entries(g2).forEach(([k,rows])=>{
+      const lotOrder=[],lotSeen=new Set();
+      rows.forEach(r=>{if(!lotSeen.has(r['LOTID'])){lotSeen.add(r['LOTID']);lotOrder.push(r['LOTID']);}});
+      const lotB={};
+      rows.forEach(r=>{(lotB[r['LOTID']]=lotB[r['LOTID']]||[]).push(r._val);});
+      const lotCv={},lotIdx={};
+      lotOrder.forEach((lot,i)=>{
+        const vs=lotB[lot]||[],n=vs.length;
+        const mean=vs.reduce((a,b)=>a+b,0)/n;
+        const std=Math.sqrt(vs.reduce((a,v)=>a+(v-mean)**2,0)/n);
+        lotCv[lot]=Math.abs(mean)>0?std/Math.abs(mean):0;
+        lotIdx[lot]=i;
+      });
+      cvShiftMap[k]={lotOrder,lotCv,lotIdx};
+    });
+  }
 
   const wtwMap={};
   if(method==='wtw'){
@@ -3781,13 +3868,14 @@ function detectAnomaliesSync(data,threshold,method,winSize,ewmaLambda,cusumK) {
   for(let gi=0;gi<_gLen;gi++){
     const group=_gArr[gi];
     let gMean=0,gStd=0;
-    if(['sigma','ewma','cusum','run_bias','spc_rules'].includes(method)){
+    if(['sigma','ewma','cusum','run_bias','spc_rules','nelson_full'].includes(method)){
       const vals=group.map(r=>r._val);
       gMean=vals.reduce((a,b)=>a+b,0)/vals.length;
       gStd=Math.sqrt(vals.reduce((a,b)=>a+(b-gMean)**2,0)/vals.length);
     }
     let ewmaZ=gMean,cusumCp=0,cusumCm=0,runBiasCnt=0,runBiasDir=0,runTrendCnt=0,runTrendDir=0;
     const spcBuf=[];
+    const nelsonBuf=[];
     let iqrLow=-Infinity,iqrHigh=Infinity;
     if(method==='iqr'){
       const sv=[...group.map(r=>r._val)].sort((a,b)=>a-b);
@@ -3879,6 +3967,62 @@ function detectAnomaliesSync(data,threshold,method,winSize,ewmaLambda,cusumK) {
           if(bef.length>=2&&aft.length>=2){const mB=bef.reduce((a,b)=>a+b,0)/bef.length,mA=aft.reduce((a,b)=>a+b,0)/aft.length;
             const vB=bef.reduce((a,v)=>a+(v-mB)**2,0)/(bef.length-1),vA=aft.reduce((a,v)=>a+(v-mA)**2,0)/(aft.length-1);
             const F=vB>0&&vA>0?Math.max(vB,vA)/Math.min(vB,vA):0;res.prevVal=vB;res.diff=F;res.isAnom=F>threshold;}}
+      /* ⑲ rolling_sigma: 직전 W개 이동 창 기준 평균·σ 관리한계 */
+      }else if(method==='rolling_sigma'){
+        const W=Math.max(2,winSize);
+        const win=_gVals.slice(Math.max(0,i-W),i);
+        if(win.length>=2){
+          const wm=win.reduce((a,b)=>a+b,0)/win.length;
+          const ws=Math.sqrt(win.reduce((a,v)=>a+(v-wm)**2,0)/win.length);
+          res.prevVal=wm;res.diff=Math.abs(row._val-wm);
+          res.isAnom=ws>0&&res.diff>threshold*ws;
+        }
+      /* ⑳ fleet_dev: 설비 평균 vs 전체 설비 Fleet 평균 편차 */
+      }else if(method==='fleet_dev'){
+        const fm=fleetDevMap[row['PPID']];
+        if(fm&&fm.fleetStd>0){
+          const em=fm.eqpMeans[row['EQP ID']]??fm.fleetMean;
+          res.prevVal=fm.fleetMean;res.diff=Math.abs(em-fm.fleetMean);
+          res.isAnom=res.diff>threshold*fm.fleetStd;
+        }
+      /* ㉑ cpk: EQP+CH+PPID 단위 공정 능력 지수 */
+      }else if(method==='cpk'){
+        const ck2=row['EQP ID']+'|||'+(row['CH']||'')+'|||'+row['PPID'];
+        const cp=cpkPreMap[ck2];
+        if(cp){res.prevVal=cp.mean;res.diff=cp.cpkVal!=null?+cp.cpkVal.toFixed(4):null;res.isAnom=cp.cpkVal!=null&&cp.cpkVal<threshold;}
+      /* ㉒ nelson_full: Nelson 8개 규칙 완전 적용 */
+      }else if(method==='nelson_full'){
+        const z=gStd>0?(row._val-gMean)/gStd:0;
+        nelsonBuf.push({z,side:row._val>=gMean?1:-1,val:row._val});
+        if(nelsonBuf.length>15)nelsonBuf.shift();
+        const nb=nelsonBuf,nn=nb.length;
+        res.prevVal=gMean;res.diff=Math.abs(z);
+        let anom=false;
+        // Rule 1: 단일 점 > threshold·σ
+        if(Math.abs(z)>threshold)anom=true;
+        // Rule 2: 9점 연속 중심선 한쪽
+        if(!anom&&nn>=9){const l9=nb.slice(-9);if([1,-1].some(s=>l9.every(p=>p.side===s)))anom=true;}
+        // Rule 3: 6점 연속 단조 증가 또는 감소
+        if(!anom&&nn>=6){const l6=nb.slice(-6);const ds=l6.slice(1).map((p,j)=>p.val>l6[j].val?1:p.val<l6[j].val?-1:0);if(ds.every(d=>d===1)||ds.every(d=>d===-1))anom=true;}
+        // Rule 4: 14점 연속 교대 상승/하락
+        if(!anom&&nn>=14){const l14=nb.slice(-14);const ds=l14.slice(1).map((p,j)=>p.val>=l14[j].val?1:-1);if(ds.every((d,j)=>j===0||d!==ds[j-1]))anom=true;}
+        // Rule 5: 3점 중 2점 > 2σ (동측)
+        if(!anom&&nn>=3){const l3=nb.slice(-3);if([1,-1].some(s=>l3.filter(p=>p.side===s&&Math.abs(p.z)>2).length>=2))anom=true;}
+        // Rule 6: 5점 중 4점 > 1σ (동측)
+        if(!anom&&nn>=5){const l5=nb.slice(-5);if([1,-1].some(s=>l5.filter(p=>p.side===s&&Math.abs(p.z)>1).length>=4))anom=true;}
+        // Rule 7: 15점 연속 ±1σ 이내
+        if(!anom&&nn>=15){if(nb.slice(-15).every(p=>Math.abs(p.z)<=1))anom=true;}
+        // Rule 8: 8점 연속 ±1σ 바깥 (양측)
+        if(!anom&&nn>=8){if(nb.slice(-8).every(p=>Math.abs(p.z)>1))anom=true;}
+        res.isAnom=anom;
+      /* ㉓ cv_shift: LOT간 변동계수(CV) 급변 감지 */
+      }else if(method==='cv_shift'){
+        const ck2=row['EQP ID']+'|||'+(row['CH']||'')+'|||'+row['PPID'];
+        const cs=cvShiftMap[ck2];
+        if(cs){
+          const li=cs.lotIdx[row['LOTID']]??-1;
+          if(li>0){const pLot=cs.lotOrder[li-1];res.prevVal=cs.lotCv[pLot];res.diff=Math.abs(cs.lotCv[row['LOTID']]-cs.lotCv[pLot]);res.isAnom=res.diff>threshold;}
+        }
       }
       results.push(res);
     }
@@ -3906,10 +4050,10 @@ function calcStatsSync(results) {
 }
 /* ── entry point ── */
 self.onmessage=function(e){
-  const {data,threshold,method,winSize,ewmaLambda,cusumK}=e.data;
+  const {data,threshold,method,winSize,ewmaLambda,cusumK,usl,lsl}=e.data;
   try{
     self.postMessage({type:'progress',pct:25,msg:'이상 감지 분석 중...'});
-    const results=detectAnomaliesSync(data,threshold,method,winSize,ewmaLambda,cusumK);
+    const results=detectAnomaliesSync(data,threshold,method,winSize,ewmaLambda,cusumK,usl,lsl);
     self.postMessage({type:'progress',pct:55,msg:'통계 집계 중...'});
     const stats=calcStatsSync(results);
     self.postMessage({type:'done',results,stats});
