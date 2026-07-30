@@ -6,6 +6,7 @@
   <title>FDC RAW DATA 이상감지 시스템</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%231A233E'/%3E%3Crect x='8' y='40' width='10' height='16' rx='2' fill='%232E86C1'/%3E%3Crect x='22' y='28' width='10' height='28' rx='2' fill='%232ECC71'/%3E%3Crect x='36' y='18' width='10' height='38' rx='2' fill='%23F39C12'/%3E%3Crect x='50' y='8' width='10' height='48' rx='2' fill='%23E84040'/%3E%3Cpolyline points='13,38 27,26 41,16 55,6' fill='none' stroke='%23FFFFFF' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='55' cy='6' r='3' fill='%23E84040'/%3E%3C/svg%3E">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
     :root{
@@ -221,8 +222,8 @@
 <header>
   <div class="logo">⚡</div>
   <div>
-    <h1>FDC RAW DATA 이상감지 시스템 <span class="chip">v3.6</span></h1>
-    <p>파일 업로드 · 열 매핑 · 8가지 감지 방식(EWMA·CUSUM) · SPC 관리도 · 히트맵 · 이상 랭킹 · 설정 자동저장</p>
+    <h1>FDC RAW DATA 이상감지 시스템 <span class="chip">v4.0</span></h1>
+    <p>XLSX/CSV 파일 업로드 · 23가지 감지 방식 · 임계값 자동 추천 · 분석 취소 · 브라우저 알림 · SPC 관리도 · 히트맵 · 설정 자동저장</p>
   </div>
 </header>
 
@@ -240,8 +241,8 @@
          ondragleave="this.classList.remove('drag-over')"
          ondrop="event.preventDefault();this.classList.remove('drag-over');handleFileDrop(event)">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
-      <span>CSV / TSV 파일을 여기에 드래그하거나 클릭하여 선택하세요</span>
-      <input type="file" id="fileInput" accept=".csv,.tsv,.txt" style="display:none" onchange="handleFileDrop(event)">
+      <span>CSV / TSV / <strong>XLSX</strong> 파일을 여기에 드래그하거나 클릭하여 선택하세요</span>
+      <input type="file" id="fileInput" accept=".csv,.tsv,.txt,.xlsx,.xls" style="display:none" onchange="handleFileDrop(event)">
     </div>
     <textarea id="dataInput" oninput="onDataChange()"
       placeholder="날짜&#9;EQP ID&#9;LOTID&#9;SLOT&#9;CH&#9;PPID&#9;REAL DATA&#10;2024-01-15 08:00&#9;EQP01&#9;LOT001&#9;1&#9;CH1&#9;TEMP&#9;250.3&#10;..."></textarea>
@@ -302,6 +303,7 @@
       <div class="ctrl-group">
         <span id="thrLabel">임계값:</span>
         <input type="number" id="threshold" value="10" min="0" step="0.1" oninput="saveSettings()">
+        <button class="btn btn-secondary btn-sm" onclick="suggestThreshold()" title="데이터 분포 기반 추천 임계값 자동 계산">✨ 추천</button>
         <span id="thrUnit" style="font-size:11px;color:var(--tx2)"></span>
       </div>
       <!-- 창 크기 (slope_win 전용) -->
@@ -335,6 +337,7 @@
         <span style="font-size:11px;color:var(--tx2)">% 이상 시 경보</span>
       </div>
       <button class="btn btn-primary" id="btnRun" onclick="runAnalysis()">🔍 분석 시작</button>
+      <button class="btn btn-secondary" id="btnCancel" onclick="cancelAnalysis()" style="display:none;background:rgba(248,81,73,.15);border-color:var(--red);color:var(--red)">⏹ 취소</button>
       <button class="btn btn-secondary" onclick="loadSample()">📊 샘플 데이터</button>
       <button class="btn btn-secondary" onclick="clearAll()">🗑 초기화</button>
       <div id="progressWrap" class="progress-wrap" style="display:none">
@@ -350,6 +353,7 @@
       <button class="btn btn-secondary" onclick="downloadApp()">⬇ 앱 다운로드</button>
       <button class="btn btn-secondary" onclick="openLayoutModal()">⚙ 화면설정</button>
       <button class="btn btn-secondary" onclick="openMailModal()">📧 메일 발송</button>
+      <button class="btn btn-secondary" id="btnNotify" onclick="toggleNotification()" title="분석 완료 시 브라우저 알림">🔕 알림 설정</button>
     </div>
   </div>
 
@@ -1958,6 +1962,7 @@ async function runAnalysis(){
   const btn=document.getElementById('btnRun');
   const pw=document.getElementById('progressWrap');
   btn.disabled=true; pw.style.display='block';
+  document.getElementById('btnCancel').style.display='inline-flex';
   try {
     _setProgress(5,'데이터 파싱 중...'); await _tick();
     const data=await parseExcel(text);
@@ -2009,8 +2014,9 @@ async function runAnalysis(){
     saveSettings();
     _setProgress(100,'완료');
     toast(`분석 완료 — 총 ${gResults.length}건 / 이상 ${gAnomsAll.length}건`,gAnomsAll.length?'err':'ok');
-  } catch(e){toast(e.message,'err');console.error(e);}
-  finally { btn.disabled=false; pw.style.display='none'; }
+    _sendNotification(gAnomsAll.length, gResults.length);
+  } catch(e){if(e.message!=='cancelled') toast(e.message,'err'); console.error(e);}
+  finally { btn.disabled=false; pw.style.display='none'; document.getElementById('btnCancel').style.display='none'; }
 }
 
 function clearAll(){
@@ -2085,13 +2091,28 @@ function handleFileDrop(e) {
   const file = (e.dataTransfer?.files || e.target?.files)?.[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = ev => {
-    document.getElementById('dataInput').value = ev.target.result;
-    onDataChange();
-    toast(`${file.name} 로드 완료 — 컬럼 매핑을 확인 후 분석하세요`, 'ok');
-  };
-  reader.onerror = () => toast('파일 읽기 실패', 'err');
-  reader.readAsText(file, 'UTF-8');
+  if (/\.xlsx?$/i.test(file.name)) {
+    reader.onload = ev => {
+      try {
+        const wb = XLSX.read(new Uint8Array(ev.target.result), {type:'array'});
+        const sheetName = wb.SheetNames[0];
+        const tsv = XLSX.utils.sheet_to_csv(wb.Sheets[sheetName], {FS:'\t'});
+        document.getElementById('dataInput').value = tsv;
+        onDataChange();
+        toast(`${file.name} 로드 완료 (시트: ${sheetName}) — 컬럼 매핑을 확인 후 분석하세요`, 'ok');
+      } catch(ex) { toast('XLSX 파싱 실패: ' + ex.message, 'err'); }
+    };
+    reader.onerror = () => toast('파일 읽기 실패', 'err');
+    reader.readAsArrayBuffer(file);
+  } else {
+    reader.onload = ev => {
+      document.getElementById('dataInput').value = ev.target.result;
+      onDataChange();
+      toast(`${file.name} 로드 완료 — 컬럼 매핑을 확인 후 분석하세요`, 'ok');
+    };
+    reader.onerror = () => toast('파일 읽기 실패', 'err');
+    reader.readAsText(file, 'UTF-8');
+  }
 }
 
 /* ══════════════════════════════════════════════════════
@@ -2249,6 +2270,111 @@ function filterAnomTable(eqp, param) {
 /* ══════════════════════════════════════════════════════
    설정 자동 저장 / 불러오기 (localStorage)
 ══════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════
+   A: 임계값 자동 추천
+══════════════════════════════════════════════════════ */
+async function suggestThreshold() {
+  const text = document.getElementById('dataInput').value.trim();
+  if (!text || !gHeaders.length) { toast('먼저 데이터를 붙여넣으세요', 'err'); return; }
+  const method = document.getElementById('detectMethod').value;
+  let data;
+  try { data = await parseExcel(text); } catch(e) { toast('데이터 파싱 오류', 'err'); return; }
+  const vals = data.map(r => r._val).filter(v => typeof v==='number' && !isNaN(v));
+  if (!vals.length) { toast('숫자 데이터가 없습니다', 'err'); return; }
+  const n = vals.length;
+  const mean = vals.reduce((a,b)=>a+b,0)/n;
+  const std  = Math.sqrt(vals.reduce((a,v)=>a+(v-mean)**2,0)/n);
+  const sorted = [...vals].sort((a,b)=>a-b);
+  const q1 = sorted[Math.floor(n*0.25)], q3 = sorted[Math.floor(n*0.75)];
+  const iqr = q3 - q1;
+  const medVal = sorted[Math.floor(n/2)];
+  const medAbsDev = sorted.map(v=>Math.abs(v-medVal)).sort((a,b)=>a-b);
+  const mad = medAbsDev[Math.floor(n/2)];
+  const _r2 = v => parseFloat(v.toFixed(2));
+  const _r3 = v => parseFloat(v.toFixed(3));
+  const suggestions = {
+    abs:        [_r2(std*3),      '3σ (표준편차 3배)'],
+    sigma:      [3,               '3σ 배수 (통계적 표준)'],
+    pct:        [_r2(Math.abs(mean)>0 ? std/Math.abs(mean)*100*3 : 10), '변동계수의 3배'],
+    slope_diff: [_r2(std*2),      '2σ 기준'],
+    slope_win:  [_r2(std*2),      '2σ 기준'],
+    daily_avg:  [_r2(std*2),      '2σ 기준'],
+    ewma:       [_r2(std*3),      '3σ EWMA 관리한계'],
+    cusum:      [_r2(std*5),      '5σ 누적합 기준'],
+    run_bias:   [7,               '연속 7점 편향 (SPC 표준)'],
+    run_trend:  [6,               '연속 6점 트렌드'],
+    spc_rules:  [2,               '2σ (서양전기 규칙 기준)'],
+    iqr:        [1.5,             'IQR 1.5배 (박스플롯 표준)'],
+    mad:        [3.5,             'Modified Z-score 3.5 (표준)'],
+    wtw:        [_r2(std*2),      '2σ 기준'],
+    ch_match:   [_r2(std*2),      '2σ 기준'],
+    lot2lot:    [_r2(std*2),      '2σ 기준'],
+    t_step:     [_r2(std*3),      '3σ 평균 이동'],
+    f_var:      [4,               'F-비 4 (일반 분산비 기준)'],
+    rolling_sigma: [3,            '3σ 동적 관리한계'],
+    fleet_dev:  [2,               '2σ 설비간 편차'],
+    cpk:        [1.33,            'Cpk 1.33 (공정 능력 표준)'],
+    nelson_full:[3,               'Nelson Rule 1 표준 3σ'],
+    cv_shift:   [_r3(Math.abs(mean)>0 ? std/Math.abs(mean)*0.3 : 0.3), 'CV 변화 30%'],
+  };
+  const [val, reason] = suggestions[method] || [_r2(std*3), '3σ 기준'];
+  document.getElementById('threshold').value = val;
+  saveSettings();
+  toast(`추천 임계값: ${val}  (${reason})`, 'ok');
+}
+
+/* ══════════════════════════════════════════════════════
+   C: 분석 취소
+══════════════════════════════════════════════════════ */
+function cancelAnalysis() {
+  if (_gWorker) { _gWorker.terminate(); _gWorker = null; }
+  document.getElementById('btnRun').disabled = false;
+  document.getElementById('progressWrap').style.display = 'none';
+  document.getElementById('btnCancel').style.display = 'none';
+  toast('분석이 취소되었습니다', 'err');
+}
+
+/* ══════════════════════════════════════════════════════
+   D: 브라우저 알림 (Notification API)
+══════════════════════════════════════════════════════ */
+function _updateNotifyBtn() {
+  const btn = document.getElementById('btnNotify');
+  if (!btn) return;
+  const on = 'Notification' in window && Notification.permission === 'granted' && localStorage.getItem('fdcNotify') === '1';
+  btn.textContent = on ? '🔔 알림 켜짐' : '🔕 알림 설정';
+  btn.style.borderColor = on ? 'var(--green)' : '';
+  btn.style.color       = on ? 'var(--green)' : '';
+}
+async function toggleNotification() {
+  if (!('Notification' in window)) { toast('이 브라우저는 알림을 지원하지 않습니다', 'err'); return; }
+  const on = Notification.permission === 'granted' && localStorage.getItem('fdcNotify') === '1';
+  if (on) {
+    localStorage.removeItem('fdcNotify');
+    _updateNotifyBtn();
+    toast('브라우저 알림이 꺼졌습니다', '');
+    return;
+  }
+  const perm = await Notification.requestPermission();
+  if (perm === 'granted') {
+    localStorage.setItem('fdcNotify', '1');
+    toast('브라우저 알림이 활성화되었습니다', 'ok');
+  } else {
+    toast('알림 권한이 거부되었습니다. 브라우저 주소창 자물쇠 → 알림 허용 후 다시 시도하세요', 'err');
+  }
+  _updateNotifyBtn();
+}
+function _sendNotification(anomCount, total) {
+  if (!('Notification' in window) || Notification.permission !== 'granted' || localStorage.getItem('fdcNotify') !== '1') return;
+  try {
+    new Notification('FDC 이상감지 완료 ✅', {
+      body: `총 ${total.toLocaleString()}건 분석 완료\n이상 감지: ${anomCount.toLocaleString()}건 (${total>0?(anomCount/total*100).toFixed(1):0}%)`,
+      tag: 'fdc-done',
+      renotify: true,
+    });
+  } catch(ex) {}
+}
+_updateNotifyBtn();
+
 function saveSettings() {
   try {
     localStorage.setItem('fdcSettings', JSON.stringify({
