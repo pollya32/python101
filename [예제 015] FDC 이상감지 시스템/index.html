@@ -2737,6 +2737,7 @@ function saveMailSettings() {
     authorization: document.getElementById('mailAuth').value.trim(),
     systemId: document.getElementById('mailSysId').value.trim(),
     subject: document.getElementById('mailSubject').value.trim(),
+    bodyText: document.getElementById('mailBodyText').value,
     recipients: _loadMailSettings().recipients || [],
   };
   localStorage.setItem(MAIL_LS_KEY, JSON.stringify(s));
@@ -2882,6 +2883,7 @@ function openMailModal() {
   document.getElementById('mailAuth').value = s.authorization || '';
   document.getElementById('mailSysId').value = s.systemId || '';
   document.getElementById('mailSubject').value = s.subject || '[FDC이상감지] 이상 감지 현황 리포트';
+  document.getElementById('mailBodyText').value = s.bodyText || '';
   document.getElementById('mailStatusMsg').textContent = '';
   _renderMailRecipients();
   document.getElementById('mailModal').classList.add('open');
@@ -2999,6 +3001,7 @@ function _buildMailHtml() {
   const paramCount= gIndex ? gIndex.paramSet.size: new Set(gResults.map(r=>r['PPID'])).size;
   const methodLabel = document.getElementById('detectMethod')?.selectedOptions?.[0]?.text || '';
   const now         = new Date().toLocaleString('ko-KR');
+  const bodyText    = (document.getElementById('mailBodyText')?.value || '').trim();
 
   // 공통 셀 스타일
   const td = 'border:1px solid #ddd;padding:6px 10px;font-size:12px;text-align:center';
@@ -3036,9 +3039,11 @@ function _buildMailHtml() {
   <h2 style="background:#1a233e;color:#fff;padding:14px 20px;margin:0;border-radius:8px 8px 0 0;text-align:center">
     📊 FDC RAW DATA 이상감지 시스템 — 현황 리포트
   </h2>
-  <div style="background:#f8f9fa;border:1px solid #ddd;border-top:none;padding:10px 20px;border-radius:0 0 8px 8px;margin-bottom:20px;text-align:center">
+  <div style="background:#f8f9fa;border:1px solid #ddd;border-top:none;padding:10px 20px;border-radius:0 0 8px 8px;margin-bottom:${bodyText?'12px':'20px'};text-align:center">
     <span style="color:#666;font-size:12px">생성일시: ${now} &nbsp;|&nbsp; 감지 방식: ${methodLabel}</span>
   </div>
+
+  ${bodyText ? `<div style="background:#fff;border:1px solid #ddd;border-radius:8px;padding:14px 20px;margin-bottom:20px;font-size:14px;line-height:1.7;color:#333;white-space:pre-wrap">${bodyText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>` : ''}
 
   <h3 style="color:#1a233e;margin-bottom:8px;text-align:center">📋 분석 요약</h3>
   <table style="border-collapse:collapse;width:100%;margin-bottom:20px">
@@ -3606,6 +3611,11 @@ function toast(msg,type=''){
       <div class="mail-field">
         <label>메일 제목</label>
         <input type="text" id="mailSubject" placeholder="[FDC이상감지] 이상 감지 현황 리포트" oninput="saveMailSettings()">
+      </div>
+      <div class="mail-field">
+        <label>본문 머리말 <span style="font-weight:400;color:var(--tx2)">(선택 · 리포트 상단에 삽입)</span></label>
+        <textarea id="mailBodyText" rows="3" placeholder="예) 안녕하세요. FDC 이상감지 현황을 공유드립니다." oninput="saveMailSettings()"
+          style="width:100%;padding:7px 10px;border:1px solid var(--bd);border-radius:6px;background:var(--bg1);color:var(--tx1);font-size:13px;resize:vertical;font-family:inherit;line-height:1.5"></textarea>
       </div>
       <div class="mail-divider"></div>
       <!-- 수신자 관리 -->
