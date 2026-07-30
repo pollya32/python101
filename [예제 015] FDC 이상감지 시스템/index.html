@@ -222,8 +222,8 @@
 <header>
   <div class="logo">⚡</div>
   <div>
-    <h1>FDC RAW DATA 이상감지 시스템 <span class="chip">v4.0</span></h1>
-    <p>XLSX/CSV 파일 업로드 · 23가지 감지 방식 · 임계값 자동 추천 · 분석 취소 · 브라우저 알림 · SPC 관리도 · 히트맵 · 설정 자동저장</p>
+    <h1>FDC RAW DATA 이상감지 시스템 <span class="chip">v4.1</span></h1>
+    <p>XLSX/CSV 업로드 · 23가지 감지 방식 · 임계값 추천 · 설정 프리셋 · 데이터 품질 체크 · A/B 비교 · Excel 내보내기 · 브라우저 알림</p>
   </div>
 </header>
 
@@ -246,6 +246,12 @@
     </div>
     <textarea id="dataInput" oninput="onDataChange()"
       placeholder="날짜&#9;EQP ID&#9;LOTID&#9;SLOT&#9;CH&#9;PPID&#9;REAL DATA&#10;2024-01-15 08:00&#9;EQP01&#9;LOT001&#9;1&#9;CH1&#9;TEMP&#9;250.3&#10;..."></textarea>
+
+    <!-- 데이터 품질 패널 -->
+    <div id="dqPanel" style="display:none;margin-top:10px;background:var(--bg1);border:1px solid var(--bd);border-radius:8px;padding:12px 16px;font-size:12px">
+      <div style="font-weight:600;color:var(--tx2);margin-bottom:8px;display:flex;align-items:center;gap:8px">🔬 데이터 품질 사전 체크 <span id="dqStatus"></span></div>
+      <div id="dqBody" style="display:flex;gap:16px;flex-wrap:wrap"></div>
+    </div>
 
     <!-- 컬럼 매핑 UI -->
     <div class="cm-wrap" id="colMapWrap" style="display:none">
@@ -344,6 +350,13 @@
         <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill" style="width:0%"></div></div>
         <div class="progress-label" id="progressLabel">분석 중...</div>
       </div>
+      <!-- 감지 설정 프리셋 -->
+      <div style="height:1px;background:var(--bd);flex-basis:100%;margin:4px 0"></div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;width:100%">
+        <span style="font-size:12px;color:var(--tx2);font-weight:600;white-space:nowrap">📌 설정 프리셋:</span>
+        <button class="btn btn-secondary btn-sm" onclick="saveMethodPreset()">+ 현재 설정 저장</button>
+        <div id="methodPresetChips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      </div>
       <div style="height:1px;background:var(--bd);flex-basis:100%;margin:4px 0"></div>
       <button class="btn btn-secondary" onclick="saveAnalysis()">💾 분석 저장</button>
       <button class="btn btn-secondary" onclick="openHistoryModal()">🕐 히스토리</button>
@@ -357,6 +370,25 @@
     </div>
   </div>
 
+  <!-- A/B 비교 모달 -->
+  <div class="hist-modal-overlay" id="abModal">
+    <div class="hist-modal" style="width:min(700px,95vw)">
+      <div class="hist-modal-head">
+        <span style="font-weight:700;font-size:15px">🔀 감지 방식 A/B 비교</span>
+        <button onclick="document.getElementById('abModal').classList.remove('open')" style="background:none;border:none;color:var(--tx2);font-size:18px;cursor:pointer">✕</button>
+      </div>
+      <div style="padding:16px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--bd);flex-wrap:wrap">
+        <label style="font-size:13px;color:var(--tx2)">비교 방식 B:</label>
+        <select id="abMethodB" style="flex:1;min-width:200px;background:var(--bg1);border:1px solid var(--bd);border-radius:6px;color:var(--tx1);padding:6px 10px;font-size:13px"></select>
+        <input type="number" id="abThresholdB" placeholder="임계값 B" step="any" style="width:100px;background:var(--bg1);border:1px solid var(--bd);border-radius:6px;color:var(--tx1);padding:6px 10px;font-size:13px">
+        <button class="btn btn-primary" onclick="runABCompare()">비교 실행</button>
+      </div>
+      <div class="hist-modal-body" style="max-height:60vh;overflow:auto;padding:16px 20px" id="abResultBody">
+        <p style="color:var(--tx2);font-size:13px;text-align:center;padding:20px">비교 방식 B를 선택하고 실행하세요.</p>
+      </div>
+    </div>
+  </div>
+
   <!-- 결과 -->
   <div id="results" style="display:none">
     <div class="summary-grid" id="summaryGrid"></div>
@@ -366,7 +398,9 @@
     <div class="card" id="cardStats">
       <div class="tbl-header" style="padding:0 0 10px">
         <span class="card-title" style="margin:0">📊 통계 요약 (EQP / CH / PPID 별)</span>
-        <div style="margin-left:auto">
+        <div style="display:flex;gap:8px;margin-left:auto">
+          <button class="btn btn-secondary btn-sm" onclick="openABModal()">🔀 A/B 비교</button>
+          <button class="btn btn-secondary btn-sm" onclick="exportXLSX()">📊 Excel 내보내기</button>
           <button class="btn btn-secondary btn-sm" onclick="downloadReport()">📄 HTML 보고서</button>
         </div>
       </div>
@@ -433,8 +467,9 @@
       <div class="tbl-header">
         <span class="title">🚨 이상감지 목록</span>
         <span class="cnt-badge" id="anomCnt">0건</span>
-        <div style="margin-left:auto">
-          <button class="btn btn-secondary btn-sm" onclick="exportCSV('anomaly')">⬇ CSV 다운로드</button>
+        <div style="display:flex;gap:8px;margin-left:auto">
+          <button class="btn btn-secondary btn-sm" onclick="exportXLSX()">📊 Excel</button>
+          <button class="btn btn-secondary btn-sm" onclick="exportCSV('anomaly')">⬇ CSV</button>
         </div>
       </div>
       <div id="drilldownBar" class="drilldown-bar" style="display:none">
@@ -571,12 +606,13 @@ const FIELDS = [
 function onDataChange() {
   const text = document.getElementById('dataInput').value.trim();
   const wrap = document.getElementById('colMapWrap');
-  if (!text) { wrap.style.display='none'; gHeaders=[]; return; }
+  if (!text) { wrap.style.display='none'; gHeaders=[]; document.getElementById('dqPanel').style.display='none'; return; }
   const firstLine = text.split(/\r?\n/)[0];
   const headers   = firstLine.split('\t').map(h=>h.trim());
   if (headers.length < 2) { wrap.style.display='none'; return; }
   gHeaders = headers;
   showColMap(headers);
+  checkDataQuality(text);
 }
 
 function showColMap(headers) {
@@ -1907,6 +1943,255 @@ function exportCSV(type){
   toast('CSV 다운로드 완료!','ok');
 }
 function today(){return new Date().toISOString().slice(0,10);}
+
+/* ══════════════════════════════════════════════════════
+   E: 이름 있는 설정 프리셋
+══════════════════════════════════════════════════════ */
+const MP_LS = 'fdc_method_presets';
+function _getMPresets() { try { return JSON.parse(localStorage.getItem(MP_LS)||'[]'); } catch{return[];} }
+function _saveMPresets(arr) { localStorage.setItem(MP_LS, JSON.stringify(arr)); }
+
+function saveMethodPreset() {
+  const name = prompt('프리셋 이름을 입력하세요:', '프리셋 ' + (_getMPresets().length + 1));
+  if (!name) return;
+  const preset = {
+    name,
+    method:   document.getElementById('detectMethod').value,
+    threshold:document.getElementById('threshold').value,
+    winSize:  document.getElementById('winSize').value,
+    lambda:   document.getElementById('ewmaLambda').value,
+    cusumK:   document.getElementById('cusumK').value,
+    cpkUSL:   document.getElementById('cpkUSL').value,
+    cpkLSL:   document.getElementById('cpkLSL').value,
+  };
+  const arr = _getMPresets();
+  arr.push(preset);
+  _saveMPresets(arr);
+  renderMethodPresets();
+  toast(`설정 프리셋 "${name}" 저장됨`, 'ok');
+}
+
+function applyMethodPreset(idx) {
+  const p = _getMPresets()[idx];
+  if (!p) return;
+  if (p.method)    document.getElementById('detectMethod').value = p.method;
+  if (p.threshold) document.getElementById('threshold').value    = p.threshold;
+  if (p.winSize)   document.getElementById('winSize').value      = p.winSize;
+  if (p.lambda)    document.getElementById('ewmaLambda').value   = p.lambda;
+  if (p.cusumK)    document.getElementById('cusumK').value       = p.cusumK;
+  document.getElementById('cpkUSL').value = p.cpkUSL || '';
+  document.getElementById('cpkLSL').value = p.cpkLSL || '';
+  onMethodChange();
+  saveSettings();
+  toast(`프리셋 "${p.name}" 적용됨`, 'ok');
+}
+
+function deleteMethodPreset(idx) {
+  const arr = _getMPresets();
+  const name = arr[idx]?.name || '';
+  arr.splice(idx, 1);
+  _saveMPresets(arr);
+  renderMethodPresets();
+  toast(`프리셋 "${name}" 삭제됨`, '');
+}
+
+function renderMethodPresets() {
+  const arr = _getMPresets();
+  const chips = document.getElementById('methodPresetChips');
+  if (!chips) return;
+  chips.innerHTML = arr.map((p, i) => `
+    <span class="preset-chip" onclick="applyMethodPreset(${i})" title="${p.method} / 임계값 ${p.threshold}">
+      ${p.name}
+      <span class="pdel" onclick="event.stopPropagation();deleteMethodPreset(${i})" title="삭제">✕</span>
+    </span>`).join('');
+}
+renderMethodPresets();
+
+/* ══════════════════════════════════════════════════════
+   F: 데이터 품질 사전 체크
+══════════════════════════════════════════════════════ */
+function checkDataQuality(rawText) {
+  const panel = document.getElementById('dqPanel');
+  const body  = document.getElementById('dqBody');
+  const statusEl = document.getElementById('dqStatus');
+  if (!rawText) { panel.style.display = 'none'; return; }
+  const lines = rawText.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) { panel.style.display = 'none'; return; }
+  const headers = lines[0].split('\t');
+  const dataLines = lines.slice(1);
+  const total = dataLines.length;
+  let emptyCount = 0, nonNumericRows = [], parseErrRows = [], dupRows = 0;
+  const seen = new Set();
+  dataLines.forEach((line, idx) => {
+    const cols = line.split('\t');
+    const lastVal = cols[cols.length - 1]?.trim();
+    if (!lastVal) emptyCount++;
+    else if (isNaN(parseFloat(lastVal))) nonNumericRows.push(idx + 2);
+    const key = cols.slice(0,6).join('|');
+    if (seen.has(key)) dupRows++; else seen.add(key);
+    if (cols.some(c => c.includes('\0') || c.length > 500)) parseErrRows.push(idx + 2);
+  });
+  const issues = emptyCount + nonNumericRows.length + parseErrRows.length;
+  const pct = total > 0 ? ((total - issues) / total * 100).toFixed(1) : 100;
+  statusEl.innerHTML = issues === 0
+    ? `<span style="color:var(--green);font-weight:700">✔ 이상 없음</span>`
+    : `<span style="color:var(--yellow);font-weight:700">⚠ ${issues}건 주의</span>`;
+  const item = (icon, label, val, color='var(--tx1)', detail='') =>
+    `<div style="min-width:110px"><div style="font-size:11px;color:var(--tx2)">${icon} ${label}</div>
+     <div style="font-size:18px;font-weight:700;color:${color};margin-top:2px">${val}</div>
+     ${detail?`<div style="font-size:10px;color:var(--tx2);margin-top:2px">${detail}</div>`:''}</div>`;
+  const nonNumSample = nonNumericRows.slice(0,5).join(', ') + (nonNumericRows.length > 5 ? ` 외 ${nonNumericRows.length-5}건` : '');
+  body.innerHTML =
+    item('📋','총 행 수', total.toLocaleString(), 'var(--blue)') +
+    item('✅','완전 행', (total - issues).toLocaleString(), issues===0?'var(--green)':'var(--yellow)', `품질률 ${pct}%`) +
+    item('⬜','빈 값', emptyCount || '없음', emptyCount?'var(--yellow)':'var(--tx2)') +
+    item('🔤','비숫자', nonNumericRows.length || '없음', nonNumericRows.length?'var(--red)':'var(--tx2)', nonNumericRows.length?`행: ${nonNumSample}`:'') +
+    item('🔁','중복 키', dupRows || '없음', dupRows?'var(--yellow)':'var(--tx2)', dupRows?'EQP+LOT+SLOT+CH+PPID 기준':'');
+  panel.style.display = 'block';
+}
+
+/* ══════════════════════════════════════════════════════
+   G: 감지 방식 A/B 비교
+══════════════════════════════════════════════════════ */
+function openABModal() {
+  if (!gResults.length) { toast('먼저 분석을 실행하세요', 'err'); return; }
+  const sel = document.getElementById('abMethodB');
+  if (!sel.options.length) {
+    const src = document.getElementById('detectMethod');
+    Array.from(src.children).forEach(c => {
+      if (c.tagName === 'OPTGROUP') {
+        const g = document.createElement('optgroup');
+        g.label = c.label;
+        Array.from(c.children).forEach(o => g.appendChild(o.cloneNode(true)));
+        sel.appendChild(g);
+      } else {
+        sel.appendChild(c.cloneNode(true));
+      }
+    });
+  }
+  const curMethod = document.getElementById('detectMethod').value;
+  const curMeta   = METHOD_META[curMethod];
+  document.getElementById('abThresholdB').value    = document.getElementById('threshold').value;
+  document.getElementById('abThresholdB').placeholder = `임계값 B (현재: ${document.getElementById('threshold').value})`;
+  document.getElementById('abModal').classList.add('open');
+}
+
+async function runABCompare() {
+  const body    = document.getElementById('abResultBody');
+  const methodA = document.getElementById('detectMethod').value;
+  const methodB = document.getElementById('abMethodB').value;
+  const thrA    = parseFloat(document.getElementById('threshold').value);
+  const thrB    = parseFloat(document.getElementById('abThresholdB').value) || thrA;
+  const winSize = parseInt(document.getElementById('winSize').value) || 3;
+  const lambda  = parseFloat(document.getElementById('ewmaLambda').value) || 0.2;
+  const cusumK  = parseFloat(document.getElementById('cusumK').value) || 0.5;
+  const usl     = parseFloat(document.getElementById('cpkUSL').value);
+  const lsl     = parseFloat(document.getElementById('cpkLSL').value);
+  body.innerHTML = '<p style="color:var(--tx2);text-align:center;padding:20px">방식 B 분석 중...</p>';
+  let wrB;
+  try {
+    const text = document.getElementById('dataInput').value.trim();
+    const data = await parseExcel(text);
+    wrB = await _runWorker(data, thrB, methodB, winSize, lambda, cusumK, isNaN(usl)?null:usl, isNaN(lsl)?null:lsl);
+  } catch(e) { body.innerHTML = `<p style="color:var(--red);padding:20px">${e.message}</p>`; return; }
+  const anomsA  = gAnomsAll.length;
+  const anomsB  = wrB.results.filter(r=>r.isAnom).length;
+  const totalA  = gResults.length;
+  const totalB  = wrB.results.length;
+  const rateA   = (anomsA/totalA*100).toFixed(2);
+  const rateB   = (anomsB/totalB*100).toFixed(2);
+  const labelA  = document.querySelector(`#detectMethod option[value="${methodA}"]`)?.textContent || methodA;
+  const labelB  = document.querySelector(`#abMethodB option[value="${methodB}"]`)?.textContent || methodB;
+  // 그룹별 비교
+  const groupsA = {}; gResults.forEach(r=>{const k=`${r['EQP ID']}|||${r['CH']||''}|||${r['PPID']}`;(groupsA[k]=groupsA[k]||{t:0,a:0}).t++;if(r.isAnom)groupsA[k].a++;});
+  const groupsB = {}; wrB.results.forEach(r=>{const k=`${r['EQP ID']}|||${r['CH']||''}|||${r['PPID']}`;(groupsB[k]=groupsB[k]||{t:0,a:0}).t++;if(r.isAnom)groupsB[k].a++;});
+  const allKeys = [...new Set([...Object.keys(groupsA),...Object.keys(groupsB)])].sort();
+  const rows = allKeys.map(k => {
+    const [eqp,ch,ppid] = k.split('|||');
+    const a = groupsA[k]||{t:0,a:0}, b = groupsB[k]||{t:0,a:0};
+    const ra = a.t ? (a.a/a.t*100).toFixed(1) : '—';
+    const rb = b.t ? (b.a/b.t*100).toFixed(1) : '—';
+    const diff = a.t&&b.t ? (b.a/b.t - a.a/a.t)*100 : null;
+    const dc = diff===null?'':(diff>0?'color:var(--red)':'color:var(--green)');
+    const ds = diff===null?'—':(diff>=0?'+':'')+diff.toFixed(1)+'%p';
+    return `<tr><td>${eqp}</td><td>${ch}</td><td>${ppid}</td>
+      <td>${a.a}건 (${ra}%)</td><td>${b.a}건 (${rb}%)</td>
+      <td style="${dc};font-weight:${diff!==null?700:400}">${ds}</td></tr>`;
+  }).join('');
+  body.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <div style="background:var(--bg1);border:1px solid var(--bd);border-radius:8px;padding:14px">
+        <div style="font-size:11px;color:var(--blue);font-weight:700;margin-bottom:6px">A (현재)</div>
+        <div style="font-size:12px;color:var(--tx2);margin-bottom:4px">${labelA.replace(/[①-㉓]/,'').trim()}</div>
+        <div style="font-size:22px;font-weight:700;color:var(--red)">${anomsA}건</div>
+        <div style="font-size:12px;color:var(--tx2)">이상률 ${rateA}% / 임계값 ${thrA}</div>
+      </div>
+      <div style="background:var(--bg1);border:1px solid var(--bd);border-radius:8px;padding:14px">
+        <div style="font-size:11px;color:var(--purple);font-weight:700;margin-bottom:6px">B (비교)</div>
+        <div style="font-size:12px;color:var(--tx2);margin-bottom:4px">${labelB.replace(/[①-㉓]/,'').trim()}</div>
+        <div style="font-size:22px;font-weight:700;color:var(--red)">${anomsB}건</div>
+        <div style="font-size:12px;color:var(--tx2)">이상률 ${rateB}% / 임계값 ${thrB}</div>
+      </div>
+    </div>
+    <div class="tbl-wrap"><table style="font-size:12px">
+      <thead><tr style="background:var(--bg1)">
+        <th style="padding:8px 10px;color:var(--tx2)">EQP</th>
+        <th style="padding:8px 10px;color:var(--tx2)">CH</th>
+        <th style="padding:8px 10px;color:var(--tx2)">PPID</th>
+        <th style="padding:8px 10px;color:var(--blue)">A 이상</th>
+        <th style="padding:8px 10px;color:var(--purple)">B 이상</th>
+        <th style="padding:8px 10px;color:var(--tx2)">B−A 차이</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+/* ══════════════════════════════════════════════════════
+   H: Excel(XLSX) 내보내기
+══════════════════════════════════════════════════════ */
+function exportXLSX() {
+  if (!gResults.length) { toast('먼저 분석을 실행하세요', 'err'); return; }
+  try {
+    const wb = XLSX.utils.book_new();
+    // 시트1: 이상감지 목록
+    const anomHdr = ['날짜','EQP ID','LOTID','SLOT','CH','PPID','REAL DATA','참조값','편차/변화량','임계값','감지방식','상태'];
+    const anomRows = gAnomsAll.map(r => [
+      r['날짜'], r['EQP ID'], r['LOTID'], r['SLOT'], r['CH'], r['PPID'], r['REAL DATA'],
+      r.prevVal != null ? parseFloat(r.prevVal.toFixed(4)) : '',
+      r.diff    != null ? parseFloat(r.diff.toFixed(4))    : '',
+      r.threshold, METHOD_LABEL[r.method] || r.method, '이상'
+    ]);
+    const ws1 = XLSX.utils.aoa_to_sheet([anomHdr, ...anomRows]);
+    ws1['!cols'] = anomHdr.map((_,i)=>({wch: i<1?20:i<6?14:12}));
+    XLSX.utils.book_append_sheet(wb, ws1, '이상감지 목록');
+    // 시트2: 통계 요약
+    const statHdr = ['EQP ID','CH','PPID','건수','평균','표준편차','최솟값','최댓값','범위','CV%','UCL(+3σ)','LCL(−3σ)','이상 건수','이상률(%)'];
+    const statRows = gStats.map(s => [
+      s.eqp, s.ch, s.param, s.n,
+      parseFloat(s.mean.toFixed(4)), parseFloat(s.std.toFixed(4)),
+      parseFloat(s.min.toFixed(4)),  parseFloat(s.max.toFixed(4)),
+      parseFloat(s.range.toFixed(4)),parseFloat(s.cv.toFixed(2)),
+      parseFloat(s.ucl.toFixed(4)),  parseFloat(s.lcl.toFixed(4)),
+      s.anomCount, parseFloat(s.anomRate.toFixed(2))
+    ]);
+    const ws2 = XLSX.utils.aoa_to_sheet([statHdr, ...statRows]);
+    ws2['!cols'] = statHdr.map(()=>({wch:14}));
+    XLSX.utils.book_append_sheet(wb, ws2, '통계 요약');
+    // 시트3: 전체 데이터
+    const allHdr = ['날짜','EQP ID','LOTID','SLOT','CH','PPID','REAL DATA','참조값','편차','임계값','상태'];
+    const allRows = gResults.map(r => [
+      r['날짜'], r['EQP ID'], r['LOTID'], r['SLOT'], r['CH'], r['PPID'], r['REAL DATA'],
+      r.prevVal != null ? parseFloat(r.prevVal.toFixed(4)) : '',
+      r.diff    != null ? parseFloat(r.diff.toFixed(4))    : '',
+      r.threshold, r.isAnom ? '이상' : '정상'
+    ]);
+    const ws3 = XLSX.utils.aoa_to_sheet([allHdr, ...allRows]);
+    ws3['!cols'] = allHdr.map((_,i)=>({wch: i<1?20:i<6?14:12}));
+    XLSX.utils.book_append_sheet(wb, ws3, '전체 데이터');
+    XLSX.writeFile(wb, `fdc_report_${today()}.xlsx`);
+    toast('Excel 파일 다운로드 완료 (이상목록 / 통계요약 / 전체데이터 시트)', 'ok');
+  } catch(e) { toast('Excel 내보내기 실패: ' + e.message, 'err'); console.error(e); }
+}
 
 /* ══════════════════════════════════════════════════════
    MAIN
