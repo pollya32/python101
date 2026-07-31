@@ -2706,17 +2706,20 @@ function _applyFileReplace() {
 
 function _applyFileAppend() {
   document.getElementById('appendModal').classList.remove('open');
-  const existing = document.getElementById('dataInput').value.trimEnd();
-  const newLines = _pendingTsv.split(/\r?\n/);
+  const existing    = document.getElementById('dataInput').value.trimEnd();
+  const allLines    = _pendingTsv.split(/\r?\n/);
   const existHeader = existing.split(/\r?\n/)[0].trim();
-  const newHeader   = newLines[0].trim();
+  const firstLine   = allLines[0]?.trim() ?? '';
 
-  const dataOnly = newLines.slice(1).filter(l => l.trim()).join('\n');
-  document.getElementById('dataInput').value = existing + '\n' + dataOnly;
+  // 첫 줄이 기존 헤더와 일치하면 헤더로 간주하여 제거, 아니면 데이터로 보존
+  const isHeader  = firstLine === existHeader;
+  const dataLines = (isHeader ? allLines.slice(1) : allLines).filter(l => l.trim());
+
+  document.getElementById('dataInput').value = existing + '\n' + dataLines.join('\n');
   onDataChange();
 
-  const appendedCount = newLines.slice(1).filter(l => l.trim()).length;
-  if (existHeader !== newHeader) {
+  const appendedCount = dataLines.length;
+  if (!isHeader && firstLine !== existHeader) {
     toast(`⚠️ 헤더가 다릅니다. 컬럼 매핑을 꼭 확인하세요 (${appendedCount}행 추가)`, 'err');
   } else {
     toast(`➕ ${appendedCount.toLocaleString()}행 이어 붙이기 완료 — 분석을 다시 실행하세요`, 'ok');
