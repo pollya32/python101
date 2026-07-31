@@ -2651,6 +2651,10 @@ function loadSample(){
 /* ══════════════════════════════════════════════════════
    파일 업로드
 ══════════════════════════════════════════════════════ */
+/* ── 파일 로드 + 이어 붙이기 ── */
+let _pendingTsv = null;
+let _pendingLabel = '';
+
 function handleFileDrop(e) {
   const file = (e.dataTransfer?.files || e.target?.files)?.[0];
   if (!file) return;
@@ -2660,23 +2664,64 @@ function handleFileDrop(e) {
       try {
         const wb = XLSX.read(new Uint8Array(ev.target.result), {type:'array'});
         const sheetName = wb.SheetNames[0];
-        const tsv = XLSX.utils.sheet_to_csv(wb.Sheets[sheetName], {FS:'\t'});
-        document.getElementById('dataInput').value = tsv;
-        onDataChange();
-        toast(`${file.name} 로드 완료 (시트: ${sheetName}) — 컬럼 매핑을 확인 후 분석하세요`, 'ok');
+        _pendingTsv   = XLSX.utils.sheet_to_csv(wb.Sheets[sheetName], {FS:'\t'});
+        _pendingLabel = `${file.name} (시트: ${sheetName})`;
+        _offerAppendOrReplace();
       } catch(ex) { toast('XLSX 파싱 실패: ' + ex.message, 'err'); }
     };
     reader.onerror = () => toast('파일 읽기 실패', 'err');
     reader.readAsArrayBuffer(file);
   } else {
     reader.onload = ev => {
-      document.getElementById('dataInput').value = ev.target.result;
-      onDataChange();
-      toast(`${file.name} 로드 완료 — 컬럼 매핑을 확인 후 분석하세요`, 'ok');
+      _pendingTsv   = ev.target.result;
+      _pendingLabel = file.name;
+      _offerAppendOrReplace();
     };
     reader.onerror = () => toast('파일 읽기 실패', 'err');
     reader.readAsText(file, 'UTF-8');
   }
+}
+
+function _offerAppendOrReplace() {
+  const hasData = document.getElementById('dataInput').value.trim().length > 0;
+  if (!hasData) { _applyFileReplace(); return; }
+
+  const newRows = _pendingTsv.split('\n').slice(1).filter(l => l.trim()).length;
+  const curRows = document.getElementById('dataInput').value.split('\n').filter(l => l.trim()).length - 1;
+  document.getElementById('appendModalMsg').innerHTML =
+    `<b>${_pendingLabel}</b><br>` +
+    `현재 <b>${curRows.toLocaleString()}행</b> 데이터가 있습니다.<br>` +
+    `새 파일에는 <b>${newRows.toLocaleString()}행</b>이 있습니다.<br><br>` +
+    `어떻게 처리할까요?`;
+  document.getElementById('appendModal').classList.add('open');
+}
+
+function _applyFileReplace() {
+  document.getElementById('appendModal').classList.remove('open');
+  document.getElementById('dataInput').value = _pendingTsv;
+  onDataChange();
+  toast(`${_pendingLabel} 로드 완료 — 컬럼 매핑을 확인 후 분석하세요`, 'ok');
+  _pendingTsv = null;
+}
+
+function _applyFileAppend() {
+  document.getElementById('appendModal').classList.remove('open');
+  const existing = document.getElementById('dataInput').value.trimEnd();
+  const newLines = _pendingTsv.split('\n');
+  const existHeader = existing.split('\n')[0].trim();
+  const newHeader   = newLines[0].trim();
+
+  const dataOnly = newLines.slice(1).filter(l => l.trim()).join('\n');
+  document.getElementById('dataInput').value = existing + '\n' + dataOnly;
+  onDataChange();
+
+  const appendedCount = newLines.slice(1).filter(l => l.trim()).length;
+  if (existHeader !== newHeader) {
+    toast(`⚠️ 헤더가 다릅니다. 컬럼 매핑을 꼭 확인하세요 (${appendedCount}행 추가)`, 'err');
+  } else {
+    toast(`➕ ${appendedCount.toLocaleString()}행 이어 붙이기 완료 — 분석을 다시 실행하세요`, 'ok');
+  }
+  _pendingTsv = null;
 }
 
 /* ══════════════════════════════════════════════════════
@@ -4498,6 +4543,18 @@ function toast(msg,type=''){
       </label>
       <button class="mail-send-btn" id="mailSendBtn" onclick="sendMailNow()">📤 지금 바로 발송</button>
       <div class="mail-status" id="mailStatusMsg"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 이어 붙이기 확인 모달 -->
+<div id="appendModal" class="hist-modal-overlay" onclick="if(event.target===this)document.getElementById('appendModal').classList.remove('open')">
+  <div style="background:var(--bg1);border:1px solid var(--bd);border-radius:12px;padding:26px 28px;max-width:400px;width:92%;box-shadow:0 8px 32px rgba(0,0,0,.25)">
+    <div style="font-size:15px;font-weight:700;color:var(--tx1);margin-bottom:12px">📂 파일 불러오기</div>
+    <div id="appendModalMsg" style="font-size:13.5px;color:var(--tx2);margin-bottom:22px;line-height:1.7"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <button class="btn btn-secondary" style="padding:9px 0;font-size:13px" onclick="_applyFileReplace()">🔄 기존 데이터 교체</button>
+      <button class="btn" style="padding:9px 0;font-size:13px;background:var(--ac1);color:#fff;border:none;border-radius:6px;cursor:pointer" onclick="_applyFileAppend()">➕ 이어 붙이기</button>
     </div>
   </div>
 </div>
