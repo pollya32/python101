@@ -755,21 +755,31 @@ function _parseHtmlTable(html) {
   } catch { return ''; }
 }
 
-// 붙여넣기 실패 감지: paste 이벤트가 빈 결과를 반환할 때 도움말 표시
+// textarea Ctrl+V — 이어붙이기/교체 흐름으로 연결
 (function _initPasteGuard() {
   const ta = document.getElementById('dataInput');
   if (!ta) return;
   ta.addEventListener('paste', function(e) {
-    // 브라우저가 paste를 차단하면 clipboardData가 비거나 items가 없음
-    setTimeout(() => {
-      if (!ta.value.trim()) {
-        const hint = document.getElementById('securityHint');
-        hint.style.display = 'block';
-        const statusEl = document.getElementById('clipStatus');
-        statusEl.textContent = '붙여넣기가 차단된 것 같습니다 — 아래 우회 방법을 확인하세요';
-        statusEl.style.color = 'var(--yellow)';
-      }
-    }, 300);
+    const text = e.clipboardData?.getData('text/plain') || '';
+
+    // 클립보드가 비어있으면(보안 차단) 기존 도움말 표시
+    if (!text.trim()) {
+      setTimeout(() => {
+        if (!ta.value.trim()) {
+          document.getElementById('securityHint').style.display = 'block';
+          const s = document.getElementById('clipStatus');
+          s.textContent = '붙여넣기가 차단된 것 같습니다 — 아래 우회 방법을 확인하세요';
+          s.style.color = 'var(--yellow)';
+        }
+      }, 300);
+      return;
+    }
+
+    // 데이터가 있으면 기본 붙여넣기를 막고 이어붙이기/교체 팝업으로 처리
+    e.preventDefault();
+    _pendingTsv   = text;
+    _pendingLabel = '클립보드 (Ctrl+V)';
+    _offerAppendOrReplace();
   });
 })();
 
