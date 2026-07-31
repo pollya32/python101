@@ -2706,24 +2706,15 @@ function _applyFileReplace() {
 
 function _applyFileAppend() {
   document.getElementById('appendModal').classList.remove('open');
-  const existing    = document.getElementById('dataInput').value.trimEnd();
-  const allLines    = _pendingTsv.split(/\r?\n/);
-  const existHeader = existing.split(/\r?\n/)[0].trim();
-  const firstLine   = allLines[0]?.trim() ?? '';
-
-  // 첫 줄이 기존 헤더와 일치하면 헤더로 간주하여 제거, 아니면 데이터로 보존
-  const isHeader  = firstLine === existHeader;
-  const dataLines = (isHeader ? allLines.slice(1) : allLines).filter(l => l.trim());
+  const existing   = document.getElementById('dataInput').value.trimEnd();
+  const allLines   = _pendingTsv.split(/\r?\n/);
+  const skipHeader = document.getElementById('appendSkipHeader').checked;
+  const dataLines  = (skipHeader ? allLines.slice(1) : allLines).filter(l => l.trim());
 
   document.getElementById('dataInput').value = existing + '\n' + dataLines.join('\n');
   onDataChange();
 
-  const appendedCount = dataLines.length;
-  if (!isHeader && firstLine !== existHeader) {
-    toast(`⚠️ 헤더가 다릅니다. 컬럼 매핑을 꼭 확인하세요 (${appendedCount}행 추가)`, 'err');
-  } else {
-    toast(`➕ ${appendedCount.toLocaleString()}행 이어 붙이기 완료 — 분석을 다시 실행하세요`, 'ok');
-  }
+  toast(`➕ ${dataLines.length.toLocaleString()}행 이어 붙이기 완료 — 분석을 다시 실행하세요`, 'ok');
   _pendingTsv = null;
 }
 
@@ -4554,7 +4545,11 @@ function toast(msg,type=''){
 <div id="appendModal" class="hist-modal-overlay" onclick="if(event.target===this)document.getElementById('appendModal').classList.remove('open')">
   <div style="background:var(--bg1);border:1px solid var(--bd);border-radius:12px;padding:26px 28px;max-width:400px;width:92%;box-shadow:0 8px 32px rgba(0,0,0,.25)">
     <div style="font-size:15px;font-weight:700;color:var(--tx1);margin-bottom:12px">📂 파일 불러오기</div>
-    <div id="appendModalMsg" style="font-size:13.5px;color:var(--tx2);margin-bottom:22px;line-height:1.7"></div>
+    <div id="appendModalMsg" style="font-size:13.5px;color:var(--tx2);margin-bottom:14px;line-height:1.7"></div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx1);cursor:pointer;margin-bottom:18px;padding:9px 12px;background:var(--bg2);border:1px solid var(--bd);border-radius:7px">
+      <input type="checkbox" id="appendSkipHeader" checked style="accent-color:var(--ac1);width:15px;height:15px">
+      새 데이터 첫 행(헤더)을 제외하고 붙이기
+    </label>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <button class="btn btn-secondary" style="padding:9px 0;font-size:13px" onclick="_applyFileReplace()">🔄 기존 데이터 교체</button>
       <button class="btn" style="padding:9px 0;font-size:13px;background:var(--ac1);color:#fff;border:none;border-radius:6px;cursor:pointer" onclick="_applyFileAppend()">➕ 이어 붙이기</button>
