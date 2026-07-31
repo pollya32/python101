@@ -2620,9 +2620,35 @@ async function runAnalysis(){
       const json = await _runMLAnalysis(text, method, isNaN(thr) ? 0.05 : thr);
       _setProgress(60, '결과 처리 중...'); await _tick();
 
-      // 서버 결과를 gResults 형식으로 변환
-      gResults  = json.results.map(r => ({ ...r, isAnom: !!r.isAnom }));
-      gStats    = json.stats || [];
+      // 서버 결과를 gResults 형식으로 변환 (트렌드·테이블 함수가 요구하는 내부 필드 보완)
+      gResults = json.results.map((r, i) => ({
+        ...r,
+        isAnom:    !!r.isAnom,
+        _val:      r['REAL DATA'],
+        _slot:     r['SLOT'] != null ? (parseInt(r['SLOT']) || i) : i,
+        _time:     r['날짜'] ? tryParseTime(String(r['날짜'])) : null,
+        _key:      `${r['EQP ID']}|||${r['LOTID']||''}|||${r['CH']||''}|||${r['PPID']}`,
+        _statsKey: `${r['EQP ID']}|||${r['CH']||''}|||${r['PPID']}`,
+        threshold: null,
+        method:    method,
+        prevVal:   null,
+      }));
+
+      // 서버 stats 형식 → renderStats() 기대 형식으로 변환
+      gStats = (json.stats || []).map(s => {
+        const mean = s.mean, std = s.std, min = s.min, max = s.max;
+        const n = s.count, anomCount = s.anoms;
+        return {
+          eqp: s.eqp, ch: s.ch || '', param: s.ppid,
+          n, mean, std, min, max,
+          range: max - min,
+          cv: mean !== 0 ? Math.abs(std / mean * 100) : 0,
+          ucl: mean + 3 * std,
+          lcl: mean - 3 * std,
+          anomCount,
+          anomRate: n ? anomCount / n * 100 : 0,
+        };
+      });
       gAnomsAll = gResults.filter(r => r.isAnom);
       gAnoms    = gAnomsAll;
       gIndex    = buildIndex(gResults);
