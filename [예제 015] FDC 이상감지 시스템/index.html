@@ -348,6 +348,11 @@
           <option value="cpk">㉑ Cp/Cpk 공정 능력 (USL/LSL 기반 공정 이탈)</option>
           <option value="nelson_full">㉒ Nelson 8개 규칙 (완전 SPC 규칙 복합 적용)</option>
           <option value="cv_shift">㉓ 변동계수 급변 (CV Shift · LOT간 산포 변화)</option>
+          <option disabled>── ML 기반 (FastAPI 서버 필요) ──</option>
+          <option value="ml_isoforest">🤖 Isolation Forest (비지도 ML · 고차원 이상치)</option>
+          <option value="ml_lof">🤖 Local Outlier Factor (밀도 기반 ML)</option>
+          <option value="ml_ocsvm">🤖 One-Class SVM (경계 기반 ML)</option>
+          <option value="ml_elliptic">🤖 Elliptic Envelope (강건 공분산 ML)</option>
           </optgroup>
         </select>
       </div>
@@ -387,6 +392,19 @@
         <span style="font-size:12px;color:var(--tx2)">🔔 경보 이상률:</span>
         <input type="number" id="alertRate" value="5" min="0" max="100" step="0.5" style="width:60px">
         <span style="font-size:11px;color:var(--tx2)">% 이상 시 경보</span>
+      </div>
+      <!-- FastAPI 서버 설정 (ML 방식 선택 시 표시) -->
+      <div id="mlServerPanel" style="display:none;width:100%;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:10px 14px;display:none;flex-direction:column;gap:8px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-size:12px;font-weight:600;color:var(--tx2);white-space:nowrap">🤖 ML 서버 URL:</span>
+          <input type="text" id="mlServerUrl" value="http://localhost:8000"
+                 style="flex:1;min-width:180px;padding:5px 9px;font-size:12px;background:var(--bg1);border:1px solid var(--bd);border-radius:5px;color:var(--tx1)">
+          <button class="btn btn-secondary btn-sm" onclick="_testMLServer()">연결 테스트</button>
+          <span id="mlServerStatus" style="font-size:12px"></span>
+        </div>
+        <div style="font-size:11.5px;color:var(--tx2)">
+          오염률(contamination): 임계값 입력란을 <b>0.01~0.5</b> 사이 값으로 사용 (예: 0.05 = 상위 5% 이상치)
+        </div>
       </div>
       <button class="btn btn-primary" id="btnRun" onclick="runAnalysis()">🔍 분석 시작</button>
       <button class="btn btn-secondary" id="btnCancel" onclick="cancelAnalysis()" style="display:none;background:rgba(248,81,73,.15);border-color:var(--red);color:var(--red)">⏹ 취소</button>
@@ -858,6 +876,9 @@ function onMethodChange() {
   document.getElementById('threshold').placeholder = meta.thrDef !== undefined ? String(meta.thrDef) : '';
   document.querySelectorAll('.th-ref').forEach(th=>th.textContent=meta.ref);
   document.querySelectorAll('.th-diff').forEach(th=>th.textContent=meta.diff);
+  // ML 방식 선택 시 서버 패널 표시
+  const panel = document.getElementById('mlServerPanel');
+  if (panel) panel.style.display = m.startsWith('ml_') ? 'flex' : 'none';
 }
 // 초기 UI 설정
 onMethodChange();
@@ -2523,6 +2544,62 @@ function _throttleChartHover(chart) {
   }, true);
 }
 
+/* ══════════════════════════════════════════════════════
+   ML FastAPI 연동
+══════════════════════════════════════════════════════ */
+function _mlServerUrl() {
+  return (document.getElementById('mlServerUrl')?.value || 'http://localhost:8000').replace(/\/$/, '');
+}
+
+async function _testMLServer() {
+  const statusEl = document.getElementById('mlServerStatus');
+  statusEl.textContent = '확인 중...';
+  statusEl.style.color = 'var(--tx2)';
+  try {
+    const res = await fetch(_mlServerUrl() + '/health', { signal: AbortSignal.timeout(4000) });
+    const json = await res.json();
+    if (json.status === 'ok') {
+      statusEl.textContent = '✅ 연결됨';
+      statusEl.style.color = 'var(--green)';
+    } else throw new Error('응답 오류');
+  } catch {
+    statusEl.textContent = '❌ 연결 실패';
+    statusEl.style.color = 'var(--red)';
+  }
+}
+
+async function _runMLAnalysis(text, method, thr) {
+  const colMap = getColMap();   // {date, eqp, lot, ch, ppid, value} → col index
+  const body = {
+    data:      text,
+    col_map:   colMap,
+    method:    method,
+    threshold: thr,
+    params:    {}
+  };
+
+  const statusEl = document.getElementById('mlServerStatus');
+  statusEl.textContent = '분석 중...';
+  statusEl.style.color = 'var(--tx2)';
+
+  const res = await fetch(_mlServerUrl() + '/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(120000)
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || '서버 오류');
+  }
+
+  const json = await res.json();
+  statusEl.textContent = `✅ ${json.summary.anoms}건 이상 감지`;
+  statusEl.style.color = json.summary.anoms ? 'var(--red)' : 'var(--green)';
+  return json;
+}
+
 async function runAnalysis(){
   const text=document.getElementById('dataInput').value.trim();
   if (!text){toast('데이터를 입력하세요.','err');return;}
@@ -2532,6 +2609,57 @@ async function runAnalysis(){
   const winSize=parseInt(document.getElementById('winSize').value)||3;
   if (isNaN(thr)||thr<0){toast('임계값은 0 이상이어야 합니다.','err');return;}
   gThreshold=thr;
+
+  // ML 방식: FastAPI 서버로 라우팅
+  if (method.startsWith('ml_')) {
+    const btn=document.getElementById('btnRun');
+    const pw=document.getElementById('progressWrap');
+    btn.disabled=true; pw.style.display='block';
+    try {
+      _setProgress(10, 'ML 서버에 분석 요청 중...');
+      const json = await _runMLAnalysis(text, method, isNaN(thr) ? 0.05 : thr);
+      _setProgress(60, '결과 처리 중...'); await _tick();
+
+      // 서버 결과를 gResults 형식으로 변환
+      gResults  = json.results.map(r => ({ ...r, isAnom: !!r.isAnom }));
+      gStats    = json.stats || [];
+      gAnomsAll = gResults.filter(r => r.isAnom);
+      gAnoms    = gAnomsAll;
+      gIndex    = buildIndex(gResults);
+      onMethodChange(); gFilteredResults = null;
+
+      renderSummary(gResults); renderBanner(gResults); renderStats(gStats);
+      _setProgress(72, '랭킹 렌더링 중...'); await _tick();
+      await renderRanking(gResults);
+      _setProgress(78, '히트맵 렌더링 중...'); await _tick();
+      await renderHeatmap(gResults);
+      _setProgress(84, '테이블 렌더링 중...'); await _tick();
+      renderTables(gResults);
+      _setProgress(90, '필터/산점도 초기화 중...'); await _tick();
+      populateFilters(gResults); initScatterSelects(gResults);
+      checkAnomalyRateAlert();
+      _setProgress(95, '차트 렌더링 중...'); await _tick();
+      renderParetoChart(); await renderTrendChart();
+      renderPresets(); _checkSavedColMap();
+
+      document.getElementById('results').style.display = 'block';
+      applyLayout();
+      document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      saveSettings();
+      _setProgress(100, '완료');
+      toast(`ML 분석 완료 (${json.method_label}) — 총 ${gResults.length}건 / 이상 ${gAnomsAll.length}건`,
+            gAnomsAll.length ? 'err' : 'ok');
+    } catch (err) {
+      toast(`ML 서버 오류: ${err.message}`, 'err');
+      document.getElementById('mlServerStatus').textContent = `❌ ${err.message}`;
+      document.getElementById('mlServerStatus').style.color = 'var(--red)';
+    } finally {
+      btn.disabled = false;
+      pw.style.display = 'none';
+      document.getElementById('btnCancel').style.display = 'none';
+    }
+    return;
+  }
 
   const btn=document.getElementById('btnRun');
   const pw=document.getElementById('progressWrap');
