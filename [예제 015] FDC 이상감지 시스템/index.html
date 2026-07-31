@@ -405,6 +405,23 @@
         <div style="font-size:11.5px;color:var(--tx2)">
           오염률(contamination): 임계값 입력란을 <b>0.01~0.5</b> 사이 값으로 사용 (예: 0.05 = 상위 5% 이상치)
         </div>
+        <!-- 점수 분포 히스토그램 (ML 분석 완료 후 표시) -->
+        <div id="mlScorePanel" style="display:none;border-top:1px solid var(--bd);padding-top:10px;margin-top:2px">
+          <div style="font-size:12px;font-weight:600;color:var(--tx1);margin-bottom:6px">
+            📊 이상 점수 분포
+            <span style="font-size:11px;font-weight:400;color:var(--tx2);margin-left:6px">빨강=이상 영역 · 초록=정상 영역 · 낮을수록 이상 가능성 높음</span>
+          </div>
+          <div style="position:relative;height:110px">
+            <canvas id="mlScoreChart"></canvas>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
+            <span style="font-size:12px;color:var(--tx2);white-space:nowrap">점수 임계값:</span>
+            <input type="range" id="mlScoreThr" style="flex:1;min-width:140px;accent-color:var(--red)" oninput="_onScoreThrChange()">
+            <code id="mlScoreThrVal" style="font-size:12px;min-width:70px;color:var(--tx1)"></code>
+            <button class="btn btn-secondary btn-sm" onclick="_applyScoreThr()">✅ 적용</button>
+            <span style="font-size:12px;color:var(--tx2)">적용 시 이상: <strong id="mlScoreAnomCnt" style="color:var(--red)">0</strong>건</span>
+          </div>
+        </div>
       </div>
       <button class="btn btn-primary" id="btnRun" onclick="runAnalysis()">🔍 분석 시작</button>
       <button class="btn btn-secondary" id="btnCancel" onclick="cancelAnalysis()" style="display:none;background:rgba(248,81,73,.15);border-color:var(--red);color:var(--red)">⏹ 취소</button>
@@ -2562,6 +2579,111 @@ function _throttleChartHover(chart) {
 }
 
 /* ══════════════════════════════════════════════════════
+   ML 점수 히스토그램
+══════════════════════════════════════════════════════ */
+let _mlScoreChart = null;
+let _mlScoreMin = -1, _mlScoreMax = 0, _mlBinSize = 0.01;
+const ML_SCORE_BINS = 40;
+
+function _renderScoreHistogram(results) {
+  const panel = document.getElementById('mlScorePanel');
+  if (!panel) return;
+  const scores = results.map(r => r.score).filter(s => s != null && isFinite(s));
+  if (!scores.length) { panel.style.display = 'none'; return; }
+
+  _mlScoreMin = Math.min(...scores);
+  _mlScoreMax = Math.max(...scores);
+  _mlBinSize  = (_mlScoreMax - _mlScoreMin) / ML_SCORE_BINS || 0.001;
+
+  // 40개 구간으로 히스토그램 집계
+  const bins = Array(ML_SCORE_BINS).fill(0);
+  scores.forEach(s => {
+    const i = Math.min(Math.floor((s - _mlScoreMin) / _mlBinSize), ML_SCORE_BINS - 1);
+    bins[i]++;
+  });
+  const labels = bins.map((_, i) => (_mlScoreMin + (i + 0.5) * _mlBinSize).toFixed(4));
+
+  // 현재 이상 판정된 것 중 최대 점수 → 초기 임계값
+  const anomScores = results.filter(r => r.isAnom && r.score != null).map(r => r.score);
+  const initThr = anomScores.length ? Math.max(...anomScores) : _mlScoreMin + _mlBinSize;
+
+  const slider = document.getElementById('mlScoreThr');
+  slider.min   = _mlScoreMin;
+  slider.max   = _mlScoreMax;
+  slider.step  = (_mlScoreMax - _mlScoreMin) / 2000;
+  slider.value = initThr;
+
+  const getColors = thr => labels.map(l => parseFloat(l) <= thr
+    ? 'rgba(248,81,73,0.75)' : 'rgba(63,185,80,0.5)');
+
+  const ctx = document.getElementById('mlScoreChart').getContext('2d');
+  if (_mlScoreChart) { _mlScoreChart.destroy(); _mlScoreChart = null; }
+  _mlScoreChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: bins,
+        backgroundColor: getColors(initThr),
+        borderWidth: 0,
+        barPercentage: 1.0,
+        categoryPercentage: 1.0,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: items => `점수 구간: ${items[0].label}`,
+            label: item  => `${item.raw}건`,
+          }
+        }
+      },
+      scales: {
+        x: { display: false },
+        y: { ticks: { font: { size: 10 }, maxTicksLimit: 4 }, grid: { color: 'rgba(128,128,128,0.15)' } }
+      }
+    }
+  });
+
+  panel.style.display = 'block';
+  _updateScoreThrDisplay(initThr);
+}
+
+function _onScoreThrChange() {
+  const thr = parseFloat(document.getElementById('mlScoreThr').value);
+  _updateScoreThrDisplay(thr);
+  if (!_mlScoreChart) return;
+  _mlScoreChart.data.datasets[0].backgroundColor =
+    _mlScoreChart.data.labels.map(l => parseFloat(l) <= thr
+      ? 'rgba(248,81,73,0.75)' : 'rgba(63,185,80,0.5)');
+  _mlScoreChart.update('none');
+}
+
+function _updateScoreThrDisplay(thr) {
+  document.getElementById('mlScoreThrVal').textContent = thr.toFixed(4);
+  const cnt = gResults.filter(r => (r.score != null ? r.score <= thr : r.isAnom)).length;
+  document.getElementById('mlScoreAnomCnt').textContent = cnt.toLocaleString();
+}
+
+function _applyScoreThr() {
+  const thr = parseFloat(document.getElementById('mlScoreThr').value);
+  gResults.forEach(r => { r.isAnom = r.score != null ? r.score <= thr : r.isAnom; });
+  gAnomsAll = gResults.filter(r => r.isAnom);
+  gAnoms    = [...gAnomsAll];
+  renderSummary(gResults); renderBanner(gResults);
+  renderStats(gStats); renderTables(gResults);
+  populateFilters(gResults); checkAnomalyRateAlert();
+  renderParetoChart();
+  toast(`점수 임계값 ${thr.toFixed(4)} 적용 — 이상 ${gAnomsAll.length}건`,
+        gAnomsAll.length ? 'err' : 'ok');
+}
+
+/* ══════════════════════════════════════════════════════
    ML FastAPI 연동
 ══════════════════════════════════════════════════════ */
 function _mlServerUrl() {
@@ -2694,13 +2816,14 @@ async function runAnalysis(){
       _setProgress(95, '차트 렌더링 중...'); await _tick();
       renderParetoChart(); await renderTrendChart();
       renderPresets(); _checkSavedColMap();
+      _renderScoreHistogram(gResults);  // 점수 분포 히스토그램 표시
 
       document.getElementById('results').style.display = 'block';
       applyLayout();
       document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
       saveSettings();
       _setProgress(100, '완료');
-      toast(`ML 분석 완료 (${json.method_label}) — 총 ${gResults.length}건 / 이상 ${gAnomsAll.length}건`,
+      toast(`ML 분석 완료 (${json.method_label}) — 총 ${gResults.length}건 / 이상 ${gAnomsAll.length}건 · 점수 임계값 슬라이더로 조정 가능`,
             gAnomsAll.length ? 'err' : 'ok');
     } catch (err) {
       toast(`ML 서버 오류: ${err.message}`, 'err');
