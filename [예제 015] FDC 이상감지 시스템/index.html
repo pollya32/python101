@@ -194,7 +194,7 @@
     /* ── 메일 모달 ── */
     .mail-modal{width:min(700px,95vw);}
     .mail-modal-body{padding:18px 22px;display:flex;flex-direction:column;gap:14px;flex:1;overflow-y:auto;}
-    .mail-recipient-scroll{max-height:120px;overflow-y:auto;border:1px solid var(--bd);border-radius:6px;padding:4px 6px;background:var(--bg1);}
+    .mail-recipient-scroll{max-height:160px;overflow-y:auto;border:1px solid var(--bd);border-radius:6px;padding:4px 6px;background:var(--bg1);}
     .mail-field label{font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:4px;display:block;}
     .mail-field input{width:100%;padding:6px 10px;border:1px solid var(--bd);border-radius:6px;background:var(--bg1);color:var(--tx1);font-size:13px;}
     .mail-field input:focus{outline:none;border-color:var(--ac1);}
@@ -3708,13 +3708,43 @@ function _renderMailRecipients() {
   const el = document.getElementById('mailRecipientList');
   if (!list.length) {
     el.innerHTML = '<div style="font-size:12px;color:var(--tx2);padding:4px 0">등록된 수신자가 없습니다.</div>';
+    _updateRecipientLabel();
     return;
   }
-  el.innerHTML = list.map((r,i) => `
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 6px 6px;border-bottom:1px solid var(--bd);margin-bottom:4px">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--tx2);cursor:pointer;font-weight:600">
+        <input type="checkbox" id="mailChkAll" style="accent-color:var(--ac1)" onchange="_toggleAllRecipients(this.checked)">
+        전체 선택
+      </label>
+      <span id="mailSelCount" style="font-size:11px;color:var(--tx2)"></span>
+    </div>
+    ${list.map((r,i) => `
     <div class="mail-recipient-row">
-      <span>${r}@samsung.com</span>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1;min-width:0">
+        <input type="checkbox" class="mail-rcpt-chk" data-id="${r}" checked style="accent-color:var(--ac1);flex-shrink:0" onchange="_updateRecipientLabel()">
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r}@samsung.com</span>
+      </label>
       <button onclick="_delMailRecipient(${i})" title="삭제">✕</button>
-    </div>`).join('');
+    </div>`).join('')}`;
+  _updateRecipientLabel();
+}
+
+function _toggleAllRecipients(checked) {
+  document.querySelectorAll('.mail-rcpt-chk').forEach(c => c.checked = checked);
+  _updateRecipientLabel();
+}
+
+function _updateRecipientLabel() {
+  const all  = document.querySelectorAll('.mail-rcpt-chk');
+  const sel  = document.querySelectorAll('.mail-rcpt-chk:checked');
+  const cnt  = document.getElementById('mailSelCount');
+  const chkAll = document.getElementById('mailChkAll');
+  if (cnt) cnt.textContent = all.length ? `${sel.length} / ${all.length}명 선택` : '';
+  if (chkAll) {
+    chkAll.checked = all.length > 0 && sel.length === all.length;
+    chkAll.indeterminate = sel.length > 0 && sel.length < all.length;
+  }
 }
 
 function addMailRecipient() {
@@ -4075,6 +4105,11 @@ async function sendMailNow() {
   if (!s.authorization) { document.getElementById('mailStatusMsg').textContent='Authorization 키를 입력하세요.'; return; }
   if (!s.systemId) { document.getElementById('mailStatusMsg').textContent='System-ID를 입력하세요.'; return; }
   if (!s.recipients || !s.recipients.length) { document.getElementById('mailStatusMsg').textContent='수신자를 1명 이상 추가하세요.'; return; }
+
+  // 체크된 수신자만 수집
+  const checkedIds = [...document.querySelectorAll('.mail-rcpt-chk:checked')].map(c => c.dataset.id);
+  if (!checkedIds.length) { document.getElementById('mailStatusMsg').textContent='발송할 수신자를 1명 이상 선택하세요.'; return; }
+
   if (!gResults.length) { document.getElementById('mailStatusMsg').textContent='분석 결과가 없습니다. 먼저 분석을 실행하세요.'; return; }
 
   const btn = document.getElementById('mailSendBtn');
@@ -4091,7 +4126,7 @@ async function sendMailNow() {
     contentType: 'HTML',
     docSecuType: 'PERSONAL',
     sender: { emailAddress: `${s.senderId}@samsung.com` },
-    recipients: s.recipients.map(r => ({ emailAddress: `${r}@samsung.com`, recipientType: 'TO' })),
+    recipients: checkedIds.map(r => ({ emailAddress: `${r}@samsung.com`, recipientType: 'TO' })),
   };
 
   try {
@@ -4101,7 +4136,7 @@ async function sendMailNow() {
     );
     if (res.ok) {
       msg.style.color='#2ecc71';
-      msg.textContent=`✅ ${s.recipients.length}명에게 발송 완료`;
+      msg.textContent=`✅ ${checkedIds.length}명에게 발송 완료`;
       toast('메일 발송 완료!','ok');
     } else {
       const txt = await res.text().catch(()=>'');
