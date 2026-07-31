@@ -700,11 +700,11 @@ async function readClipboard() {
       statusEl.style.color = 'var(--yellow)';
       return;
     }
-    document.getElementById('dataInput').value = text;
-    onDataChange();
-    statusEl.textContent = `✔ 클립보드 읽기 성공 — ${text.split('\n').filter(l=>l.trim()).length}행 로드됨`;
+    statusEl.textContent = `✔ 클립보드 읽기 성공 — ${text.split('\n').filter(l=>l.trim()).length}행`;
     statusEl.style.color = 'var(--green)';
-    toast('클립보드 읽기 성공', 'ok');
+    _pendingTsv   = text;
+    _pendingLabel = '클립보드';
+    _offerAppendOrReplace();
   } catch (err) {
     if (err.name === 'NotAllowedError') {
       statusEl.textContent = '클립보드 권한이 거부됨 — 브라우저 주소창 자물쇠 → 클립보드 허용 후 재시도';
