@@ -2586,10 +2586,20 @@ async function _testMLServer() {
 }
 
 async function _runMLAnalysis(text, method, thr) {
-  const colMap = getColMap();   // {date, eqp, lot, ch, ppid, value} → col index
+  // getColMap()은 {날짜, EQP ID, LOTID, ...} 키를 반환하지만
+  // 서버는 {date, eqp, lot, ch, ppid, value} 키를 기대하므로 변환 필요
+  const raw = getColMap();
+  const col_map = {
+    date:  raw['날짜'],
+    eqp:   raw['EQP ID'],
+    lot:   raw['LOTID'],
+    ch:    raw['CH'],
+    ppid:  raw['PPID'],
+    value: raw['REAL DATA'],
+  };
   const body = {
     data:      text,
-    col_map:   colMap,
+    col_map,
     method:    method,
     threshold: thr,
     params:    {}
@@ -2927,7 +2937,7 @@ async function renderHeatmap(results) {
   let maxRate=0.01;
   eqps.forEach(e=>params.forEach(p=>{ const d=cell(e,p); if(d&&d.rate>maxRate) maxRate=d.rate; }));
 
-  const esc = s => s.replace(/'/g,"\\'");
+  const esc = s => (s ?? '').replace(/'/g,"\\'");
   // 배열 누적 후 join — string += 반복 제거
   const rowParts = eqps.map(e => {
     const cells = params.map(p => {
