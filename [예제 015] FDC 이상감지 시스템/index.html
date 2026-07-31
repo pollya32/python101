@@ -2686,8 +2686,8 @@ function _offerAppendOrReplace() {
   const hasData = document.getElementById('dataInput').value.trim().length > 0;
   if (!hasData) { _applyFileReplace(); return; }
 
-  const newRows = _pendingTsv.split('\n').slice(1).filter(l => l.trim()).length;
-  const curRows = document.getElementById('dataInput').value.split('\n').filter(l => l.trim()).length - 1;
+  const newRows = _pendingTsv.split(/\r?\n/).slice(1).filter(l => l.trim()).length;
+  const curRows = document.getElementById('dataInput').value.split(/\r?\n/).filter(l => l.trim()).length - 1;
   document.getElementById('appendModalMsg').innerHTML =
     `<b>${_pendingLabel}</b><br>` +
     `현재 <b>${curRows.toLocaleString()}행</b> 데이터가 있습니다.<br>` +
@@ -2707,8 +2707,8 @@ function _applyFileReplace() {
 function _applyFileAppend() {
   document.getElementById('appendModal').classList.remove('open');
   const existing = document.getElementById('dataInput').value.trimEnd();
-  const newLines = _pendingTsv.split('\n');
-  const existHeader = existing.split('\n')[0].trim();
+  const newLines = _pendingTsv.split(/\r?\n/);
+  const existHeader = existing.split(/\r?\n/)[0].trim();
   const newHeader   = newLines[0].trim();
 
   const dataOnly = newLines.slice(1).filter(l => l.trim()).join('\n');
