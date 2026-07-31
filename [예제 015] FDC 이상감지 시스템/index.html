@@ -3510,14 +3510,6 @@ function _handleMailImageFile(file) {
   reader.readAsDataURL(file);
 }
 
-function _onMailImageDrop(e) {
-  e.preventDefault();
-  const drop = document.getElementById('mailImageDrop');
-  if (drop) drop.style.borderColor = 'var(--bd)';
-  const file = e.dataTransfer?.files?.[0];
-  if (file) _handleMailImageFile(file);
-}
-
 function _clearMailImage() {
   _mailImageData = null;
   const inp = document.getElementById('mailImageInput');
@@ -4437,16 +4429,11 @@ function toast(msg,type=''){
         <label>본문 머리말 <span style="font-weight:400;color:var(--tx2)">(선택 · 리포트 상단에 삽입)</span></label>
         <textarea id="mailBodyText" rows="3" placeholder="예) 안녕하세요. FDC 이상감지 현황을 공유드립니다." oninput="saveMailSettings()"
           style="width:100%;padding:7px 10px;border:1px solid var(--bd);border-radius:6px;background:var(--bg1);color:var(--tx1);font-size:13px;resize:vertical;font-family:inherit;line-height:1.5"></textarea>
-        <!-- 머리말 이미지 업로드 -->
+        <!-- 머리말 이미지 — Ctrl+V 붙여넣기 -->
         <div id="mailImageWrap" style="margin-top:8px">
           <div id="mailImageDrop"
-               style="border:2px dashed var(--bd);border-radius:8px;padding:11px 14px;text-align:center;cursor:pointer;color:var(--tx2);font-size:12.5px;transition:border-color .2s;user-select:none"
-               ondragover="event.preventDefault();this.style.borderColor='var(--ac1)'"
-               ondragleave="this.style.borderColor='var(--bd)'"
-               ondrop="_onMailImageDrop(event)"
-               onclick="document.getElementById('mailImageInput').click()">
-            🖼️ 이미지 첨부 &mdash; 클릭 선택 · 드래그 드롭 · <b>Ctrl+V</b> 붙여넣기
-            <input type="file" id="mailImageInput" accept="image/*" style="display:none" onchange="_handleMailImageFile(this.files[0])">
+               style="border:2px dashed var(--bd);border-radius:8px;padding:11px 14px;text-align:center;color:var(--tx2);font-size:12.5px;user-select:none">
+            🖼️ 이미지를 복사한 뒤 <b>Ctrl+V</b> 로 붙여넣기
           </div>
           <div id="mailImagePreview" style="display:none;margin-top:8px;position:relative;text-align:center">
             <img id="mailImageThumb" style="max-width:100%;max-height:180px;border-radius:6px;border:1px solid var(--bd);display:inline-block">
