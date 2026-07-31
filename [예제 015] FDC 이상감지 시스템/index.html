@@ -866,7 +866,27 @@ const METHOD_META = {
 
 function onMethodChange() {
   const m = document.getElementById('detectMethod').value;
+  const isML = m.startsWith('ml_');
+  // ML 방식 선택 시 서버 패널 표시/숨김
+  const panel = document.getElementById('mlServerPanel');
+  if (panel) panel.style.display = isML ? 'flex' : 'none';
+
+  // ML 방식은 METHOD_META에 없으므로 별도 처리
+  if (isML) {
+    document.getElementById('thrLabel').textContent = '오염률(contamination):';
+    document.getElementById('thrUnit').textContent  = '예상 이상 데이터 비율 (0.001~0.5)';
+    document.getElementById('threshold').placeholder = '0.05';
+    document.getElementById('winRow').style.display   = 'none';
+    document.getElementById('ewmaRow').style.display  = 'none';
+    document.getElementById('cusumRow').style.display = 'none';
+    document.getElementById('cpkRow').style.display   = 'none';
+    document.querySelectorAll('.th-ref').forEach(th=>th.textContent='참조값');
+    document.querySelectorAll('.th-diff').forEach(th=>th.textContent='편차');
+    return;
+  }
+
   const meta = METHOD_META[m];
+  if (!meta) return;
   document.getElementById('thrLabel').textContent = meta.thr;
   document.getElementById('thrUnit').textContent  = meta.unit;
   document.getElementById('winRow').style.display   = meta.winRow   ? 'flex':'none';
@@ -876,9 +896,6 @@ function onMethodChange() {
   document.getElementById('threshold').placeholder = meta.thrDef !== undefined ? String(meta.thrDef) : '';
   document.querySelectorAll('.th-ref').forEach(th=>th.textContent=meta.ref);
   document.querySelectorAll('.th-diff').forEach(th=>th.textContent=meta.diff);
-  // ML 방식 선택 시 서버 패널 표시
-  const panel = document.getElementById('mlServerPanel');
-  if (panel) panel.style.display = m.startsWith('ml_') ? 'flex' : 'none';
 }
 // 초기 UI 설정
 onMethodChange();
