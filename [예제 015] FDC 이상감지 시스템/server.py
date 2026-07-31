@@ -7,6 +7,8 @@ FDC 이상감지 시스템 — FastAPI ML 백엔드 서버
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 import pandas as pd
@@ -17,8 +19,11 @@ from sklearn.svm import OneClassSVM
 from sklearn.covariance import EllipticEnvelope
 from sklearn.preprocessing import StandardScaler
 import io
+import os
 import warnings
 warnings.filterwarnings("ignore")
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app = FastAPI(title="FDC ML Anomaly Detection API", version="1.0.0")
 
@@ -185,6 +190,12 @@ def calc_stats(df: pd.DataFrame) -> List[dict]:
     return stats
 
 
+# ── 정적 파일 및 루트 ──────────────────────────────────────
+@app.get("/")
+def root():
+    return FileResponse(os.path.join(BASE_DIR, "index.html"))
+
+
 # ── 엔드포인트 ─────────────────────────────────────────────
 @app.get("/health")
 def health():
@@ -229,11 +240,13 @@ def analyze(req: AnalyzeRequest):
     }
 
 
+app.mount("/", StaticFiles(directory=BASE_DIR, html=True), name="static")
+
 if __name__ == "__main__":
     import uvicorn
     print("=" * 55)
     print("  FDC ML 이상감지 서버 시작")
-    print("  http://localhost:8000")
+    print("  http://localhost:8000  ← 브라우저에서 열기")
     print("  종료: Ctrl+C")
     print("=" * 55)
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=False)
