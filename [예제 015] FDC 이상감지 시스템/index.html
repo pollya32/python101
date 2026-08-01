@@ -395,35 +395,90 @@
       </div>
       <!-- FastAPI 서버 설정 (ML 방식 선택 시 표시) -->
       <div id="mlServerPanel" style="display:none;width:100%;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:10px 14px;display:none;flex-direction:column;gap:8px">
+        <!-- ⑤ 서버 URL + 개선된 연결 테스트 -->
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span style="font-size:12px;font-weight:600;color:var(--tx2);white-space:nowrap">🤖 ML 서버 URL:</span>
           <input type="text" id="mlServerUrl" value="http://localhost:8000"
                  style="flex:1;min-width:180px;padding:5px 9px;font-size:12px;background:var(--bg1);border:1px solid var(--bd);border-radius:5px;color:var(--tx1)">
-          <button class="btn btn-secondary btn-sm" onclick="_testMLServer()">연결 테스트</button>
+          <button class="btn btn-secondary btn-sm" onclick="_testMLServer()">🔌 연결 테스트</button>
           <span id="mlServerStatus" style="font-size:12px"></span>
         </div>
-        <div style="font-size:11.5px;color:var(--tx2)">
-          오염률(contamination): 임계값 입력란을 <b>0.01~0.5</b> 사이 값으로 사용 (예: 0.05 = 상위 5% 이상치)
+        <!-- ① 알고리즘 하이퍼파라미터 -->
+        <div id="mlParamsPanel" style="border-top:1px solid var(--bd);padding-top:8px;display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:11.5px;font-weight:600;color:var(--tx2)">⚙ 알고리즘 파라미터</div>
+          <!-- IF -->
+          <div id="mlP_isoforest" class="ml-param-row" style="display:none;align-items:center;gap:10px;flex-wrap:wrap">
+            <label style="font-size:12px;color:var(--tx2);white-space:nowrap;min-width:160px">트리 수 (n_estimators):</label>
+            <input type="range" id="ml_n_estimators" min="50" max="500" step="50" value="100"
+                   oninput="document.getElementById('ml_n_estimators_val').textContent=this.value"
+                   style="flex:1;min-width:120px;accent-color:var(--blue)">
+            <code id="ml_n_estimators_val" style="font-size:12px;min-width:35px;color:var(--tx1)">100</code>
+          </div>
+          <!-- LOF -->
+          <div id="mlP_lof" class="ml-param-row" style="display:none;align-items:center;gap:10px;flex-wrap:wrap">
+            <label style="font-size:12px;color:var(--tx2);white-space:nowrap;min-width:160px">이웃 수 (n_neighbors):</label>
+            <input type="range" id="ml_n_neighbors" min="3" max="50" step="1" value="20"
+                   oninput="document.getElementById('ml_n_neighbors_val').textContent=this.value"
+                   style="flex:1;min-width:120px;accent-color:var(--blue)">
+            <code id="ml_n_neighbors_val" style="font-size:12px;min-width:35px;color:var(--tx1)">20</code>
+          </div>
+          <!-- OCSVM -->
+          <div id="mlP_ocsvm" class="ml-param-row" style="display:none">
+            <span style="font-size:11.5px;color:var(--tx2)">커널: RBF · γ: scale 자동 · 오염률(ν)만 조정하세요</span>
+          </div>
+          <!-- EE -->
+          <div id="mlP_elliptic" class="ml-param-row" style="display:none">
+            <span style="font-size:11.5px;color:var(--tx2)">MCD 강건 공분산 추정 · 그룹당 최소 10개 필요 · 오염률만 조정하세요</span>
+          </div>
+          <!-- ④ 그룹화 기준 -->
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:2px">
+            <label style="font-size:12px;color:var(--tx2);white-space:nowrap">📊 그룹화 기준:</label>
+            <select id="mlGroupBy" style="padding:4px 8px;font-size:12px;background:var(--bg1);border:1px solid var(--bd);border-radius:4px;color:var(--tx1)">
+              <option value="eqp_ppid">EQP × PPID (기본)</option>
+              <option value="eqp_ch_ppid">EQP × CH × PPID</option>
+              <option value="ppid">PPID만</option>
+              <option value="all">전체 (그룹화 없음)</option>
+            </select>
+            <span style="font-size:11px;color:var(--tx2)">그룹별 독립 학습 적용</span>
+          </div>
         </div>
         <!-- 점수 분포 히스토그램 (ML 분석 완료 후 표시) -->
         <div id="mlScorePanel" style="display:none;border-top:1px solid var(--bd);padding-top:10px;margin-top:2px">
           <div style="font-size:12px;font-weight:600;color:var(--tx1);margin-bottom:6px">
-            📊 이상 점수 분포
-            <span style="font-size:11px;font-weight:400;color:var(--tx2);margin-left:6px">빨강=이상 영역 · 초록=정상 영역 · 낮을수록 이상 가능성 높음</span>
+            📊 이상 점수 분포 (정규화 0→정상 · 1→이상)
+            <span style="font-size:11px;font-weight:400;color:var(--tx2);margin-left:6px">빨강=이상 영역 · 초록=정상 영역</span>
           </div>
           <div style="position:relative;height:110px">
             <canvas id="mlScoreChart"></canvas>
           </div>
           <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
-            <span style="font-size:12px;color:var(--tx2);white-space:nowrap">점수 임계값:</span>
+            <span style="font-size:12px;color:var(--tx2);white-space:nowrap">임계값:</span>
             <input type="range" id="mlScoreThr" style="flex:1;min-width:140px;accent-color:var(--red)" oninput="_onScoreThrChange()">
             <code id="mlScoreThrVal" style="font-size:12px;min-width:70px;color:var(--tx1)"></code>
             <button class="btn btn-secondary btn-sm" onclick="_applyScoreThr()">✅ 적용</button>
             <span style="font-size:12px;color:var(--tx2)">적용 시 이상: <strong id="mlScoreAnomCnt" style="color:var(--red)">0</strong>건</span>
           </div>
         </div>
+        <!-- ② 4종 비교 결과 패널 -->
+        <div id="mlComparePanel" style="display:none;border-top:1px solid var(--bd);padding-top:10px;margin-top:2px">
+          <div style="font-size:12px;font-weight:600;color:var(--tx1);margin-bottom:8px">
+            🔄 4종 비교 분석 결과
+            <span id="mlCompareElapsed" style="font-size:11px;font-weight:400;color:var(--tx2);margin-left:6px"></span>
+          </div>
+          <!-- 방식별 요약 카드 -->
+          <div id="mlCompareSummary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:6px;margin-bottom:10px"></div>
+          <!-- 앙상블 결과 -->
+          <div id="mlEnsembleBox" style="background:var(--bg1);border:1px solid var(--bd);border-radius:6px;padding:8px;margin-bottom:8px;font-size:12px"></div>
+          <!-- 적용 버튼 -->
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm" onclick="_applyEnsemble(2)">✅ 앙상블 적용 (≥2종 동의)</button>
+            <button class="btn btn-secondary btn-sm" onclick="_applyEnsemble(3)">✅ 엄격 적용 (≥3종 동의)</button>
+            <button class="btn btn-secondary btn-sm" onclick="_applyEnsemble(4)">✅ 만장일치 (4종 모두)</button>
+          </div>
+        </div>
       </div>
       <button class="btn btn-primary" id="btnRun" onclick="runAnalysis()">🔍 분석 시작</button>
+      <button class="btn btn-secondary" id="btnMLCompare" style="display:none" onclick="runMLCompare()">🔄 4종 비교 분석</button>
       <button class="btn btn-secondary" id="btnCancel" onclick="cancelAnalysis()" style="display:none;background:rgba(248,81,73,.15);border-color:var(--red);color:var(--red)">⏹ 취소</button>
       <button class="btn btn-secondary" onclick="loadSample()">📊 샘플 데이터</button>
       <button class="btn btn-secondary" onclick="clearAll()">🗑 초기화</button>
@@ -891,7 +946,7 @@ function onMethodChange() {
   // ML 방식은 METHOD_META에 없으므로 별도 처리
   if (isML) {
     document.getElementById('thrLabel').textContent = '오염률(contamination):';
-    document.getElementById('thrUnit').textContent  = '예상 이상 데이터 비율 (0.001~0.5)';
+    document.getElementById('thrUnit').textContent  = '예상 이상 비율 0.001~0.5 (예: 0.05 = 상위 5%)';
     document.getElementById('threshold').placeholder = '0.05';
     document.getElementById('winRow').style.display   = 'none';
     document.getElementById('ewmaRow').style.display  = 'none';
@@ -899,8 +954,19 @@ function onMethodChange() {
     document.getElementById('cpkRow').style.display   = 'none';
     document.querySelectorAll('.th-ref').forEach(th=>th.textContent='참조값');
     document.querySelectorAll('.th-diff').forEach(th=>th.textContent='편차');
+    // ① 하이퍼파라미터 패널: 방식별 표시
+    document.querySelectorAll('.ml-param-row').forEach(el => el.style.display = 'none');
+    const suffix = m.replace('ml_', '');
+    const paramEl = document.getElementById('mlP_' + suffix);
+    if (paramEl) paramEl.style.display = 'flex';
+    // ② 4종 비교 버튼 표시
+    const cmpBtn = document.getElementById('btnMLCompare');
+    if (cmpBtn) cmpBtn.style.display = 'inline-flex';
     return;
   }
+  // 비-ML 방식: 비교 버튼 숨김
+  const cmpBtn = document.getElementById('btnMLCompare');
+  if (cmpBtn) cmpBtn.style.display = 'none';
 
   const meta = METHOD_META[m];
   if (!meta) return;
@@ -2585,35 +2651,37 @@ let _mlScoreChart = null;
 let _mlScoreMin = -1, _mlScoreMax = 0, _mlBinSize = 0.01;
 const ML_SCORE_BINS = 40;
 
+// ③ norm_score(0=정상, 1=이상) 기준 히스토그램 — 방식 간 점수 직접 비교 가능
 function _renderScoreHistogram(results) {
   const panel = document.getElementById('mlScorePanel');
   if (!panel) return;
-  const scores = results.map(r => r.score).filter(s => s != null && isFinite(s));
+  // norm_score 우선, 없으면 score
+  const scores = results.map(r => r.norm_score ?? r.score).filter(s => s != null && isFinite(s));
   if (!scores.length) { panel.style.display = 'none'; return; }
 
-  _mlScoreMin = Math.min(...scores);
-  _mlScoreMax = Math.max(...scores);
-  _mlBinSize  = (_mlScoreMax - _mlScoreMin) / ML_SCORE_BINS || 0.001;
+  _mlScoreMin = 0;   // norm_score는 항상 0~1
+  _mlScoreMax = 1;
+  _mlBinSize  = 1 / ML_SCORE_BINS;
 
-  // 40개 구간으로 히스토그램 집계
   const bins = Array(ML_SCORE_BINS).fill(0);
   scores.forEach(s => {
-    const i = Math.min(Math.floor((s - _mlScoreMin) / _mlBinSize), ML_SCORE_BINS - 1);
+    const i = Math.min(Math.floor(s / _mlBinSize), ML_SCORE_BINS - 1);
     bins[i]++;
   });
-  const labels = bins.map((_, i) => (_mlScoreMin + (i + 0.5) * _mlBinSize).toFixed(4));
+  const labels = bins.map((_, i) => ((i + 0.5) * _mlBinSize).toFixed(3));
 
-  // 현재 이상 판정된 것 중 최대 점수 → 초기 임계값
-  const anomScores = results.filter(r => r.isAnom && r.score != null).map(r => r.score);
-  const initThr = anomScores.length ? Math.max(...anomScores) : _mlScoreMin + _mlBinSize;
+  // 초기 임계값: 현재 이상 판정 중 최소 norm_score (≥ 이쪽이 이상)
+  const anomScores = results.filter(r => r.isAnom).map(r => r.norm_score ?? r.score ?? 1);
+  const initThr = anomScores.length ? Math.min(...anomScores) : 0.5;
 
   const slider = document.getElementById('mlScoreThr');
-  slider.min   = _mlScoreMin;
-  slider.max   = _mlScoreMax;
-  slider.step  = (_mlScoreMax - _mlScoreMin) / 2000;
+  slider.min   = 0;
+  slider.max   = 1;
+  slider.step  = 0.001;
   slider.value = initThr;
 
-  const getColors = thr => labels.map(l => parseFloat(l) <= thr
+  // norm_score: 높을수록 이상 → 임계값 이상이면 빨강
+  const getColors = thr => labels.map(l => parseFloat(l) >= thr
     ? 'rgba(248,81,73,0.75)' : 'rgba(63,185,80,0.5)');
 
   const ctx = document.getElementById('mlScoreChart').getContext('2d');
@@ -2638,7 +2706,7 @@ function _renderScoreHistogram(results) {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            title: items => `점수 구간: ${items[0].label}`,
+            title: items => `이상 점수: ${items[0].label}`,
             label: item  => `${item.raw}건`,
           }
         }
@@ -2659,27 +2727,28 @@ function _onScoreThrChange() {
   _updateScoreThrDisplay(thr);
   if (!_mlScoreChart) return;
   _mlScoreChart.data.datasets[0].backgroundColor =
-    _mlScoreChart.data.labels.map(l => parseFloat(l) <= thr
+    _mlScoreChart.data.labels.map(l => parseFloat(l) >= thr
       ? 'rgba(248,81,73,0.75)' : 'rgba(63,185,80,0.5)');
   _mlScoreChart.update('none');
 }
 
 function _updateScoreThrDisplay(thr) {
-  document.getElementById('mlScoreThrVal').textContent = thr.toFixed(4);
-  const cnt = gResults.filter(r => (r.score != null ? r.score <= thr : r.isAnom)).length;
+  document.getElementById('mlScoreThrVal').textContent = thr.toFixed(3);
+  const cnt = gResults.filter(r => (r.norm_score ?? r.score ?? 0) >= thr).length;
   document.getElementById('mlScoreAnomCnt').textContent = cnt.toLocaleString();
 }
 
 function _applyScoreThr() {
   const thr = parseFloat(document.getElementById('mlScoreThr').value);
-  gResults.forEach(r => { r.isAnom = r.score != null ? r.score <= thr : r.isAnom; });
+  // ③ norm_score 기준 적용 (0~1, 높을수록 이상)
+  gResults.forEach(r => { r.isAnom = (r.norm_score ?? r.score ?? 0) >= thr; });
   gAnomsAll = gResults.filter(r => r.isAnom);
   gAnoms    = [...gAnomsAll];
   renderSummary(gResults); renderBanner(gResults);
   renderStats(gStats); renderTables(gResults);
   populateFilters(gResults); checkAnomalyRateAlert();
   renderParetoChart();
-  toast(`점수 임계값 ${thr.toFixed(4)} 적용 — 이상 ${gAnomsAll.length}건`,
+  toast(`점수 임계값 ${thr.toFixed(3)} 적용 — 이상 ${gAnomsAll.length}건`,
         gAnomsAll.length ? 'err' : 'ok');
 }
 
@@ -2690,28 +2759,144 @@ function _mlServerUrl() {
   return (document.getElementById('mlServerUrl')?.value || 'http://localhost:8000').replace(/\/$/, '');
 }
 
+/* ② 4종 비교 분석 */
+let _gCompareData = null;  // 마지막 비교 결과 보관
+
+async function runMLCompare() {
+  const text = document.getElementById('dataInput').value.trim();
+  if (!text) { toast('데이터를 입력하세요.', 'err'); return; }
+  if (!gHeaders.length) { toast('컬럼 매핑을 확인하세요.', 'err'); return; }
+
+  const thr      = parseFloat(document.getElementById('threshold').value) || 0.05;
+  const col_map  = _mlColMap();
+  const group_by = document.getElementById('mlGroupBy')?.value || 'eqp_ppid';
+  const statusEl = document.getElementById('mlServerStatus');
+  const btn      = document.getElementById('btnMLCompare');
+
+  btn.disabled = true;
+  statusEl.textContent = '4종 비교 중...';
+  statusEl.style.color = 'var(--tx2)';
+
+  try {
+    const res = await fetch(_mlServerUrl() + '/compare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: text, col_map, method: 'ml_isoforest', threshold: thr, group_by }),
+      signal: AbortSignal.timeout(180000),
+    });
+    if (!res.ok) { const e = await res.json().catch(()=>({detail:res.statusText})); throw new Error(e.detail); }
+    const json = await res.json();
+    _gCompareData = json;
+    _renderComparePanel(json);
+    statusEl.innerHTML = `✅ 4종 비교 완료 · ${json.elapsed_ms}ms`;
+    statusEl.style.color = 'var(--green)';
+  } catch(e) {
+    toast(`4종 비교 오류: ${e.message}`, 'err');
+    statusEl.textContent = `❌ ${e.message}`;
+    statusEl.style.color = 'var(--red)';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function _renderComparePanel(json) {
+  const panel = document.getElementById('mlComparePanel');
+  if (!panel) return;
+
+  const summaryEl  = document.getElementById('mlCompareSummary');
+  const ensembleEl = document.getElementById('mlEnsembleBox');
+  const elapsedEl  = document.getElementById('mlCompareElapsed');
+  const METHODS    = ['ml_isoforest','ml_lof','ml_ocsvm','ml_elliptic'];
+  const LABELS     = { ml_isoforest:'Isolation Forest', ml_lof:'LOF', ml_ocsvm:'One-Class SVM', ml_elliptic:'Elliptic Env' };
+  const COLORS     = { ml_isoforest:'var(--blue)', ml_lof:'var(--cyan,#39d3f0)', ml_ocsvm:'var(--orange,#ff8c42)', ml_elliptic:'var(--green)' };
+
+  elapsedEl.textContent = `(${json.elapsed_ms}ms · 그룹화: ${json.group_by})`;
+
+  // 방식별 카드
+  summaryEl.innerHTML = METHODS.map(m => {
+    const s = json.method_summaries[m];
+    if (!s) return '';
+    const rateColor = s.rate > 10 ? 'var(--red)' : s.rate > 5 ? 'var(--yellow,#e3b341)' : 'var(--green)';
+    return `<div style="background:var(--bg1);border:1px solid ${COLORS[m]};border-radius:6px;padding:8px;text-align:center">
+      <div style="font-size:11px;font-weight:700;color:${COLORS[m]};margin-bottom:4px">${LABELS[m]}</div>
+      <div style="font-size:20px;font-weight:700;color:${rateColor}">${s.anoms.toLocaleString()}</div>
+      <div style="font-size:10px;color:var(--tx2)">건 이상 (${s.rate}%)</div>
+      ${s.failed?.length ? `<div style="font-size:10px;color:var(--red)">⚠ ${s.failed.length}그룹 실패</div>` : ''}
+    </div>`;
+  }).join('');
+
+  // 앙상블 요약
+  const ens = json.ensemble;
+  ensembleEl.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div>
+        <span style="font-weight:700;color:var(--tx1)">🗳 앙상블 결과 (≥2종 동의)</span>
+        <span style="margin-left:8px;font-size:13px;font-weight:700;color:${ens.anoms>0?'var(--red)':'var(--green)'}">${ens.anoms.toLocaleString()}건 이상</span>
+        <span style="font-size:11px;color:var(--tx2);margin-left:4px">(${ens.rate}% · 전체 ${ens.total.toLocaleString()}건)</span>
+      </div>
+      <div style="font-size:11px;color:var(--tx2)">아래 버튼으로 앙상블 기준 적용</div>
+    </div>`;
+
+  panel.style.display = 'block';
+}
+
+function _applyEnsemble(minVotes) {
+  if (!_gCompareData) { toast('먼저 4종 비교 분석을 실행하세요.', 'err'); return; }
+  const rows = _gCompareData.ensemble.rows;
+
+  // gResults에 앙상블 결과 반영
+  gResults.forEach((r, i) => {
+    const row = rows[i];
+    if (!row) return;
+    r.isAnom = row.vote_count >= minVotes;
+  });
+
+  gAnomsAll = gResults.filter(r => r.isAnom);
+  gAnoms    = [...gAnomsAll];
+  renderSummary(gResults); renderBanner(gResults);
+  renderStats(gStats); renderTables(gResults);
+  populateFilters(gResults); checkAnomalyRateAlert();
+  renderParetoChart();
+  document.getElementById('results').style.display = 'block';
+  toast(`앙상블 적용 (≥${minVotes}종 동의) — 이상 ${gAnomsAll.length}건`,
+        gAnomsAll.length ? 'err' : 'ok');
+}
+
 async function _testMLServer() {
   const statusEl = document.getElementById('mlServerStatus');
   statusEl.textContent = '확인 중...';
   statusEl.style.color = 'var(--tx2)';
+  const t0 = Date.now();
   try {
-    const res = await fetch(_mlServerUrl() + '/health', { signal: AbortSignal.timeout(4000) });
+    const res = await fetch(_mlServerUrl() + '/health', { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
-    if (json.status === 'ok') {
-      statusEl.textContent = '✅ 연결됨';
-      statusEl.style.color = 'var(--green)';
-    } else throw new Error('응답 오류');
-  } catch {
-    statusEl.textContent = '❌ 연결 실패';
+    const ms   = Date.now() - t0;
+    const ver  = json.version || '?';
+    const cnt  = (json.methods || []).length;
+    // ⑤ 버전·방식 수·응답속도 표시
+    statusEl.innerHTML = `✅ v${ver} · ${cnt}종 · <span style="color:var(--tx2)">${ms}ms</span>`;
+    statusEl.style.color = 'var(--green)';
+  } catch(e) {
+    statusEl.textContent = `❌ 연결 실패 (${e.message})`;
     statusEl.style.color = 'var(--red)';
   }
 }
 
-async function _runMLAnalysis(text, method, thr) {
-  // getColMap()은 {날짜, EQP ID, LOTID, ...} 키를 반환하지만
-  // 서버는 {date, eqp, lot, ch, ppid, value} 키를 기대하므로 변환 필요
+function _mlGetParams(method) {
+  // ① 방식별 하이퍼파라미터 읽기
+  const p = {};
+  if (method === 'ml_isoforest') {
+    p.n_estimators = parseInt(document.getElementById('ml_n_estimators')?.value || '100');
+  } else if (method === 'ml_lof') {
+    p.n_neighbors = parseInt(document.getElementById('ml_n_neighbors')?.value || '20');
+  }
+  return p;
+}
+
+function _mlColMap() {
   const raw = getColMap();
-  const col_map = {
+  return {
     date:  raw['날짜'],
     eqp:   raw['EQP ID'],
     lot:   raw['LOTID'],
@@ -2719,12 +2904,18 @@ async function _runMLAnalysis(text, method, thr) {
     ppid:  raw['PPID'],
     value: raw['REAL DATA'],
   };
+}
+
+async function _runMLAnalysis(text, method, thr) {
+  const col_map  = _mlColMap();
+  const group_by = document.getElementById('mlGroupBy')?.value || 'eqp_ppid';
   const body = {
     data:      text,
     col_map,
-    method:    method,
+    method,
     threshold: thr,
-    params:    {}
+    params:    _mlGetParams(method),   // ① 하이퍼파라미터
+    group_by,                          // ④ 그룹화 기준
   };
 
   const statusEl = document.getElementById('mlServerStatus');
@@ -2769,19 +2960,24 @@ async function runAnalysis(){
       const json = await _runMLAnalysis(text, method, isNaN(thr) ? 0.05 : thr);
       _setProgress(60, '결과 처리 중...'); await _tick();
 
-      // 서버 결과를 gResults 형식으로 변환 (트렌드·테이블 함수가 요구하는 내부 필드 보완)
+      // 서버 결과를 gResults 형식으로 변환
       gResults = json.results.map((r, i) => ({
         ...r,
-        isAnom:    !!r.isAnom,
-        _val:      r['REAL DATA'],
-        _slot:     r['SLOT'] != null ? (parseInt(r['SLOT']) || i) : i,
-        _time:     r['날짜'] ? tryParseTime(String(r['날짜'])) : null,
-        _key:      `${r['EQP ID']}|||${r['LOTID']||''}|||${r['CH']||''}|||${r['PPID']}`,
-        _statsKey: `${r['EQP ID']}|||${r['CH']||''}|||${r['PPID']}`,
-        threshold: null,
-        method:    method,
-        prevVal:   null,
+        isAnom:     !!r.isAnom,
+        _val:       r['REAL DATA'],
+        _slot:      r['SLOT'] != null ? (parseInt(r['SLOT']) || i) : i,
+        _time:      r['날짜'] ? tryParseTime(String(r['날짜'])) : null,
+        _key:       `${r['EQP ID']}|||${r['LOTID']||''}|||${r['CH']||''}|||${r['PPID']}`,
+        _statsKey:  `${r['EQP ID']}|||${r['CH']||''}|||${r['PPID']}`,
+        threshold:  null,
+        method,
+        prevVal:    null,
+        norm_score: r.norm_score ?? r.score,   // ③ 정규화 점수
       }));
+      // 실패 그룹 경고
+      if (json.failed_groups?.length) {
+        toast(`⚠ 분석 실패 그룹 ${json.failed_groups.length}개 (데이터 부족 등) — 해당 그룹은 전부 정상 처리됨`, 'warn');
+      }
 
       // 서버 stats 형식 → renderStats() 기대 형식으로 변환
       gStats = (json.stats || []).map(s => {
