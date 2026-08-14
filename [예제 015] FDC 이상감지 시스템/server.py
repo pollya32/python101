@@ -21,6 +21,7 @@ from sklearn.preprocessing import StandardScaler
 import io
 import os
 import time
+import traceback
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -52,6 +53,11 @@ GROUP_BY_COLS = {
 
 
 # ── 요청 모델 ──────────────────────────────────────────────────
+class RunScriptRequest(BaseModel):
+    script: str
+    timeout: Optional[int] = 30
+
+
 class AnalyzeRequest(BaseModel):
     data: str
     col_map: Dict[str, int]
@@ -251,6 +257,40 @@ def root():
 
 
 # ── 엔드포인트 ─────────────────────────────────────────────────
+@app.post("/run-script")
+def run_script(req: RunScriptRequest):
+    """사용자 Python 스크립트 실행 → DataFrame 반환 (로컬 전용)"""
+    ns: dict = {"pd": pd, "np": np, "io": io, "os": os}
+
+    for lib in ("sqlite3", "cx_Oracle", "pymysql", "psycopg2", "pyodbc",
+                "requests", "json", "re", "datetime"):
+        try:
+            ns[lib] = __import__(lib)
+        except ImportError:
+            pass
+
+    try:
+        exec(compile(req.script, "<script>", "exec"), ns)
+    except Exception:
+        raise HTTPException(400, f"스크립트 오류:\n{traceback.format_exc()}")
+
+    result = ns.get("df")
+    if result is None:
+        raise HTTPException(400, "스크립트에서 'df' 변수를 정의해야 합니다.\n예: df = pd.read_csv(...)")
+    if not isinstance(result, pd.DataFrame):
+        raise HTTPException(400, f"'df'는 pandas DataFrame이어야 합니다. 현재 타입: {type(result).__name__}")
+    if result.empty:
+        raise HTTPException(400, "결과 DataFrame이 비어 있습니다.")
+
+    tsv = result.to_csv(sep="\t", index=False)
+    return {
+        "ok":   True,
+        "rows": len(result),
+        "cols": result.columns.tolist(),
+        "data": tsv,
+    }
+
+
 @app.get("/health")
 def health():
     return {
