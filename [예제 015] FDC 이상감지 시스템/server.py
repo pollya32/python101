@@ -29,9 +29,15 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app = FastAPI(title="FDC ML Anomaly Detection API", version="1.1.0")
 
+# ════════════════════════════════════════════════════════════════════
+# [보안수정 A] CORS 출처 제한
+#   현재: allow_origins=["*"] → 사내망 외부·타 도메인에서도 API 호출 가능
+#   수정: 실제 사용 도메인/IP 만 허용
+#         예) allow_origins=["http://localhost:8000", "http://10.x.x.x:8000"]
+# ════════════════════════════════════════════════════════════════════
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],          # ← [보안수정 A] 허용 출처를 사내 IP/도메인으로 변경
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -53,9 +59,19 @@ GROUP_BY_COLS = {
 
 
 # ── 요청 모델 ──────────────────────────────────────────────────
+
+# ════════════════════════════════════════════════════════════════════
+# [보안수정 B] DB 자격증명을 요청 바디로 받지 않기
+#   현재: 브라우저가 보낸 스크립트 문자열 안에 user/password 평문 포함
+#         → HTTP 패킷 캡처 / 개발자도구 Network 탭으로 즉시 노출
+#   수정: DB 접속 정보는 서버의 환경변수(.env) 또는 설정 파일로 관리
+#         클라이언트는 "어떤 DB 프리셋을 쓸지 이름만" 전달
+#         예) preset: str = "oracle_fdc_prod"
+#              → 서버에서 os.environ["DB_FDC_DSN"] 으로 조회
+# ════════════════════════════════════════════════════════════════════
 class RunScriptRequest(BaseModel):
-    script: str
-    timeout: Optional[int] = 30
+    script: str                    # ← [보안수정 B] DB 접속 정보 제거, 프리셋 이름 방식으로 전환
+    timeout: Optional[int] = 30   # ← [보안수정 D] 현재 선언만 있고 실제 강제 안 됨 → 실제 적용 필요
 
 
 class AnalyzeRequest(BaseModel):
@@ -64,7 +80,7 @@ class AnalyzeRequest(BaseModel):
     method: str
     threshold: float = 0.05
     params: Optional[Dict[str, Any]] = {}
-    group_by: Optional[str] = "eqp_ppid"   # ④ 그룹화 기준
+    group_by: Optional[str] = "eqp_ppid"
 
 
 # ── 데이터 파싱 ────────────────────────────────────────────────
@@ -99,14 +115,12 @@ def parse_dataframe(data: str, col_map: Dict[str, int]) -> pd.DataFrame:
 
 
 def _get_group_cols(df: pd.DataFrame, group_by: str) -> list:
-    """④ 그룹화 기준에 따른 컬럼 목록 반환"""
     wanted = GROUP_BY_COLS.get(group_by, GROUP_BY_COLS["eqp_ppid"])
     return [c for c in wanted if c in df.columns]
 
 
 def _normalize_score(scores: np.ndarray) -> np.ndarray:
-    """③ 점수 정규화: 모든 방식을 0(정상)~1(이상) 통일
-    sklearn 공통 규약: 낮을수록 이상 → 반전하여 높을수록 이상이 되도록 변환"""
+    """점수 정규화: 0(정상)~1(이상) 통일"""
     s_min, s_max = scores.min(), scores.max()
     if s_max == s_min:
         return np.zeros_like(scores, dtype=float)
@@ -136,7 +150,6 @@ def run_ml(
         n    = len(vals)
         group_label = str(key)
 
-        # 샘플 부족 → 전부 정상 처리
         min_n = 10 if method == 'ml_elliptic' else 5
         if n < min_n:
             grp['isAnom']    = False
@@ -190,7 +203,7 @@ def run_ml(
             grp['isAnom']     = preds == -1
             grp['diff']       = np.round(np.abs(vals.flatten() - mean_val), 4)
             grp['score']      = np.round(scores, 6)
-            grp['norm_score'] = _normalize_score(scores)   # ③ 정규화 점수
+            grp['norm_score'] = _normalize_score(scores)
 
         except Exception as e:
             failed_groups.append({'group': group_label, 'error': str(e)})
@@ -256,18 +269,108 @@ def root():
     return FileResponse(os.path.join(BASE_DIR, "index.html"))
 
 
-# ── 엔드포인트 ─────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════
+# [보안수정 C] /run-script 엔드포인트 인증 추가
+#   현재: 인증 없음 → 사내망 누구든 curl 한 줄로 서버에서 코드 실행 가능
+#   수정: API 키 헤더 검증 추가 (최소한의 보호)
+#         예)
+#           from fastapi.security import APIKeyHeader
+#           api_key_header = APIKeyHeader(name="X-API-Key")
+#           API_KEY = os.environ.get("FDC_API_KEY", "")  # 환경변수로 관리
+#
+#           @app.post("/run-script")
+#           def run_script(req: RunScriptRequest,
+#                          key: str = Depends(api_key_header)):
+#               if key != API_KEY:
+#                   raise HTTPException(403, "인증 실패")
+# ════════════════════════════════════════════════════════════════════
 @app.post("/run-script")
 def run_script(req: RunScriptRequest):
-    """사용자 Python 스크립트 실행 → DataFrame 반환 (로컬 전용)"""
-    ns: dict = {"pd": pd, "np": np, "io": io, "os": os}
+    """사용자 Python 스크립트 실행 → DataFrame 반환"""
 
+    # ════════════════════════════════════════════════════════════════
+    # [보안수정 C] 이 위치에 API 키 / 토큰 인증 로직 삽입
+    # ════════════════════════════════════════════════════════════════
+
+    # ════════════════════════════════════════════════════════════════
+    # [보안수정 D] 실행 시간 제한 강제 적용
+    #   현재: req.timeout 필드가 있지만 실제로 강제되지 않음
+    #          → 무한루프 스크립트로 서버 프로세스 점거 가능
+    #   수정: concurrent.futures 또는 threading으로 timeout 강제
+    #         예)
+    #           import concurrent.futures
+    #           with concurrent.futures.ThreadPoolExecutor() as pool:
+    #               fut = pool.submit(exec, compile(req.script,...), ns)
+    #               try:
+    #                   fut.result(timeout=req.timeout)
+    #               except concurrent.futures.TimeoutError:
+    #                   raise HTTPException(408, "스크립트 실행 시간 초과")
+    # ════════════════════════════════════════════════════════════════
+
+    # ════════════════════════════════════════════════════════════════
+    # [보안수정 E] 금지 키워드 사전 차단
+    #   현재: 어떤 코드든 exec() 에 전달됨
+    #          → os.system(), subprocess, __import__ 등으로 서버 명령 실행 가능
+    #   수정: 실행 전 스크립트 텍스트에서 위험 패턴 검사
+    #         예)
+    #           import re
+    #           BLOCKED = [r'\bos\.system\b', r'\bsubprocess\b', r'\beval\b',
+    #                      r'\bexec\b', r'__import__', r'\bopen\s*\(',
+    #                      r'\bshutil\b', r'\bpathlib\b']
+    #           for pat in BLOCKED:
+    #               if re.search(pat, req.script):
+    #                   raise HTTPException(400, f"허용되지 않는 코드 패턴: {pat}")
+    # ════════════════════════════════════════════════════════════════
+
+    # ════════════════════════════════════════════════════════════════
+    # [보안수정 F] 네임스페이스에서 os 제거, __builtins__ 제한
+    #   현재: os 모듈 직접 제공 → os.listdir(), os.remove() 등 파일시스템 전체 접근
+    #          builtins 미제한 → open(), __import__() 로 추가 모듈 로드 가능
+    #   수정:
+    #     ns = {
+    #         "__builtins__": {},   # ← builtins 차단 (open, import 등 비활성화)
+    #         "pd": pd,
+    #         "np": np,
+    #         "io": io,
+    #         # os 제거
+    #     }
+    # ════════════════════════════════════════════════════════════════
+    ns: dict = {
+        "pd": pd,
+        "np": np,
+        "io": io,
+        "os": os,   # ← [보안수정 F] os 제거 필요 (파일시스템 접근 차단)
+    }
+
+    # ════════════════════════════════════════════════════════════════
+    # [보안수정 F] 허용 라이브러리 화이트리스트 검토
+    #   - requests : 사내망 내부 서버로의 무단 HTTP 요청 가능 → 필요 여부 재검토
+    #   - sqlite3  : 서버 로컬 DB 파일 직접 접근 가능 → 허용 범위 확인
+    #   보안 정책에 따라 DB 전용 라이브러리만 남기고 나머지 제거 권장
+    # ════════════════════════════════════════════════════════════════
     for lib in ("sqlite3", "cx_Oracle", "pymysql", "psycopg2", "pyodbc",
-                "requests", "json", "re", "datetime"):
+                "requests",   # ← [보안수정 F] 무단 외부 HTTP 요청 가능, 허용 여부 검토
+                "json", "re", "datetime"):
         try:
             ns[lib] = __import__(lib)
         except ImportError:
             pass
+
+    # ════════════════════════════════════════════════════════════════
+    # [보안수정 G] 감사 로그 (Audit Log) 기록
+    #   현재: 누가 어떤 코드를 언제 실행했는지 기록 없음
+    #          → 보안 사고 발생 시 추적 불가
+    #   수정: 실행 전 로그 파일에 기록
+    #         예)
+    #           import logging, datetime
+    #           audit_log = logging.getLogger("audit")
+    #           audit_log.info({
+    #               "time": datetime.datetime.now().isoformat(),
+    #               "client_ip": request.client.host,   # Request 객체 주입 필요
+    #               "script_hash": hashlib.sha256(req.script.encode()).hexdigest(),
+    #               "script_preview": req.script[:200],
+    #           })
+    # ════════════════════════════════════════════════════════════════
 
     try:
         exec(compile(req.script, "<script>", "exec"), ns)
@@ -349,16 +452,14 @@ def compare(req: AnalyzeRequest):
 
     elapsed_ms = round((time.time() - t_start) * 1000)
 
-    # 앙상블: 인덱스별로 방식들의 isAnom 투표
     vote_df = df[['_row_idx']].copy()
     for method, d in per_method.items():
         vote_df[method] = d['result_df']['isAnom'].values
 
     vote_cols = list(ML_METHOD_LABELS.keys())
     vote_df['vote_count']    = vote_df[vote_cols].sum(axis=1)
-    vote_df['ensemble_anom'] = vote_df['vote_count'] >= 2   # ≥2개 방식 동의
+    vote_df['ensemble_anom'] = vote_df['vote_count'] >= 2
 
-    # 각 방식별 요약
     method_summaries = {}
     for method, d in per_method.items():
         rdf   = d['result_df']
@@ -373,7 +474,6 @@ def compare(req: AnalyzeRequest):
             "stats":  calc_stats(rdf, group_cols),
         }
 
-    # 앙상블 결과 레코드 (index + vote_count + ensemble_anom + 각 방식 score)
     ensemble_rows = []
     base_cols = [c for c in ['날짜', 'EQP ID', 'LOTID', 'CH', 'PPID', 'REAL DATA'] if c in df.columns]
     for i, row in df.iterrows():
@@ -413,4 +513,10 @@ if __name__ == "__main__":
     print("  http://localhost:8000  ← 브라우저에서 열기")
     print("  종료: Ctrl+C")
     print("=" * 55)
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=False)
+    # ════════════════════════════════════════════════════════════════
+    # [보안수정 H] 서버 바인딩 주소 제한
+    #   현재: host="0.0.0.0" → 서버의 모든 네트워크 인터페이스로 외부 노출
+    #   수정: 개인 PC 단독 사용 시 → host="127.0.0.1" (localhost만 허용)
+    #         팀 내부 공유 시 → host="사내 IP" + 방화벽으로 허가된 IP만 허용
+    # ════════════════════════════════════════════════════════════════
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=False)   # ← [보안수정 H]
