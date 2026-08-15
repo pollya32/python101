@@ -347,7 +347,8 @@
         </div>
         <textarea id="pyScript" class="py-editor" spellcheck="false" placeholder="# df 변수에 pandas DataFrame을 담는 코드를 작성하세요"></textarea>
         <div style="display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap">
-          <button class="btn btn-primary" onclick="_runPyScript()">▶ 실행</button>
+          <button class="btn btn-primary" onclick="_runPyScriptAndAnalyze()" style="background:var(--green)">▶ 실행 + 바로 분석</button>
+          <button class="btn btn-secondary btn-sm" onclick="_runPyScript()">▶ 데이터만 로드</button>
           <button class="btn btn-secondary btn-sm" onclick="_pyInsertTemplate('default')">기본 예제 보기</button>
           <span id="pyRunStatus" style="font-size:12px;color:var(--tx2)"></span>
         </div>
@@ -3014,19 +3015,19 @@ conn.close()`,
 }
 
 // ── Python 스크립트 실행 ───────────────────────────────────────
-async function _runPyScript() {
+// ── Python 스크립트 실행 공통 로직 ───────────────────────────
+// 성공 시 { rows, cols, data(TSV) } 반환, 실패 시 null 반환
+async function _fetchPyData() {
   const script = document.getElementById('pyScript').value.trim();
-  if (!script) { toast('스크립트를 입력하세요', 'err'); return; }
+  if (!script) { toast('스크립트를 입력하세요', 'err'); return null; }
 
   const statusEl = document.getElementById('pyRunStatus');
   const resultEl = document.getElementById('pyResult');
   statusEl.textContent = '⏳ 실행 중...';
   resultEl.style.display = 'none';
 
-  const url = _mlServerUrl() + '/run-script';
-
   try {
-    const res = await fetch(url, {
+    const res = await fetch(_mlServerUrl() + '/run-script', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ script }),
@@ -3035,34 +3036,46 @@ async function _runPyScript() {
     const json = await res.json();
 
     if (!res.ok) {
-      const msg = json.detail || '알 수 없는 오류';
       statusEl.textContent = '❌ 실행 실패';
       resultEl.className = 'py-result err';
-      resultEl.textContent = msg;
+      resultEl.textContent = json.detail || '알 수 없는 오류';
       resultEl.style.display = 'block';
-      return;
+      return null;
     }
 
-    // 성공 → dataInput에 주입
-    const ta = document.getElementById('dataInput');
-    ta.value = json.data;
+    // dataInput에 조용히 주입 (탭 전환 없음)
+    document.getElementById('dataInput').value = json.data;
     onDataChange();
 
-    statusEl.textContent = `✅ ${json.rows.toLocaleString()}행 · ${json.cols.length}열 로드 완료`;
+    statusEl.textContent = `✅ ${json.rows.toLocaleString()}행 · ${json.cols.length}열 로드`;
     resultEl.className = 'py-result ok';
     resultEl.textContent = `컬럼: ${json.cols.join(' | ')}`;
     resultEl.style.display = 'block';
-
-    // 수동 입력 탭으로 전환하여 컬럼 매핑 확인 유도
-    _switchInputTab('manual');
-    toast(`Python 스크립트 실행 완료 — ${json.rows.toLocaleString()}행 로드. 컬럼 매핑을 확인하세요.`, 'ok');
+    return json;
 
   } catch (err) {
     statusEl.textContent = '❌ 서버 연결 실패';
     resultEl.className = 'py-result err';
-    resultEl.textContent = `서버 오류: ${err.message}\n\nML 서버 URL을 확인하고 server.py가 실행 중인지 확인하세요.`;
+    resultEl.textContent = `서버 오류: ${err.message}\n\nserver.py가 실행 중인지 확인하세요.`;
     resultEl.style.display = 'block';
+    return null;
   }
+}
+
+// ▶ 데이터만 로드 — 컬럼 매핑 확인 후 수동으로 분석
+async function _runPyScript() {
+  const json = await _fetchPyData();
+  if (!json) return;
+  _switchInputTab('manual');
+  toast(`${json.rows.toLocaleString()}행 로드 완료 — 컬럼 매핑을 확인 후 분석하세요.`, 'ok');
+}
+
+// ▶ 실행 + 바로 분석 — TSV 중간 저장 없이 즉시 분석 시작
+async function _runPyScriptAndAnalyze() {
+  const json = await _fetchPyData();
+  if (!json) return;
+  toast(`${json.rows.toLocaleString()}행 로드 — 분석을 시작합니다...`, 'ok');
+  await runAnalysis();
 }
 
 async function _testMLServer() {
