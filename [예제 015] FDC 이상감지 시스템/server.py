@@ -58,6 +58,57 @@ GROUP_BY_COLS = {
 }
 
 
+# ── 컬럼 자동 감지 별칭 ────────────────────────────────────────
+COL_ALIASES: Dict[str, List[str]] = {
+    'REAL DATA': ['REAL DATA', 'REAL_DATA', 'VALUE', 'MEAS_VAL', 'MEASURE',
+                  'DATA', 'VAL', '측정값', 'RESULT', 'READING'],
+    'EQP ID':    ['EQP ID', 'EQP_ID', 'EQUIPMENT', 'EQP', '설비', 'TOOL', 'TOOL_ID'],
+    'LOTID':     ['LOTID', 'LOT_ID', 'LOT', 'LOT ID', 'LOT_NO'],
+    'CH':        ['CH', 'CHANNEL', 'CH_NO', 'CHAN'],
+    'PPID':      ['PPID', 'PARAM', 'PARAMETER', 'PARAM_ID', '파라미터', 'RECIPE'],
+    '날짜':      ['날짜', 'DATE', 'TIMESTAMP', 'TIME', 'DATETIME',
+                  'MEAS_DT', 'DATE_COL', 'TTIME', 'DT'],
+}
+
+
+def _auto_map_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """컬럼명 자동 감지 후 표준 이름으로 변환 (대소문자 무시)"""
+    cols_upper = {c.upper().strip(): c for c in df.columns}
+    rename = {}
+    for std_name, aliases in COL_ALIASES.items():
+        if std_name in df.columns:
+            continue
+        for alias in aliases:
+            if alias.upper() in cols_upper:
+                rename[cols_upper[alias.upper()]] = std_name
+                break
+    return df.rename(columns=rename)
+
+
+def _exec_script(script: str) -> pd.DataFrame:
+    """스크립트 실행 → DataFrame 반환. 실패 시 HTTPException."""
+    ns: dict = {"pd": pd, "np": np, "io": io}
+    for lib in ("cx_Oracle", "pymysql", "psycopg2", "pyodbc",
+                "sqlite3", "json", "re", "datetime"):
+        try:
+            ns[lib] = __import__(lib)
+        except ImportError:
+            pass
+    try:
+        exec(compile(script, "<script>", "exec"), ns)
+    except Exception:
+        raise HTTPException(400, f"스크립트 오류:\n{traceback.format_exc()}")
+
+    result = ns.get("df")
+    if result is None:
+        raise HTTPException(400, "스크립트에서 'df' 변수를 정의해야 합니다.")
+    if not isinstance(result, pd.DataFrame):
+        raise HTTPException(400, f"'df'는 pandas DataFrame이어야 합니다. 현재 타입: {type(result).__name__}")
+    if result.empty:
+        raise HTTPException(400, "결과 DataFrame이 비어 있습니다.")
+    return result
+
+
 # ── 요청 모델 ──────────────────────────────────────────────────
 
 # ════════════════════════════════════════════════════════════════════
@@ -72,6 +123,16 @@ GROUP_BY_COLS = {
 class RunScriptRequest(BaseModel):
     script: str                    # ← [보안수정 B] DB 접속 정보 제거, 프리셋 이름 방식으로 전환
     timeout: Optional[int] = 30   # ← [보안수정 D] 현재 선언만 있고 실제 강제 안 됨 → 실제 적용 필요
+
+
+class RunAndAnalyzeRequest(BaseModel):
+    """Python 스크립트 실행 + ML 분석을 한 번에 처리"""
+    script: str
+    method: str
+    threshold: float = 0.05
+    params: Optional[Dict[str, Any]] = {}
+    group_by: Optional[str] = "eqp_ppid"
+    col_map: Optional[Dict[str, int]] = None  # None이면 컬럼명 자동 감지
 
 
 class AnalyzeRequest(BaseModel):
@@ -322,76 +383,60 @@ def run_script(req: RunScriptRequest):
     #                   raise HTTPException(400, f"허용되지 않는 코드 패턴: {pat}")
     # ════════════════════════════════════════════════════════════════
 
-    # ════════════════════════════════════════════════════════════════
-    # [보안수정 F] 네임스페이스에서 os 제거, __builtins__ 제한
-    #   현재: os 모듈 직접 제공 → os.listdir(), os.remove() 등 파일시스템 전체 접근
-    #          builtins 미제한 → open(), __import__() 로 추가 모듈 로드 가능
-    #   수정:
-    #     ns = {
-    #         "__builtins__": {},   # ← builtins 차단 (open, import 등 비활성화)
-    #         "pd": pd,
-    #         "np": np,
-    #         "io": io,
-    #         # os 제거
-    #     }
-    # ════════════════════════════════════════════════════════════════
-    ns: dict = {
-        "pd": pd,
-        "np": np,
-        "io": io,
-        "os": os,   # ← [보안수정 F] os 제거 필요 (파일시스템 접근 차단)
-    }
-
-    # ════════════════════════════════════════════════════════════════
-    # [보안수정 F] 허용 라이브러리 화이트리스트 검토
-    #   - requests : 사내망 내부 서버로의 무단 HTTP 요청 가능 → 필요 여부 재검토
-    #   - sqlite3  : 서버 로컬 DB 파일 직접 접근 가능 → 허용 범위 확인
-    #   보안 정책에 따라 DB 전용 라이브러리만 남기고 나머지 제거 권장
-    # ════════════════════════════════════════════════════════════════
-    for lib in ("sqlite3", "cx_Oracle", "pymysql", "psycopg2", "pyodbc",
-                "requests",   # ← [보안수정 F] 무단 외부 HTTP 요청 가능, 허용 여부 검토
-                "json", "re", "datetime"):
-        try:
-            ns[lib] = __import__(lib)
-        except ImportError:
-            pass
-
-    # ════════════════════════════════════════════════════════════════
-    # [보안수정 G] 감사 로그 (Audit Log) 기록
-    #   현재: 누가 어떤 코드를 언제 실행했는지 기록 없음
-    #          → 보안 사고 발생 시 추적 불가
-    #   수정: 실행 전 로그 파일에 기록
-    #         예)
-    #           import logging, datetime
-    #           audit_log = logging.getLogger("audit")
-    #           audit_log.info({
-    #               "time": datetime.datetime.now().isoformat(),
-    #               "client_ip": request.client.host,   # Request 객체 주입 필요
-    #               "script_hash": hashlib.sha256(req.script.encode()).hexdigest(),
-    #               "script_preview": req.script[:200],
-    #           })
-    # ════════════════════════════════════════════════════════════════
-
-    try:
-        exec(compile(req.script, "<script>", "exec"), ns)
-    except Exception:
-        raise HTTPException(400, f"스크립트 오류:\n{traceback.format_exc()}")
-
-    result = ns.get("df")
-    if result is None:
-        raise HTTPException(400, "스크립트에서 'df' 변수를 정의해야 합니다.\n예: df = pd.read_csv(...)")
-    if not isinstance(result, pd.DataFrame):
-        raise HTTPException(400, f"'df'는 pandas DataFrame이어야 합니다. 현재 타입: {type(result).__name__}")
-    if result.empty:
-        raise HTTPException(400, "결과 DataFrame이 비어 있습니다.")
-
-    tsv = result.to_csv(sep="\t", index=False)
+    # [보안수정 C~G] 인증 · 키워드 차단 · 감사 로그 이 위치에 추가 (주석 파일 참조)
+    raw_df = _exec_script(req.script)
+    tsv = raw_df.to_csv(sep="\t", index=False)
     return {
         "ok":   True,
-        "rows": len(result),
-        "cols": result.columns.tolist(),
+        "rows": len(raw_df),
+        "cols": raw_df.columns.tolist(),
         "data": tsv,
     }
+
+
+@app.post("/run-and-analyze")
+def run_and_analyze(req: RunAndAnalyzeRequest):
+    """Python 스크립트 실행 + ML 분석을 단일 요청으로 처리"""
+    if req.method not in ML_METHOD_LABELS:
+        raise HTTPException(400, f"지원하지 않는 방식: {req.method}")
+
+    # ── Step 1: 스크립트 실행 → DataFrame ──────────────────────
+    raw_df = _exec_script(req.script)
+
+    # ── Step 2: 컬럼 매핑 ──────────────────────────────────────
+    if req.col_map:
+        # 프론트에서 col_map 전달 시: 기존 index 기반 파싱
+        tsv = raw_df.to_csv(sep="\t", index=False)
+        try:
+            df = parse_dataframe(tsv, req.col_map)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+    else:
+        # col_map 없으면: 컬럼명 자동 감지
+        df = _auto_map_columns(raw_df.copy())
+        if 'REAL DATA' not in df.columns:
+            cols = list(raw_df.columns)
+            raise HTTPException(400,
+                f"'REAL DATA' 컬럼을 찾을 수 없습니다.\n"
+                f"현재 컬럼: {cols}\n"
+                f"스크립트에서 df 컬럼명을 아래 중 하나로 맞추거나\n"
+                f"col_map을 직접 전달하세요.\n"
+                f"허용 별칭: {COL_ALIASES['REAL DATA']}"
+            )
+        df['_row_idx'] = range(len(df))
+        df['REAL DATA'] = pd.to_numeric(df['REAL DATA'], errors='coerce')
+        df = df.dropna(subset=['REAL DATA']).reset_index(drop=True)
+
+    if df.empty:
+        raise HTTPException(400, "유효한 숫자 데이터가 없습니다.")
+
+    # ── Step 3: ML 분석 ────────────────────────────────────────
+    group_by   = req.group_by or "eqp_ppid"
+    cont       = float(np.clip(req.threshold, 0.001, 0.5))
+    result_df, failed = run_ml(df, req.method, cont, req.params or {}, group_by)
+    group_cols = _get_group_cols(df, group_by)
+
+    return _build_response(req.method, result_df, failed, group_cols)
 
 
 @app.get("/health")

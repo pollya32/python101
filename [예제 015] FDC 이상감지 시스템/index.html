@@ -3070,11 +3070,130 @@ async function _runPyScript() {
   toast(`${json.rows.toLocaleString()}행 로드 완료 — 컬럼 매핑을 확인 후 분석하세요.`, 'ok');
 }
 
-// ▶ 실행 + 바로 분석 — TSV 중간 저장 없이 즉시 분석 시작
+// ▶ 실행 + 바로 분석
+// ML 방식: /run-and-analyze 단일 호출 (스크립트 실행 + 분석 서버에서 한 번에)
+// 통계 방식: 데이터 로드 후 JS 분석 (기존 흐름)
 async function _runPyScriptAndAnalyze() {
-  const json = await _fetchPyData();
-  if (!json) return;
-  toast(`${json.rows.toLocaleString()}행 로드 — 분석을 시작합니다...`, 'ok');
+  const script = document.getElementById('pyScript').value.trim();
+  if (!script) { toast('스크립트를 입력하세요', 'err'); return; }
+
+  const method = document.getElementById('detectMethod').value;
+
+  // ── ML 방식: 서버 단일 호출 ────────────────────────────────
+  if (method.startsWith('ml_')) {
+    const statusEl = document.getElementById('pyRunStatus');
+    const resultEl = document.getElementById('pyResult');
+    const btn      = document.getElementById('btnRun');
+    const pw       = document.getElementById('progressWrap');
+
+    statusEl.textContent = '⏳ 실행 + 분석 중...';
+    resultEl.style.display = 'none';
+    btn.disabled = true;
+    pw.style.display = 'block';
+    _setProgress(10, 'Python 실행 + ML 분석 중...');
+
+    const thr      = parseFloat(document.getElementById('threshold').value) || 0.05;
+    const group_by = document.getElementById('mlGroupBy')?.value || 'eqp_ppid';
+
+    try {
+      const res = await fetch(_mlServerUrl() + '/run-and-analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          script,
+          method,
+          threshold: thr,
+          params:    _mlGetParams(method),
+          group_by,
+          // col_map 생략 → 서버가 컬럼명 자동 감지
+        }),
+        signal: AbortSignal.timeout(120000),
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        statusEl.textContent = '❌ 실패';
+        resultEl.className = 'py-result err';
+        resultEl.textContent = json.detail || '서버 오류';
+        resultEl.style.display = 'block';
+        btn.disabled = false; pw.style.display = 'none';
+        return;
+      }
+
+      _setProgress(60, '결과 처리 중...'); await _tick();
+
+      // runAnalysis() ML 브랜치와 동일한 결과 처리
+      gResults = json.results.map((r, i) => ({
+        ...r,
+        isAnom:     !!r.isAnom,
+        _val:       r['REAL DATA'],
+        _slot:      r['SLOT'] != null ? (parseInt(r['SLOT']) || i) : i,
+        _time:      r['날짜'] ? tryParseTime(String(r['날짜'])) : null,
+        _key:       `${r['EQP ID']}|||${r['LOTID']||''}|||${r['CH']||''}|||${r['PPID']}`,
+        _statsKey:  `${r['EQP ID']}|||${r['CH']||''}|||${r['PPID']}`,
+        threshold:  null,
+        method,
+        prevVal:    null,
+        norm_score: r.norm_score ?? r.score,
+      }));
+      if (json.failed_groups?.length)
+        toast(`⚠ 분석 실패 그룹 ${json.failed_groups.length}개 — 해당 그룹은 정상 처리됨`, 'warn');
+
+      gStats = (json.stats || []).map(s => ({
+        eqp: s['EQP ID'] || s.eqp, ch: s['CH'] || s.ch || '',
+        param: s['PPID'] || s.ppid,
+        n: s.count, mean: s.mean, std: s.std, min: s.min, max: s.max,
+        range: s.max - s.min,
+        cv: s.mean !== 0 ? Math.abs(s.std / s.mean * 100) : 0,
+        ucl: s.mean + 3 * s.std, lcl: s.mean - 3 * s.std,
+        anomCount: s.anoms,
+        anomRate: s.count ? s.anoms / s.count * 100 : 0,
+      }));
+      gAnomsAll = gResults.filter(r => r.isAnom);
+      gAnoms = gAnomsAll;
+      gIndex = buildIndex(gResults);
+      gThreshold = thr;
+      onMethodChange(); gFilteredResults = null;
+
+      _setProgress(72, '렌더링 중...'); await _tick();
+      renderSummary(gResults); renderBanner(gResults); renderStats(gStats);
+      await renderRanking(gResults);
+      _setProgress(80, '히트맵 중...'); await _tick();
+      await renderHeatmap(gResults);
+      renderTables(gResults);
+      populateFilters(gResults); initScatterSelects(gResults);
+      checkAnomalyRateAlert();
+      _setProgress(92, '차트 중...'); await _tick();
+      renderParetoChart(); await renderTrendChart();
+      _renderScoreHistogram(gResults);
+
+      document.getElementById('results').style.display = 'block';
+      applyLayout();
+      document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      saveSettings();
+      _setProgress(100, '완료');
+
+      statusEl.textContent = `✅ ${gResults.length.toLocaleString()}건 분석 / 이상 ${gAnomsAll.length}건`;
+      resultEl.className = 'py-result ok';
+      resultEl.textContent = `방식: ${json.method_label} · 이상률 ${json.summary.rate}%`;
+      resultEl.style.display = 'block';
+      toast(`Python 스크립트 실행 + ML 분석 완료 — 이상 ${gAnomsAll.length}건`, gAnomsAll.length ? 'err' : 'ok');
+
+    } catch (err) {
+      statusEl.textContent = '❌ 서버 오류';
+      resultEl.className = 'py-result err';
+      resultEl.textContent = `오류: ${err.message}`;
+      resultEl.style.display = 'block';
+    } finally {
+      btn.disabled = false; pw.style.display = 'none';
+    }
+    return;
+  }
+
+  // ── 통계 방식: 데이터 로드 후 JS 분석 (기존 흐름) ───────────
+  const data = await _fetchPyData();
+  if (!data) return;
+  toast(`${data.rows.toLocaleString()}행 로드 — 분석을 시작합니다...`, 'ok');
   await runAnalysis();
 }
 
