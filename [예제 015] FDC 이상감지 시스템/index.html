@@ -339,6 +339,7 @@
       <div class="py-panel">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
           <span style="font-size:12px;font-weight:600;color:var(--tx2)">🐍 Python 스크립트</span>
+          <button class="btn btn-secondary btn-sm" onclick="_pyInsertTemplate('func')">함수</button>
           <button class="btn btn-secondary btn-sm" onclick="_pyInsertTemplate('csv')">CSV</button>
           <button class="btn btn-secondary btn-sm" onclick="_pyInsertTemplate('excel')">Excel</button>
           <button class="btn btn-secondary btn-sm" onclick="_pyInsertTemplate('oracle')">Oracle</button>
@@ -2922,17 +2923,22 @@ function _switchInputTab(mode) {
 // ── Python 스크립트 템플릿 ─────────────────────────────────────
 function _pyInsertTemplate(kind) {
   const tpls = {
-    default: `import pandas as pd
+    default: `# ── ① 기존 함수 코드 그대로 붙여넣기 ─────────────────────────
+def get_fdc_data(start_date, end_date, eqp_id=None):
+    # 여기에 기존 함수 내용을 그대로 붙여넣으세요
+    pass
+    return df
 
-# ── 결과를 반드시 df 변수에 담으세요 ──────────────────────────
-df = pd.DataFrame({
-    '날짜':    ['2024-01-01 08:00', '2024-01-01 08:10', '2024-01-01 08:20'],
-    'EQP ID':  ['EQP01', 'EQP01', 'EQP02'],
-    'LOTID':   ['LOT001', 'LOT001', 'LOT002'],
-    'CH':      ['CH1',   'CH1',   'CH1'],
-    'PPID':    ['PROC_A','PROC_A','PROC_B'],
-    'REAL DATA':[250.1,   251.3,   300.9],
-})`,
+# ── ② 마지막 줄만 추가 (함수 이름·인자를 맞게 수정) ───────────
+df = get_fdc_data('2024-01-01', '2024-01-31')`,
+    func: `# ── ① 기존 함수 코드 그대로 붙여넣기 ─────────────────────────
+def get_fdc_data(start_date, end_date, eqp_id=None):
+    # 여기에 기존 함수 내용을 그대로 붙여넣으세요
+    pass
+    return df
+
+# ── ② 마지막 줄만 추가 (함수 이름·인자를 맞게 수정) ───────────
+df = get_fdc_data('2024-01-01', '2024-01-31')`,
     csv: `import pandas as pd
 
 # CSV / TSV 파일 읽기
