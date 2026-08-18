@@ -10,7 +10,7 @@ CVD PM Optimization 실행안(EWC·ESI·PM Life·ROI)을 현장 데이터로 직
 
 ## 기능
 
-1. **Baseline 설정** — 대상 장비 수, PM 기준 Wafer, 평균 PM 시간, 월 처리량 등 Pilot 가정값 입력
+1. **Baseline 설정** — 대표 PRC 이름, 대상 장비 수, PM 기준 Wafer, 평균 PM 시간, 월 처리량 등 Pilot 가정값 입력
 2. **EWC 환산** — Recipe별 Stress Factor 가중치를 입력하면 Equivalent Wafer(EWC)로 자동 환산
 3. **ESI 가중치 설정** — EWC 누적 + FDC 8개 Feature의 가중치를 자유롭게 조정 (합계 100% 검증 포함)
 4. **Chamber 분석 · 열화 포인트 탐지** — Chamber별 Wafer/EWC/FDC 점수 입력 시 ESI·판정(Green/Yellow/Orange/Red)·근거 Top3 요인 자동 계산, Wafer 기준만으로는 놓칠 수 있는 이상 Chamber 쌍 자동 탐지
@@ -18,6 +18,7 @@ CVD PM Optimization 실행안(EWC·ESI·PM Life·ROI)을 현장 데이터로 직
 6. **ROI · 민감도 분석** — 직접 PM비용 절감 + Capacity Gain 계산, Cycle 연장률별 민감도 표 자동 생성
 7. **레포트 자동 생성** — 모든 입력/계산 결과를 텍스트 레포트로 정리, 클립보드 복사 지원
 8. **PPT 다운로드** — 현재 계산 결과를 9장짜리 실행 보고용 .pptx 파일로 즉시 생성/다운로드
+9. **PRC 프로필 저장 · 불러오기** — Baseline 탭의 '대표 PRC' 이름으로 현재 분석 전체(Baseline~ROI)를 저장하고, 저장된 PRC 목록에서 언제든 다시 불러오거나 삭제 가능 (여러 Chamber 그룹/제품을 나눠서 관리할 때 유용)
 
 모든 입력값은 브라우저 로컬 저장소(localStorage)에 자동 저장되어 다음 접속 시에도 유지됩니다.
 
