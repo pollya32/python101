@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CVD PM 정합성 고도화 시뮬레이터</title>
+<style>
+:root{
+  --navy:#1E2761; --navy-d:#141b49; --ice:#CADCFC; --ice-d:#e8f0ff;
+  --bg:#f4f6fb; --card:#ffffff; --border:#e2e6f0; --text:#1a1f36; --text2:#5b6178;
+  --green:#0ea968; --yellow:#e0a800; --orange:#f2711c; --red:#e5484d;
+  --radius:10px;
+}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:"Malgun Gothic","Noto Sans KR",-apple-system,BlinkMacSystemFont,sans-serif;font-size:14px;line-height:1.5}
+header{background:var(--navy);color:#fff;padding:18px 24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+header h1{margin:0;font-size:19px;font-weight:700}
+header p{margin:2px 0 0;font-size:12px;color:var(--ice);opacity:.85}
+nav{display:flex;gap:4px;background:var(--navy-d);padding:0 16px;overflow-x:auto;position:sticky;top:0;z-index:50}
+nav button{background:transparent;border:none;color:#c7cdea;padding:12px 14px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:3px solid transparent}
+nav button:hover{color:#fff}
+nav button.active{color:#fff;border-bottom-color:var(--ice)}
+main{max-width:1180px;margin:0 auto;padding:20px 20px 60px}
+section.tab{display:none}
+section.tab.active{display:block}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;margin-bottom:16px}
+.card h2{margin:0 0 4px;font-size:16px}
+.card .desc{color:var(--text2);font-size:12.5px;margin:0 0 14px}
+.grid{display:grid;gap:12px}
+.grid.cols-2{grid-template-columns:repeat(2,1fr)}
+.grid.cols-3{grid-template-columns:repeat(3,1fr)}
+.grid.cols-4{grid-template-columns:repeat(4,1fr)}
+@media(max-width:760px){.grid.cols-2,.grid.cols-3,.grid.cols-4{grid-template-columns:1fr}}
+label{display:block;font-size:12px;color:var(--text2);margin-bottom:4px;font-weight:600}
+input[type=number],input[type=text]{width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:#fff;color:var(--text)}
+input:focus{outline:2px solid var(--ice);border-color:var(--navy)}
+.field{margin-bottom:2px}
+.tablewrap{overflow-x:auto;border:1px solid var(--border);border-radius:8px}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:13px}
+th,td{padding:8px 9px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{background:var(--ice-d);color:var(--navy-d);font-size:11.5px;font-weight:700;position:sticky;top:0}
+tbody tr:hover{background:#fafbff}
+td input{width:64px;min-width:64px;text-align:right;padding:4px 6px;font-size:12.5px}
+td input.wide{width:100px;min-width:100px}
+.btnrow{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+button.btn{background:var(--navy);color:#fff;border:none;border-radius:7px;padding:9px 15px;font-size:13px;font-weight:600;cursor:pointer}
+button.btn:hover{background:var(--navy-d)}
+button.btn.secondary{background:#fff;color:var(--navy);border:1px solid var(--navy)}
+button.btn.danger{background:#fff;color:var(--red);border:1px solid var(--red);padding:4px 9px;font-size:11.5px}
+button.btn.small{padding:5px 10px;font-size:12px}
+.badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11.5px;font-weight:700;color:#fff}
+.badge.green{background:var(--green)} .badge.yellow{background:var(--yellow);color:#3a2c00}
+.badge.orange{background:var(--orange)} .badge.red{background:var(--red)}
+.stat{background:var(--ice-d);border-radius:8px;padding:12px 14px}
+.stat .n{font-size:22px;font-weight:800;color:var(--navy-d)}
+.stat .l{font-size:11.5px;color:var(--text2);margin-top:2px}
+.hint{background:#fff8e8;border:1px solid #f0deae;color:#7a5c00;border-radius:8px;padding:9px 12px;font-size:12px;margin-top:10px}
+.warn{background:#fdeceb;border:1px solid #f3b9b7;color:#a3231f;border-radius:8px;padding:9px 12px;font-size:12px;margin-top:10px}
+.ok{background:#e9f9f1;border:1px solid #b6ecd2;color:#0a7a4c;border-radius:8px;padding:9px 12px;font-size:12px;margin-top:10px}
+.flowline{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;color:var(--text2);margin-top:6px}
+.flowline b{color:var(--navy-d)}
+#reportBox{width:100%;min-height:420px;font-family:"Malgun Gothic",monospace;font-size:12.5px;padding:14px;border:1px solid var(--border);border-radius:8px;resize:vertical;white-space:pre-wrap}
+.factorbar{display:flex;height:8px;border-radius:4px;overflow:hidden;background:#eee;margin-top:4px}
+footer{text-align:center;color:var(--text2);font-size:11.5px;padding:20px}
+.kv{display:flex;justify-content:space-between;padding:4px 0;font-size:12.5px;border-bottom:1px dashed var(--border)}
+.kv b{color:var(--navy-d)}
+.subtag{font-size:11px;color:var(--text2);font-weight:600}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>CVD 장비 PM 정합성 고도화 시뮬레이터</h1>
+    <p>EWC · ESI 기반 가중치 계산 · 열화 포인트 탐지 · ROI 리포트 · PPT 다운로드</p>
+  </div>
+  <div class="subtag" id="lastSaved" style="color:#c7cdea"></div>
+</header>
+
+<nav id="tabnav"></nav>
+
+<main>
+
+<section class="tab" id="tab-overview">
+  <div class="card">
+    <h2>사용 안내</h2>
+    <p class="desc">이 도구는 CVD PM Optimization 실행안(EWC·ESI·PM Life·ROI)을 현장 데이터로 바로 계산할 수 있도록 만든 실행형 계산기입니다. 아래 순서대로 값을 입력하면 각 화면이 자동으로 연동되어 계산됩니다.</p>
+    <div class="flowline">
+      <b>① Baseline</b> → <b>② Recipe 가중(EWC)</b> → <b>③ ESI 가중치</b> → <b>④ Chamber 분석·열화 포인트</b> → <b>⑤ 잔여 PM Life</b> → <b>⑥ ROI·민감도</b> → <b>⑦ 레포트</b> → <b>⑧ PPT 다운로드</b>
+    </div>
+    <div class="hint">모든 입력값은 브라우저에 자동 저장됩니다(로컬 저장, 외부 전송 없음). 기본값은 참고용 가정 데이터이며, 실제 현장 데이터로 교체해서 사용하세요.</div>
+  </div>
+  <div class="card">
+    <h2>핵심 산식</h2>
+    <div class="kv"><span>EWC (Equivalent Wafer Count)</span><b>Wafer × Recipe Stress Factor</b></div>
+    <div class="kv"><span>ESI (Equipment Stress Index)</span><b>Σ (정규화 Feature × 가중치)</b></div>
+    <div class="kv"><span>잔여 PM Life</span><b>(적용 임계 EWC − 현재 EWC) ÷ 일평균 EWC 소모량</b></div>
+    <div class="kv"><span>ROI</span><b>직접 PM 비용 절감 + Capacity Gain (Downtime 절감 × 시간당 처리량 × 기여이익)</b></div>
+  </div>
+</section>
+
+<section class="tab" id="tab-baseline">
+  <div class="card">
+    <h2>① Pilot 가정 및 Baseline</h2>
+    <p class="desc">대상 장비군과 현재 PM 기준을 입력하세요.</p>
+    <div class="grid cols-4">
+      <div class="field"><label>대상 장비 수 (Tool)</label><input type="number" id="b_toolCount"></div>
+      <div class="field"><label>Chamber PM 기준 (Wafer)</label><input type="number" id="b_pmBaselineWafer"></div>
+      <div class="field"><label>평균 PM 시간 (hr/회)</label><input type="number" step="0.1" id="b_avgPmHours"></div>
+      <div class="field"><label>Tool당 월 처리량 (Wafer)</label><input type="number" id="b_monthlyThroughput"></div>
+      <div class="field"><label>현재 PM 빈도 (회/Tool·월)</label><input type="number" step="0.1" id="b_currentPmFreq"></div>
+      <div class="field"><label>Pilot 기간 (개월)</label><input type="number" id="b_pilotMonths"></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Baseline 요약</h2>
+    <div class="grid cols-4" id="baselineStats"></div>
+  </div>
+</section>
+
+<section class="tab" id="tab-ewc">
+  <div class="card">
+    <h2>② Recipe Stress Factor → EWC 환산</h2>
+    <p class="desc">Recipe별 실제 Wafer 수와 Stress 가중치(Factor)를 입력하면 Equivalent Wafer(EWC)로 자동 환산됩니다.</p>
+    <div class="tablewrap"><table id="recipeTable">
+      <thead><tr><th>Recipe명</th><th>Actual Wafer</th><th>Stress Factor</th><th>Equivalent Wafer</th><th>비중</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <div class="btnrow">
+      <button class="btn secondary small" onclick="addRecipeRow()">+ Recipe 추가</button>
+    </div>
+    <div class="grid cols-3" style="margin-top:14px" id="ewcStats"></div>
+  </div>
+</section>
+
+<section class="tab" id="tab-esi">
+  <div class="card">
+    <h2>③ ESI 가중치 설정</h2>
+    <p class="desc">EWC 누적 및 FDC 기반 Feature들의 가중치를 조정하세요. 합계는 100%가 되어야 합니다. (EWC 누적 점수는 ④ 탭에서 Chamber별 EWC로 자동 계산됩니다)</p>
+    <div class="tablewrap"><table id="weightTable">
+      <thead><tr><th>Feature</th><th>가중치(%)</th><th>비고</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <div id="weightSumMsg"></div>
+    <div class="btnrow">
+      <button class="btn secondary small" onclick="normalizeWeights()">100%로 자동 정규화</button>
+      <button class="btn secondary small" onclick="resetWeights()">기본값 복원</button>
+    </div>
+  </div>
+  <div class="card">
+    <h2>PM Decision Rule (ESI 판정 기준)</h2>
+    <div class="grid cols-3">
+      <div class="field"><label>Green / Yellow 경계 (ESI &lt;)</label><input type="number" id="th_green"></div>
+      <div class="field"><label>Yellow / Orange 경계 (ESI &lt;)</label><input type="number" id="th_yellow"></div>
+      <div class="field"><label>Orange / Red 경계 (ESI &lt;)</label><input type="number" id="th_orange"></div>
+    </div>
+    <div class="tablewrap" style="margin-top:12px"><table>
+      <thead><tr><th>구간</th><th>상태</th><th>Action</th><th>운영 기준</th></tr></thead>
+      <tbody id="ruleTableBody"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<section class="tab" id="tab-chamber">
+  <div class="card">
+    <h2>④ Chamber별 ESI 계산 · 열화 포인트 탐지</h2>
+    <p class="desc">Chamber별 Wafer/EWC와 FDC 정규화 점수(0~100)를 입력하면 ESI·판정·근거 Top3 요인이 자동 계산됩니다.</p>
+    <div class="tablewrap"><table id="chamberTable">
+      <thead><tr id="chamberHead"></tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <div class="btnrow">
+      <button class="btn secondary small" onclick="addChamberRow()">+ Chamber 추가</button>
+    </div>
+  </div>
+  <div class="card">
+    <h2>열화 포인트 요약 (Explainability)</h2>
+    <div id="degradationSummary"></div>
+  </div>
+  <div class="card">
+    <h2>이상 판정 탐지 (Wafer 기준 오판 위험)</h2>
+    <p class="desc">Wafer 수는 비슷하지만 ESI가 크게 다른 Chamber 쌍을 자동으로 찾아냅니다.</p>
+    <div id="anomalyList"></div>
+  </div>
+</section>
+
+<section class="tab" id="tab-life">
+  <div class="card">
+    <h2>⑤ 잔여 PM Life 산정</h2>
+    <div class="grid cols-3">
+      <div class="field"><label>적용 임계 EWC (PM 기준)</label><input type="number" id="l_targetEwc"></div>
+      <div class="field"><label>Cycle 연장률 적용 (%)</label><input type="number" step="0.1" id="l_extPct"></div>
+      <div class="field"><label>연장 적용시 임계 EWC</label><input type="number" id="l_extTarget" disabled></div>
+    </div>
+    <div class="tablewrap" style="margin-top:12px"><table id="lifeTable">
+      <thead><tr><th>Chamber</th><th>현재 EWC</th><th>일평균 EWC 소모량</th><th>남은 EWC</th><th>잔여일수</th><th>판정</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <div class="hint">일평균 EWC 소모량은 (Tool당 월 처리량 ÷ 30) × (Chamber EWC/Wafer 비율)로 자동 제안되며, 각 행에서 직접 덮어쓸 수 있습니다.</div>
+  </div>
+</section>
+
+<section class="tab" id="tab-roi">
+  <div class="card">
+    <h2>⑥ 예상 절감금액(ROI) 산정</h2>
+    <div class="grid cols-4">
+      <div class="field"><label>PM당 직접비 (만원)</label><input type="number" id="r_pmCost"></div>
+      <div class="field"><label>장비 시간당 처리량 (Wafer/hr)</label><input type="number" id="r_waferPerHr"></div>
+      <div class="field"><label>Wafer당 기여이익 (만원)</label><input type="number" id="r_marginPerWafer"></div>
+      <div class="field"><label>목표 Cycle 연장률 (%)</label><input type="number" step="0.1" id="r_extPct"></div>
+    </div>
+    <div class="tablewrap" style="margin-top:14px"><table>
+      <thead><tr><th>구분</th><th>현재</th><th>개선</th><th>효과</th></tr></thead>
+      <tbody id="roiTableBody"></tbody>
+    </table></div>
+    <div class="grid cols-3" style="margin-top:14px" id="roiStats"></div>
+  </div>
+  <div class="card">
+    <h2>민감도 분석: Cycle 연장률별 효과</h2>
+    <div class="field" style="max-width:320px"><label>연장률 목록 (% , 콤마 구분)</label><input type="text" id="r_sensList"></div>
+    <div class="tablewrap" style="margin-top:10px"><table>
+      <thead><tr><th>Cycle 연장</th><th>PM 감소(회/월)</th><th>Downtime 절감(hr/6개월)</th><th>6개월 기대효과</th></tr></thead>
+      <tbody id="sensTableBody"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<section class="tab" id="tab-report">
+  <div class="card">
+    <h2>⑦ 자동 레포트</h2>
+    <p class="desc">입력된 모든 값을 바탕으로 실행형 레포트 초안을 생성합니다. 필요시 직접 수정 후 복사하세요.</p>
+    <div class="btnrow">
+      <button class="btn" onclick="generateReport()">레포트 새로 생성</button>
+      <button class="btn secondary" onclick="copyReport()">클립보드에 복사</button>
+    </div>
+    <textarea id="reportBox" style="margin-top:12px"></textarea>
+  </div>
+</section>
+
+<section class="tab" id="tab-export">
+  <div class="card">
+    <h2>⑧ PPT 다운로드</h2>
+    <p class="desc">현재 화면의 계산 결과를 실행 보고용 PPT(.pptx)로 즉시 생성합니다. 서버로 데이터가 전송되지 않고 브라우저 내에서 파일이 생성됩니다.</p>
+    <div class="btnrow">
+      <button class="btn" id="pptBtn" onclick="exportPPTX()">📊 PPT 다운로드 (.pptx)</button>
+    </div>
+    <div id="pptMsg" style="margin-top:10px"></div>
+  </div>
+</section>
+
+</main>
+<footer>CVD PM 정합성 고도화 시뮬레이터 · 내부 검토용 도구 · 실제 적용 전 현장 데이터로 검증 필요</footer>
+
+<script>window.PPTX_LIB_LOADED = false;</script>
+<script src="./vendor/pptxgen.min.js"></script>
+<script>
+/* ===================== 기본 데이터 ===================== */
+const ESI_FEATURES = [
+  {key:'ewcAccum', label:'EWC 누적', weight:25, auto:true, note:'Chamber EWC / 임계EWC 자동계산'},
+  {key:'rfOnTime', label:'RF On-Time', weight:15, note:'FDC 정규화 입력'},
+  {key:'rfPowerDrift', label:'RF Power Drift', weight:10, note:'FDC 정규화 입력'},
+  {key:'gasExposure', label:'Gas Exposure', weight:10, note:'FDC 정규화 입력'},
+  {key:'tempStability', label:'Temp Stability', weight:10, note:'FDC 정규화 입력'},
+  {key:'pressureApc', label:'Pressure/APC', weight:10, note:'FDC 정규화 입력'},
+  {key:'pumpCurrent', label:'Pump Current', weight:8, note:'FDC 정규화 입력'},
+  {key:'particleTrend', label:'Particle Trend', weight:7, note:'FDC 정규화 입력'},
+  {key:'alarmScore', label:'Alarm Score', weight:5, note:'FDC 정규화 입력'},
+];
+
+function defaultState(){
+  return {
+    baseline:{ toolCount:20, pmBaselineWafer:10000, avgPmHours:6.0, monthlyThroughput:40000, currentPmFreq:4, pilotMonths:6 },
+    recipes:[
+      {name:'A Low-k', wafer:12000, factor:0.70},
+      {name:'B Standard', wafer:18000, factor:1.00},
+      {name:'C High Temp', wafer:6000, factor:1.35},
+      {name:'D High Depo', wafer:4000, factor:1.80},
+    ],
+    weights: Object.fromEntries(ESI_FEATURES.map(f=>[f.key,f.weight])),
+    thresholds:{ green:65, yellow:80, orange:90 },
+    chambers:[
+      {id:'CVD-01', wafer:9700, ewc:9950, scores:{rfOnTime:80,rfPowerDrift:75,gasExposure:78,tempStability:82,pressureApc:76,pumpCurrent:70,particleTrend:72,alarmScore:68}},
+      {id:'CVD-02', wafer:9850, ewc:8600, scores:{rfOnTime:55,rfPowerDrift:50,gasExposure:52,tempStability:58,pressureApc:54,pumpCurrent:48,particleTrend:45,alarmScore:57}},
+      {id:'CVD-03', wafer:8900, ewc:10300, scores:{rfOnTime:85,rfPowerDrift:88,gasExposure:80,tempStability:78,pressureApc:82,pumpCurrent:75,particleTrend:93,alarmScore:99}},
+    ],
+    life:{ targetEwc:10000, extPct:15, dailyOverride:{} },
+    roi:{ pmCost:300, waferPerHr:25, marginPerWafer:5, extPct:15, sensList:'5,10,15,20' },
+  };
+}
+
+let state = loadState();
+function loadState(){
+  try{
+    const raw = localStorage.getItem('cvd_pm_tool_state_v1');
+    if(raw) return Object.assign(defaultState(), JSON.parse(raw));
+  }catch(e){}
+  return defaultState();
+}
+function saveState(){
+  localStorage.setItem('cvd_pm_tool_state_v1', JSON.stringify(state));
+  document.getElementById('lastSaved').textContent = '자동 저장됨 ' + new Date().toLocaleTimeString('ko-KR');
+}
+
+/* ===================== 유틸 ===================== */
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const num=(v,d=0)=>{ const n=parseFloat(v); return isNaN(n)?d:n; };
+function fmtNum(n,d=0){ if(n===undefined||n===null||isNaN(n)) return '-'; return n.toLocaleString('ko-KR',{maximumFractionDigits:d,minimumFractionDigits:d}); }
+function fmtWon(manwon){ // 입력 단위: 만원
+  if(manwon===undefined||isNaN(manwon)) return '-';
+  const eok = manwon/10000;
+  if(Math.abs(eok)>=1) return eok.toLocaleString('ko-KR',{maximumFractionDigits:2})+'억원';
+  return fmtNum(manwon)+'만원';
+}
+function statusOf(esi){
+  const t=state.thresholds;
+  if(esi<t.green) return {level:'green', label:'Green', action:'PM 연장 가능'};
+  if(esi<t.yellow) return {level:'yellow', label:'Yellow', action:'PM Window 진입'};
+  if(esi<t.orange) return {level:'orange', label:'Orange', action:'PM 권장'};
+  return {level:'red', label:'Red', action:'PM Mandatory'};
+}
+
+/* ===================== 탭 네비게이션 ===================== */
+const TABS = [
+  ['overview','개요'], ['baseline','① Baseline'], ['ewc','② EWC 환산'], ['esi','③ ESI 가중치'],
+  ['chamber','④ Chamber·열화 포인트'], ['life','⑤ 잔여 PM Life'], ['roi','⑥ ROI·민감도'],
+  ['report','⑦ 레포트'], ['export','⑧ PPT 다운로드'],
+];
+function buildNav(){
+  const nav=document.getElementById('tabnav');
+  nav.innerHTML='';
+  TABS.forEach(([id,label],i)=>{
+    const b=document.createElement('button');
+    b.textContent=label; b.dataset.tab=id;
+    if(i===0) b.classList.add('active');
+    b.onclick=()=>showTab(id);
+    nav.appendChild(b);
+  });
+}
+function showTab(id){
+  document.querySelectorAll('section.tab').forEach(s=>s.classList.toggle('active', s.id==='tab-'+id));
+  document.querySelectorAll('#tabnav button').forEach(b=>b.classList.toggle('active', b.dataset.tab===id));
+}
+
+/* ===================== ① Baseline ===================== */
+function bindBaselineInputs(){
+  const b=state.baseline;
+  document.getElementById('b_toolCount').value=b.toolCount;
+  document.getElementById('b_pmBaselineWafer').value=b.pmBaselineWafer;
+  document.getElementById('b_avgPmHours').value=b.avgPmHours;
+  document.getElementById('b_monthlyThroughput').value=b.monthlyThroughput;
+  document.getElementById('b_currentPmFreq').value=b.currentPmFreq;
+  document.getElementById('b_pilotMonths').value=b.pilotMonths;
+  ['b_toolCount','b_pmBaselineWafer','b_avgPmHours','b_monthlyThroughput','b_currentPmFreq','b_pilotMonths'].forEach(id=>{
+    document.getElementById(id).addEventListener('input', e=>{
+      const key=id.slice(2);
+      state.baseline[key]=num(e.target.value);
+      recalcAll();
+    });
+  });
+}
+function renderBaselineStats(){
+  const b=state.baseline;
+  const pmCountMonth = b.toolCount*b.currentPmFreq;
+  const downtimeMonth = pmCountMonth*b.avgPmHours;
+  const downtimeTotal = downtimeMonth*b.pilotMonths;
+  const el=document.getElementById('baselineStats');
+  el.innerHTML = [
+    ['월 PM 횟수', fmtNum(pmCountMonth)+'회'],
+    ['월 PM Downtime', fmtNum(downtimeMonth)+'hr'],
+    [`${b.pilotMonths}개월 Downtime`, fmtNum(downtimeTotal)+'hr'],
+    ['Tool당 월 처리량', fmtNum(b.monthlyThroughput)+' Wafer'],
+  ].map(([l,n])=>`<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+}
+
+/* ===================== ② EWC 환산 ===================== */
+function addRecipeRow(){
+  state.recipes.push({name:'New Recipe', wafer:0, factor:1.0});
+  recalcAll();
+}
+function removeRecipeRow(i){ state.recipes.splice(i,1); recalcAll(); }
+function renderRecipeTable(){
+  const tbody=document.querySelector('#recipeTable tbody');
+  tbody.innerHTML='';
+  const totalWafer = state.recipes.reduce((s,r)=>s+num(r.wafer),0);
+  const totalEwc = state.recipes.reduce((s,r)=>s+num(r.wafer)*num(r.factor),0);
+  state.recipes.forEach((r,i)=>{
+    const ewc = num(r.wafer)*num(r.factor);
+    const share = totalWafer? (num(r.wafer)/totalWafer*100):0;
+    const tr=document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="text" class="wide" value="${r.name}" data-i="${i}" data-f="name"></td>
+      <td><input type="number" class="wide" value="${r.wafer}" data-i="${i}" data-f="wafer"></td>
+      <td><input type="number" class="wide" step="0.05" value="${r.factor}" data-i="${i}" data-f="factor"></td>
+      <td>${fmtNum(ewc)}</td>
+      <td>${fmtNum(share,1)}%</td>
+      <td><button class="btn danger" onclick="removeRecipeRow(${i})">삭제</button></td>`;
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll('input').forEach(inp=>{
+    inp.addEventListener('input', e=>{
+      const i=e.target.dataset.i, f=e.target.dataset.f;
+      state.recipes[i][f] = f==='name'? e.target.value : num(e.target.value);
+      recalcAll();
+    });
+  });
+  document.getElementById('ewcStats').innerHTML = [
+    ['총 Actual Wafer', fmtNum(totalWafer)],
+    ['총 Equivalent Wafer (EWC)', fmtNum(totalEwc)],
+    ['환산 비율 (EWC/Wafer)', totalWafer? (totalEwc/totalWafer).toFixed(3): '-'],
+  ].map(([l,n])=>`<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+}
+
+/* ===================== ③ ESI 가중치 ===================== */
+function renderWeightTable(){
+  const tbody=document.querySelector('#weightTable tbody');
+  tbody.innerHTML='';
+  ESI_FEATURES.forEach(f=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${f.label}${f.auto?' <span class="subtag">(자동)</span>':''}</td>
+      <td><input type="number" step="1" min="0" max="100" value="${state.weights[f.key]}" data-k="${f.key}"></td>
+      <td style="text-align:left;color:var(--text2);font-size:11.5px">${f.note}</td>`;
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll('input').forEach(inp=>{
+    inp.addEventListener('input', e=>{
+      state.weights[e.target.dataset.k]=num(e.target.value);
+      recalcAll();
+    });
+  });
+  const sum = Object.values(state.weights).reduce((a,b)=>a+num(b),0);
+  const msg=document.getElementById('weightSumMsg');
+  if(Math.abs(sum-100)<0.01) msg.innerHTML=`<div class="ok">가중치 합계 ${fmtNum(sum,1)}% ✓ 정상</div>`;
+  else msg.innerHTML=`<div class="warn">가중치 합계 ${fmtNum(sum,1)}% — 100%가 되도록 조정하거나 '자동 정규화'를 사용하세요.</div>`;
+}
+function normalizeWeights(){
+  const sum = Object.values(state.weights).reduce((a,b)=>a+num(b),0) || 1;
+  Object.keys(state.weights).forEach(k=> state.weights[k] = Math.round(state.weights[k]/sum*1000)/10 );
+  recalcAll();
+}
+function resetWeights(){
+  state.weights = Object.fromEntries(ESI_FEATURES.map(f=>[f.key,f.weight]));
+  recalcAll();
+}
+function renderThresholds(){
+  document.getElementById('th_green').value=state.thresholds.green;
+  document.getElementById('th_yellow').value=state.thresholds.yellow;
+  document.getElementById('th_orange').value=state.thresholds.orange;
+  ['green','yellow','orange'].forEach(k=>{
+    document.getElementById('th_'+k).addEventListener('input', e=>{
+      state.thresholds[k]=num(e.target.value); recalcAll();
+    });
+  });
+  const t=state.thresholds;
+  document.getElementById('ruleTableBody').innerHTML = `
+    <tr><td style="text-align:left">ESI &lt; ${t.green}</td><td><span class="badge green">Green</span></td><td style="text-align:left">PM 연장 가능</td><td style="text-align:left">기존 PM보다 +10~20% 검토</td></tr>
+    <tr><td style="text-align:left">${t.green} ≤ ESI &lt; ${t.yellow}</td><td><span class="badge yellow">Yellow</span></td><td style="text-align:left">PM Window 진입</td><td style="text-align:left">생산계획 고려해 PM 예약</td></tr>
+    <tr><td style="text-align:left">${t.yellow} ≤ ESI &lt; ${t.orange}</td><td><span class="badge orange">Orange</span></td><td style="text-align:left">PM 권장</td><td style="text-align:left">7일 이내 PM 또는 검증 필요</td></tr>
+    <tr><td style="text-align:left">ESI ≥ ${t.orange}</td><td><span class="badge red">Red</span></td><td style="text-align:left">PM Mandatory</td><td style="text-align:left">품질/Failure Risk로 우선 PM</td></tr>`;
+}
+
+/* ===================== ④ Chamber 분석 ===================== */
+function chamberEwcScore(c){
+  return clamp(num(c.ewc)/Math.max(1,state.life.targetEwc)*100, 0, 100);
+}
+function chamberESI(c){
+  let esi=0;
+  ESI_FEATURES.forEach(f=>{
+    const score = f.auto ? chamberEwcScore(c) : num(c.scores[f.key]);
+    esi += score * (num(state.weights[f.key])/100);
+  });
+  return esi;
+}
+function chamberFactorContribs(c){
+  return ESI_FEATURES.map(f=>{
+    const score = f.auto ? chamberEwcScore(c) : num(c.scores[f.key]);
+    return {label:f.label, contrib: score*(num(state.weights[f.key])/100), score};
+  }).sort((a,b)=>b.contrib-a.contrib);
+}
+function addChamberRow(){
+  const idx=state.chambers.length+1;
+  state.chambers.push({id:'CVD-'+String(idx).padStart(2,'0'), wafer:9000, ewc:9000, scores:Object.fromEntries(ESI_FEATURES.filter(f=>!f.auto).map(f=>[f.key,60]))});
+  recalcAll();
+}
+function removeChamberRow(i){ state.chambers.splice(i,1); recalcAll(); }
+function renderChamberTable(){
+  const head=document.getElementById('chamberHead');
+  const featCols = ESI_FEATURES.filter(f=>!f.auto);
+  head.innerHTML = `<th>Chamber</th><th>Wafer</th><th>EWC</th><th>EWC점수</th>` +
+    featCols.map(f=>`<th>${f.label}</th>`).join('') + `<th>ESI</th><th>판정</th><th></th>`;
+
+  const tbody=document.querySelector('#chamberTable tbody');
+  tbody.innerHTML='';
+  state.chambers.forEach((c,i)=>{
+    const esi=chamberESI(c);
+    const st=statusOf(esi);
+    const ewcScore=chamberEwcScore(c);
+    const tr=document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="text" class="wide" value="${c.id}" data-i="${i}" data-f="id"></td>
+      <td><input type="number" class="wide" value="${c.wafer}" data-i="${i}" data-f="wafer"></td>
+      <td><input type="number" class="wide" value="${c.ewc}" data-i="${i}" data-f="ewc"></td>
+      <td>${fmtNum(ewcScore,1)}</td>
+      ${featCols.map(f=>`<td><input type="number" min="0" max="100" value="${num(c.scores[f.key])}" data-i="${i}" data-f="score_${f.key}"></td>`).join('')}
+      <td><b>${fmtNum(esi,1)}</b></td>
+      <td><span class="badge ${st.level}">${st.label}</span></td>
+      <td><button class="btn danger" onclick="removeChamberRow(${i})">삭제</button></td>`;
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll('input').forEach(inp=>{
+    inp.addEventListener('input', e=>{
+      const i=e.target.dataset.i, f=e.target.dataset.f;
+      const c=state.chambers[i];
+      if(f==='id') c.id=e.target.value;
+      else if(f.startsWith('score_')) c.scores[f.slice(6)]=num(e.target.value);
+      else c[f]=num(e.target.value);
+      recalcAll();
+    });
+  });
+}
+function renderDegradationSummary(){
+  const rows = state.chambers.map(c=>({c, esi:chamberESI(c), st:statusOf(chamberESI(c)), top:chamberFactorContribs(c).slice(0,3)}))
+    .sort((a,b)=>b.esi-a.esi);
+  const el=document.getElementById('degradationSummary');
+  if(!rows.length){ el.innerHTML='<div class="hint">등록된 Chamber가 없습니다.</div>'; return; }
+  el.innerHTML = rows.map(r=>{
+    const flag = (r.st.level==='orange'||r.st.level==='red');
+    return `<div style="padding:10px 0;border-bottom:1px dashed var(--border)">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div><b>${r.c.id}</b> — ESI ${fmtNum(r.esi,1)} <span class="badge ${r.st.level}">${r.st.label}</span> ${flag?'⚠️ 열화 포인트':''}</div>
+        <div class="subtag">${r.st.action}</div>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-top:4px">주요 근거(Top3): ${r.top.map(t=>t.label+' ('+fmtNum(t.contrib,1)+'점 기여)').join(', ')}</div>
+    </div>`;
+  }).join('');
+}
+function renderAnomalyList(){
+  const list=[];
+  const cs=state.chambers.map(c=>({c, esi:chamberESI(c)}));
+  for(let i=0;i<cs.length;i++){
+    for(let j=i+1;j<cs.length;j++){
+      const a=cs[i], b=cs[j];
+      const waferDiffPct = Math.abs(a.c.wafer-b.c.wafer)/Math.max(1,(a.c.wafer+b.c.wafer)/2)*100;
+      const esiDiff = Math.abs(a.esi-b.esi);
+      if(waferDiffPct<5 && esiDiff>15){
+        list.push({a,b,waferDiffPct,esiDiff});
+      }
+    }
+  }
+  const el=document.getElementById('anomalyList');
+  if(!list.length){ el.innerHTML='<div class="ok">Wafer 기준 오판 위험이 감지된 Chamber 쌍이 없습니다.</div>'; return; }
+  el.innerHTML = list.map(x=>`<div class="warn" style="margin-top:8px">
+    <b>${x.a.c.id}</b> (Wafer ${fmtNum(x.a.c.wafer)}, ESI ${fmtNum(x.a.esi,1)}) vs
+    <b>${x.b.c.id}</b> (Wafer ${fmtNum(x.b.c.wafer)}, ESI ${fmtNum(x.b.esi,1)}) —
+    Wafer 차이 ${fmtNum(x.waferDiffPct,1)}%인데 ESI 차이는 ${fmtNum(x.esiDiff,1)}점.
+    Wafer Count만으로는 PM 우선순위를 잘못 판단할 위험이 있습니다.
+  </div>`).join('');
+}
+
+/* ===================== ⑤ 잔여 PM Life ===================== */
+function bindLifeInputs(){
+  document.getElementById('l_targetEwc').value=state.life.targetEwc;
+  document.getElementById('l_extPct').value=state.life.extPct;
+  document.getElementById('l_targetEwc').addEventListener('input', e=>{ state.life.targetEwc=num(e.target.value); recalcAll(); });
+  document.getElementById('l_extPct').addEventListener('input', e=>{ state.life.extPct=num(e.target.value); recalcAll(); });
+}
+function renderLifeTable(){
+  document.getElementById('l_extTarget').value = fmtNum(state.life.targetEwc*(1+state.life.extPct/100));
+  const target = state.life.targetEwc*(1+state.life.extPct/100);
+  const tbody=document.querySelector('#lifeTable tbody');
+  tbody.innerHTML='';
+  state.chambers.forEach((c,i)=>{
+    const stressRatio = num(c.wafer)? num(c.ewc)/num(c.wafer) : 1;
+    const suggestedDaily = (state.baseline.monthlyThroughput/30)*stressRatio;
+    const daily = state.life.dailyOverride[c.id]!==undefined ? state.life.dailyOverride[c.id] : suggestedDaily;
+    const remainEwc = Math.max(0, target-num(c.ewc));
+    const remainDays = daily>0 ? remainEwc/daily : Infinity;
+    const st=statusOf(chamberESI(c));
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${c.id}</td><td>${fmtNum(c.ewc)}</td>
+      <td><input type="number" class="wide" step="0.1" value="${Math.round(daily*10)/10}" data-id="${c.id}"></td>
+      <td>${fmtNum(remainEwc)}</td>
+      <td>${isFinite(remainDays)? fmtNum(remainDays,1)+'일' : '∞'}</td>
+      <td><span class="badge ${st.level}">${st.label}</span></td>`;
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll('input').forEach(inp=>{
+    inp.addEventListener('input', e=>{
+      state.life.dailyOverride[e.target.dataset.id]=num(e.target.value);
+      recalcAll();
+    });
+  });
+}
+
+/* ===================== ⑥ ROI · 민감도 ===================== */
+function bindRoiInputs(){
+  const r=state.roi;
+  document.getElementById('r_pmCost').value=r.pmCost;
+  document.getElementById('r_waferPerHr').value=r.waferPerHr;
+  document.getElementById('r_marginPerWafer').value=r.marginPerWafer;
+  document.getElementById('r_extPct').value=r.extPct;
+  document.getElementById('r_sensList').value=r.sensList;
+  ['r_pmCost','r_waferPerHr','r_marginPerWafer','r_extPct'].forEach(id=>{
+    document.getElementById(id).addEventListener('input', e=>{
+      state.roi[id.slice(2)]=num(e.target.value); recalcAll();
+    });
+  });
+  document.getElementById('r_sensList').addEventListener('input', e=>{
+    state.roi.sensList = e.target.value; recalcAll();
+  });
+}
+function roiForExtension(extPct){
+  const b=state.baseline, r=state.roi;
+  const pmCountMonth = b.toolCount*b.currentPmFreq;
+  const factor = extPct/100 ? (1 - 1/(1+extPct/100)) : 0;
+  const pmReduceMonth = pmCountMonth*factor;
+  const newPmCountMonth = pmCountMonth-pmReduceMonth;
+  const downtimeReduceMonth = pmReduceMonth*b.avgPmHours;
+  const downtimeReduceTotal = downtimeReduceMonth*b.pilotMonths;
+  const directSaveTotal = pmReduceMonth*r.pmCost*b.pilotMonths;
+  const capacityGain = downtimeReduceTotal*r.waferPerHr*r.marginPerWafer;
+  const totalEffect = directSaveTotal+capacityGain;
+  return {pmCountMonth,newPmCountMonth,pmReduceMonth,downtimeReduceMonth,downtimeReduceTotal,directSaveTotal,capacityGain,totalEffect};
+}
+function renderRoi(){
+  const b=state.baseline, res=roiForExtension(state.roi.extPct);
+  document.getElementById('roiTableBody').innerHTML = `
+    <tr><td style="text-align:left">월 PM 횟수</td><td>${fmtNum(res.pmCountMonth)}회</td><td>${fmtNum(res.newPmCountMonth,1)}회</td><td>${fmtNum(res.pmReduceMonth,1)}회 감소</td></tr>
+    <tr><td style="text-align:left">월 PM Downtime</td><td>${fmtNum(res.pmCountMonth*b.avgPmHours)}hr</td><td>${fmtNum(res.newPmCountMonth*b.avgPmHours,1)}hr</td><td>${fmtNum(res.downtimeReduceMonth,1)}hr 감소</td></tr>
+    <tr><td style="text-align:left">${b.pilotMonths}개월 Downtime</td><td>${fmtNum(res.pmCountMonth*b.avgPmHours*b.pilotMonths)}hr</td><td>${fmtNum(res.newPmCountMonth*b.avgPmHours*b.pilotMonths,1)}hr</td><td>${fmtNum(res.downtimeReduceTotal,1)}hr 감소</td></tr>
+    <tr><td style="text-align:left">PM당 직접비</td><td>${fmtNum(state.roi.pmCost)}만원</td><td>${fmtNum(state.roi.pmCost)}만원</td><td>월 ${fmtNum(res.pmReduceMonth*state.roi.pmCost,1)}만원 절감</td></tr>`;
+  document.getElementById('roiStats').innerHTML = [
+    ['직접 PM 비용 절감', fmtWon(res.directSaveTotal)],
+    ['Capacity Gain', fmtWon(res.capacityGain)],
+    [`총 기대효과 (${b.pilotMonths}개월)`, fmtWon(res.totalEffect)],
+  ].map(([l,n])=>`<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+
+  const list = state.roi.sensList.split(',').map(s=>num(s.trim())).filter(n=>n>0);
+  document.getElementById('sensTableBody').innerHTML = list.map(pct=>{
+    const rr=roiForExtension(pct);
+    return `<tr><td style="text-align:left">+${fmtNum(pct,1)}%</td><td>${fmtNum(rr.pmReduceMonth,1)}회/월</td><td>${fmtNum(rr.downtimeReduceTotal,1)}hr</td><td>${fmtWon(rr.totalEffect)}</td></tr>`;
+  }).join('');
+}
+
+/* ===================== ⑦ 레포트 ===================== */
+function buildReportText(){
+  const b=state.baseline;
+  const res=roiForExtension(state.roi.extPct);
+  const rows = state.chambers.map(c=>({c, esi:chamberESI(c), st:statusOf(chamberESI(c)), top:chamberFactorContribs(c).slice(0,3)}));
+  const riskRows = rows.filter(r=>r.st.level==='orange'||r.st.level==='red').sort((a,b2)=>b2.esi-a.esi);
+  const totalWafer = state.recipes.reduce((s,r)=>s+num(r.wafer),0);
+  const totalEwc = state.recipes.reduce((s,r)=>s+num(r.wafer)*num(r.factor),0);
+  const dt = new Date().toLocaleString('ko-KR');
+
+  let t = '';
+  t += `CVD 장비 PM 정합성 고도화 — 실행 레포트\n작성일시: ${dt}\n\n`;
+  t += `[1. Pilot Baseline]\n대상: CVD ${b.toolCount}대 / Chamber PM 기준 ${fmtNum(b.pmBaselineWafer)} Wafer\n`;
+  t += `평균 PM 시간 ${b.avgPmHours}hr, Tool당 월 처리량 ${fmtNum(b.monthlyThroughput)} Wafer, 현재 PM 빈도 ${b.currentPmFreq}회/Tool·월\n`;
+  t += `Baseline: 월 PM ${fmtNum(b.toolCount*b.currentPmFreq)}회 / Downtime ${fmtNum(b.toolCount*b.currentPmFreq*b.avgPmHours)}hr / ${b.pilotMonths}개월 ${fmtNum(b.toolCount*b.currentPmFreq*b.avgPmHours*b.pilotMonths)}hr\n\n`;
+
+  t += `[2. Recipe Stress Factor → EWC 환산]\n`;
+  state.recipes.forEach(r=> t += `- ${r.name}: ${fmtNum(r.wafer)} Wafer × ${r.factor} = ${fmtNum(r.wafer*r.factor)} EWC\n`);
+  t += `합계: 실제 ${fmtNum(totalWafer)} Wafer → EWC ${fmtNum(totalEwc)} (환산비율 ${totalWafer?(totalEwc/totalWafer).toFixed(3):'-'})\n\n`;
+
+  t += `[3. ESI 가중치 구성]\n`;
+  ESI_FEATURES.forEach(f=> t += `- ${f.label}: ${state.weights[f.key]}%\n`);
+  t += `\n[4. Chamber 분석 결과 및 열화 포인트]\n`;
+  rows.sort((a,c)=>c.esi-a.esi).forEach(r=>{
+    t += `- ${r.c.id}: Wafer ${fmtNum(r.c.wafer)}, EWC ${fmtNum(r.c.ewc)}, ESI ${fmtNum(r.esi,1)} → ${r.st.label} (${r.st.action}) | 근거 Top3: ${r.top.map(x=>x.label).join(', ')}\n`;
+  });
+  if(riskRows.length){
+    t += `\n열화 포인트(우선 조치 필요): ${riskRows.map(r=>r.c.id).join(', ')}\n`;
+  } else {
+    t += `\n현재 Orange/Red 판정 Chamber 없음.\n`;
+  }
+
+  t += `\n[5. 잔여 PM Life]\n`;
+  const target = state.life.targetEwc*(1+state.life.extPct/100);
+  state.chambers.forEach(c=>{
+    const stressRatio = num(c.wafer)? num(c.ewc)/num(c.wafer):1;
+    const suggestedDaily = (b.monthlyThroughput/30)*stressRatio;
+    const daily = state.life.dailyOverride[c.id]!==undefined? state.life.dailyOverride[c.id]:suggestedDaily;
+    const remainEwc = Math.max(0, target-num(c.ewc));
+    const remainDays = daily>0? remainEwc/daily: Infinity;
+    t += `- ${c.id}: 남은 EWC ${fmtNum(remainEwc)}, 잔여일수 ${isFinite(remainDays)?fmtNum(remainDays,1)+'일':'∞'}\n`;
+  });
+
+  t += `\n[6. ROI 산정 — Cycle 연장 +${state.roi.extPct}%]\n`;
+  t += `월 PM 횟수: ${fmtNum(res.pmCountMonth)}회 → ${fmtNum(res.newPmCountMonth,1)}회 (${fmtNum(res.pmReduceMonth,1)}회 감소)\n`;
+  t += `${b.pilotMonths}개월 Downtime 절감: ${fmtNum(res.downtimeReduceTotal,1)}hr\n`;
+  t += `직접 PM 비용 절감: ${fmtWon(res.directSaveTotal)} / Capacity Gain: ${fmtWon(res.capacityGain)}\n`;
+  t += `총 기대효과(${b.pilotMonths}개월): ${fmtWon(res.totalEffect)}\n\n`;
+
+  t += `[7. 민감도 분석]\n`;
+  state.roi.sensList.split(',').map(s=>num(s.trim())).filter(n=>n>0).forEach(pct=>{
+    const rr=roiForExtension(pct);
+    t += `- +${pct}%: PM ${fmtNum(rr.pmReduceMonth,1)}회/월 감소, Downtime ${fmtNum(rr.downtimeReduceTotal,1)}hr 절감, 기대효과 ${fmtWon(rr.totalEffect)}\n`;
+  });
+
+  t += `\n[8. 권고]\n`;
+  t += `- Pilot 목표는 고정 연장률이 아니라 "+10~15% 가능 여부 검증"으로 설정\n`;
+  t += `- Cost Saving보다 Failure/Quality 안정성 우선, Particle/Defect/Failure Guardrail 유지 시에만 단계 확대\n`;
+  if(riskRows.length) t += `- 우선 점검 대상: ${riskRows.map(r=>r.c.id).join(', ')} (근거: ESI Top3 요인 참조)\n`;
+  t += `\n※ 본 레포트는 가정 데이터 기반 계산 결과이며, 실제 현장 데이터 적용 전 검증이 필요합니다.\n`;
+  return t;
+}
+function generateReport(){
+  document.getElementById('reportBox').value = buildReportText();
+}
+function copyReport(){
+  const box=document.getElementById('reportBox');
+  box.select();
+  navigator.clipboard && navigator.clipboard.writeText(box.value).then(()=>{
+    alert('레포트가 클립보드에 복사되었습니다.');
+  }).catch(()=>{ document.execCommand('copy'); });
+}
+
+/* ===================== ⑧ PPT 다운로드 ===================== */
+const STATUS_HEX = {green:'0EA968', yellow:'E0A800', orange:'F2711C', red:'E5484D'};
+async function exportPPTX(){
+  const msg=document.getElementById('pptMsg');
+  if(typeof PptxGenJS==='undefined'){ msg.innerHTML='<div class="warn">PPT 라이브러리 로드에 실패했습니다. vendor/pptxgen.min.js 파일 위치를 확인하세요.</div>'; return; }
+  msg.innerHTML='<div class="hint">PPT 생성 중...</div>';
+  const NAVY='1E2761', ICE='CADCFC', WHITE='FFFFFF', TEXT='1A1F36';
+  const pptx=new PptxGenJS();
+  pptx.layout='LAYOUT_WIDE';
+  const b=state.baseline;
+  const res=roiForExtension(state.roi.extPct);
+  const rows = state.chambers.map(c=>({c, esi:chamberESI(c), st:statusOf(chamberESI(c)), top:chamberFactorContribs(c).slice(0,3)})).sort((a,c)=>c.esi-a.esi);
+  const totalWafer = state.recipes.reduce((s,r)=>s+num(r.wafer),0);
+  const totalEwc = state.recipes.reduce((s,r)=>s+num(r.wafer)*num(r.factor),0);
+
+  // Slide 1: Title
+  let s=pptx.addSlide();
+  s.background={color:NAVY};
+  s.addText('CVD 장비 PM 정합성 고도화', {x:0.6,y:1.6,w:12,h:0.9,fontSize:34,bold:true,color:WHITE,fontFace:'Calibri'});
+  s.addText('EWC·ESI 계산 기반 실행 레포트 (시뮬레이터 자동 생성)', {x:0.6,y:2.4,w:12,h:0.5,fontSize:16,color:ICE,fontFace:'Calibri'});
+  s.addText('생성일: '+new Date().toLocaleDateString('ko-KR'), {x:0.6,y:6.7,w:6,h:0.4,fontSize:11,color:ICE,fontFace:'Calibri'});
+
+  // Slide 2: Baseline
+  s=pptx.addSlide();
+  s.addText('1. Pilot 가정 및 Baseline', {x:0.5,y:0.35,w:12,h:0.6,fontSize:24,bold:true,color:NAVY,fontFace:'Calibri'});
+  s.addTable([
+    [{text:'항목',options:{bold:true,fill:{color:ICE},color:NAVY}},{text:'값',options:{bold:true,fill:{color:ICE},color:NAVY}}],
+    ['대상 장비', `CVD ${b.toolCount}대`],
+    ['Chamber PM 기준', `${fmtNum(b.pmBaselineWafer)} Wafer`],
+    ['평균 PM 시간', `${b.avgPmHours} hr/회`],
+    ['Tool당 월 처리량', `${fmtNum(b.monthlyThroughput)} Wafer`],
+    ['현재 PM 빈도', `${b.currentPmFreq}회/Tool·월`],
+    ['Baseline 월 PM', `${fmtNum(b.toolCount*b.currentPmFreq)}회 / Downtime ${fmtNum(b.toolCount*b.currentPmFreq*b.avgPmHours)}hr`],
+  ], {x:0.5,y:1.1,w:8,fontSize:13,fontFace:'Calibri',border:{type:'solid',color:'D9DEEC',pt:0.5},autoPage:false,colW:[4,4]});
+
+  // Slide 3: EWC
+  s=pptx.addSlide();
+  s.addText('2. Recipe Stress Factor → EWC 환산', {x:0.5,y:0.35,w:12,h:0.6,fontSize:24,bold:true,color:NAVY,fontFace:'Calibri'});
+  const recipeRows=[[{text:'Recipe',options:{bold:true,fill:{color:ICE},color:NAVY}},{text:'Actual Wafer',options:{bold:true,fill:{color:ICE},color:NAVY}},{text:'Stress Factor',options:{bold:true,fill:{color:ICE},color:NAVY}},{text:'Equivalent Wafer',options:{bold:true,fill:{color:ICE},color:NAVY}}]];
+  state.recipes.forEach(r=>recipeRows.push([r.name, fmtNum(r.wafer), String(r.factor), fmtNum(r.wafer*r.factor)]));
+  recipeRows.push([{text:'합계',options:{bold:true}}, {text:fmtNum(totalWafer),options:{bold:true}}, '', {text:fmtNum(totalEwc),options:{bold:true}}]);
+  s.addTable(recipeRows, {x:0.5,y:1.1,w:9,fontSize:13,fontFace:'Calibri',border:{type:'solid',color:'D9DEEC',pt:0.5},colW:[3,2,2,2]});
+
+  // Slide 4: ESI weights
+  s=pptx.addSlide();
+  s.addText('3. ESI 가중치 구성', {x:0.5,y:0.35,w:12,h:0.6,fontSize:24,bold:true,color:NAVY,fontFace:'Calibri'});
+  s.addChart(pptx.ChartType.bar, [{name:'가중치(%)', labels:ESI_FEATURES.map(f=>f.label), values:ESI_FEATURES.map(f=>num(state.weights[f.key]))}], {
+    x:0.5,y:1.1,w:8.5,h:5.6, showTitle:false, showValue:true, dataLabelPosition:'outEnd',
+    chartColors:[NAVY], catAxisLabelColor:TEXT, valAxisLabelColor:TEXT, showLegend:false,
+    valGridLine:{color:'E2E6F0',size:1}, catGridLine:{style:'none'}, barDir:'bar',
+  });
+
+  // Slide 5: Chamber analysis
+  s=pptx.addSlide();
+  s.addText('4. Chamber 분석 결과 · 열화 포인트', {x:0.5,y:0.35,w:12,h:0.6,fontSize:24,bold:true,color:NAVY,fontFace:'Calibri'});
+  const chRows=[[{text:'Chamber',options:{bold:true,fill:{color:ICE},color:NAVY}},{text:'Wafer',options:{bold:true,fill:{color:ICE},color:NAVY}},{text:'EWC',options:{bold:true,fill:{color:ICE},color:NAVY}},{text:'ESI',options:{bold:true,fill:{color:ICE},color:NAVY}},{text:'판정',options:{bold:true,fill:{color:ICE},color:NAVY}},{text:'주요 근거(Top3)',options:{bold:true,fill:{color:ICE},color:NAVY}}]];
+  rows.forEach(r=>{
+    chRows.push([r.c.id, fmtNum(r.c.wafer), fmtNum(r.c.ewc), fmtNum(r.esi,1),
+      {text:r.st.label, options:{fill:{color:STATUS_HEX[r.st.level]}, color:WHITE, bold:true, align:'center'}},
+      r.top.map(t=>t.label).join(', ')]);
+  });
+  s.addTable(chRows, {x:0.4,y:1.1,w:12.4,fontSize:12,fontFace:'Calibri',border:{type:'solid',color:'D9DEEC',pt:0.5},colW:[1.6,1.4,1.4,1.2,1.6,5.2]});
+
+  // Slide 6: Remaining PM life
+  s=pptx.addSlide();
+  s.addText('5. 잔여 PM Life', {x:0.5,y:0.35,w:12,h:0.6,fontSize:24,bold:true,color:NAVY,fontFace:'Calibri'});
+  const target = state.life.targetEwc*(1+state.life.extPct/100);
+  const lifeRows=[[{text:'Chamber',options:{bold:true,fill:{color:ICE},color:NAVY}},{text:'EWC',options:{bold:true,fill:{color:ICE},color:NAVY}},{text:'남은 EWC',options:{bold:true,fill:{color:ICE},color:NAVY}},{text:'잔여일수',options:{bold:true,fill:{color:ICE},color:NAVY}}]];
+  state.chambers.forEach(c=>{
+    const stressRatio = num(c.wafer)? num(c.ewc)/num(c.wafer):1;
+    const suggestedDaily = (b.monthlyThroughput/30)*stressRatio;
+    const daily = state.life.dailyOverride[c.id]!==undefined? state.life.dailyOverride[c.id]:suggestedDaily;
+    const remainEwc = Math.max(0, target-num(c.ewc));
+    const remainDays = daily>0? remainEwc/daily: Infinity;
+    lifeRows.push([c.id, fmtNum(c.ewc), fmtNum(remainEwc), isFinite(remainDays)?fmtNum(remainDays,1)+'일':'∞']);
+  });
+  s.addTable(lifeRows, {x:0.5,y:1.1,w:8,fontSize:13,fontFace:'Calibri',border:{type:'solid',color:'D9DEEC',pt:0.5},colW:[2,2,2,2]});
+
+  // Slide 7: ROI
+  s=pptx.addSlide();
+  s.addText('6. 예상 절감금액(ROI)', {x:0.5,y:0.35,w:12,h:0.6,fontSize:24,bold:true,color:NAVY,fontFace:'Calibri'});
+  s.addTable([
+    [{text:'구분',options:{bold:true,fill:{color:ICE},color:NAVY}},{text:'현재',options:{bold:true,fill:{color:ICE},color:NAVY}},{text:'개선',options:{bold:true,fill:{color:ICE},color:NAVY}},{text:'효과',options:{bold:true,fill:{color:ICE},color:NAVY}}],
+    ['월 PM 횟수', fmtNum(res.pmCountMonth)+'회', fmtNum(res.newPmCountMonth,1)+'회', fmtNum(res.pmReduceMonth,1)+'회 감소'],
+    [`${b.pilotMonths}개월 Downtime`, fmtNum(res.pmCountMonth*b.avgPmHours*b.pilotMonths)+'hr', fmtNum(res.newPmCountMonth*b.avgPmHours*b.pilotMonths,1)+'hr', fmtNum(res.downtimeReduceTotal,1)+'hr 감소'],
+  ], {x:0.5,y:1.1,w:9,fontSize:13,fontFace:'Calibri',border:{type:'solid',color:'D9DEEC',pt:0.5},colW:[3,2,2,2]});
+  s.addText(`총 기대효과 (${b.pilotMonths}개월): ${fmtWon(res.totalEffect)}  (직접 PM비용 ${fmtWon(res.directSaveTotal)} + Capacity Gain ${fmtWon(res.capacityGain)})`,
+    {x:0.5,y:3.4,w:11,h:0.6,fontSize:15,bold:true,color:NAVY,fontFace:'Calibri'});
+
+  // Slide 8: sensitivity
+  s=pptx.addSlide();
+  s.addText('7. 민감도 분석', {x:0.5,y:0.35,w:12,h:0.6,fontSize:24,bold:true,color:NAVY,fontFace:'Calibri'});
+  const sensRows=[[{text:'Cycle 연장',options:{bold:true,fill:{color:ICE},color:NAVY}},{text:'PM 감소',options:{bold:true,fill:{color:ICE},color:NAVY}},{text:'Downtime 절감',options:{bold:true,fill:{color:ICE},color:NAVY}},{text:'기대효과',options:{bold:true,fill:{color:ICE},color:NAVY}}]];
+  state.roi.sensList.split(',').map(x=>num(x.trim())).filter(n=>n>0).forEach(pct=>{
+    const rr=roiForExtension(pct);
+    sensRows.push([`+${pct}%`, fmtNum(rr.pmReduceMonth,1)+'회/월', fmtNum(rr.downtimeReduceTotal,1)+'hr', fmtWon(rr.totalEffect)]);
+  });
+  s.addTable(sensRows, {x:0.5,y:1.1,w:9,fontSize:13,fontFace:'Calibri',border:{type:'solid',color:'D9DEEC',pt:0.5},colW:[2.25,2.25,2.25,2.25]});
+
+  // Slide 9: summary
+  s=pptx.addSlide();
+  s.background={color:NAVY};
+  s.addText('최종 요약', {x:0.6,y:0.5,w:11,h:0.7,fontSize:26,bold:true,color:WHITE,fontFace:'Calibri'});
+  const riskIds = rows.filter(r=>r.st.level==='orange'||r.st.level==='red').map(r=>r.c.id).join(', ')||'없음';
+  const bulletText = [
+    `Pilot 대상: CVD 동일 Model ${b.toolCount}대`,
+    `목표 Cycle 연장률: +${state.roi.extPct}% (Failure/Quality Guardrail 유지 전제)`,
+    `총 기대효과: ${fmtWon(res.totalEffect)} / ${b.pilotMonths}개월`,
+    `우선 점검(열화 포인트) 대상: ${riskIds}`,
+    `성공 조건: Failure/Particle/Defect Guardrail 유지 시에만 단계적 확대`,
+  ];
+  s.addText(bulletText.map(t=>({text:t, options:{bullet:true, breakLine:true, paraSpaceAfter:12}})), {x:0.6,y:1.5,w:11.5,h:4.5,fontSize:16,color:WHITE,fontFace:'Calibri'});
+
+  await pptx.writeFile({fileName:'CVD_PM_고도화_레포트.pptx'});
+  msg.innerHTML='<div class="ok">PPT 다운로드가 시작되었습니다.</div>';
+}
+
+/* ===================== 전체 재계산/렌더 ===================== */
+function recalcAll(){
+  renderBaselineStats();
+  renderRecipeTable();
+  renderWeightTable();
+  renderThresholds();
+  renderChamberTable();
+  renderDegradationSummary();
+  renderAnomalyList();
+  renderLifeTable();
+  renderRoi();
+  saveState();
+}
+
+function init(){
+  buildNav();
+  bindBaselineInputs();
+  bindLifeInputs();
+  bindRoiInputs();
+  recalcAll();
+  generateReport();
+}
+init();
+</script>
+</body>
+</html>
