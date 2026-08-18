@@ -24,8 +24,9 @@ CVD PM Optimization 실행안(EWC·ESI·PM Life·ROI)을 현장 데이터로 직
 ## 파일 구조
 
 ```
-index.html          메인 애플리케이션 (UI + 계산 로직)
-vendor/pptxgen.min.js   PPT 생성용 PptxGenJS 라이브러리 (오프라인 동작을 위해 내장)
+index.html                          메인 애플리케이션 (UI + 계산 로직)
+vendor/pptxgen.min.js               PPT 생성용 PptxGenJS 라이브러리 (오프라인 동작을 위해 내장)
+CVD_PM_시뮬레이터_사용가이드.pptx   사용방법 + 가중치(EWC/ESI/임계값) 산정 근거 정리 슬라이드
 ```
 
 ## 참고
