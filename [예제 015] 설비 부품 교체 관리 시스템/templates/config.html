@@ -26,6 +26,9 @@
     <button id="applyBtn" class="btn btn-sm btn-warning">
       <i class="bi bi-cloud-arrow-up"></i> 모든 설비에 적용
     </button>
+    <button id="applySelectedBtn" class="btn btn-sm btn-outline-warning">
+      <i class="bi bi-list-check"></i> 선택 적용
+    </button>
   </div>
 </header>
 
@@ -81,6 +84,32 @@
           <div id="unitIconPicker" class="icon-picker"></div>
           <button type="submit" class="btn btn-primary w-100 mt-3">저장</button>
         </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 선택 적용 모달 -->
+<div class="modal fade" id="applySelectedModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">선택 적용 - 유닛/부품 선택</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small">
+          체크한 유닛의 체크한 부품만 다른 설비에 추가/갱신합니다. 체크하지 않은 부품은 그대로
+          유지되며 지워지지 않습니다. 대상 설비에 같은 이름의 유닛이 없으면 그 설비는 건너뜁니다.
+        </p>
+        <div id="applySelectedUnitList"></div>
+        <p id="applySelectedEmptyMsg" class="text-muted text-center py-3 d-none">
+          백업된 구성이 없습니다. 먼저 BACKUP 버튼으로 기준 설비 구성을 백업해주세요.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
+        <button id="applySelectedConfirmBtn" type="button" class="btn btn-warning">선택한 항목 적용</button>
       </div>
     </div>
   </div>

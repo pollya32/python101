@@ -1,4 +1,5 @@
 let unitEditModal;
+let applySelectedModal;
 let masterEquipmentName = "기준 설비";
 
 const ICON_CHOICES = [
@@ -326,8 +327,77 @@ async function loadMasterBackupStatus() {
   }
 }
 
+function applySelectedUnitGroupHtml(unit) {
+  const partsHtml = unit.parts.length
+    ? unit.parts.map((p) => `
+        <label class="form-check d-flex align-items-center gap-2 mb-1">
+          <input class="form-check-input part-select" type="checkbox" data-unit="${escapeHtml(unit.name)}" data-part="${escapeHtml(p.name)}">
+          <span>${escapeHtml(p.name)}${p.spec ? ` <span class="text-muted small">(${escapeHtml(p.spec)})</span>` : ""}</span>
+        </label>`).join("")
+    : `<p class="text-muted small mb-0">등록된 부품이 없습니다.</p>`;
+  return `
+    <div class="apply-selected-unit-group mb-3 pb-3 border-bottom">
+      <label class="form-check d-flex align-items-center gap-2">
+        <input class="form-check-input unit-select-all" type="checkbox" data-unit="${escapeHtml(unit.name)}" ${unit.parts.length ? "" : "disabled"}>
+        <span class="fw-bold">${unit.icon || "⚙️"} ${escapeHtml(unit.name)}</span>
+      </label>
+      <div class="ps-4 mt-2">${partsHtml}</div>
+    </div>`;
+}
+
+function updateUnitSelectAllState(unitName) {
+  const list = document.getElementById("applySelectedUnitList");
+  const parts = list.querySelectorAll(`.part-select[data-unit="${CSS.escape(unitName)}"]`);
+  const unitCk = list.querySelector(`.unit-select-all[data-unit="${CSS.escape(unitName)}"]`);
+  if (!unitCk || parts.length === 0) return;
+  const checkedCount = Array.from(parts).filter((el) => el.checked).length;
+  unitCk.checked = checkedCount === parts.length;
+  unitCk.indeterminate = checkedCount > 0 && checkedCount < parts.length;
+}
+
+async function openApplySelectedModal() {
+  const list = document.getElementById("applySelectedUnitList");
+  const emptyMsg = document.getElementById("applySelectedEmptyMsg");
+  const confirmBtn = document.getElementById("applySelectedConfirmBtn");
+  const units = await fetchJson("/api/master-backup/detail");
+  if (units.length === 0) {
+    list.innerHTML = "";
+    emptyMsg.classList.remove("d-none");
+    confirmBtn.disabled = true;
+  } else {
+    emptyMsg.classList.add("d-none");
+    confirmBtn.disabled = false;
+    list.innerHTML = units.map(applySelectedUnitGroupHtml).join("");
+    list.querySelectorAll(".unit-select-all").forEach((unitCk) => {
+      unitCk.addEventListener("change", () => {
+        const unitName = unitCk.dataset.unit;
+        list.querySelectorAll(`.part-select[data-unit="${CSS.escape(unitName)}"]`).forEach((partCk) => {
+          partCk.checked = unitCk.checked;
+        });
+        unitCk.indeterminate = false;
+      });
+    });
+    list.querySelectorAll(".part-select").forEach((partCk) => {
+      partCk.addEventListener("change", () => updateUnitSelectAllState(partCk.dataset.unit));
+    });
+  }
+  applySelectedModal.show();
+}
+
+function collectApplySelectedSelections() {
+  const list = document.getElementById("applySelectedUnitList");
+  const selections = {};
+  list.querySelectorAll(".part-select:checked").forEach((partCk) => {
+    const unitName = partCk.dataset.unit;
+    if (!selections[unitName]) selections[unitName] = [];
+    selections[unitName].push(partCk.dataset.part);
+  });
+  return selections;
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   unitEditModal = new bootstrap.Modal(document.getElementById("unitEditModal"));
+  applySelectedModal = new bootstrap.Modal(document.getElementById("applySelectedModal"));
 
   tick();
   setInterval(tick, 1000);
@@ -367,6 +437,29 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const result = await fetchJson("/api/unit-templates/apply", { method: "POST" });
       alert(`설비 ${result.equipment_count}대에 유닛 구성(${result.unit_count}개)/부품(${result.part_count}개)을 적용했습니다.`);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById("applySelectedBtn").addEventListener("click", () => {
+    openApplySelectedModal();
+  });
+
+  document.getElementById("applySelectedConfirmBtn").addEventListener("click", async () => {
+    const selections = collectApplySelectedSelections();
+    if (Object.keys(selections).length === 0) {
+      alert("선택된 부품이 없습니다.");
+      return;
+    }
+    try {
+      const result = await fetchJson("/api/unit-templates/apply-selected", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ selections }),
+      });
+      applySelectedModal.hide();
+      alert(`설비 ${result.equipment_count}곳에 부품 ${result.applied_count}건을 적용했습니다.`);
     } catch (err) {
       alert(err.message);
     }

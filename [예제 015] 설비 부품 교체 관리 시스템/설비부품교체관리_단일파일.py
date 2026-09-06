@@ -851,14 +851,49 @@ def create_master_backup(conn):
     return len(units), part_count
 
 
+def _apply_backup_part_to_unit(conn, bp, target_unit_id, existing_by_name):
+    """백업 부품 한 건(bp)을 target_unit_id에 갱신하거나(이미 있으면) 추가한다(없으면).
+    이름이 같은 독립 부품(local_only=1)이 이미 있으면 절대 건드리지 않고 건너뛴다 - 그렇지
+    않으면 이미 등록된 독립 부품이 있는데도 못 본 척하고 똑같은 이름의 카드를 하나 더
+    추가해버려서, 화면에 이름이 같은 부품 카드가 중복으로 보이는 문제가 있었다.
+    실제로 갱신/추가했으면 True, 건너뛰었으면 False를 반환한다."""
+    current = existing_by_name.get(bp["name"])
+    if current is not None and current["local_only"]:
+        return False
+    if current is not None:
+        conn.execute(
+            """UPDATE parts SET spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, memo = ?,
+               drawing_data = ?, icon = ?, pos_x = ?, pos_y = ?, width = ?, height = ?,
+               stock_qty = ?, safety_stock = ?, supplier = ?, supplier_contact = ?, lead_time_days = ?
+               WHERE id = ?""",
+            (
+                bp["spec"], bp["cycle_days"], bp["cycle_unit"], bp["cost"], bp["note"], bp["memo"],
+                bp["drawing_data"], bp["icon"], bp["pos_x"], bp["pos_y"], bp["width"], bp["height"],
+                bp["stock_qty"], bp["safety_stock"], bp["supplier"], bp["supplier_contact"],
+                bp["lead_time_days"], current["id"],
+            ),
+        )
+    else:
+        conn.execute(
+            """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, note, memo, drawing_data,
+               icon, pos_x, pos_y, width, height, stock_qty, safety_stock, supplier, supplier_contact,
+               lead_time_days, local_only)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
+            (
+                target_unit_id, bp["name"], bp["spec"], bp["cycle_days"], bp["cycle_unit"], bp["cost"],
+                bp["note"], bp["memo"], bp["drawing_data"], bp["icon"], bp["pos_x"], bp["pos_y"], bp["width"],
+                bp["height"], bp["stock_qty"], bp["safety_stock"], bp["supplier"], bp["supplier_contact"],
+                bp["lead_time_days"],
+            ),
+        )
+    return True
+
+
 def sync_parts_from_backup_to_unit(conn, unit_name, target_unit_id):
     """master_backup_parts에 저장된 unit_name의 부품 구성을 target_unit_id 유닛에 동기화한다.
     이름이 같은 부품은 백업 시점 값으로 갱신되고, 새 부품은 추가되며, 백업에 없는 이름의 부품은
     삭제된다(교체 이력도 함께 삭제). 단, 각 설비에서 직접 등록한 독립 부품(local_only=1)은
-    동기화 대상에서 완전히 제외되어 갱신/삭제되지 않는다.
-    이름 존재 여부를 확인할 때는 local_only 부품도 포함시킨다 - 그렇지 않으면 이미 그
-    이름으로 등록된 독립 부품이 있는데도 못 본 척하고 똑같은 이름의 카드를 하나 더
-    추가해버려서, 화면에 이름이 같은 부품 카드가 중복으로 보이는 문제가 있었다."""
+    동기화 대상에서 완전히 제외되어 갱신/삭제되지 않는다."""
     backup_parts = conn.execute(
         "SELECT * FROM master_backup_parts WHERE unit_name = ? ORDER BY id", (unit_name,)
     ).fetchall()
@@ -869,41 +904,30 @@ def sync_parts_from_backup_to_unit(conn, unit_name, target_unit_id):
     existing_by_name = {p["name"]: p for p in target_parts}
     synced_existing = {p["name"]: p for p in target_parts if not p["local_only"]}
     for bp in backup_parts:
-        current = existing_by_name.get(bp["name"])
-        if current is not None and current["local_only"]:
-            # 이 이름은 이미 이 설비에서 독립 부품으로 등록되어 있으므로 동기화하지 않는다
-            continue
-        if bp["name"] in synced_existing:
-            ep = synced_existing[bp["name"]]
-            conn.execute(
-                """UPDATE parts SET spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, memo = ?,
-                   drawing_data = ?, icon = ?, pos_x = ?, pos_y = ?, width = ?, height = ?,
-                   stock_qty = ?, safety_stock = ?, supplier = ?, supplier_contact = ?, lead_time_days = ?
-                   WHERE id = ?""",
-                (
-                    bp["spec"], bp["cycle_days"], bp["cycle_unit"], bp["cost"], bp["note"], bp["memo"],
-                    bp["drawing_data"], bp["icon"], bp["pos_x"], bp["pos_y"], bp["width"], bp["height"],
-                    bp["stock_qty"], bp["safety_stock"], bp["supplier"], bp["supplier_contact"],
-                    bp["lead_time_days"], ep["id"],
-                ),
-            )
-        else:
-            conn.execute(
-                """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, note, memo, drawing_data,
-                   icon, pos_x, pos_y, width, height, stock_qty, safety_stock, supplier, supplier_contact,
-                   lead_time_days, local_only)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
-                (
-                    target_unit_id, bp["name"], bp["spec"], bp["cycle_days"], bp["cycle_unit"], bp["cost"],
-                    bp["note"], bp["memo"], bp["drawing_data"], bp["icon"], bp["pos_x"], bp["pos_y"], bp["width"],
-                    bp["height"], bp["stock_qty"], bp["safety_stock"], bp["supplier"], bp["supplier_contact"],
-                    bp["lead_time_days"],
-                ),
-            )
+        _apply_backup_part_to_unit(conn, bp, target_unit_id, existing_by_name)
     for name, ep in synced_existing.items():
         if name not in backup_names:
             conn.execute("DELETE FROM parts WHERE id = ?", (ep["id"],))
     return len(backup_parts)
+
+
+def sync_selected_parts_from_backup_to_unit(conn, unit_name, target_unit_id, part_names):
+    """master_backup_parts 중 unit_name + part_names(선택된 부품명)에 해당하는 부품만
+    target_unit_id에 추가/갱신한다. sync_parts_from_backup_to_unit과 달리 선택되지 않은
+    기존 부품은 전혀 건드리지 않는다(삭제하지 않음) - "선택 적용"은 어디까지나 추가/갱신
+    전용이라 백업에 없는 이름이라고 지우는 일이 없어야 한다. 실제로 적용된 개수를 반환한다."""
+    if not part_names:
+        return 0
+    placeholders = ",".join("?" for _ in part_names)
+    backup_parts = conn.execute(
+        f"SELECT * FROM master_backup_parts WHERE unit_name = ? AND name IN ({placeholders}) ORDER BY id",
+        (unit_name, *part_names),
+    ).fetchall()
+    target_parts = conn.execute(
+        "SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL", (target_unit_id,)
+    ).fetchall()
+    existing_by_name = {p["name"]: p for p in target_parts}
+    return sum(1 for bp in backup_parts if _apply_backup_part_to_unit(conn, bp, target_unit_id, existing_by_name))
 
 
 def apply_unit_parts_to_other_equipment(conn, unit_id):
@@ -2770,6 +2794,50 @@ def apply_unit_templates():
     })
 
 
+@app.route("/api/unit-templates/apply-selected", methods=["POST"])
+def apply_unit_templates_selected():
+    """BACKUP 스냅샷 중 요청에 담긴 유닛/부품만 골라서 전체 설비에 반영한다("선택 적용").
+    "모든 설비에 적용"과 달리 유닛 자체는 만들거나 지우지 않고(대상 설비에 해당 이름의
+    유닛이 없으면 그 설비는 건너뜀), 선택하지 않은 기존 부품도 삭제하지 않는다 - 어디까지나
+    고른 부품만 추가/갱신하는 용도다.
+    요청 형식: {"selections": {"유닛 이름": ["부품 이름", ...], ...}}"""
+    data = request.get_json() or {}
+    selections = data.get("selections") or {}
+    conn = get_db()
+    backup_unit_names = {u["name"] for u in conn.execute("SELECT name FROM master_backup_units").fetchall()}
+    if not backup_unit_names:
+        conn.close()
+        return jsonify({"error": "백업된 구성이 없습니다. 먼저 BACKUP 버튼으로 기준 설비 구성을 백업해주세요."}), 400
+
+    equipments = conn.execute("SELECT id FROM equipments WHERE deleted_at IS NULL").fetchall()
+
+    applied_count = 0
+    touched_equipment_ids = set()
+    for unit_name, part_names in selections.items():
+        if unit_name not in backup_unit_names or not part_names:
+            continue
+        for eq in equipments:
+            target_unit = conn.execute(
+                "SELECT id FROM units WHERE equipment_id = ? AND name = ? AND deleted_at IS NULL",
+                (eq["id"], unit_name),
+            ).fetchone()
+            if not target_unit:
+                continue
+            n = sync_selected_parts_from_backup_to_unit(conn, unit_name, target_unit["id"], part_names)
+            if n:
+                applied_count += n
+                touched_equipment_ids.add(eq["id"])
+
+    if applied_count:
+        log_activity(
+            conn, "apply", "master", None, get_master_equipment_name(conn),
+            f"선택 적용: 설비 {len(touched_equipment_ids)}개, 부품 {applied_count}건 반영",
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "equipment_count": len(touched_equipment_ids), "applied_count": applied_count})
+
+
 @app.route("/api/master-equipment-name")
 def api_master_equipment_name():
     conn = get_db()
@@ -2784,6 +2852,25 @@ def get_master_backup():
     meta = get_master_backup_meta(conn)
     conn.close()
     return jsonify(meta)
+
+
+@app.route("/api/master-backup/detail")
+def get_master_backup_detail():
+    """"선택 적용" 모달에서 고를 수 있도록, 백업된 유닛별 부품 목록을 반환한다."""
+    conn = get_db()
+    units = conn.execute("SELECT * FROM master_backup_units ORDER BY id").fetchall()
+    result = []
+    for u in units:
+        parts = conn.execute(
+            "SELECT name, spec FROM master_backup_parts WHERE unit_name = ? ORDER BY id", (u["name"],)
+        ).fetchall()
+        result.append({
+            "name": u["name"],
+            "icon": u["icon"],
+            "parts": [{"name": p["name"], "spec": p["spec"]} for p in parts],
+        })
+    conn.close()
+    return jsonify(result)
 
 
 @app.route("/api/master-backup", methods=["POST"])
@@ -11243,6 +11330,9 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
     <button id="applyBtn" class="btn btn-sm btn-warning">
       <i class="bi bi-cloud-arrow-up"></i> 모든 설비에 적용
     </button>
+    <button id="applySelectedBtn" class="btn btn-sm btn-outline-warning">
+      <i class="bi bi-list-check"></i> 선택 적용
+    </button>
   </div>
 </header>
 
@@ -11303,9 +11393,36 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
   </div>
 </div>
 
+<!-- 선택 적용 모달 -->
+<div class="modal fade" id="applySelectedModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">선택 적용 - 유닛/부품 선택</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small">
+          체크한 유닛의 체크한 부품만 다른 설비에 추가/갱신합니다. 체크하지 않은 부품은 그대로
+          유지되며 지워지지 않습니다. 대상 설비에 같은 이름의 유닛이 없으면 그 설비는 건너뜁니다.
+        </p>
+        <div id="applySelectedUnitList"></div>
+        <p id="applySelectedEmptyMsg" class="text-muted text-center py-3 d-none">
+          백업된 구성이 없습니다. 먼저 BACKUP 버튼으로 기준 설비 구성을 백업해주세요.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
+        <button id="applySelectedConfirmBtn" type="button" class="btn btn-warning">선택한 항목 적용</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 let unitEditModal;
+let applySelectedModal;
 let masterEquipmentName = "기준 설비";
 
 const ICON_CHOICES = [
@@ -11633,8 +11750,77 @@ async function loadMasterBackupStatus() {
   }
 }
 
+function applySelectedUnitGroupHtml(unit) {
+  const partsHtml = unit.parts.length
+    ? unit.parts.map((p) => `
+        <label class="form-check d-flex align-items-center gap-2 mb-1">
+          <input class="form-check-input part-select" type="checkbox" data-unit="${escapeHtml(unit.name)}" data-part="${escapeHtml(p.name)}">
+          <span>${escapeHtml(p.name)}${p.spec ? ` <span class="text-muted small">(${escapeHtml(p.spec)})</span>` : ""}</span>
+        </label>`).join("")
+    : `<p class="text-muted small mb-0">등록된 부품이 없습니다.</p>`;
+  return `
+    <div class="apply-selected-unit-group mb-3 pb-3 border-bottom">
+      <label class="form-check d-flex align-items-center gap-2">
+        <input class="form-check-input unit-select-all" type="checkbox" data-unit="${escapeHtml(unit.name)}" ${unit.parts.length ? "" : "disabled"}>
+        <span class="fw-bold">${unit.icon || "⚙️"} ${escapeHtml(unit.name)}</span>
+      </label>
+      <div class="ps-4 mt-2">${partsHtml}</div>
+    </div>`;
+}
+
+function updateUnitSelectAllState(unitName) {
+  const list = document.getElementById("applySelectedUnitList");
+  const parts = list.querySelectorAll(`.part-select[data-unit="${CSS.escape(unitName)}"]`);
+  const unitCk = list.querySelector(`.unit-select-all[data-unit="${CSS.escape(unitName)}"]`);
+  if (!unitCk || parts.length === 0) return;
+  const checkedCount = Array.from(parts).filter((el) => el.checked).length;
+  unitCk.checked = checkedCount === parts.length;
+  unitCk.indeterminate = checkedCount > 0 && checkedCount < parts.length;
+}
+
+async function openApplySelectedModal() {
+  const list = document.getElementById("applySelectedUnitList");
+  const emptyMsg = document.getElementById("applySelectedEmptyMsg");
+  const confirmBtn = document.getElementById("applySelectedConfirmBtn");
+  const units = await fetchJson("/api/master-backup/detail");
+  if (units.length === 0) {
+    list.innerHTML = "";
+    emptyMsg.classList.remove("d-none");
+    confirmBtn.disabled = true;
+  } else {
+    emptyMsg.classList.add("d-none");
+    confirmBtn.disabled = false;
+    list.innerHTML = units.map(applySelectedUnitGroupHtml).join("");
+    list.querySelectorAll(".unit-select-all").forEach((unitCk) => {
+      unitCk.addEventListener("change", () => {
+        const unitName = unitCk.dataset.unit;
+        list.querySelectorAll(`.part-select[data-unit="${CSS.escape(unitName)}"]`).forEach((partCk) => {
+          partCk.checked = unitCk.checked;
+        });
+        unitCk.indeterminate = false;
+      });
+    });
+    list.querySelectorAll(".part-select").forEach((partCk) => {
+      partCk.addEventListener("change", () => updateUnitSelectAllState(partCk.dataset.unit));
+    });
+  }
+  applySelectedModal.show();
+}
+
+function collectApplySelectedSelections() {
+  const list = document.getElementById("applySelectedUnitList");
+  const selections = {};
+  list.querySelectorAll(".part-select:checked").forEach((partCk) => {
+    const unitName = partCk.dataset.unit;
+    if (!selections[unitName]) selections[unitName] = [];
+    selections[unitName].push(partCk.dataset.part);
+  });
+  return selections;
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   unitEditModal = new bootstrap.Modal(document.getElementById("unitEditModal"));
+  applySelectedModal = new bootstrap.Modal(document.getElementById("applySelectedModal"));
 
   tick();
   setInterval(tick, 1000);
@@ -11674,6 +11860,29 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const result = await fetchJson("/api/unit-templates/apply", { method: "POST" });
       alert(`설비 ${result.equipment_count}대에 유닛 구성(${result.unit_count}개)/부품(${result.part_count}개)을 적용했습니다.`);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById("applySelectedBtn").addEventListener("click", () => {
+    openApplySelectedModal();
+  });
+
+  document.getElementById("applySelectedConfirmBtn").addEventListener("click", async () => {
+    const selections = collectApplySelectedSelections();
+    if (Object.keys(selections).length === 0) {
+      alert("선택된 부품이 없습니다.");
+      return;
+    }
+    try {
+      const result = await fetchJson("/api/unit-templates/apply-selected", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ selections }),
+      });
+      applySelectedModal.hide();
+      alert(`설비 ${result.equipment_count}곳에 부품 ${result.applied_count}건을 적용했습니다.`);
     } catch (err) {
       alert(err.message);
     }
