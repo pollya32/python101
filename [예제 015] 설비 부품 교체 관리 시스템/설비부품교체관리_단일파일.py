@@ -59,7 +59,7 @@ def _html_escape(s):
 
 EQUIPMENT_COUNT = 20
 EQUIPMENT_PREFIX = "TEAG"
-MASTER_EQUIPMENT_ID = 1  # TEAG01호기: 이 설비에 추가한 부품은 동일한 이름의 유닛을 가진 나머지 설비에도 자동 복제된다
+DEFAULT_MASTER_EQUIPMENT_ID = 1  # 최초 설치 시 기준 설비 기본값(TEAG01호기). 이후 "기본 유닛 구성" 화면에서 바꿀 수 있다.
 DEFAULT_PASSWORD = "0000"
 # ══ 사내 메일 API 설정 ═══════════════════════════════════════════════
 # (보안) 실제 값으로 교체한 뒤에는 이 파일을 외부에 공유/업로드하지 마세요.
@@ -801,8 +801,15 @@ def insert_part(conn, unit_id, name, spec="", cycle_days=None, cycle_unit="N/A",
     return part_id
 
 
+def get_master_equipment_id(conn):
+    """현재 기준 설비의 id를 반환한다. app_config에 저장된 값이 없으면(최초 설치 등)
+    기본값(DEFAULT_MASTER_EQUIPMENT_ID)을 쓴다."""
+    value = get_config(conn, "master_equipment_id")
+    return int(value) if value else DEFAULT_MASTER_EQUIPMENT_ID
+
+
 def get_master_equipment_name(conn):
-    row = conn.execute("SELECT name FROM equipments WHERE id = ?", (MASTER_EQUIPMENT_ID,)).fetchone()
+    row = conn.execute("SELECT name FROM equipments WHERE id = ?", (get_master_equipment_id(conn),)).fetchone()
     return row["name"] if row else "기준 설비"
 
 
@@ -814,11 +821,12 @@ def get_master_backup_meta(conn):
 
 
 def create_master_backup(conn):
-    """기준 설비(TEAG01호기)의 현재 유닛+부품 구성 전체를 스냅샷으로 저장한다(기존 백업은 덮어씀).
-    "모든 설비에 적용"/"전체 설비에 적용"은 이후 이 스냅샷을 기준으로 동작하므로, 백업 시점 이후의
-    TEAG01호기 실시간 변경 내용은 다시 BACKUP을 누르기 전까지 적용에 반영되지 않는다."""
+    """기준 설비의 현재 유닛+부품 구성 전체를 스냅샷으로 저장한다(기존 백업은 덮어씀).
+    "모든 설비에 적용"/"선택 적용"은 이후 이 스냅샷을 기준으로 동작하므로, 백업 시점 이후의
+    기준 설비 실시간 변경 내용은 다시 BACKUP을 누르기 전까지 적용에 반영되지 않는다."""
     units = conn.execute(
-        "SELECT * FROM units WHERE equipment_id = ? AND deleted_at IS NULL ORDER BY id", (MASTER_EQUIPMENT_ID,)
+        "SELECT * FROM units WHERE equipment_id = ? AND deleted_at IS NULL ORDER BY id",
+        (get_master_equipment_id(conn),),
     ).fetchall()
     conn.execute("DELETE FROM master_backup_units")
     conn.execute("DELETE FROM master_backup_parts")
@@ -928,31 +936,6 @@ def sync_selected_parts_from_backup_to_unit(conn, unit_name, target_unit_id, par
     ).fetchall()
     existing_by_name = {p["name"]: p for p in target_parts}
     return sum(1 for bp in backup_parts if _apply_backup_part_to_unit(conn, bp, target_unit_id, existing_by_name))
-
-
-def apply_unit_parts_to_other_equipment(conn, unit_id):
-    """기준 설비(TEAG01호기)의 특정 유닛에 대해 마지막으로 BACKUP한 부품 구성을, 동일한 이름의
-    유닛을 가진 나머지 설비에 일괄 동기화한다. 호출 전 해당 유닛 이름의 백업이 존재하는지 먼저
-    확인해야 한다(없으면 None을 반환)."""
-    master_unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
-    backup_exists = conn.execute(
-        "SELECT 1 FROM master_backup_units WHERE name = ?", (master_unit["name"],)
-    ).fetchone()
-    if not backup_exists:
-        return None
-    backup_part_count = conn.execute(
-        "SELECT COUNT(*) AS n FROM master_backup_parts WHERE unit_name = ?", (master_unit["name"],)
-    ).fetchone()["n"]
-
-    target_units = conn.execute(
-        "SELECT id FROM units WHERE name = ? AND equipment_id != ? AND deleted_at IS NULL",
-        (master_unit["name"], MASTER_EQUIPMENT_ID),
-    ).fetchall()
-
-    for t in target_units:
-        sync_parts_from_backup_to_unit(conn, master_unit["name"], t["id"])
-
-    return len(target_units), backup_part_count
 
 
 def units_with_status_bulk(conn, units):
@@ -1574,7 +1557,7 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
         WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND u.equipment_id = ?
           {unit_filter_sql}
         GROUP BY p.name, COALESCE(p.spec, '')
-    """, [MASTER_EQUIPMENT_ID] + unit_filter_params).fetchall()
+    """, [get_master_equipment_id(conn)] + unit_filter_params).fetchall()
     for r in purchase_rows:
         key = (r["name"], r["spec"])
         if key in groups:
@@ -1752,7 +1735,7 @@ def get_inventory_rows(conn):
         WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
           AND e.id = ?
         ORDER BY p.spec ASC, u.name ASC, p.name ASC
-    """, (MASTER_EQUIPMENT_ID,)).fetchall()
+    """, (get_master_equipment_id(conn),)).fetchall()
 
 
 @app.route("/api/inventory")
@@ -2259,9 +2242,9 @@ def add_part(unit_id):
     if not unit_row:
         conn.close()
         return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
-    # 기준 설비(TEAG01)가 아닌 곳에서 직접 등록한 부품은 "독립 부품"으로 표시해, 기준 설비
-    # 기준의 재고/금액/구매처 동기화 및 "전체 설비에 적용" 시 삭제 대상에서 제외되도록 한다.
-    local_only = 1 if unit_row["equipment_id"] != MASTER_EQUIPMENT_ID else 0
+    # 기준 설비가 아닌 곳에서 직접 등록한 부품은 "독립 부품"으로 표시해, 기준 설비
+    # 기준의 재고/금액/구매처 동기화 및 전체 적용 시 삭제 대상에서 제외되도록 한다.
+    local_only = 1 if unit_row["equipment_id"] != get_master_equipment_id(conn) else 0
     drawing_data = store_drawing_blob(conn, drawing_data)
     part_id = insert_part(
         conn, unit_id, name, spec=spec, cycle_days=cycle_days, cycle_unit=cycle_unit, cost=cost,
@@ -2275,27 +2258,6 @@ def add_part(unit_id):
     row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
     conn.close()
     return jsonify(serialize_part(conn, row)), 201
-
-
-@app.route("/api/units/<int:unit_id>/apply-parts", methods=["POST"])
-def apply_unit_parts(unit_id):
-    conn = get_db()
-    unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
-    if not unit:
-        conn.close()
-        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
-    if unit["equipment_id"] != MASTER_EQUIPMENT_ID:
-        master_name = get_master_equipment_name(conn)
-        conn.close()
-        return jsonify({"error": f"기준 설비({master_name})의 유닛에서만 사용할 수 있습니다"}), 400
-    result = apply_unit_parts_to_other_equipment(conn, unit_id)
-    if result is None:
-        conn.close()
-        return jsonify({"error": "백업된 구성이 없습니다. 먼저 기본 유닛 구성 페이지에서 BACKUP을 진행해주세요."}), 400
-    equipment_count, part_count = result
-    conn.commit()
-    conn.close()
-    return jsonify({"ok": True, "equipment_count": equipment_count, "part_count": part_count})
 
 
 def parse_cycle_text(text):
@@ -2349,16 +2311,16 @@ def serialize_bulk_entry(row):
 
 
 def get_template_mapped_units(conn):
-    """기본 유닛 구성(unit_templates)의 이름을 기준으로, 기준 설비(TEAG01호기)의 실제
-    유닛 id에 매핑한 목록을 반환한다. (부품은 실제 유닛에만 등록할 수 있으므로, 선택 항목의
-    이름 기준은 기본 유닛 구성을 따르되 등록 대상은 TEAG01호기의 해당 유닛으로 연결한다.)"""
+    """기본 유닛 구성(unit_templates)의 이름을 기준으로, 기준 설비의 실제 유닛 id에
+    매핑한 목록을 반환한다. (부품은 실제 유닛에만 등록할 수 있으므로, 선택 항목의
+    이름 기준은 기본 유닛 구성을 따르되 등록 대상은 기준 설비의 해당 유닛으로 연결한다.)"""
     return conn.execute("""
         SELECT u.id AS id, t.name AS name
         FROM unit_templates t
         JOIN units u ON u.equipment_id = ? AND u.name = t.name
         WHERE u.deleted_at IS NULL
         ORDER BY t.id
-    """, (MASTER_EQUIPMENT_ID,)).fetchall()
+    """, (get_master_equipment_id(conn),)).fetchall()
 
 
 @app.route("/api/bulk-parts")
@@ -2511,11 +2473,11 @@ def update_part(part_id):
     lead_time_days = data.get("lead_time_days", part["lead_time_days"])
     lead_time_days = int(lead_time_days) if lead_time_days not in (None, "") else None
 
-    # 기준 설비(TEAG01)에서 동기화된 부품(local_only=0)은 재고수량/안전재고/금액/구매처가
+    # 기준 설비에서 동기화된 부품(local_only=0)은 재고수량/안전재고/금액/구매처가
     # 기준 설비 값을 그대로 따라야 하므로, 기준 설비가 아닌 곳에서는 이 값들의 변경 요청을
     # 무시한다. 각 설비에서 직접 등록한 독립 부품(local_only=1)은 그대로 자유롭게 수정 가능.
     unit_row = conn.execute("SELECT equipment_id FROM units WHERE id = ?", (part["unit_id"],)).fetchone()
-    locked = bool(unit_row) and unit_row["equipment_id"] != MASTER_EQUIPMENT_ID and not part["local_only"]
+    locked = bool(unit_row) and unit_row["equipment_id"] != get_master_equipment_id(conn) and not part["local_only"]
     if locked:
         cost = part["cost"]
         stock_qty = int(part["stock_qty"] or 0)
@@ -2841,9 +2803,38 @@ def apply_unit_templates_selected():
 @app.route("/api/master-equipment-name")
 def api_master_equipment_name():
     conn = get_db()
+    master_id = get_master_equipment_id(conn)
     name = get_master_equipment_name(conn)
     conn.close()
-    return jsonify({"id": MASTER_EQUIPMENT_ID, "name": name})
+    return jsonify({"id": master_id, "name": name})
+
+
+@app.route("/api/master-equipment-id", methods=["PUT"])
+def set_master_equipment_id():
+    """기준 설비를 변경한다. 기존 BACKUP 스냅샷은 이전 기준 설비 구성 기준이라 새 기준
+    설비에는 더 이상 의미가 없으므로 함께 지운다 - 변경 후에는 다시 BACKUP을 진행해야
+    "모든 설비에 적용"/"선택 적용"을 쓸 수 있다."""
+    data = request.get_json() or {}
+    new_id = data.get("equipment_id")
+    conn = get_db()
+    equipment = conn.execute(
+        "SELECT * FROM equipments WHERE id = ? AND deleted_at IS NULL", (new_id,)
+    ).fetchone()
+    if not equipment:
+        conn.close()
+        return jsonify({"error": "설비를 찾을 수 없습니다"}), 404
+    old_name = get_master_equipment_name(conn)
+    set_config(conn, "master_equipment_id", str(new_id))
+    conn.execute("DELETE FROM master_backup_units")
+    conn.execute("DELETE FROM master_backup_parts")
+    conn.execute("DELETE FROM app_config WHERE key = 'master_backup_at'")
+    log_activity(
+        conn, "update", "master", new_id, equipment["name"],
+        f"기준 설비를 {old_name}에서 {equipment['name']}(으)로 변경 (기존 백업은 삭제됨)",
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "id": new_id, "name": equipment["name"]})
 
 
 @app.route("/api/master-backup")
@@ -8810,7 +8801,8 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
   <div id="unitShape" class="equipment-frame unit-shape">
     <div class="equipment-label" id="unitLabel">부품을 클릭해서 교체일 관리 · 편집 모드에서 드래그로 배치/크기 변경</div>
     <div id="masterHint" class="master-hint d-none">
-      <i class="bi bi-broadcast"></i> 기준 설비: 부품 구성을 완료한 뒤 "전체 설비에 적용" 버튼을 눌러야 나머지 설비에 반영됩니다.
+      <i class="bi bi-broadcast"></i> 기준 설비: 여기서 부품 구성을 마친 뒤, "기본 유닛 구성" 화면에서 BACKUP →
+      "모든 설비에 적용"(또는 "선택 적용")을 실행해야 나머지 설비에 반영됩니다.
     </div>
     <div class="unit-shape-header">
       <span class="unit-shape-icon" id="unitIcon">⚙️</span>
@@ -8823,9 +8815,6 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
       </button>
       <button id="pastePartBtn" class="btn btn-sm btn-outline-secondary d-none">
         <i class="bi bi-clipboard-check"></i> 붙여넣기
-      </button>
-      <button id="applyPartsBtn" class="btn btn-sm btn-warning d-none">
-        <i class="bi bi-cloud-arrow-up"></i> 전체 설비에 적용
       </button>
     </div>
   </div>
@@ -9120,7 +9109,7 @@ let partDetailModal, replaceModal, historyModal, partEditModal, drawingModal;
 let currentParts = [];
 let currentEquipmentId = null;
 let currentPartDrawingData = null;
-const MASTER_EQUIPMENT_ID = 1;
+let MASTER_EQUIPMENT_ID = null;
 const MAX_DRAWING_BYTES = 5 * 1024 * 1024;
 
 const statusColor = { ok: "#22c55e", soon: "#f59e0b", overdue: "#ef4444", unknown: "#9ca3af" };
@@ -9445,7 +9434,6 @@ async function loadUnitHeader() {
     document.getElementById("backToEquipmentBtn").href = `/equipment/${unit.equipment_id}`;
     const isMaster = unit.equipment_id === MASTER_EQUIPMENT_ID;
     document.getElementById("masterHint").classList.toggle("d-none", !isMaster);
-    document.getElementById("applyPartsBtn").classList.toggle("d-none", !isMaster);
   } catch (err) {
     alert("유닛 정보를 불러올 수 없습니다.");
     window.location.href = "/";
@@ -9955,7 +9943,7 @@ async function openPartEditModal(part) {
   partEditModal.show();
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   partDetailModal = new bootstrap.Modal(document.getElementById("partDetailModal"));
   replaceModal = new bootstrap.Modal(document.getElementById("replaceModal"));
   historyModal = new bootstrap.Modal(document.getElementById("historyModal"));
@@ -9964,12 +9952,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   tick();
   setInterval(tick, 1000);
+  // 기준 설비는 화면마다 하드코딩하지 않고 매번 서버에서 현재 값을 받아온다("기본 유닛 구성"
+  // 화면에서 바꿀 수 있으므로). isMaster/잠금 판정에 쓰이므로 유닛/부품을 불러오기 전에 먼저 받는다.
+  const masterInfo = await fetchJson("/api/master-equipment-name");
+  MASTER_EQUIPMENT_ID = masterInfo.id;
+  document.getElementById("masterEquipmentName").textContent = masterInfo.name;
   loadUnitHeader();
   loadParts();
   loadNotes();
-  fetchJson("/api/master-equipment-name").then((res) => {
-    document.getElementById("masterEquipmentName").textContent = res.name;
-  });
   attachRichPasteHandler(document.getElementById("partEditMemo"));
   attachTableEditToolbar(document.getElementById("partEditMemo"));
   document.getElementById("partEditCycleUnit").addEventListener("change", updateCycleInputState);
@@ -10126,24 +10116,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       partEditModal.hide();
       loadParts();
-    } catch (err) {
-      alert(err.message);
-    }
-  });
-
-  document.getElementById("applyPartsBtn").addEventListener("click", async () => {
-    const ok = confirm(
-      "마지막으로 BACKUP한 이 유닛의 부품 구성을 동일한 이름의 유닛을 가진 나머지 설비 전체에 적용합니다.\n" +
-      "(기본 유닛 구성 페이지에서 BACKUP한 시점의 구성이 기준이며, 그 이후 이 페이지에서 수정한 내용은 다시 BACKUP해야 반영됩니다)\n" +
-      "- 이름이 같은 부품은 규격/교체주기/비고/메모/도면/재고수량/구매처/리드타임/아이콘/위치/크기가 백업된 값으로 갱신됩니다.\n" +
-      "- 백업에 없는 이름의 부품은 각 설비에서 삭제되며, 등록된 교체 이력도 함께 삭제됩니다.\n" +
-      "- 각 설비에서 직접 등록한 독립 부품은 영향받지 않습니다.\n\n" +
-      "계속하시겠습니까?"
-    );
-    if (!ok) return;
-    try {
-      const result = await fetchJson(`/api/units/${UNIT_ID}/apply-parts`, { method: "POST" });
-      alert(`설비 ${result.equipment_count}대에 부품 구성(${result.part_count}개)을 적용했습니다.`);
     } catch (err) {
       alert(err.message);
     }
@@ -11324,6 +11296,9 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
   <div class="d-flex align-items-center gap-2">
     <span id="clock" class="clock"></span>
     <span id="masterBackupStatus" class="small text-muted"></span>
+    <button id="changeMasterBtn" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-arrow-left-right"></i> 기준 설비 변경
+    </button>
     <button id="backupMasterBtn" class="btn btn-sm btn-outline-light">
       <i class="bi bi-shield-check"></i> BACKUP
     </button>
@@ -11419,11 +11394,38 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
   </div>
 </div>
 
+<!-- 기준 설비 변경 모달 -->
+<div class="modal fade" id="changeMasterModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">기준 설비 변경</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small">
+          현재 기준 설비: <strong id="changeMasterCurrentName"></strong><br>
+          기준 설비를 변경하면 <strong>기존에 BACKUP한 구성 스냅샷은 삭제</strong>됩니다.
+          새 기준 설비를 정한 뒤 다시 BACKUP을 진행해주세요.
+        </p>
+        <label class="form-label">새 기준 설비</label>
+        <select class="form-select" id="changeMasterSelect"></select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
+        <button id="changeMasterConfirmBtn" type="button" class="btn btn-danger">변경</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 let unitEditModal;
 let applySelectedModal;
+let changeMasterModal;
 let masterEquipmentName = "기준 설비";
+let masterEquipmentId = null;
 
 const ICON_CHOICES = [
   "⚙️", "🔧", "🔩", "🛠️", "🪛", "🔨", "📦", "🖥️",
@@ -11737,7 +11739,17 @@ function openUnitEditModal(template) {
 async function loadMasterEquipmentName() {
   const res = await fetchJson("/api/master-equipment-name");
   masterEquipmentName = res.name;
+  masterEquipmentId = res.id;
   document.getElementById("masterEquipmentName").textContent = res.name;
+}
+
+async function openChangeMasterModal() {
+  const equipments = await fetchJson("/api/equipments");
+  const select = document.getElementById("changeMasterSelect");
+  select.innerHTML = equipments.map((e) => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join("");
+  select.value = masterEquipmentId;
+  document.getElementById("changeMasterCurrentName").textContent = masterEquipmentName;
+  changeMasterModal.show();
 }
 
 async function loadMasterBackupStatus() {
@@ -11821,6 +11833,7 @@ function collectApplySelectedSelections() {
 document.addEventListener("DOMContentLoaded", () => {
   unitEditModal = new bootstrap.Modal(document.getElementById("unitEditModal"));
   applySelectedModal = new bootstrap.Modal(document.getElementById("applySelectedModal"));
+  changeMasterModal = new bootstrap.Modal(document.getElementById("changeMasterModal"));
 
   tick();
   setInterval(tick, 1000);
@@ -11831,6 +11844,41 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("addUnitBtn").addEventListener("click", () => openUnitEditModal(null));
   document.getElementById("pasteUnitBtn").addEventListener("click", pasteUnit);
+
+  document.getElementById("changeMasterBtn").addEventListener("click", () => {
+    openChangeMasterModal();
+  });
+
+  document.getElementById("changeMasterConfirmBtn").addEventListener("click", async () => {
+    const select = document.getElementById("changeMasterSelect");
+    const newId = parseInt(select.value, 10);
+    if (newId === masterEquipmentId) {
+      alert("이미 기준 설비로 설정되어 있습니다.");
+      return;
+    }
+    const selectedName = select.selectedOptions[0].textContent;
+    const ok = confirm(
+      `기준 설비를 "${selectedName}"(으)로 변경하시겠습니까?\n` +
+      "기존에 BACKUP한 구성 스냅샷은 삭제되며, 변경 후 다시 BACKUP을 진행해야 " +
+      '"모든 설비에 적용"/"선택 적용"을 사용할 수 있습니다.'
+    );
+    if (!ok) return;
+    try {
+      const result = await fetchJson("/api/master-equipment-id", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ equipment_id: newId }),
+      });
+      changeMasterModal.hide();
+      masterEquipmentId = result.id;
+      masterEquipmentName = result.name;
+      document.getElementById("masterEquipmentName").textContent = result.name;
+      await loadMasterBackupStatus();
+      alert(`기준 설비가 "${result.name}"(으)로 변경되었습니다.`);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 
   document.getElementById("backupMasterBtn").addEventListener("click", async () => {
     const ok = confirm(

@@ -4,7 +4,7 @@ let partDetailModal, replaceModal, historyModal, partEditModal, drawingModal;
 let currentParts = [];
 let currentEquipmentId = null;
 let currentPartDrawingData = null;
-const MASTER_EQUIPMENT_ID = 1;
+let MASTER_EQUIPMENT_ID = null;
 const MAX_DRAWING_BYTES = 5 * 1024 * 1024;
 
 const statusColor = { ok: "#22c55e", soon: "#f59e0b", overdue: "#ef4444", unknown: "#9ca3af" };
@@ -329,7 +329,6 @@ async function loadUnitHeader() {
     document.getElementById("backToEquipmentBtn").href = `/equipment/${unit.equipment_id}`;
     const isMaster = unit.equipment_id === MASTER_EQUIPMENT_ID;
     document.getElementById("masterHint").classList.toggle("d-none", !isMaster);
-    document.getElementById("applyPartsBtn").classList.toggle("d-none", !isMaster);
   } catch (err) {
     alert("유닛 정보를 불러올 수 없습니다.");
     window.location.href = "/";
@@ -839,7 +838,7 @@ async function openPartEditModal(part) {
   partEditModal.show();
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   partDetailModal = new bootstrap.Modal(document.getElementById("partDetailModal"));
   replaceModal = new bootstrap.Modal(document.getElementById("replaceModal"));
   historyModal = new bootstrap.Modal(document.getElementById("historyModal"));
@@ -848,12 +847,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   tick();
   setInterval(tick, 1000);
+  // 기준 설비는 화면마다 하드코딩하지 않고 매번 서버에서 현재 값을 받아온다("기본 유닛 구성"
+  // 화면에서 바꿀 수 있으므로). isMaster/잠금 판정에 쓰이므로 유닛/부품을 불러오기 전에 먼저 받는다.
+  const masterInfo = await fetchJson("/api/master-equipment-name");
+  MASTER_EQUIPMENT_ID = masterInfo.id;
+  document.getElementById("masterEquipmentName").textContent = masterInfo.name;
   loadUnitHeader();
   loadParts();
   loadNotes();
-  fetchJson("/api/master-equipment-name").then((res) => {
-    document.getElementById("masterEquipmentName").textContent = res.name;
-  });
   attachRichPasteHandler(document.getElementById("partEditMemo"));
   attachTableEditToolbar(document.getElementById("partEditMemo"));
   document.getElementById("partEditCycleUnit").addEventListener("change", updateCycleInputState);
@@ -1010,24 +1011,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       partEditModal.hide();
       loadParts();
-    } catch (err) {
-      alert(err.message);
-    }
-  });
-
-  document.getElementById("applyPartsBtn").addEventListener("click", async () => {
-    const ok = confirm(
-      "마지막으로 BACKUP한 이 유닛의 부품 구성을 동일한 이름의 유닛을 가진 나머지 설비 전체에 적용합니다.\n" +
-      "(기본 유닛 구성 페이지에서 BACKUP한 시점의 구성이 기준이며, 그 이후 이 페이지에서 수정한 내용은 다시 BACKUP해야 반영됩니다)\n" +
-      "- 이름이 같은 부품은 규격/교체주기/비고/메모/도면/재고수량/구매처/리드타임/아이콘/위치/크기가 백업된 값으로 갱신됩니다.\n" +
-      "- 백업에 없는 이름의 부품은 각 설비에서 삭제되며, 등록된 교체 이력도 함께 삭제됩니다.\n" +
-      "- 각 설비에서 직접 등록한 독립 부품은 영향받지 않습니다.\n\n" +
-      "계속하시겠습니까?"
-    );
-    if (!ok) return;
-    try {
-      const result = await fetchJson(`/api/units/${UNIT_ID}/apply-parts`, { method: "POST" });
-      alert(`설비 ${result.equipment_count}대에 부품 구성(${result.part_count}개)을 적용했습니다.`);
     } catch (err) {
       alert(err.message);
     }

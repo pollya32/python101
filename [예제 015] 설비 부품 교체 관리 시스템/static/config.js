@@ -1,6 +1,8 @@
 let unitEditModal;
 let applySelectedModal;
+let changeMasterModal;
 let masterEquipmentName = "기준 설비";
+let masterEquipmentId = null;
 
 const ICON_CHOICES = [
   "⚙️", "🔧", "🔩", "🛠️", "🪛", "🔨", "📦", "🖥️",
@@ -314,7 +316,17 @@ function openUnitEditModal(template) {
 async function loadMasterEquipmentName() {
   const res = await fetchJson("/api/master-equipment-name");
   masterEquipmentName = res.name;
+  masterEquipmentId = res.id;
   document.getElementById("masterEquipmentName").textContent = res.name;
+}
+
+async function openChangeMasterModal() {
+  const equipments = await fetchJson("/api/equipments");
+  const select = document.getElementById("changeMasterSelect");
+  select.innerHTML = equipments.map((e) => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join("");
+  select.value = masterEquipmentId;
+  document.getElementById("changeMasterCurrentName").textContent = masterEquipmentName;
+  changeMasterModal.show();
 }
 
 async function loadMasterBackupStatus() {
@@ -398,6 +410,7 @@ function collectApplySelectedSelections() {
 document.addEventListener("DOMContentLoaded", () => {
   unitEditModal = new bootstrap.Modal(document.getElementById("unitEditModal"));
   applySelectedModal = new bootstrap.Modal(document.getElementById("applySelectedModal"));
+  changeMasterModal = new bootstrap.Modal(document.getElementById("changeMasterModal"));
 
   tick();
   setInterval(tick, 1000);
@@ -408,6 +421,41 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("addUnitBtn").addEventListener("click", () => openUnitEditModal(null));
   document.getElementById("pasteUnitBtn").addEventListener("click", pasteUnit);
+
+  document.getElementById("changeMasterBtn").addEventListener("click", () => {
+    openChangeMasterModal();
+  });
+
+  document.getElementById("changeMasterConfirmBtn").addEventListener("click", async () => {
+    const select = document.getElementById("changeMasterSelect");
+    const newId = parseInt(select.value, 10);
+    if (newId === masterEquipmentId) {
+      alert("이미 기준 설비로 설정되어 있습니다.");
+      return;
+    }
+    const selectedName = select.selectedOptions[0].textContent;
+    const ok = confirm(
+      `기준 설비를 "${selectedName}"(으)로 변경하시겠습니까?\n` +
+      "기존에 BACKUP한 구성 스냅샷은 삭제되며, 변경 후 다시 BACKUP을 진행해야 " +
+      '"모든 설비에 적용"/"선택 적용"을 사용할 수 있습니다.'
+    );
+    if (!ok) return;
+    try {
+      const result = await fetchJson("/api/master-equipment-id", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ equipment_id: newId }),
+      });
+      changeMasterModal.hide();
+      masterEquipmentId = result.id;
+      masterEquipmentName = result.name;
+      document.getElementById("masterEquipmentName").textContent = result.name;
+      await loadMasterBackupStatus();
+      alert(`기준 설비가 "${result.name}"(으)로 변경되었습니다.`);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 
   document.getElementById("backupMasterBtn").addEventListener("click", async () => {
     const ok = confirm(

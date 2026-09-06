@@ -20,6 +20,9 @@
   <div class="d-flex align-items-center gap-2">
     <span id="clock" class="clock"></span>
     <span id="masterBackupStatus" class="small text-muted"></span>
+    <button id="changeMasterBtn" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-arrow-left-right"></i> 기준 설비 변경
+    </button>
     <button id="backupMasterBtn" class="btn btn-sm btn-outline-light">
       <i class="bi bi-shield-check"></i> BACKUP
     </button>
@@ -110,6 +113,31 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
         <button id="applySelectedConfirmBtn" type="button" class="btn btn-warning">선택한 항목 적용</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 기준 설비 변경 모달 -->
+<div class="modal fade" id="changeMasterModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">기준 설비 변경</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small">
+          현재 기준 설비: <strong id="changeMasterCurrentName"></strong><br>
+          기준 설비를 변경하면 <strong>기존에 BACKUP한 구성 스냅샷은 삭제</strong>됩니다.
+          새 기준 설비를 정한 뒤 다시 BACKUP을 진행해주세요.
+        </p>
+        <label class="form-label">새 기준 설비</label>
+        <select class="form-select" id="changeMasterSelect"></select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
+        <button id="changeMasterConfirmBtn" type="button" class="btn btn-danger">변경</button>
       </div>
     </div>
   </div>

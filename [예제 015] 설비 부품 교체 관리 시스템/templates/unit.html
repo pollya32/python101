@@ -37,7 +37,8 @@
   <div id="unitShape" class="equipment-frame unit-shape">
     <div class="equipment-label" id="unitLabel">부품을 클릭해서 교체일 관리 · 편집 모드에서 드래그로 배치/크기 변경</div>
     <div id="masterHint" class="master-hint d-none">
-      <i class="bi bi-broadcast"></i> 기준 설비: 부품 구성을 완료한 뒤 "전체 설비에 적용" 버튼을 눌러야 나머지 설비에 반영됩니다.
+      <i class="bi bi-broadcast"></i> 기준 설비: 여기서 부품 구성을 마친 뒤, "기본 유닛 구성" 화면에서 BACKUP →
+      "모든 설비에 적용"(또는 "선택 적용")을 실행해야 나머지 설비에 반영됩니다.
     </div>
     <div class="unit-shape-header">
       <span class="unit-shape-icon" id="unitIcon">⚙️</span>
@@ -50,9 +51,6 @@
       </button>
       <button id="pastePartBtn" class="btn btn-sm btn-outline-secondary d-none">
         <i class="bi bi-clipboard-check"></i> 붙여넣기
-      </button>
-      <button id="applyPartsBtn" class="btn btn-sm btn-warning d-none">
-        <i class="bi bi-cloud-arrow-up"></i> 전체 설비에 적용
       </button>
     </div>
   </div>
