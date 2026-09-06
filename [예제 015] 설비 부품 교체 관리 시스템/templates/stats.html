@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>통계 - 설비 부품 교체 관리 시스템</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/theme.js"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="d-flex align-items-center gap-2">
+    <i class="bi bi-bar-chart-fill"></i>
+    <h1>부품/유닛 통계</h1>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span id="clock" class="clock"></span>
+  </div>
+</header>
+
+<main class="container-fluid py-4">
+
+  <div class="dashboard-toolbar">
+    <div class="dropdown">
+      <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button" id="unitFilterBtn"
+        data-bs-toggle="dropdown" data-bs-auto-close="outside">
+        <i class="bi bi-funnel"></i> 유닛 선택<span id="unitFilterCount"></span>
+      </button>
+      <div class="dropdown-menu p-2 unit-filter-menu" id="unitFilterMenu"></div>
+    </div>
+    <button id="clearFilterBtn" class="btn btn-sm btn-outline-secondary d-none">
+      <i class="bi bi-x-lg"></i> 필터 해제
+    </button>
+    <div class="d-flex align-items-center gap-1">
+      <input type="date" id="statsStartDate" class="form-control form-control-sm" style="width:150px">
+      <span class="text-muted small">~</span>
+      <input type="date" id="statsEndDate" class="form-control form-control-sm" style="width:150px">
+      <button id="clearPeriodBtn" class="btn btn-sm btn-outline-secondary d-none">
+        <i class="bi bi-x-lg"></i> 기간 해제
+      </button>
+    </div>
+    <a id="exportCsvBtn" href="/api/stats/export.csv" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-file-earmark-spreadsheet"></i> CSV 다운로드
+    </a>
+    <a id="exportPptxBtn" href="/api/stats/export.pptx" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-file-earmark-slides"></i> PPT 다운로드
+    </a>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stats-panel">
+      <h6><i class="bi bi-cash-coin"></i> 금액순 <span id="costSubtitle" class="stats-subtitle">(부품 규격 기준)</span></h6>
+      <div id="statsCostChart" class="stats-chart"></div>
+      <div id="statsCost" class="stats-list"></div>
+    </div>
+    <div class="stats-panel">
+      <h6><i class="bi bi-arrow-repeat"></i> 사용량 많은순 <span id="usageSubtitle" class="stats-subtitle">(부품 규격 기준)</span></h6>
+      <div id="statsUsageChart" class="stats-chart"></div>
+      <div id="statsUsage" class="stats-list"></div>
+    </div>
+    <div class="stats-panel stats-panel-wide">
+      <h6><i class="bi bi-hourglass-split"></i> 교체 주기 짧은순 <span class="stats-subtitle">(실제 평균 교체 간격 기준 정렬 · 표준주기도 함께 표시)</span></h6>
+      <div id="statsCycleChart" class="stats-chart"></div>
+      <div id="statsCycle" class="stats-list"></div>
+    </div>
+  </div>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/static/stats.js"></script>
+</body>
+</html>

@@ -1,0 +1,3441 @@
+from flask import Flask, render_template, request, jsonify, send_file, Response, session, redirect, url_for
+import sqlite3
+import os
+import sys
+import csv
+import hashlib
+import io
+import json
+import random
+import re
+import secrets
+import socket
+import shutil
+import traceback
+import html as html_lib
+from urllib.parse import quote
+from datetime import date, datetime, timedelta
+from pptx import Presentation
+from pptx.util import Inches, Pt
+from pptx.chart.data import CategoryChartData
+from pptx.enum.chart import XL_CHART_TYPE
+from werkzeug.security import generate_password_hash, check_password_hash
+import threading
+import time
+import requests
+from html.parser import HTMLParser
+
+app = Flask(__name__)
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+DB_PATH = os.path.join(os.path.dirname(__file__), "equipment.db")
+BACKUP_DIR = os.path.join(os.path.dirname(__file__), "backups")
+
+EQUIPMENT_COUNT = 20
+EQUIPMENT_PREFIX = "TEAG"
+DEFAULT_MASTER_EQUIPMENT_ID = 1  # 최초 설치 시 기준 설비 기본값(TEAG01호기). 이후 "기본 유닛 구성" 화면에서 바꿀 수 있다.
+DEFAULT_PASSWORD = "0000"
+# ══ 사내 메일 API 설정 ═══════════════════════════════════════════════
+# (보안) 실제 값으로 교체한 뒤에는 이 파일을 외부에 공유/업로드하지 마세요.
+os.environ["no_proxy"] = "openapi.samsung.net"
+MAIL_SENDER_ID = "lbr-32.lee"                    # 발신자 녹스 ID (@samsung.com 앞부분)
+MAIL_AUTHORIZATION = "XXXXXXXXXXXXXXX"           # ← 실제 Authorization 값으로 교체
+MAIL_SYSTEM_ID = "XXXXXXXXXXXXXX"                # ← 실제 System-ID 값으로 교체
+MAIL_SUBJECT = "[부품관리] TES 설비 부품 현황"
+# ════════════════════════════════════════════════════════════════════
+MAX_DRAWING_DATA_LEN = 8 * 1024 * 1024  # 도면 이미지(base64 data URL) 최대 길이, 원본 파일 약 5MB에 해당
+SEARCH_DEFAULT_PAGE_SIZE = 50
+SEARCH_MAX_PAGE_SIZE = 200
+ACTIVITY_LOG_RETENTION_DAYS = 14  # 활동 로그는 이보다 오래된 기록을 하루 한 번 자동으로 정리한다.
+PORT = 5000  # 실행 인자/PORT 환경변수로 바꿀 수 있다 (맨 아래 진입점 블록 참고).
+             # 메일 본문의 "사이트 접속" 링크 등에서도 이 값을 그대로 참조한다.
+
+
+def store_drawing_blob(conn, data):
+    """도면 data URL을 drawing_blobs 테이블에 내용(해시) 기준으로 중복 없이 저장하고,
+    units/parts 컬럼에 넣을 해시 참조를 반환한다. "모든 설비에 적용"으로 20개 설비에
+    같은 도면이 그대로 복제되어도, 실제 원본은 여기 한 번만 저장된다."""
+    if not data:
+        return None
+    digest = hashlib.sha256(data.encode("utf-8")).hexdigest()
+    if not conn.execute("SELECT 1 FROM drawing_blobs WHERE hash = ?", (digest,)).fetchone():
+        conn.execute("INSERT INTO drawing_blobs (hash, data) VALUES (?, ?)", (digest, data))
+    return digest
+
+
+def load_drawing_blob(conn, hash_ref):
+    """해시 참조로부터 실제 도면 data URL을 가져온다."""
+    if not hash_ref:
+        return None
+    row = conn.execute("SELECT data FROM drawing_blobs WHERE hash = ?", (hash_ref,)).fetchone()
+    return row["data"] if row else None
+
+
+def cleanup_orphaned_drawing_blobs(conn):
+    """어느 유닛/부품(휴지통에 있는 것 포함, 마스터 백업 포함)에서도 더 이상 참조하지 않는
+    drawing_blobs 행을 정리한다. 부품/유닛을 지우거나 도면을 바꿔도 그때그때 지우지 않고,
+    DB 최적화(VACUUM) 시점에 한 번에 정리한다."""
+    used_hashes = set()
+    for table in ("units", "parts", "master_backup_units", "master_backup_parts"):
+        for row in conn.execute(
+            f"SELECT DISTINCT drawing_data FROM {table} WHERE drawing_data IS NOT NULL AND drawing_data != ''"
+        ).fetchall():
+            used_hashes.add(row[0])
+    all_hashes = [r["hash"] for r in conn.execute("SELECT hash FROM drawing_blobs").fetchall()]
+    orphaned = [h for h in all_hashes if h not in used_hashes]
+    if orphaned:
+        placeholders = ",".join("?" for _ in orphaned)
+        conn.execute(f"DELETE FROM drawing_blobs WHERE hash IN ({placeholders})", orphaned)
+    return len(orphaned)
+
+
+def dashboard_grid_pos(index, cols=5):
+    """대시보드 캔버스 안에서 index번째 설비의 기본 격자 위치(% 좌표)를 계산한다."""
+    row = index // cols
+    col = index % cols
+    x = 10 + col * (80 / max(cols - 1, 1))
+    y = min(15 + row * 22, 92)
+    return round(x, 2), round(y, 2)
+
+# 사진 속 설비(로드포트 4개 + HMI 제어패널 + 공정모듈 + 배기/시그널타워) 구조를 본뜬 기본 유닛
+# pos_x, pos_y는 설비 캔버스 안에서 유닛 중심의 위치(% 좌표)
+DEFAULT_UNITS = [
+    ("배기 유닛 / 시그널 타워", "🚨", "#6b7280", 50, 18),
+    ("로드포트 1", "📦", "#2563eb", 10, 60),
+    ("로드포트 2", "📦", "#2563eb", 26, 60),
+    ("로드포트 3", "📦", "#2563eb", 42, 60),
+    ("로드포트 4", "📦", "#2563eb", 58, 60),
+    ("HMI 제어 패널", "🖥️", "#0f766e", 76, 60),
+    ("공정 모듈 (파워유닛)", "🔧", "#7c3aed", 92, 60),
+]
+
+
+def get_db():
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    # 오래되거나 느린(특히 HDD) 컴퓨터에서도 버벅이지 않도록 SQLite 연결 설정을 조정한다.
+    # - synchronous=NORMAL: WAL 모드에서는 안전성 손해 없이 매 쓰기마다의 fsync 비용을 줄여준다.
+    # - temp_store=MEMORY: 정렬/집계(GROUP BY 등)의 임시 데이터를 디스크 파일 대신 메모리에 둔다.
+    # - cache_size: 기본값(약 2MB)보다 넉넉하게 잡아, 같은 요청 안의 여러 쿼리가 페이지를 다시
+    #   읽지 않도록 한다.
+    # - mmap_size: 파일 읽기를 메모리 매핑으로 처리해 일반 read() 호출보다 빠르게 한다.
+    conn.execute("PRAGMA synchronous = NORMAL")
+    conn.execute("PRAGMA temp_store = MEMORY")
+    conn.execute("PRAGMA cache_size = -20000")
+    conn.execute("PRAGMA mmap_size = 134217728")
+    return conn
+
+
+_RICH_DANGEROUS_BLOCK_RE = re.compile(
+    r"<(script|style|iframe|object|embed|link|meta|form)\b[^>]*>.*?</\1\s*>"
+    r"|<(script|style|iframe|object|embed|link|meta|form)\b[^>]*/?>",
+    re.IGNORECASE | re.DOTALL,
+)
+_RICH_EVENT_ATTR_RE = re.compile(r"""\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)""", re.IGNORECASE)
+_RICH_JS_URI_RE = re.compile(r"""(href|src)\s*=\s*("|')\s*(javascript|data):[^"']*\2""", re.IGNORECASE)
+
+
+def sanitize_rich_html(raw):
+    """메모/노트에 저장되는 HTML에 대한 서버측 2차 방어선(주 방어는 클라이언트의 화이트리스트
+    기반 sanitizeRichHtml). script/style/iframe 등 위험 태그와 on*= 이벤트 속성, javascript:/data:
+    URI를 제거한다."""
+    if not raw:
+        return raw
+    cleaned = _RICH_DANGEROUS_BLOCK_RE.sub("", raw)
+    cleaned = _RICH_EVENT_ATTR_RE.sub("", cleaned)
+    cleaned = _RICH_JS_URI_RE.sub(lambda m: f'{m.group(1)}="#"', cleaned)
+    return cleaned
+
+
+def legacy_text_to_rich_html(text):
+    """리치 메모 기능 도입 이전에 평문으로 저장되어 있던 메모/노트를, 기존과 동일하게 보이는
+    안전한 HTML로 1회 변환한다 (이스케이프 + 줄바꿈을 <br>로 + URL 자동 링크화)."""
+    if not text:
+        return text
+    escaped = html_lib.escape(text, quote=False)
+    escaped = re.sub(
+        r"(https?://[^\s<]+)",
+        r'<a href="\1" target="_blank" rel="noopener noreferrer">\1</a>',
+        escaped,
+    )
+    return escaped.replace("\n", "<br>")
+
+
+def get_lan_ip():
+    """같은 네트워크의 다른 사람이 접속할 수 있는 이 컴퓨터의 IP 주소를 알아낸다."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
+
+def get_config(conn, key):
+    row = conn.execute("SELECT value FROM app_config WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_config(conn, key, value):
+    conn.execute(
+        "INSERT INTO app_config (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+
+
+def log_activity(conn, action, target_type, target_id, target_name, detail=""):
+    """설비/유닛/부품 등에 대한 주요 변경 작업을 활동 이력에 기록한다.
+    현재 세션에 저장된 사용자 이름을 행위자로 남긴다."""
+    actor = session.get("user_name") or "익명"
+    conn.execute(
+        "INSERT INTO activity_log (actor_name, action, target_type, target_id, target_name, detail) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (actor, action, target_type, target_id, target_name, detail),
+    )
+
+
+def cleanup_old_activity_log(conn):
+    """활동 로그 중 보관 기간(ACTIVITY_LOG_RETENTION_DAYS)이 지난 기록을 정리한다."""
+    threshold = (datetime.now() - timedelta(days=ACTIVITY_LOG_RETENTION_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
+    cur = conn.execute("DELETE FROM activity_log WHERE created_at < ?", (threshold,))
+    return cur.rowcount
+
+
+def init_db():
+    conn = get_db()
+    c = conn.cursor()
+
+    c.execute("CREATE TABLE IF NOT EXISTS app_config (key TEXT PRIMARY KEY, value TEXT)")
+    if not c.execute("SELECT 1 FROM app_config WHERE key = 'password_hash'").fetchone():
+        c.execute(
+            "INSERT INTO app_config (key, value) VALUES ('password_hash', ?)",
+            (generate_password_hash(DEFAULT_PASSWORD),),
+        )
+    if not c.execute("SELECT 1 FROM app_config WHERE key = 'secret_key'").fetchone():
+        c.execute(
+            "INSERT INTO app_config (key, value) VALUES ('secret_key', ?)",
+            (secrets.token_hex(32),),
+        )
+    conn.commit()
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS activity_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor_name TEXT,
+            action TEXT NOT NULL,
+            target_type TEXT,
+            target_id INTEGER,
+            target_name TEXT,
+            detail TEXT,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    conn.commit()
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS equipments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            icon TEXT DEFAULT '🏭',
+            pos_x REAL DEFAULT 50,
+            pos_y REAL DEFAULT 50,
+            location TEXT,
+            setup_date TEXT,
+            deleted_at TEXT,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    existing_eq_cols = {r["name"] for r in c.execute("PRAGMA table_info(equipments)").fetchall()}
+    if "icon" not in existing_eq_cols:
+        c.execute("ALTER TABLE equipments ADD COLUMN icon TEXT DEFAULT '🏭'")
+        c.execute("UPDATE equipments SET icon = '🏭' WHERE icon IS NULL")
+    if "pos_x" not in existing_eq_cols:
+        c.execute("ALTER TABLE equipments ADD COLUMN pos_x REAL")
+        c.execute("ALTER TABLE equipments ADD COLUMN pos_y REAL")
+    if "location" not in existing_eq_cols:
+        c.execute("ALTER TABLE equipments ADD COLUMN location TEXT")
+    if "setup_date" not in existing_eq_cols:
+        c.execute("ALTER TABLE equipments ADD COLUMN setup_date TEXT")
+    if "deleted_at" not in existing_eq_cols:
+        c.execute("ALTER TABLE equipments ADD COLUMN deleted_at TEXT")
+    eq_count = c.execute("SELECT COUNT(*) AS n FROM equipments").fetchone()["n"]
+    if eq_count == 0:
+        for i in range(1, EQUIPMENT_COUNT + 1):
+            x, y = dashboard_grid_pos(i - 1)
+            c.execute(
+                "INSERT INTO equipments (id, name, pos_x, pos_y) VALUES (?, ?, ?, ?)",
+                (i, f"{EQUIPMENT_PREFIX}{i:02d}호기", x, y),
+            )
+    unplaced_eq = c.execute(
+        "SELECT id FROM equipments WHERE pos_x IS NULL OR pos_y IS NULL ORDER BY id"
+    ).fetchall()
+    for i, row in enumerate(unplaced_eq):
+        x, y = dashboard_grid_pos(i)
+        c.execute("UPDATE equipments SET pos_x = ?, pos_y = ? WHERE id = ?", (x, y, row["id"]))
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS units (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            equipment_id INTEGER NOT NULL DEFAULT 1,
+            name TEXT NOT NULL,
+            icon TEXT DEFAULT '⚙️',
+            color TEXT DEFAULT '#1a3a5c',
+            pos_x REAL DEFAULT 50,
+            pos_y REAL DEFAULT 50,
+            width REAL DEFAULT 140,
+            height REAL DEFAULT 110,
+            drawing_data TEXT,
+            deleted_at TEXT,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (equipment_id) REFERENCES equipments(id) ON DELETE CASCADE
+        )
+    """)
+    existing_cols = {r["name"] for r in c.execute("PRAGMA table_info(units)").fetchall()}
+    if "equipment_id" not in existing_cols:
+        c.execute("ALTER TABLE units ADD COLUMN equipment_id INTEGER")
+        c.execute("UPDATE units SET equipment_id = 1 WHERE equipment_id IS NULL")
+    if "pos_x" not in existing_cols:
+        c.execute("ALTER TABLE units ADD COLUMN pos_x REAL")
+        c.execute("ALTER TABLE units ADD COLUMN pos_y REAL")
+    if "width" not in existing_cols:
+        c.execute("ALTER TABLE units ADD COLUMN width REAL")
+        c.execute("ALTER TABLE units ADD COLUMN height REAL")
+    if "deleted_at" not in existing_cols:
+        c.execute("ALTER TABLE units ADD COLUMN deleted_at TEXT")
+    if "drawing_data" not in existing_cols:
+        c.execute("ALTER TABLE units ADD COLUMN drawing_data TEXT")
+    unplaced = c.execute(
+        "SELECT id FROM units WHERE pos_x IS NULL OR pos_y IS NULL ORDER BY id"
+    ).fetchall()
+    for i, row in enumerate(unplaced):
+        x = 10 + (i * 84 / max(len(unplaced) - 1, 1)) if len(unplaced) > 1 else 50
+        c.execute("UPDATE units SET pos_x = ?, pos_y = ? WHERE id = ?", (x, 50, row["id"]))
+    c.execute("UPDATE units SET width = 140 WHERE width IS NULL")
+    c.execute("UPDATE units SET height = 110 WHERE height IS NULL")
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS parts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            unit_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            spec TEXT,
+            cycle_days INTEGER,
+            cycle_unit TEXT DEFAULT 'N/A',
+            cost REAL DEFAULT 0,
+            last_replaced_date TEXT,
+            note TEXT,
+            memo TEXT,
+            drawing_data TEXT,
+            icon TEXT DEFAULT '🔩',
+            pos_x REAL DEFAULT 50,
+            pos_y REAL DEFAULT 50,
+            width REAL DEFAULT 130,
+            height REAL DEFAULT 110,
+            stock_qty INTEGER DEFAULT 0,
+            safety_stock INTEGER DEFAULT 0,
+            supplier TEXT,
+            supplier_contact TEXT,
+            lead_time_days INTEGER,
+            local_only INTEGER DEFAULT 0,
+            deleted_at TEXT,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
+        )
+    """)
+    # 기존 DB는 cycle_days가 NOT NULL(기본값 90)이었다. 교체 주기를 "N/A"(주기 없음)로
+    # 남겨둘 수 있으려면 NULL을 허용해야 하는데, SQLite는 컬럼의 NOT NULL 제약을
+    # 직접 제거할 수 없으므로 테이블을 재생성해서 옮겨준다.
+    # (parts를 다른 이름으로 RENAME했다가 다시 만드는 방식은, replacement_history의
+    #  FOREIGN KEY ... ON DELETE CASCADE가 RENAME된 임시 이름을 따라가 버려서 임시
+    #  테이블을 DROP하는 순간 거기 딸린 교체 이력이 CASCADE로 통째로 삭제되거나,
+    #  FK 정의가 존재하지 않는 임시 테이블 이름을 계속 가리키게 되는 문제가 있었다.
+    #  대신 새 테이블을 다른 이름으로 만들어 데이터를 옮긴 뒤 기존 parts를 지우고
+    #  새 테이블을 parts로 RENAME해서, replacement_history의 FK 정의("parts" 참조)가
+    #  한 번도 다른 이름을 가리키지 않도록 한다. SQLite 공식 가이드대로 이 구간만
+    #  foreign_keys를 잠시 꺼서 진행한다.)
+    part_col_info = c.execute("PRAGMA table_info(parts)").fetchall()
+    if any(r["name"] == "cycle_days" and r["notnull"] for r in part_col_info):
+        old_cols = ", ".join(r["name"] for r in part_col_info)
+        conn.commit()  # foreign_keys pragma는 열려있는 트랜잭션이 없어야 적용된다
+        c.execute("PRAGMA foreign_keys = OFF")
+        c.execute("""
+            CREATE TABLE parts_na_migrated (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                unit_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                spec TEXT,
+                cycle_days INTEGER,
+                cycle_unit TEXT DEFAULT 'N/A',
+                cost REAL DEFAULT 0,
+                last_replaced_date TEXT,
+                note TEXT,
+                memo TEXT,
+                drawing_data TEXT,
+                icon TEXT DEFAULT '🔩',
+                pos_x REAL DEFAULT 50,
+                pos_y REAL DEFAULT 50,
+                width REAL DEFAULT 130,
+                height REAL DEFAULT 110,
+                stock_qty INTEGER DEFAULT 0,
+                safety_stock INTEGER DEFAULT 0,
+                supplier TEXT,
+                supplier_contact TEXT,
+                lead_time_days INTEGER,
+                local_only INTEGER DEFAULT 0,
+                deleted_at TEXT,
+                created_at TEXT DEFAULT (datetime('now','localtime')),
+                FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
+            )
+        """)
+        c.execute(f"INSERT INTO parts_na_migrated ({old_cols}) SELECT {old_cols} FROM parts")
+        c.execute("DROP TABLE parts")
+        c.execute("ALTER TABLE parts_na_migrated RENAME TO parts")
+        conn.commit()
+        c.execute("PRAGMA foreign_keys = ON")
+
+    existing_part_cols = {r["name"] for r in c.execute("PRAGMA table_info(parts)").fetchall()}
+    if "icon" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN icon TEXT DEFAULT '🔩'")
+    if "pos_x" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN pos_x REAL")
+        c.execute("ALTER TABLE parts ADD COLUMN pos_y REAL")
+        c.execute("ALTER TABLE parts ADD COLUMN width REAL")
+        c.execute("ALTER TABLE parts ADD COLUMN height REAL")
+    if "cost" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN cost REAL DEFAULT 0")
+        c.execute("UPDATE parts SET cost = 0 WHERE cost IS NULL")
+    if "cycle_unit" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN cycle_unit TEXT DEFAULT '일'")
+        c.execute("UPDATE parts SET cycle_unit = '일' WHERE cycle_unit IS NULL")
+    if "memo" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN memo TEXT")
+    if "drawing_data" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN drawing_data TEXT")
+    if "stock_qty" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN stock_qty INTEGER DEFAULT 0")
+        c.execute("ALTER TABLE parts ADD COLUMN supplier TEXT")
+        c.execute("ALTER TABLE parts ADD COLUMN supplier_contact TEXT")
+        c.execute("ALTER TABLE parts ADD COLUMN lead_time_days INTEGER")
+        c.execute("UPDATE parts SET stock_qty = 0 WHERE stock_qty IS NULL")
+    if "safety_stock" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN safety_stock INTEGER DEFAULT 0")
+        c.execute("UPDATE parts SET safety_stock = 0 WHERE safety_stock IS NULL")
+    if "local_only" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN local_only INTEGER DEFAULT 0")
+        c.execute("UPDATE parts SET local_only = 0 WHERE local_only IS NULL")
+    if "deleted_at" not in existing_part_cols:
+        c.execute("ALTER TABLE parts ADD COLUMN deleted_at TEXT")
+    for unit_row in c.execute("SELECT DISTINCT unit_id FROM parts").fetchall():
+        unplaced_parts = c.execute(
+            "SELECT id FROM parts WHERE unit_id = ? AND (pos_x IS NULL OR pos_y IS NULL) ORDER BY id",
+            (unit_row["unit_id"],),
+        ).fetchall()
+        for i, prow in enumerate(unplaced_parts):
+            x = 15 + (i * 70 / max(len(unplaced_parts) - 1, 1)) if len(unplaced_parts) > 1 else 50
+            c.execute("UPDATE parts SET pos_x = ?, pos_y = ? WHERE id = ?", (x, 50, prow["id"]))
+    c.execute("UPDATE parts SET width = 130 WHERE width IS NULL")
+    c.execute("UPDATE parts SET height = 110 WHERE height IS NULL")
+    c.execute("UPDATE parts SET icon = '🔩' WHERE icon IS NULL")
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS replacement_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            part_id INTEGER NOT NULL,
+            replaced_date TEXT NOT NULL,
+            cost REAL DEFAULT 0,
+            note TEXT,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (part_id) REFERENCES parts(id) ON DELETE CASCADE
+        )
+    """)
+    existing_history_cols = {r["name"] for r in c.execute("PRAGMA table_info(replacement_history)").fetchall()}
+    if "cost" not in existing_history_cols:
+        c.execute("ALTER TABLE replacement_history ADD COLUMN cost REAL DEFAULT 0")
+        c.execute("UPDATE replacement_history SET cost = 0 WHERE cost IS NULL")
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS equipment_notes (
+            equipment_id INTEGER PRIMARY KEY,
+            content TEXT DEFAULT '',
+            updated_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (equipment_id) REFERENCES equipments(id) ON DELETE CASCADE
+        )
+    """)
+    old_notes_cols = {r["name"] for r in c.execute("PRAGMA table_info(equipment_notes)").fetchall()}
+    if "equipment_id" not in old_notes_cols:
+        c.execute("ALTER TABLE equipment_notes RENAME TO equipment_notes_old")
+        c.execute("""
+            CREATE TABLE equipment_notes (
+                equipment_id INTEGER PRIMARY KEY,
+                content TEXT DEFAULT '',
+                updated_at TEXT DEFAULT (datetime('now','localtime')),
+                FOREIGN KEY (equipment_id) REFERENCES equipments(id) ON DELETE CASCADE
+            )
+        """)
+        old_row = c.execute("SELECT content, updated_at FROM equipment_notes_old WHERE id = 1").fetchone()
+        if old_row:
+            c.execute(
+                "INSERT INTO equipment_notes (equipment_id, content, updated_at) VALUES (1, ?, ?)",
+                (old_row["content"], old_row["updated_at"]),
+            )
+        c.execute("DROP TABLE equipment_notes_old")
+    c.execute(
+        "INSERT OR IGNORE INTO equipment_notes (equipment_id, content) "
+        "SELECT id, '' FROM equipments"
+    )
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS unit_notes (
+            unit_id INTEGER PRIMARY KEY,
+            content TEXT DEFAULT '',
+            updated_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
+        )
+    """)
+
+    # 횡전개 현황판: 엑셀에서 붙여넣은 호기/Chamber별 진행 날짜 표(data_html)를 항목별로 저장
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS rollout_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            data_html TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            updated_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+
+    # 메일 수신자 목록 (녹스 ID만 저장, @samsung.com 은 발송 시 자동으로 붙임)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS mail_recipients (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email_id TEXT NOT NULL UNIQUE,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS bulk_part_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            raw_unit_text TEXT,
+            unit_id INTEGER,
+            part_name TEXT NOT NULL,
+            q_code TEXT,
+            note TEXT,
+            cost REAL DEFAULT 0,
+            cycle_days INTEGER,
+            cycle_unit TEXT DEFAULT 'N/A',
+            status TEXT DEFAULT 'pending',
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE SET NULL
+        )
+    """)
+    existing_bulk_cols = {r["name"] for r in c.execute("PRAGMA table_info(bulk_part_entries)").fetchall()}
+    if "cost" not in existing_bulk_cols:
+        c.execute("ALTER TABLE bulk_part_entries ADD COLUMN cost REAL DEFAULT 0")
+        c.execute("UPDATE bulk_part_entries SET cost = 0 WHERE cost IS NULL")
+    if "cycle_days" not in existing_bulk_cols:
+        c.execute("ALTER TABLE bulk_part_entries ADD COLUMN cycle_days INTEGER")
+        c.execute("ALTER TABLE bulk_part_entries ADD COLUMN cycle_unit TEXT DEFAULT 'N/A'")
+        c.execute("UPDATE bulk_part_entries SET cycle_unit = 'N/A' WHERE cycle_days IS NULL")
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS bulk_part_entry_units (
+            entry_id INTEGER NOT NULL,
+            unit_id INTEGER NOT NULL,
+            PRIMARY KEY (entry_id, unit_id),
+            FOREIGN KEY (entry_id) REFERENCES bulk_part_entries(id) ON DELETE CASCADE,
+            FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
+        )
+    """)
+    if "unit_id" in existing_bulk_cols:
+        for legacy in c.execute(
+            "SELECT id, unit_id FROM bulk_part_entries WHERE unit_id IS NOT NULL"
+        ).fetchall():
+            c.execute(
+                "INSERT OR IGNORE INTO bulk_part_entry_units (entry_id, unit_id) VALUES (?, ?)",
+                (legacy["id"], legacy["unit_id"]),
+            )
+
+    # 모든 설비에 공통으로 반영되는 기본 유닛 구성 템플릿
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS unit_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            icon TEXT DEFAULT '⚙️',
+            color TEXT DEFAULT '#1a3a5c',
+            pos_x REAL DEFAULT 50,
+            pos_y REAL DEFAULT 50,
+            width REAL DEFAULT 140,
+            height REAL DEFAULT 110,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    # 기준 설비(TEAG01호기)의 유닛+부품 구성 전체를 스냅샷으로 저장해두는 백업 테이블.
+    # "모든 설비에 적용"은 이 스냅샷을 기준으로 동작해, 관리자가 BACKUP 버튼으로 확정한
+    # 구성만 배포되고 아직 백업하지 않은 실시간 편집 내용은 반영되지 않는다.
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS master_backup_units (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            icon TEXT,
+            color TEXT,
+            pos_x REAL,
+            pos_y REAL,
+            width REAL,
+            height REAL,
+            drawing_data TEXT
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS master_backup_parts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            unit_name TEXT NOT NULL,
+            name TEXT NOT NULL,
+            spec TEXT,
+            cycle_days INTEGER,
+            cycle_unit TEXT,
+            cost REAL,
+            note TEXT,
+            memo TEXT,
+            drawing_data TEXT,
+            icon TEXT,
+            pos_x REAL,
+            pos_y REAL,
+            width REAL,
+            height REAL,
+            stock_qty INTEGER,
+            safety_stock INTEGER,
+            supplier TEXT,
+            supplier_contact TEXT,
+            lead_time_days INTEGER
+        )
+    """)
+    template_count = c.execute("SELECT COUNT(*) AS n FROM unit_templates").fetchone()["n"]
+    if template_count == 0:
+        for name, icon, color, pos_x, pos_y in DEFAULT_UNITS:
+            c.execute(
+                "INSERT INTO unit_templates (name, icon, color, pos_x, pos_y) VALUES (?, ?, ?, ?, ?)",
+                (name, icon, color, pos_x, pos_y),
+            )
+
+    # 각 설비에 유닛이 하나도 없으면 기본 유닛 구성 템플릿을 자동으로 반영
+    templates = c.execute("SELECT * FROM unit_templates ORDER BY id").fetchall()
+    for eq in c.execute("SELECT id FROM equipments").fetchall():
+        unit_count = c.execute(
+            "SELECT COUNT(*) AS n FROM units WHERE equipment_id = ?", (eq["id"],)
+        ).fetchone()["n"]
+        if unit_count == 0:
+            for t in templates:
+                c.execute(
+                    "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (eq["id"], t["name"], t["icon"], t["color"], t["pos_x"], t["pos_y"], t["width"], t["height"]),
+                )
+
+    # 메모/노트에 리치 텍스트(엑셀 표 붙여넣기 등) 편집 기능이 도입되기 전에 평문으로 저장된
+    # 기존 값을, 화면에 보이던 모습 그대로 안전한 HTML로 1회 변환한다 (재실행돼도 한 번만 수행).
+    if not c.execute("SELECT 1 FROM app_config WHERE key = 'memo_rich_migrated_v1'").fetchone():
+        for row in c.execute("SELECT id, memo FROM parts WHERE memo IS NOT NULL AND memo != ''").fetchall():
+            c.execute(
+                "UPDATE parts SET memo = ? WHERE id = ?",
+                (legacy_text_to_rich_html(row["memo"]), row["id"]),
+            )
+        for row in c.execute(
+            "SELECT equipment_id, content FROM equipment_notes WHERE content IS NOT NULL AND content != ''"
+        ).fetchall():
+            c.execute(
+                "UPDATE equipment_notes SET content = ? WHERE equipment_id = ?",
+                (legacy_text_to_rich_html(row["content"]), row["equipment_id"]),
+            )
+        for row in c.execute(
+            "SELECT unit_id, content FROM unit_notes WHERE content IS NOT NULL AND content != ''"
+        ).fetchall():
+            c.execute(
+                "UPDATE unit_notes SET content = ? WHERE unit_id = ?",
+                (legacy_text_to_rich_html(row["content"]), row["unit_id"]),
+            )
+        c.execute("INSERT INTO app_config (key, value) VALUES ('memo_rich_migrated_v1', '1')")
+
+    # 도면 원본을 부품/유닛 테이블에 직접 저장하면, "모든 설비에 적용"으로 20개 설비에
+    # 동일한 도면이 그대로 복제되어 같은 이미지가 여러 번 중복 저장된다. 도면 원본은
+    # 내용(해시) 기준으로 이 테이블에 한 번만 저장하고, units/parts의 drawing_data 컬럼에는
+    # 그 해시 참조만 남긴다.
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS drawing_blobs (
+            hash TEXT PRIMARY KEY,
+            data TEXT NOT NULL
+        )
+    """)
+    # 이 기능 도입 전에 저장된 도면 원본(raw data URL)을 drawing_blobs로 옮기고, 각 테이블의
+    # drawing_data는 해시 참조로 바꾼다(최초 1회만 수행). 해시 참조로 이미 바뀐 값은
+    # "data:"로 시작하지 않으므로 다시 걸리지 않는다.
+    if not c.execute("SELECT 1 FROM app_config WHERE key = 'drawing_blobs_migrated_v1'").fetchone():
+        for table in ("units", "parts", "master_backup_units", "master_backup_parts"):
+            rows = c.execute(
+                f"SELECT id, drawing_data FROM {table} WHERE drawing_data LIKE 'data:%'"
+            ).fetchall()
+            for row in rows:
+                ref = store_drawing_blob(conn, row["drawing_data"])
+                c.execute(f"UPDATE {table} SET drawing_data = ? WHERE id = ?", (ref, row["id"]))
+        c.execute("INSERT INTO app_config (key, value) VALUES ('drawing_blobs_migrated_v1', '1')")
+
+    # 설비/유닛/부품이 많아져도 목록 조회가 느려지지 않도록, 자주 필터링되는 외래키 컬럼에
+    # 인덱스를 추가한다 (이미 있으면 아무 일도 하지 않음).
+    c.execute("CREATE INDEX IF NOT EXISTS idx_units_equipment_id ON units(equipment_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_parts_unit_id ON parts(unit_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_replacement_history_part_id ON replacement_history(part_id)")
+
+    conn.commit()
+    conn.close()
+
+
+def part_status(cycle_days, last_replaced_date):
+    """부품 교체 주기 대비 경과 상태 계산"""
+    if cycle_days is None:
+        return {"status": "unknown", "label": "N/A", "days_left": None, "next_due": None}
+    if not last_replaced_date:
+        return {"status": "unknown", "label": "미기록", "days_left": None, "next_due": None}
+    last = datetime.strptime(last_replaced_date, "%Y-%m-%d").date()
+    next_due = last + timedelta(days=cycle_days)
+    days_left = (next_due - date.today()).days
+    if days_left < 0:
+        status, label = "overdue", "교체 필요"
+    elif cycle_days > 0 and days_left <= max(cycle_days * 0.2, 3):
+        status, label = "soon", "교체 임박"
+    else:
+        status, label = "ok", "정상"
+    return {
+        "status": status,
+        "label": label,
+        "days_left": days_left,
+        "next_due": next_due.isoformat(),
+    }
+
+
+def serialize_part(conn, row, include_drawing=False):
+    """목록 응답에는 도면 원본(최대 8MB) 대신 has_drawing 여부만 포함한다.
+    실제 도면은 사용자가 도면 보기/편집을 열 때 /api/parts/<id>/drawing로 그때 가져온다.
+    호출부가 이미 SQL에서 has_drawing을 계산해 넘긴 경우(도면 원본을 아예 조회하지 않은
+    경우) 그 값을 그대로 쓰고, drawing_data를 통째로 가져온 경우에는 여기서 계산한다.
+    drawing_data 컬럼에는 실제 도면 원본이 아니라 drawing_blobs를 가리키는 해시 참조만
+    들어있으므로, include_drawing=True일 때는 load_drawing_blob으로 원본을 가져와 채운다."""
+    info = part_status(row["cycle_days"], row["last_replaced_date"])
+    d = dict(row)
+    if "has_drawing" in d:
+        d["has_drawing"] = bool(d["has_drawing"])
+    else:
+        d["has_drawing"] = bool(d.get("drawing_data"))
+    if include_drawing:
+        d["drawing_data"] = load_drawing_blob(conn, d.get("drawing_data"))
+    else:
+        d.pop("drawing_data", None)
+    d.update(info)
+    return d
+
+
+def resolve_cycle(data, current_days=None, current_unit=None):
+    """요청 바디의 cycle_days/cycle_unit을 정규화한다.
+    두 필드가 모두 없으면(다른 필드만 부분 수정하는 요청) 기존 값을 그대로 유지하고,
+    cycle_unit이 'N/A'면 주기 없음(cycle_days=None)으로 처리한다."""
+    if "cycle_unit" not in data and "cycle_days" not in data:
+        return current_days, current_unit
+    cycle_unit = (data.get("cycle_unit") or "").strip()
+    if cycle_unit == "N/A":
+        return None, "N/A"
+    cycle_days_raw = data.get("cycle_days")
+    cycle_days = int(cycle_days_raw) if cycle_days_raw not in (None, "") else current_days
+    return cycle_days, (cycle_unit or current_unit or "일")
+
+
+def insert_part(conn, unit_id, name, spec="", cycle_days=None, cycle_unit="N/A", cost=0,
+                 last_replaced_date=None, note="", memo="", drawing_data=None, icon="🔩",
+                 pos_x=None, pos_y=None, width=130, height=110,
+                 stock_qty=0, safety_stock=0, supplier="", supplier_contact="", lead_time_days=None,
+                 local_only=0):
+    if pos_x is None or pos_y is None:
+        pos_x, pos_y = random.uniform(15, 85), random.uniform(20, 80)
+    cur = conn.execute(
+        """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, memo,
+           drawing_data, icon, pos_x, pos_y, width, height, stock_qty, safety_stock, supplier, supplier_contact,
+           lead_time_days, local_only)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (unit_id, name, spec, cycle_days, cycle_unit, cost, last_replaced_date, note, memo, drawing_data, icon,
+         pos_x, pos_y, width, height, stock_qty, safety_stock, supplier, supplier_contact, lead_time_days, local_only),
+    )
+    part_id = cur.lastrowid
+    if last_replaced_date:
+        conn.execute(
+            "INSERT INTO replacement_history (part_id, replaced_date, note) VALUES (?, ?, ?)",
+            (part_id, last_replaced_date, "최초 등록"),
+        )
+    return part_id
+
+
+def get_master_equipment_id(conn):
+    """현재 기준 설비의 id를 반환한다. app_config에 저장된 값이 없으면(최초 설치 등)
+    기본값(DEFAULT_MASTER_EQUIPMENT_ID)을 쓴다."""
+    value = get_config(conn, "master_equipment_id")
+    return int(value) if value else DEFAULT_MASTER_EQUIPMENT_ID
+
+
+def get_master_equipment_name(conn):
+    row = conn.execute("SELECT name FROM equipments WHERE id = ?", (get_master_equipment_id(conn),)).fetchone()
+    return row["name"] if row else "기준 설비"
+
+
+def get_master_backup_meta(conn):
+    backed_up_at = get_config(conn, "master_backup_at")
+    unit_count = conn.execute("SELECT COUNT(*) AS n FROM master_backup_units").fetchone()["n"]
+    part_count = conn.execute("SELECT COUNT(*) AS n FROM master_backup_parts").fetchone()["n"]
+    return {"backed_up_at": backed_up_at, "unit_count": unit_count, "part_count": part_count}
+
+
+def create_master_backup(conn):
+    """기준 설비의 현재 유닛+부품 구성 전체를 스냅샷으로 저장한다(기존 백업은 덮어씀).
+    "모든 설비에 적용"/"선택 적용"은 이후 이 스냅샷을 기준으로 동작하므로, 백업 시점 이후의
+    기준 설비 실시간 변경 내용은 다시 BACKUP을 누르기 전까지 적용에 반영되지 않는다."""
+    units = conn.execute(
+        "SELECT * FROM units WHERE equipment_id = ? AND deleted_at IS NULL ORDER BY id",
+        (get_master_equipment_id(conn),),
+    ).fetchall()
+    conn.execute("DELETE FROM master_backup_units")
+    conn.execute("DELETE FROM master_backup_parts")
+    part_count = 0
+    for u in units:
+        conn.execute(
+            "INSERT INTO master_backup_units (name, icon, color, pos_x, pos_y, width, height, drawing_data) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (u["name"], u["icon"], u["color"], u["pos_x"], u["pos_y"], u["width"], u["height"], u["drawing_data"]),
+        )
+        parts = conn.execute(
+            "SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL ORDER BY id", (u["id"],)
+        ).fetchall()
+        for p in parts:
+            conn.execute(
+                """INSERT INTO master_backup_parts (unit_name, name, spec, cycle_days, cycle_unit, cost, note, memo,
+                   drawing_data, icon, pos_x, pos_y, width, height, stock_qty, safety_stock, supplier,
+                   supplier_contact, lead_time_days)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (u["name"], p["name"], p["spec"], p["cycle_days"], p["cycle_unit"], p["cost"], p["note"], p["memo"],
+                 p["drawing_data"], p["icon"], p["pos_x"], p["pos_y"], p["width"], p["height"], p["stock_qty"],
+                 p["safety_stock"], p["supplier"], p["supplier_contact"], p["lead_time_days"]),
+            )
+            part_count += 1
+    set_config(conn, "master_backup_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    log_activity(
+        conn, "backup", "master", None, get_master_equipment_name(conn),
+        f"기준 설비 구성 백업 (유닛 {len(units)}개, 부품 {part_count}개)",
+    )
+    return len(units), part_count
+
+
+def _apply_backup_part_to_unit(conn, bp, target_unit_id, existing_by_name):
+    """백업 부품 한 건(bp)을 target_unit_id에 갱신하거나(이미 있으면) 추가한다(없으면).
+    이름이 같은 독립 부품(local_only=1)이 이미 있으면 절대 건드리지 않고 건너뛴다 - 그렇지
+    않으면 이미 등록된 독립 부품이 있는데도 못 본 척하고 똑같은 이름의 카드를 하나 더
+    추가해버려서, 화면에 이름이 같은 부품 카드가 중복으로 보이는 문제가 있었다.
+    실제로 갱신/추가했으면 True, 건너뛰었으면 False를 반환한다."""
+    current = existing_by_name.get(bp["name"])
+    if current is not None and current["local_only"]:
+        return False
+    if current is not None:
+        conn.execute(
+            """UPDATE parts SET spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, memo = ?,
+               drawing_data = ?, icon = ?, pos_x = ?, pos_y = ?, width = ?, height = ?,
+               stock_qty = ?, safety_stock = ?, supplier = ?, supplier_contact = ?, lead_time_days = ?
+               WHERE id = ?""",
+            (
+                bp["spec"], bp["cycle_days"], bp["cycle_unit"], bp["cost"], bp["note"], bp["memo"],
+                bp["drawing_data"], bp["icon"], bp["pos_x"], bp["pos_y"], bp["width"], bp["height"],
+                bp["stock_qty"], bp["safety_stock"], bp["supplier"], bp["supplier_contact"],
+                bp["lead_time_days"], current["id"],
+            ),
+        )
+    else:
+        conn.execute(
+            """INSERT INTO parts (unit_id, name, spec, cycle_days, cycle_unit, cost, note, memo, drawing_data,
+               icon, pos_x, pos_y, width, height, stock_qty, safety_stock, supplier, supplier_contact,
+               lead_time_days, local_only)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
+            (
+                target_unit_id, bp["name"], bp["spec"], bp["cycle_days"], bp["cycle_unit"], bp["cost"],
+                bp["note"], bp["memo"], bp["drawing_data"], bp["icon"], bp["pos_x"], bp["pos_y"], bp["width"],
+                bp["height"], bp["stock_qty"], bp["safety_stock"], bp["supplier"], bp["supplier_contact"],
+                bp["lead_time_days"],
+            ),
+        )
+    return True
+
+
+def sync_parts_from_backup_to_unit(conn, unit_name, target_unit_id):
+    """master_backup_parts에 저장된 unit_name의 부품 구성을 target_unit_id 유닛에 동기화한다.
+    이름이 같은 부품은 백업 시점 값으로 갱신되고, 새 부품은 추가되며, 백업에 없는 이름의 부품은
+    삭제된다(교체 이력도 함께 삭제). 단, 각 설비에서 직접 등록한 독립 부품(local_only=1)은
+    동기화 대상에서 완전히 제외되어 갱신/삭제되지 않는다."""
+    backup_parts = conn.execute(
+        "SELECT * FROM master_backup_parts WHERE unit_name = ? ORDER BY id", (unit_name,)
+    ).fetchall()
+    backup_names = {p["name"] for p in backup_parts}
+    target_parts = conn.execute(
+        "SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL", (target_unit_id,)
+    ).fetchall()
+    existing_by_name = {p["name"]: p for p in target_parts}
+    synced_existing = {p["name"]: p for p in target_parts if not p["local_only"]}
+    for bp in backup_parts:
+        _apply_backup_part_to_unit(conn, bp, target_unit_id, existing_by_name)
+    for name, ep in synced_existing.items():
+        if name not in backup_names:
+            conn.execute("DELETE FROM parts WHERE id = ?", (ep["id"],))
+    return len(backup_parts)
+
+
+def sync_selected_parts_from_backup_to_unit(conn, unit_name, target_unit_id, part_names):
+    """master_backup_parts 중 unit_name + part_names(선택된 부품명)에 해당하는 부품만
+    target_unit_id에 추가/갱신한다. sync_parts_from_backup_to_unit과 달리 선택되지 않은
+    기존 부품은 전혀 건드리지 않는다(삭제하지 않음) - "선택 적용"은 어디까지나 추가/갱신
+    전용이라 백업에 없는 이름이라고 지우는 일이 없어야 한다. 실제로 적용된 개수를 반환한다."""
+    if not part_names:
+        return 0
+    placeholders = ",".join("?" for _ in part_names)
+    backup_parts = conn.execute(
+        f"SELECT * FROM master_backup_parts WHERE unit_name = ? AND name IN ({placeholders}) ORDER BY id",
+        (unit_name, *part_names),
+    ).fetchall()
+    target_parts = conn.execute(
+        "SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL", (target_unit_id,)
+    ).fetchall()
+    existing_by_name = {p["name"]: p for p in target_parts}
+    return sum(1 for bp in backup_parts if _apply_backup_part_to_unit(conn, bp, target_unit_id, existing_by_name))
+
+
+def units_with_status_bulk(conn, units):
+    """유닛 여러 개의 상태/부품수를 부품 테이블 조회 1번으로 한꺼번에 계산한다
+    (유닛마다 따로 쿼리를 날리는 N+1 패턴을 피하기 위함).
+    상태 계산에는 cycle_days/last_replaced_date만 필요하므로, 용량이 큰 drawing_data 등은
+    조회하지 않아 도면이 많아져도 이 조회 자체는 느려지지 않는다."""
+    if not units:
+        return []
+    unit_ids = [u["id"] for u in units]
+    placeholders = ",".join("?" for _ in unit_ids)
+    all_parts = conn.execute(
+        f"SELECT id, unit_id, cycle_days, last_replaced_date FROM parts "
+        f"WHERE unit_id IN ({placeholders}) AND deleted_at IS NULL", unit_ids
+    ).fetchall()
+    parts_by_unit = {}
+    for p in all_parts:
+        parts_by_unit.setdefault(p["unit_id"], []).append(p)
+
+    result = []
+    for u in units:
+        parts = parts_by_unit.get(u["id"], [])
+        statuses = [part_status(p["cycle_days"], p["last_replaced_date"])["status"] for p in parts]
+        if "overdue" in statuses:
+            overall = "overdue"
+        elif "soon" in statuses:
+            overall = "soon"
+        elif "unknown" in statuses:
+            overall = "unknown" if not any(s == "ok" for s in statuses) else "ok"
+        elif statuses:
+            overall = "ok"
+        else:
+            overall = "empty"
+        d = dict(u)
+        # 유닛 목록 응답에도 도면 원본 대신 has_drawing 여부만 포함한다 (지연 로딩).
+        # 호출부가 이미 has_drawing을 SQL에서 계산해 넘겼으면 그 값을 쓰고, drawing_data를
+        # 통째로 가져온 경우(과거 호출부와의 호환)에는 여기서 계산해서 뺀다.
+        if "has_drawing" in d:
+            d["has_drawing"] = bool(d["has_drawing"])
+            d.pop("drawing_data", None)
+        else:
+            d["has_drawing"] = bool(d.pop("drawing_data", None))
+        d["part_count"] = len(parts)
+        d["overall_status"] = overall
+        d["overdue_count"] = statuses.count("overdue")
+        d["soon_count"] = statuses.count("soon")
+        result.append(d)
+    return result
+
+
+def unit_with_status(conn, u):
+    return units_with_status_bulk(conn, [u])[0]
+
+
+STATUS_PRIORITY = ["overdue", "soon", "unknown", "ok", "empty"]
+
+
+def calc_setup_runtime(setup_date):
+    """SETUP 일자로부터 오늘까지 경과한 기간을 "N년 M개월" 형식으로 계산"""
+    if not setup_date:
+        return None
+    setup = datetime.strptime(setup_date, "%Y-%m-%d").date()
+    today = date.today()
+    if setup > today:
+        return None
+    years = today.year - setup.year
+    months = today.month - setup.month
+    if today.day < setup.day:
+        months -= 1
+    if months < 0:
+        years -= 1
+        months += 12
+    return f"{years}년 {months}개월"
+
+
+def equipments_with_status_bulk(conn, equipments):
+    """설비 여러 개의 상태/유닛수를 유닛+부품 조회 2번으로 한꺼번에 계산한다
+    (설비마다, 유닛마다 따로 쿼리를 날리는 N+1 패턴을 피하기 위함).
+    이 집계 결과에는 유닛의 이름/아이콘/도면 등은 쓰이지 않으므로 id/equipment_id만 조회한다."""
+    if not equipments:
+        return []
+    eq_ids = [e["id"] for e in equipments]
+    placeholders = ",".join("?" for _ in eq_ids)
+    all_units = conn.execute(
+        f"SELECT id, equipment_id FROM units WHERE equipment_id IN ({placeholders}) AND deleted_at IS NULL", eq_ids
+    ).fetchall()
+    unit_statuses_all = units_with_status_bulk(conn, all_units)
+    units_by_equipment = {}
+    for us in unit_statuses_all:
+        units_by_equipment.setdefault(us["equipment_id"], []).append(us)
+
+    result = []
+    for e in equipments:
+        unit_statuses = units_by_equipment.get(e["id"], [])
+        statuses = [us["overall_status"] for us in unit_statuses]
+        overall = next((s for s in STATUS_PRIORITY if s in statuses), "empty")
+        d = dict(e)
+        d["unit_count"] = len(unit_statuses)
+        d["overall_status"] = overall
+        d["overdue_count"] = sum(us["overdue_count"] for us in unit_statuses)
+        d["soon_count"] = sum(us["soon_count"] for us in unit_statuses)
+        d["runtime_display"] = calc_setup_runtime(e["setup_date"])
+        result.append(d)
+    return result
+
+
+def equipment_with_status(conn, e):
+    return equipments_with_status_bulk(conn, [e])[0]
+
+
+def seed_default_units_for_equipment(conn, equipment_id):
+    templates = conn.execute("SELECT * FROM unit_templates ORDER BY id").fetchall()
+    for t in templates:
+        conn.execute(
+            "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (equipment_id, t["name"], t["icon"], t["color"], t["pos_x"], t["pos_y"], t["width"], t["height"]),
+        )
+
+
+class _TableGridParser(HTMLParser):
+    """rollout_items.data_html 의 첫 번째 표를 병합 셀(rowspan/colspan)까지
+    반영한 2차원 격자로 펼친다 (화면의 게이지 집계 로직과 동일한 규칙)."""
+    def __init__(self):
+        super().__init__()
+        self.grid = []
+        self.row = -1
+        self.col = 0
+        self.in_cell = False
+        self.cell_text = ""
+        self.cell_span = (1, 1)
+        self.cell_pos = (0, 0)
+        self.table_depth = 0
+        self.done_first_table = False
+
+    def handle_starttag(self, tag, attrs):
+        if self.done_first_table:
+            return
+        if tag == "table":
+            self.table_depth += 1
+            return
+        if self.table_depth == 0:
+            return
+        if tag == "tr":
+            self.row += 1
+            self.col = 0
+            while len(self.grid) <= self.row:
+                self.grid.append({})
+        elif tag in ("td", "th"):
+            attrs = dict(attrs)
+            colspan = int(attrs.get("colspan") or 1)
+            rowspan = int(attrs.get("rowspan") or 1)
+            while self.col in self.grid[self.row]:
+                self.col += 1
+            self.in_cell = True
+            self.cell_text = ""
+            self.cell_span = (rowspan, colspan)
+            self.cell_pos = (self.row, self.col)
+
+    def handle_endtag(self, tag):
+        if self.done_first_table:
+            return
+        if tag == "table" and self.table_depth:
+            self.table_depth -= 1
+            if self.table_depth == 0:
+                self.done_first_table = True
+        elif tag in ("td", "th") and self.in_cell:
+            r0, c0 = self.cell_pos
+            rowspan, colspan = self.cell_span
+            text = self.cell_text.strip()
+            for dr in range(rowspan):
+                while len(self.grid) <= r0 + dr:
+                    self.grid.append({})
+                for dc in range(colspan):
+                    self.grid[r0 + dr][c0 + dc] = text
+            self.col = c0 + colspan
+            self.in_cell = False
+
+    def handle_data(self, data):
+        if self.in_cell:
+            self.cell_text += data
+
+
+def rollout_progress_from_html(data_html):
+    """CH 이름(2열)이 있는 행만 대상으로 진행 날짜(3열) 기입 여부를 센다."""
+    parser = _TableGridParser()
+    parser.feed(data_html or "")
+    done = pending = 0
+    for r in range(1, len(parser.grid)):
+        row = parser.grid[r]
+        if not (row.get(1) or "").strip():
+            continue
+        if (row.get(2) or "").strip():
+            done += 1
+        else:
+            pending += 1
+    return done, pending
+
+
+MAIL_REPORT_SECTION_KEYS = ["site_url", "rollout", "replace_needed", "low_stock", "history"]
+MAIL_REPORT_SECTION_LABELS = {
+    "site_url": "사이트 접속 주소",
+    "rollout": "횡전개 현황",
+    "replace_needed": "교체 필요 리스트 (교체 임박·필요)",
+    "low_stock": "재고 (안전재고 이하)",
+    "history": "부품 교체 기록 (전날)",
+}
+MAIL_REPORT_TD_STYLE = "border:1px solid #ccc;padding:6px 12px"
+
+
+def get_mail_report_sections(conn):
+    """메일 리포트에 포함할 섹션과 순서 설정을 반환한다. 저장된 값이 없거나(최초 사용) 새로
+    추가된 섹션이 저장값에 빠져 있으면, 그 섹션은 목록 뒤에 활성 상태로 보완해 반환한다."""
+    raw = get_config(conn, "mail_report_sections")
+    try:
+        saved = json.loads(raw) if raw else []
+    except ValueError:
+        saved = []
+    sections = [
+        {"key": s["key"], "enabled": bool(s.get("enabled", True))}
+        for s in saved
+        if isinstance(s, dict) and s.get("key") in MAIL_REPORT_SECTION_KEYS
+    ]
+    seen = {s["key"] for s in sections}
+    for key in MAIL_REPORT_SECTION_KEYS:
+        if key not in seen:
+            sections.append({"key": key, "enabled": True})
+    return sections
+
+
+def set_mail_report_sections(conn, sections):
+    cleaned = []
+    seen = set()
+    for s in sections or []:
+        key = s.get("key") if isinstance(s, dict) else None
+        if key in MAIL_REPORT_SECTION_KEYS and key not in seen:
+            cleaned.append({"key": key, "enabled": bool(s.get("enabled", True))})
+            seen.add(key)
+    for key in MAIL_REPORT_SECTION_KEYS:
+        if key not in seen:
+            cleaned.append({"key": key, "enabled": True})
+    set_config(conn, "mail_report_sections", json.dumps(cleaned, ensure_ascii=False))
+    return cleaned
+
+
+def _mail_section_site_url(conn):
+    site_url = f"http://{get_lan_ip()}:{PORT}"
+    return f"<p style='font-size:14px'>사이트 접속: <a href='{site_url}'>{site_url}</a></p>"
+
+
+def _mail_section_rollout(conn):
+    td = MAIL_REPORT_TD_STYLE
+    items = conn.execute("SELECT * FROM rollout_items ORDER BY id").fetchall()
+    rows = ""
+    for it in items:
+        done, pending = rollout_progress_from_html(it["data_html"])
+        total = done + pending
+        pct = round(done / total * 100) if total else 0
+        rows += (
+            f"<tr><td style='{td}'>{html_lib.escape(it['title'])}</td>"
+            f"<td style='{td};text-align:center'>{done}</td>"
+            f"<td style='{td};text-align:center'>{pending}</td>"
+            f"<td style='{td};text-align:center'>{total}</td>"
+            f"<td style='{td};text-align:center;font-weight:bold'>{pct}%</td></tr>"
+        )
+    if not rows:
+        rows = f"<tr><td colspan='5' style='{td}'>등록된 횡전개 항목이 없습니다.</td></tr>"
+    return (
+        f"<h3>횡전개 현황</h3>"
+        f"<table style='border-collapse:collapse;font-size:14px;margin-bottom:20px'>"
+        f"<tr style='background:#f3f4f6'>"
+        f"<th style='{td}'>횡전개 항목</th><th style='{td}'>완료</th>"
+        f"<th style='{td}'>미진행</th><th style='{td}'>전체</th><th style='{td}'>진행률</th></tr>"
+        f"{rows}</table>"
+    )
+
+
+def _mail_section_replace_needed(conn):
+    td = MAIL_REPORT_TD_STYLE
+    alert_parts = get_alert_parts()
+    rows = ""
+    for p in alert_parts:
+        days_text = f"{abs(p['days_left'])}일 초과" if p["status"] == "overdue" else f"{p['days_left']}일 남음"
+        color = "#c0392b" if p["status"] == "overdue" else "#d97706"
+        rows += (
+            f"<tr><td style='{td}'>{html_lib.escape(p['equipment_name'])}</td>"
+            f"<td style='{td}'>{html_lib.escape(p['unit_name'])}</td>"
+            f"<td style='{td}'>{html_lib.escape(p['name'])}</td>"
+            f"<td style='{td}'>{html_lib.escape(p.get('spec') or '')}</td>"
+            f"<td style='{td};text-align:center;color:{color};font-weight:bold'>{html_lib.escape(p['label'])}</td>"
+            f"<td style='{td};text-align:center'>{days_text}</td></tr>"
+        )
+    if not rows:
+        rows = f"<tr><td colspan='6' style='{td}'>교체 임박/필요 부품이 없습니다.</td></tr>"
+    return (
+        f"<h3>교체 필요 리스트</h3>"
+        f"<table style='border-collapse:collapse;font-size:14px;margin-bottom:20px'>"
+        f"<tr style='background:#f3f4f6'>"
+        f"<th style='{td}'>설비</th><th style='{td}'>유닛</th><th style='{td}'>부품</th>"
+        f"<th style='{td}'>규격</th><th style='{td}'>상태</th><th style='{td}'>잔여</th></tr>"
+        f"{rows}</table>"
+    )
+
+
+def _mail_section_low_stock(conn):
+    """규격이 같으면(부품명/소속 유닛이 달라도) 한 행으로 묶어서 보여준다. 유닛별로 재고/안전재고
+    수치가 다를 수 있으므로 합산하지 않고 평균값으로 표시한다."""
+    td = MAIL_REPORT_TD_STYLE
+    low_stock = [p for p in get_inventory_rows(conn) if (p["stock_qty"] or 0) <= (p["safety_stock"] or 0)]
+    groups = {}
+    order = []
+    for p in low_stock:
+        key = p["spec"] or ""
+        if key not in groups:
+            groups[key] = {"spec": key, "items": [], "stock_total": 0, "safety_total": 0, "count": 0}
+            order.append(key)
+        g = groups[key]
+        g["items"].append(f"{p['name']} ({p['unit_name']})")
+        g["stock_total"] += p["stock_qty"] or 0
+        g["safety_total"] += p["safety_stock"] or 0
+        g["count"] += 1
+
+    rows = ""
+    for key in order:
+        g = groups[key]
+        avg_stock = round(g["stock_total"] / g["count"], 1)
+        avg_safety = round(g["safety_total"] / g["count"], 1)
+        items_html = "<br>".join(html_lib.escape(i) for i in g["items"])
+        rows += (
+            f"<tr><td style='{td}'>{html_lib.escape(g['spec'])}</td>"
+            f"<td style='{td}'>{items_html}</td>"
+            f"<td style='{td};text-align:center;color:#c0392b;font-weight:bold'>{avg_stock}</td>"
+            f"<td style='{td};text-align:center'>{avg_safety}</td></tr>"
+        )
+    if not rows:
+        rows = f"<tr><td colspan='4' style='{td}'>안전재고 이하로 떨어진 부품이 없습니다.</td></tr>"
+    return (
+        f"<h3>재고 (안전재고 이하)</h3>"
+        f"<table style='border-collapse:collapse;font-size:14px;margin-bottom:20px'>"
+        f"<tr style='background:#f3f4f6'>"
+        f"<th style='{td}'>규격</th><th style='{td}'>부품명 (소속 유닛)</th>"
+        f"<th style='{td}'>현재 재고 (평균)</th><th style='{td}'>안전재고 기준 (평균)</th></tr>"
+        f"{rows}</table>"
+    )
+
+
+def _mail_section_history(conn):
+    td = MAIL_REPORT_TD_STYLE
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    yesterday_history = conn.execute("""
+        SELECT h.cost, p.name AS part_name, p.spec,
+               u.name AS unit_name, e.name AS equipment_name
+        FROM replacement_history h
+        JOIN parts p ON h.part_id = p.id
+        JOIN units u ON p.unit_id = u.id
+        JOIN equipments e ON u.equipment_id = e.id
+        WHERE h.replaced_date = ?
+        ORDER BY e.id, u.id, p.id
+    """, (yesterday,)).fetchall()
+    rows = ""
+    for h in yesterday_history:
+        rows += (
+            f"<tr><td style='{td}'>{html_lib.escape(h['equipment_name'])}</td>"
+            f"<td style='{td}'>{html_lib.escape(h['unit_name'])}</td>"
+            f"<td style='{td}'>{html_lib.escape(h['part_name'])}</td>"
+            f"<td style='{td}'>{html_lib.escape(h['spec'] or '')}</td>"
+            f"<td style='{td};text-align:right'>{h['cost'] or 0:,.0f}원</td></tr>"
+        )
+    if not rows:
+        rows = f"<tr><td colspan='5' style='{td}'>{yesterday} 교체 기록이 없습니다.</td></tr>"
+    return (
+        f"<h3>부품 교체 기록 ({yesterday})</h3>"
+        f"<table style='border-collapse:collapse;font-size:14px;margin-bottom:20px'>"
+        f"<tr style='background:#f3f4f6'>"
+        f"<th style='{td}'>설비</th><th style='{td}'>유닛</th><th style='{td}'>부품</th>"
+        f"<th style='{td}'>규격</th><th style='{td}'>금액</th></tr>"
+        f"{rows}</table>"
+    )
+
+
+MAIL_REPORT_BUILDERS = {
+    "site_url": _mail_section_site_url,
+    "rollout": _mail_section_rollout,
+    "replace_needed": _mail_section_replace_needed,
+    "low_stock": _mail_section_low_stock,
+    "history": _mail_section_history,
+}
+
+
+def build_mail_report_html():
+    """메일 본문 HTML을 만든다. 포함할 섹션과 순서는 메일 설정에서 사용자가 지정한 대로 따른다
+    (기본값: 사이트 접속 주소 → 횡전개 현황 → 교체 필요 리스트 → 재고 → 부품 교체 기록, 전체 포함)."""
+    conn = get_db()
+    sections = get_mail_report_sections(conn)
+    html_parts = [
+        MAIL_REPORT_BUILDERS[s["key"]](conn)
+        for s in sections
+        if s.get("enabled") and s["key"] in MAIL_REPORT_BUILDERS
+    ]
+    conn.close()
+    return "".join(html_parts)
+
+
+def send_status_mail():
+    """사내 메일 API로 횡전개 현황 리포트를 발송한다. (성공 여부, 메시지) 반환."""
+    conn = get_db()
+    receivers = [
+        r["email_id"]
+        for r in conn.execute("SELECT email_id FROM mail_recipients ORDER BY id").fetchall()
+    ]
+    conn.close()
+    if not receivers:
+        return False, "수신자가 등록되어 있지 않습니다. 메일 설정에서 수신자를 먼저 추가하세요."
+    if "XXXX" in MAIL_AUTHORIZATION or not MAIL_AUTHORIZATION:
+        return False, "메일 API 키가 설정되지 않았습니다. app.py 상단의 MAIL_AUTHORIZATION / MAIL_SYSTEM_ID 를 확인하세요."
+    api = "https://openapi.samsung.net/mail/api/v2.0/mails/send?userId=" + MAIL_SENDER_ID
+    header = {"Authorization": MAIL_AUTHORIZATION, "System-ID": MAIL_SYSTEM_ID}
+    body = {
+        "subject": MAIL_SUBJECT,
+        "contents": build_mail_report_html(),
+        "contentType": "HTML",
+        "docSecuType": "PERSONAL",
+        "sender": {"emailAddress": f"{MAIL_SENDER_ID}@samsung.com"},
+        "recipients": [
+            {"emailAddress": f"{r}@samsung.com", "recipientType": "TO"} for r in receivers
+        ],
+    }
+    try:
+        res = requests.post(api, headers=header, json=body, timeout=15)
+        if res.status_code // 100 == 2:
+            return True, f"수신자 {len(receivers)}명에게 발송 완료"
+        return False, f"메일 API 오류 (HTTP {res.status_code}): {res.text[:200]}"
+    except Exception as e:
+        return False, f"메일 발송 실패: {e}"
+
+
+PART_COLS_SANS_DRAWING = (
+    "p.id, p.unit_id, p.name, p.spec, p.cycle_days, p.cycle_unit, p.cost, p.last_replaced_date, "
+    "p.note, p.memo, p.icon, p.pos_x, p.pos_y, p.width, p.height, p.stock_qty, p.safety_stock, "
+    "p.supplier, p.supplier_contact, p.lead_time_days, p.local_only, p.deleted_at, p.created_at"
+)
+UNIT_COLS_SANS_DRAWING = (
+    "u.id, u.equipment_id, u.name, u.icon, u.color, u.pos_x, u.pos_y, u.width, u.height, "
+    "u.deleted_at, u.created_at"
+)
+
+
+def get_alert_parts():
+    """모든 설비를 통틀어 교체 필요/임박 상태인 부품 목록 (경과가 급한 순).
+    화면에 도면을 표시하지 않으므로, 용량이 큰 drawing_data는 조회하지 않는다."""
+    conn = get_db()
+    rows = conn.execute(f"""
+        SELECT {PART_COLS_SANS_DRAWING}, u.id AS unit_id, u.name AS unit_name,
+               e.id AS equipment_id, e.name AS equipment_name, e.icon AS equipment_icon
+        FROM parts p
+        JOIN units u ON p.unit_id = u.id
+        JOIN equipments e ON u.equipment_id = e.id
+        WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
+    """).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        info = part_status(r["cycle_days"], r["last_replaced_date"])
+        if info["status"] in ("overdue", "soon"):
+            d = dict(r)
+            d.update(info)
+            result.append(d)
+    result.sort(key=lambda x: x["days_left"])
+    return result
+
+
+def get_calendar_due_parts(year, month):
+    """지정한 연/월에 다음 교체 예정일이 있는 부품 전체를 예정일별로 묶어서 반환한다.
+    상태(교체 필요/임박/정상)는 항상 오늘 날짜 기준으로 계산되므로, 지난 달을 보면 대부분
+    "교체 필요"로, 몇 달 뒤를 보면 대부분 "정상(예정)"으로 표시된다.
+    화면에 도면을 표시하지 않으므로 drawing_data는 조회하지 않는다."""
+    start = date(year, month, 1)
+    end = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    conn = get_db()
+    rows = conn.execute(f"""
+        SELECT {PART_COLS_SANS_DRAWING}, u.id AS unit_id, u.name AS unit_name,
+               e.id AS equipment_id, e.name AS equipment_name, e.icon AS equipment_icon
+        FROM parts p
+        JOIN units u ON p.unit_id = u.id
+        JOIN equipments e ON u.equipment_id = e.id
+        WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
+          AND p.cycle_days IS NOT NULL AND p.last_replaced_date IS NOT NULL
+          AND date(p.last_replaced_date, '+' || p.cycle_days || ' days') >= ?
+          AND date(p.last_replaced_date, '+' || p.cycle_days || ' days') < ?
+    """, (start.isoformat(), end.isoformat())).fetchall()
+    conn.close()
+    days = {}
+    for r in rows:
+        info = part_status(r["cycle_days"], r["last_replaced_date"])
+        d = dict(r)
+        d.update(info)
+        days.setdefault(info["next_due"], []).append(d)
+    for items in days.values():
+        items.sort(key=lambda x: (x["equipment_name"], x["unit_name"], x["name"]))
+    return days
+
+
+def search_parts(query, status=None, equipment_id=None, page=1, page_size=SEARCH_DEFAULT_PAGE_SIZE):
+    """부품명/규격으로 모든 설비를 통틀어 검색 (상태/설비로 추가 필터링 가능).
+    검색어/상태/설비 필터가 전부 비어있으면(검색 페이지를 막 연 직후 등) 등록된 부품 전체를
+    스캔해서 돌려주게 되어 부품이 많을수록 느려지므로, 이 경우 조회 자체를 하지 않고 빈
+    결과를 즉시 돌려준다. 실제로 뭔가 찾을 때만 조회하고, 그 결과도 한 번에 다 보내지 않고
+    page/page_size로 나눠서 보낸다.
+    검색 결과 화면은 도면을 표시하지 않으므로 drawing_data는 조회하지 않는다."""
+    query = (query or "").strip()
+    page = max(int(page or 1), 1)
+    page_size = min(max(int(page_size or SEARCH_DEFAULT_PAGE_SIZE), 1), SEARCH_MAX_PAGE_SIZE)
+    empty_payload = {"items": [], "page": 1, "page_size": page_size, "total": 0, "total_pages": 1}
+    if not query and not status and not equipment_id:
+        return empty_payload
+
+    conn = get_db()
+    like = f"%{query}%"
+    sql = f"""
+        SELECT {PART_COLS_SANS_DRAWING}, u.id AS unit_id, u.name AS unit_name,
+               e.id AS equipment_id, e.name AS equipment_name, e.icon AS equipment_icon
+        FROM parts p
+        JOIN units u ON p.unit_id = u.id
+        JOIN equipments e ON u.equipment_id = e.id
+        WHERE (p.name LIKE ? OR p.spec LIKE ?)
+          AND p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
+    """
+    params = [like, like]
+    if equipment_id:
+        sql += " AND e.id = ?"
+        params.append(equipment_id)
+    sql += " ORDER BY e.id, u.id, p.id"
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        info = part_status(r["cycle_days"], r["last_replaced_date"])
+        if status and info["status"] != status:
+            continue
+        d = dict(r)
+        d.update(info)
+        result.append(d)
+
+    total = len(result)
+    start = (page - 1) * page_size
+    return {
+        "items": result[start:start + page_size],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": max((total + page_size - 1) // page_size, 1),
+    }
+
+
+def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
+    """부품명+규격을 기준으로 시스템 전체(선택된 유닛 이름으로 범위 제한 가능)를 집계한다.
+    금액은 두 가지를 따로 계산한다.
+    - purchase_cost: 기준 설비(TEAG01호기)에 등록된 구매(예상) 금액. 부품은 전 설비에 동일하게
+      동기화되어 있으므로 유닛별로 합산하지 않고 기준 설비에 등록된 값만 쓰며, 교체 이력이
+      있는지 여부/기간 필터와 무관하게 항상 계산한다.
+    - replacement_cost_total: 실제 교체 이력(replacement_history)에 기록된 금액의 합. 기간
+      필터가 있으면 해당 기간에 발생한 교체 기록만 합산한다.
+    사용량은 항상 실제 교체 이력 기준이다.
+    교체주기도 두 가지를 따로 계산한다.
+    - min_cycle_days/min_cycle_unit: 현재 부품 구성에 등록된 표준주기 중 가장 짧은 값(항상
+      전체 기준, 기간 필터와 무관).
+    - avg_actual_interval_days: 실제 교체 이력에서 같은 부품이 연속으로 교체된 간격(일수)의
+      평균. 표준주기와 마찬가지로 항상 전체 이력 기준으로 계산하며, 교체 이력이 2회 미만인
+      부품(간격을 계산할 짝이 없는 경우)은 집계에서 제외된다.
+
+    (성능: 등록된 부품 수가 늘어날수록 이 조회가 느려지는 것을 막기 위해, 개별 부품 행을
+    전부 파이썬으로 가져와 순회하는 대신 규격별 집계를 SQLite의 GROUP BY로 DB 단에서
+    끝낸다. 교체 이력 금액도 이력 테이블과 직접 JOIN해서 규격별로 바로 합산하므로, 결과
+    행 수가 "전체 부품 수"가 아니라 "고유 규격 수"와 "교체 이력 건수"에 비례하게 된다.)"""
+    unit_filter_sql = ""
+    unit_filter_params = []
+    if unit_names:
+        placeholders = ",".join("?" for _ in unit_names)
+        unit_filter_sql = f" AND u.name IN ({placeholders})"
+        unit_filter_params = list(unit_names)
+
+    # 규격별 설치 대수/최소 교체주기. SQLite는 쿼리에 min()/max()가 하나뿐이면 그 값을
+    # 낸 행의 다른 bare 컬럼도 그대로 돌려주므로, cycle_unit도 min_cycle_days와 같은 행
+    # 기준으로 바로 얻을 수 있다.
+    agg_rows = conn.execute(f"""
+        SELECT p.name AS name, COALESCE(p.spec, '') AS spec,
+               COUNT(*) AS instance_count,
+               MIN(p.cycle_days) AS min_cycle_days,
+               p.cycle_unit AS min_cycle_unit
+        FROM parts p
+        JOIN units u ON p.unit_id = u.id
+        JOIN equipments e ON u.equipment_id = e.id
+        WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
+        {unit_filter_sql}
+        GROUP BY p.name, COALESCE(p.spec, '')
+    """, unit_filter_params).fetchall()
+
+    groups = {}
+    for r in agg_rows:
+        key = (r["name"], r["spec"])
+        groups[key] = {
+            "name": r["name"],
+            "spec": r["spec"],
+            "purchase_cost": 0,
+            "replacement_cost_total": 0,
+            "instance_count": r["instance_count"],
+            "usage_count": 0,
+            "min_cycle_days": r["min_cycle_days"],
+            "min_cycle_unit": r["min_cycle_unit"] if r["min_cycle_days"] is not None else "일",
+            "avg_actual_interval_days": None,
+        }
+
+    # 구매(예상) 금액은 기준 설비에 등록된 값 하나만 쓴다. 같은 부품명+규격이 기준 설비 안의
+    # 서로 다른 유닛에 각각 등록되어 있어도(예: "오링"이 여러 유닛에 쓰이는 경우), 그건 부품
+    # 단가가 여러 번인 게 아니라 같은 단가가 여러 곳에 설치된 것이므로 합산하면 안 된다.
+    purchase_rows = conn.execute(f"""
+        SELECT p.name AS name, COALESCE(p.spec, '') AS spec, MAX(p.cost) AS purchase_cost
+        FROM parts p
+        JOIN units u ON p.unit_id = u.id
+        WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND u.equipment_id = ?
+          {unit_filter_sql}
+        GROUP BY p.name, COALESCE(p.spec, '')
+    """, [get_master_equipment_id(conn)] + unit_filter_params).fetchall()
+    for r in purchase_rows:
+        key = (r["name"], r["spec"])
+        if key in groups:
+            groups[key]["purchase_cost"] = r["purchase_cost"] or 0
+
+    # 실제 평균 교체 간격: 같은 부품(part_id)의 교체 이력을 날짜순으로 나란히 두고(LAG 윈도우
+    # 함수) 바로 앞 교체일과의 일수 차이를 구한 뒤, 규격별로 평균낸다. 교체 이력이 1건뿐이면
+    # 간격을 계산할 짝이 없어 자동으로 제외된다.
+    interval_rows = conn.execute(f"""
+        WITH ordered_hist AS (
+            SELECT h.part_id, h.replaced_date,
+                   p.name AS name, COALESCE(p.spec, '') AS spec,
+                   LAG(h.replaced_date) OVER (PARTITION BY h.part_id ORDER BY h.replaced_date) AS prev_date
+            FROM replacement_history h
+            JOIN parts p ON h.part_id = p.id
+            JOIN units u ON p.unit_id = u.id
+            JOIN equipments e ON u.equipment_id = e.id
+            WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
+            {unit_filter_sql}
+        )
+        SELECT name, spec, AVG(julianday(replaced_date) - julianday(prev_date)) AS avg_actual_interval_days
+        FROM ordered_hist
+        WHERE prev_date IS NOT NULL
+        GROUP BY name, spec
+    """, unit_filter_params).fetchall()
+    for r in interval_rows:
+        key = (r["name"], r["spec"])
+        if key in groups and r["avg_actual_interval_days"] is not None:
+            groups[key]["avg_actual_interval_days"] = round(r["avg_actual_interval_days"], 1)
+
+    # 실제 교체 이력의 사용횟수/금액은 이력 테이블과 부품을 직접 JOIN해서 규격별로 합산한다.
+    hist_sql = f"""
+        SELECT p.name AS name, COALESCE(p.spec, '') AS spec,
+               COUNT(*) AS usage_count, SUM(h.cost) AS replacement_cost_total
+        FROM replacement_history h
+        JOIN parts p ON h.part_id = p.id
+        JOIN units u ON p.unit_id = u.id
+        JOIN equipments e ON u.equipment_id = e.id
+        WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
+        {unit_filter_sql}
+    """
+    hist_params = list(unit_filter_params)
+    if start_date:
+        hist_sql += " AND h.replaced_date >= ?"
+        hist_params.append(start_date)
+    if end_date:
+        hist_sql += " AND h.replaced_date <= ?"
+        hist_params.append(end_date)
+    hist_sql += " GROUP BY p.name, COALESCE(p.spec, '')"
+
+    for r in conn.execute(hist_sql, hist_params).fetchall():
+        key = (r["name"], r["spec"])
+        if key in groups:
+            groups[key]["usage_count"] = r["usage_count"]
+            groups[key]["replacement_cost_total"] = r["replacement_cost_total"] or 0
+
+    return list(groups.values())
+
+
+def csv_response(filename, header, rows):
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(header)
+    writer.writerows(rows)
+    data = "﻿" + buf.getvalue()
+    encoded_name = quote(filename)
+    return Response(
+        data,
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename=export.csv; filename*=UTF-8''{encoded_name}"
+        },
+    )
+
+
+LOGIN_EXEMPT_PREFIXES = ("/static/", "/login")
+
+
+@app.before_request
+def require_login():
+    if request.path.startswith(LOGIN_EXEMPT_PREFIXES):
+        return None
+    if session.get("authenticated") and session.get("user_name"):
+        return None
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "로그인이 필요합니다"}), 401
+    return redirect(url_for("login_page", next=request.path))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login_page():
+    if request.method == "POST":
+        name = (request.form.get("name") or "").strip()
+        password = request.form.get("password", "")
+        if not name:
+            return redirect(url_for("login_page", error="2"))
+        conn = get_db()
+        password_hash = get_config(conn, "password_hash")
+        conn.close()
+        if password_hash and check_password_hash(password_hash, password):
+            session["authenticated"] = True
+            session["user_name"] = name
+            session.permanent = True
+            next_url = request.args.get("next") or url_for("dashboard")
+            return redirect(next_url)
+        return redirect(url_for("login_page", error="1"))
+    return render_template("login.html")
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login_page"))
+
+
+@app.route("/api/auth/change-password", methods=["POST"])
+def change_password():
+    data = request.get_json()
+    current_password = data.get("current_password") or ""
+    new_password = data.get("new_password") or ""
+    if len(new_password) < 4:
+        return jsonify({"error": "비밀번호는 4자 이상으로 설정하세요"}), 400
+    conn = get_db()
+    password_hash = get_config(conn, "password_hash")
+    if not password_hash or not check_password_hash(password_hash, current_password):
+        conn.close()
+        return jsonify({"error": "현재 비밀번호가 올바르지 않습니다"}), 400
+    set_config(conn, "password_hash", generate_password_hash(new_password))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/")
+def dashboard():
+    return render_template("dashboard.html", user_name=session.get("user_name", ""))
+
+
+@app.route("/alerts")
+def alerts_page():
+    return render_template("alerts.html")
+
+
+@app.route("/search")
+def search_page():
+    return render_template("search.html")
+
+
+@app.route("/stats")
+def stats_page():
+    return render_template("stats.html")
+
+
+@app.route("/bulk-add-parts")
+def bulk_add_parts_page():
+    return render_template("bulk_add_parts.html")
+
+
+@app.route("/inventory")
+def inventory_page():
+    return render_template("inventory.html")
+
+
+def get_inventory_rows(conn):
+    """재고는 TEAG01호기(기준 설비) 기준으로 전 설비가 동일하게 관리되므로,
+    나머지 설비는 동일한 내용이 중복되어 나타나는 것을 막기 위해 TEAG01호기 것만 보여준다.
+    규격이 같으면(부품 이름이 달라도) 나란히 묶여 보이도록 규격 기준으로 먼저 정렬하고,
+    같은 규격 안에서는 소속 유닛 기준으로 정렬한다."""
+    return conn.execute("""
+        SELECT p.id, p.name, p.spec, p.stock_qty, p.safety_stock, p.supplier, p.supplier_contact, p.lead_time_days,
+               u.id AS unit_id, u.name AS unit_name
+        FROM parts p
+        JOIN units u ON p.unit_id = u.id
+        JOIN equipments e ON u.equipment_id = e.id
+        WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
+          AND e.id = ?
+        ORDER BY p.spec ASC, u.name ASC, p.name ASC
+    """, (get_master_equipment_id(conn),)).fetchall()
+
+
+@app.route("/api/inventory")
+def api_inventory():
+    conn = get_db()
+    rows = get_inventory_rows(conn)
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/inventory/export")
+def export_inventory_csv():
+    low_only = request.args.get("low_only") == "1"
+    conn = get_db()
+    rows = get_inventory_rows(conn)
+    conn.close()
+    header = ["규격", "부품이름", "소속 유닛", "재고 수량", "안전재고", "구매처", "연락처", "리드타임(일)"]
+    data_rows = []
+    for p in rows:
+        if low_only and (p["stock_qty"] or 0) > (p["safety_stock"] or 0):
+            continue
+        data_rows.append([
+            p["spec"] or "", p["name"], p["unit_name"],
+            p["stock_qty"] or 0, p["safety_stock"] or 0, p["supplier"] or "", p["supplier_contact"] or "",
+            p["lead_time_days"] if p["lead_time_days"] is not None else "",
+        ])
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return csv_response(f"재고관리_{timestamp}.csv", header, data_rows)
+
+
+@app.route("/api/mail/recipients")
+def list_mail_recipients():
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM mail_recipients ORDER BY id").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/mail/recipients", methods=["POST"])
+def add_mail_recipient():
+    data = request.get_json()
+    email_id = (data.get("email_id") or "").strip().replace("@samsung.com", "")
+    if not email_id:
+        return jsonify({"error": "수신자 녹스 ID를 입력하세요"}), 400
+    conn = get_db()
+    try:
+        conn.execute("INSERT INTO mail_recipients (email_id) VALUES (?)", (email_id,))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({"error": "이미 등록된 수신자입니다"}), 409
+    conn.close()
+    return jsonify({"ok": True}), 201
+
+
+@app.route("/api/mail/recipients/<int:rid>", methods=["DELETE"])
+def delete_mail_recipient(rid):
+    conn = get_db()
+    conn.execute("DELETE FROM mail_recipients WHERE id = ?", (rid,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/mail/send", methods=["POST"])
+def api_send_mail():
+    ok, msg = send_status_mail()
+    if ok:
+        conn = get_db()
+        log_activity(conn, "mail", "mail", None, MAIL_SUBJECT, msg)
+        conn.commit()
+        conn.close()
+    return jsonify({"ok": ok, "message": msg}), (200 if ok else 500)
+
+
+@app.route("/api/mail/schedule", methods=["GET", "PUT"])
+def api_mail_schedule():
+    conn = get_db()
+    if request.method == "PUT":
+        t = (request.get_json().get("time") or "").strip()  # "HH:MM" 또는 "" (해제)
+        set_config(conn, "mail_schedule_time", t)
+        conn.commit()
+    t = get_config(conn, "mail_schedule_time") or ""
+    conn.close()
+    return jsonify({"time": t})
+
+
+@app.route("/api/mail/report-sections", methods=["GET", "PUT"])
+def api_mail_report_sections():
+    conn = get_db()
+    if request.method == "PUT":
+        sections = set_mail_report_sections(conn, (request.get_json() or {}).get("sections"))
+        conn.commit()
+    else:
+        sections = get_mail_report_sections(conn)
+    conn.close()
+    return jsonify({"sections": sections, "labels": MAIL_REPORT_SECTION_LABELS})
+
+
+@app.route("/rollout")
+def rollout_page():
+    return render_template("rollout.html")
+
+
+@app.route("/api/rollout")
+def list_rollout_items():
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM rollout_items ORDER BY id").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/rollout", methods=["POST"])
+def add_rollout_item():
+    data = request.get_json()
+    title = (data.get("title") or "").strip()
+    if not title:
+        return jsonify({"error": "제목을 입력하세요"}), 400
+    data_html = sanitize_rich_html(data.get("data_html") or "")
+    conn = get_db()
+    cur = conn.execute("INSERT INTO rollout_items (title, data_html) VALUES (?, ?)", (title, data_html))
+    new_id = cur.lastrowid
+    log_activity(conn, "create", "rollout", new_id, title, "횡전개 항목 추가")
+    conn.commit()
+    row = conn.execute("SELECT * FROM rollout_items WHERE id = ?", (new_id,)).fetchone()
+    conn.close()
+    return jsonify(dict(row)), 201
+
+
+@app.route("/api/rollout/<int:item_id>", methods=["PUT"])
+def update_rollout_item(item_id):
+    data = request.get_json()
+    conn = get_db()
+    row = conn.execute("SELECT * FROM rollout_items WHERE id = ?", (item_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "항목을 찾을 수 없습니다"}), 404
+    title = (data.get("title") or row["title"]).strip()
+    data_html = sanitize_rich_html(data.get("data_html", row["data_html"]))
+    conn.execute(
+        "UPDATE rollout_items SET title = ?, data_html = ?, updated_at = datetime('now','localtime') WHERE id = ?",
+        (title, data_html, item_id),
+    )
+    log_activity(conn, "update", "rollout", item_id, title, "횡전개 항목 수정")
+    conn.commit()
+    updated = conn.execute("SELECT * FROM rollout_items WHERE id = ?", (item_id,)).fetchone()
+    conn.close()
+    return jsonify(dict(updated))
+
+
+@app.route("/api/rollout/<int:item_id>", methods=["DELETE"])
+def delete_rollout_item(item_id):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM rollout_items WHERE id = ?", (item_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "항목을 찾을 수 없습니다"}), 404
+    conn.execute("DELETE FROM rollout_items WHERE id = ?", (item_id,))
+    log_activity(conn, "delete", "rollout", item_id, row["title"], "횡전개 항목 삭제")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/equipment/<int:equipment_id>")
+def equipment_page(equipment_id):
+    conn = get_db()
+    equipment = conn.execute(
+        "SELECT id FROM equipments WHERE id = ? AND deleted_at IS NULL", (equipment_id,)
+    ).fetchone()
+    conn.close()
+    if not equipment:
+        return "설비를 찾을 수 없습니다", 404
+    return render_template("equipment.html", equipment_id=equipment_id)
+
+
+@app.route("/config")
+def unit_template_config():
+    return render_template("config.html")
+
+
+@app.route("/unit/<int:unit_id>")
+def unit_detail(unit_id):
+    conn = get_db()
+    unit = conn.execute(
+        "SELECT id FROM units WHERE id = ? AND deleted_at IS NULL", (unit_id,)
+    ).fetchone()
+    conn.close()
+    if not unit:
+        return "유닛을 찾을 수 없습니다", 404
+    return render_template("unit.html", unit_id=unit_id)
+
+
+@app.route("/api/equipments")
+def list_equipments():
+    conn = get_db()
+    equipments = conn.execute("SELECT * FROM equipments WHERE deleted_at IS NULL ORDER BY id").fetchall()
+    result = equipments_with_status_bulk(conn, equipments)
+    conn.close()
+    return jsonify(result)
+
+
+@app.route("/api/equipments", methods=["POST"])
+def add_equipment():
+    data = request.get_json()
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "설비 이름을 입력하세요"}), 400
+    icon = (data.get("icon") or "🏭").strip()
+    conn = get_db()
+    try:
+        count = conn.execute("SELECT COUNT(*) AS n FROM equipments").fetchone()["n"]
+        pos_x, pos_y = dashboard_grid_pos(count)
+        cur = conn.execute(
+            "INSERT INTO equipments (name, icon, pos_x, pos_y) VALUES (?, ?, ?, ?)",
+            (name, icon, pos_x, pos_y),
+        )
+        new_id = cur.lastrowid
+        conn.execute(
+            "INSERT INTO equipment_notes (equipment_id, content) VALUES (?, '')", (new_id,)
+        )
+        seed_default_units_for_equipment(conn, new_id)
+        log_activity(conn, "create", "equipment", new_id, name)
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({"error": "이미 사용 중인 설비 이름입니다"}), 409
+    equipment = conn.execute("SELECT * FROM equipments WHERE id = ?", (new_id,)).fetchone()
+    d = equipment_with_status(conn, equipment)
+    conn.close()
+    return jsonify(d), 201
+
+
+@app.route("/api/equipments/<int:equipment_id>")
+def get_equipment(equipment_id):
+    conn = get_db()
+    equipment = conn.execute(
+        "SELECT * FROM equipments WHERE id = ? AND deleted_at IS NULL", (equipment_id,)
+    ).fetchone()
+    if not equipment:
+        conn.close()
+        return jsonify({"error": "설비를 찾을 수 없습니다"}), 404
+    d = equipment_with_status(conn, equipment)
+    conn.close()
+    return jsonify(d)
+
+
+@app.route("/api/equipments/<int:equipment_id>", methods=["PUT"])
+def update_equipment(equipment_id):
+    data = request.get_json()
+    conn = get_db()
+    equipment = conn.execute("SELECT * FROM equipments WHERE id = ?", (equipment_id,)).fetchone()
+    if not equipment:
+        conn.close()
+        return jsonify({"error": "설비를 찾을 수 없습니다"}), 404
+    name = (data.get("name") or equipment["name"]).strip()
+    icon = (data.get("icon") or equipment["icon"]).strip()
+    pos_x = data.get("pos_x", equipment["pos_x"])
+    pos_y = data.get("pos_y", equipment["pos_y"])
+    location = data.get("location", equipment["location"])
+    setup_date = data.get("setup_date", equipment["setup_date"]) or None
+    meaningful_change = (
+        name != equipment["name"] or icon != equipment["icon"]
+        or location != equipment["location"] or setup_date != equipment["setup_date"]
+    )
+    try:
+        conn.execute(
+            "UPDATE equipments SET name = ?, icon = ?, pos_x = ?, pos_y = ?, location = ?, setup_date = ? WHERE id = ?",
+            (name, icon, pos_x, pos_y, location, setup_date, equipment_id),
+        )
+        if meaningful_change:
+            log_activity(conn, "update", "equipment", equipment_id, name, "설비 정보 수정")
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({"error": "이미 사용 중인 설비 이름입니다"}), 409
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/equipments/<int:equipment_id>", methods=["DELETE"])
+def delete_equipment(equipment_id):
+    conn = get_db()
+    equipment = conn.execute("SELECT * FROM equipments WHERE id = ?", (equipment_id,)).fetchone()
+    if not equipment:
+        conn.close()
+        return jsonify({"error": "설비를 찾을 수 없습니다"}), 404
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute("UPDATE equipments SET deleted_at = ? WHERE id = ?", (now, equipment_id))
+    unit_ids = [
+        r["id"] for r in conn.execute(
+            "SELECT id FROM units WHERE equipment_id = ? AND deleted_at IS NULL", (equipment_id,)
+        ).fetchall()
+    ]
+    if unit_ids:
+        placeholders = ",".join("?" for _ in unit_ids)
+        conn.execute(f"UPDATE units SET deleted_at = ? WHERE id IN ({placeholders})", (now, *unit_ids))
+        conn.execute(f"UPDATE parts SET deleted_at = ? WHERE unit_id IN ({placeholders})", (now, *unit_ids))
+    log_activity(conn, "delete", "equipment", equipment_id, equipment["name"], "휴지통으로 이동")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/equipments/<int:equipment_id>/units")
+def list_units(equipment_id):
+    conn = get_db()
+    # drawing_data는 최대 8MB까지 저장되므로, 여기서 SELECT * 로 통째로 읽어오면 화면에는
+    # has_drawing 여부만 필요한데도 매번 원본을 통째로 읽고 버리게 된다. 도면 유무만
+    # 계산되는 컬럼(has_drawing)으로 대신 가져온다.
+    units = conn.execute(
+        f"SELECT {UNIT_COLS_SANS_DRAWING}, "
+        f"(u.drawing_data IS NOT NULL AND u.drawing_data != '') AS has_drawing "
+        f"FROM units u WHERE u.equipment_id = ? AND u.deleted_at IS NULL ORDER BY u.id", (equipment_id,)
+    ).fetchall()
+    result = units_with_status_bulk(conn, units)
+    conn.close()
+    return jsonify(result)
+
+
+@app.route("/api/equipments/<int:equipment_id>/units", methods=["POST"])
+def add_unit(equipment_id):
+    data = request.get_json()
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "유닛 이름을 입력하세요"}), 400
+    icon = (data.get("icon") or "⚙️").strip()
+    color = (data.get("color") or "#1a3a5c").strip()
+    pos_x = data.get("pos_x")
+    pos_y = data.get("pos_y")
+    if pos_x is None or pos_y is None:
+        pos_x, pos_y = random.uniform(15, 85), random.uniform(20, 80)
+    width = data.get("width") or 140
+    height = data.get("height") or 110
+    drawing_data = data.get("drawing_data") or None
+    if drawing_data and len(drawing_data) > MAX_DRAWING_DATA_LEN:
+        return jsonify({"error": "도면 이미지 용량이 너무 큽니다 (최대 5MB)"}), 400
+    conn = get_db()
+    drawing_data = store_drawing_blob(conn, drawing_data)
+    cur = conn.execute(
+        "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y, width, height, drawing_data) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (equipment_id, name, icon, color, pos_x, pos_y, width, height, drawing_data),
+    )
+    conn.commit()
+    new_id = cur.lastrowid
+    unit = conn.execute("SELECT * FROM units WHERE id = ?", (new_id,)).fetchone()
+    log_activity(conn, "create", "unit", new_id, name)
+    conn.commit()
+    conn.close()
+    d = dict(unit)
+    d["has_drawing"] = bool(d.pop("drawing_data", None))
+    d["part_count"] = 0
+    d["overall_status"] = "empty"
+    return jsonify(d), 201
+
+
+@app.route("/api/units/<int:unit_id>")
+def get_unit(unit_id):
+    conn = get_db()
+    # 유닛 상세 페이지를 열 때마다 호출되므로, 여기서도 도면 원본(최대 8MB) 대신
+    # has_drawing 여부만 가져온다. 도면은 실제로 열 때 /api/units/<id>/drawing로 가져온다.
+    unit = conn.execute(
+        f"SELECT {UNIT_COLS_SANS_DRAWING}, "
+        f"(u.drawing_data IS NOT NULL AND u.drawing_data != '') AS has_drawing "
+        f"FROM units u WHERE u.id = ? AND u.deleted_at IS NULL", (unit_id,)
+    ).fetchone()
+    if not unit:
+        conn.close()
+        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
+    d = unit_with_status(conn, unit)
+    conn.close()
+    return jsonify(d)
+
+
+@app.route("/api/units/<int:unit_id>", methods=["PUT"])
+def update_unit(unit_id):
+    data = request.get_json()
+    conn = get_db()
+    unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
+    if not unit:
+        conn.close()
+        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
+    name = (data.get("name") or unit["name"]).strip()
+    icon = (data.get("icon") or unit["icon"]).strip()
+    color = (data.get("color") or unit["color"]).strip()
+    pos_x = data.get("pos_x", unit["pos_x"])
+    pos_y = data.get("pos_y", unit["pos_y"])
+    width = data.get("width", unit["width"])
+    height = data.get("height", unit["height"])
+    # drawing_data가 요청에 없으면(도면 아닌 다른 항목만 수정) 기존 해시 참조를 그대로 둔다.
+    # 요청에 있으면(도면을 새로 그리거나 지운 경우) 새 원본을 저장하고 그 해시로 바꾼다.
+    # unit["drawing_data"]는 이미 해시 참조이므로 다시 store_drawing_blob에 넣으면 안 된다.
+    if "drawing_data" in data:
+        new_drawing = data["drawing_data"]
+        if new_drawing and len(new_drawing) > MAX_DRAWING_DATA_LEN:
+            conn.close()
+            return jsonify({"error": "도면 이미지 용량이 너무 큽니다 (최대 5MB)"}), 400
+        drawing_data = store_drawing_blob(conn, new_drawing)
+    else:
+        drawing_data = unit["drawing_data"]
+    meaningful_change = name != unit["name"] or icon != unit["icon"] or color != unit["color"]
+    conn.execute(
+        "UPDATE units SET name = ?, icon = ?, color = ?, pos_x = ?, pos_y = ?, width = ?, height = ?, "
+        "drawing_data = ? WHERE id = ?",
+        (name, icon, color, pos_x, pos_y, width, height, drawing_data, unit_id),
+    )
+    if meaningful_change:
+        log_activity(conn, "update", "unit", unit_id, name, "유닛 정보 수정")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/units/<int:unit_id>", methods=["DELETE"])
+def delete_unit(unit_id):
+    conn = get_db()
+    unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
+    if not unit:
+        conn.close()
+        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute("UPDATE units SET deleted_at = ? WHERE id = ?", (now, unit_id))
+    conn.execute("UPDATE parts SET deleted_at = ? WHERE unit_id = ? AND deleted_at IS NULL", (now, unit_id))
+    log_activity(conn, "delete", "unit", unit_id, unit["name"], "휴지통으로 이동")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/units/<int:unit_id>/parts")
+def list_parts(unit_id):
+    conn = get_db()
+    # 유닛 복사(전체 부품 도면 포함) 등 도면 원본이 실제로 필요한 경우에만 include_drawings=1로 요청한다.
+    # 그 외(유닛 상세 페이지를 열 때 등 대부분의 경우)에는 도면 원본을 DB에서부터 읽지 않도록
+    # has_drawing 여부만 계산해서 가져온다 (부품이 많고 도면이 클수록 효과가 크다).
+    include_drawing = request.args.get("include_drawings") == "1"
+    if include_drawing:
+        rows = conn.execute(
+            "SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL ORDER BY id", (unit_id,)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            f"SELECT {PART_COLS_SANS_DRAWING}, "
+            f"(p.drawing_data IS NOT NULL AND p.drawing_data != '') AS has_drawing "
+            f"FROM parts p WHERE p.unit_id = ? AND p.deleted_at IS NULL ORDER BY p.id", (unit_id,)
+        ).fetchall()
+    result = [serialize_part(conn, r, include_drawing=include_drawing) for r in rows]
+    conn.close()
+    return jsonify(result)
+
+
+@app.route("/api/parts/<int:part_id>/drawing")
+def get_part_drawing(part_id):
+    conn = get_db()
+    row = conn.execute("SELECT drawing_data FROM parts WHERE id = ?", (part_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "부품을 찾을 수 없습니다"}), 404
+    drawing_data = load_drawing_blob(conn, row["drawing_data"])
+    conn.close()
+    return jsonify({"drawing_data": drawing_data})
+
+
+@app.route("/api/units/<int:unit_id>/drawing")
+def get_unit_drawing(unit_id):
+    conn = get_db()
+    row = conn.execute("SELECT drawing_data FROM units WHERE id = ?", (unit_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
+    drawing_data = load_drawing_blob(conn, row["drawing_data"])
+    conn.close()
+    return jsonify({"drawing_data": drawing_data})
+
+
+@app.route("/api/units/<int:unit_id>/parts", methods=["POST"])
+def add_part(unit_id):
+    data = request.get_json()
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "부품 이름을 입력하세요"}), 400
+    spec = (data.get("spec") or "").strip()
+    cycle_days, cycle_unit = resolve_cycle(data, None, "N/A")
+    cost = float(data.get("cost") or 0)
+    last_replaced_date = data.get("last_replaced_date") or None
+    note = (data.get("note") or "").strip()
+    memo = sanitize_rich_html((data.get("memo") or "").strip())
+    drawing_data = data.get("drawing_data") or None
+    if drawing_data and len(drawing_data) > MAX_DRAWING_DATA_LEN:
+        return jsonify({"error": "도면 이미지 용량이 너무 큽니다 (최대 5MB)"}), 400
+    icon = (data.get("icon") or "🔩").strip()
+    width = data.get("width") or 130
+    height = data.get("height") or 110
+    stock_qty = int(data.get("stock_qty") or 0)
+    safety_stock = int(data.get("safety_stock") or 0)
+    supplier = (data.get("supplier") or "").strip()
+    supplier_contact = (data.get("supplier_contact") or "").strip()
+    lead_time_days = data.get("lead_time_days")
+    lead_time_days = int(lead_time_days) if lead_time_days not in (None, "") else None
+
+    conn = get_db()
+    unit_row = conn.execute("SELECT equipment_id FROM units WHERE id = ?", (unit_id,)).fetchone()
+    if not unit_row:
+        conn.close()
+        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
+    # 기준 설비가 아닌 곳에서 직접 등록한 부품은 "독립 부품"으로 표시해, 기준 설비
+    # 기준의 재고/금액/구매처 동기화 및 전체 적용 시 삭제 대상에서 제외되도록 한다.
+    local_only = 1 if unit_row["equipment_id"] != get_master_equipment_id(conn) else 0
+    drawing_data = store_drawing_blob(conn, drawing_data)
+    part_id = insert_part(
+        conn, unit_id, name, spec=spec, cycle_days=cycle_days, cycle_unit=cycle_unit, cost=cost,
+        last_replaced_date=last_replaced_date, note=note, memo=memo, drawing_data=drawing_data, icon=icon,
+        pos_x=data.get("pos_x"), pos_y=data.get("pos_y"), width=width, height=height,
+        stock_qty=stock_qty, safety_stock=safety_stock, supplier=supplier, supplier_contact=supplier_contact,
+        lead_time_days=lead_time_days, local_only=local_only,
+    )
+    log_activity(conn, "create", "part", part_id, name)
+    conn.commit()
+    row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
+    conn.close()
+    return jsonify(serialize_part(conn, row)), 201
+
+
+def parse_cycle_text(text):
+    """"90", "90일", "2년" 등의 텍스트를 (cycle_days, cycle_unit) 튜플로 변환.
+    비어있거나 해석할 수 없으면 기본값(N/A, 주기 없음)을 반환한다."""
+    text = (text or "").strip()
+    if not text:
+        return None, "N/A"
+    if text.endswith("년"):
+        try:
+            years = float(text[:-1].strip())
+            return round(years * 365), "년"
+        except ValueError:
+            return None, "N/A"
+    text = text[:-1].strip() if text.endswith("일") else text
+    try:
+        return round(float(text)), "일"
+    except ValueError:
+        return None, "N/A"
+
+
+def parse_bulk_paste_text(text):
+    """붙여넣은 텍스트(탭 또는 쉼표 구분)를 (유닛이름, 부품이름, Q-CODE, 부가설명, 금액, 교체주기일수, 교체주기단위)
+    튜플 목록으로 변환. 교체주기는 "90", "90일", "2년"과 같이 입력할 수 있다."""
+    rows = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        cols = line.split("\t")
+        if len(cols) < 2:
+            cols = line.split(",")
+        cols = [c.strip() for c in cols]
+        while len(cols) < 6:
+            cols.append("")
+        unit_text, part_name, q_code, note, cost_text, cycle_text = cols[0], cols[1], cols[2], cols[3], cols[4], cols[5]
+        if not part_name:
+            continue
+        try:
+            cost = float(cost_text) if cost_text else 0
+        except ValueError:
+            cost = 0
+        cycle_days, cycle_unit = parse_cycle_text(cycle_text)
+        rows.append((unit_text, part_name, q_code, note, cost, cycle_days, cycle_unit))
+    return rows
+
+
+def serialize_bulk_entry(row):
+    d = dict(row)
+    return d
+
+
+def get_template_mapped_units(conn):
+    """기본 유닛 구성(unit_templates)의 이름을 기준으로, 기준 설비의 실제 유닛 id에
+    매핑한 목록을 반환한다. (부품은 실제 유닛에만 등록할 수 있으므로, 선택 항목의
+    이름 기준은 기본 유닛 구성을 따르되 등록 대상은 기준 설비의 해당 유닛으로 연결한다.)"""
+    return conn.execute("""
+        SELECT u.id AS id, t.name AS name
+        FROM unit_templates t
+        JOIN units u ON u.equipment_id = ? AND u.name = t.name
+        WHERE u.deleted_at IS NULL
+        ORDER BY t.id
+    """, (get_master_equipment_id(conn),)).fetchall()
+
+
+@app.route("/api/bulk-parts")
+def list_bulk_parts():
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM bulk_part_entries ORDER BY id DESC").fetchall()
+    entries = []
+    for r in rows:
+        units = conn.execute("""
+            SELECT u.id, u.name, u.icon
+            FROM bulk_part_entry_units beu
+            JOIN units u ON beu.unit_id = u.id
+            WHERE beu.entry_id = ?
+            ORDER BY u.id
+        """, (r["id"],)).fetchall()
+        d = serialize_bulk_entry(r)
+        d["units"] = [dict(u) for u in units]
+        entries.append(d)
+    master_units = get_template_mapped_units(conn)
+    conn.close()
+    return jsonify({
+        "entries": entries,
+        "master_units": [dict(u) for u in master_units],
+    })
+
+
+@app.route("/api/bulk-parts/paste", methods=["POST"])
+def paste_bulk_parts():
+    data = request.get_json()
+    text = data.get("text") or ""
+    parsed = parse_bulk_paste_text(text)
+    if not parsed:
+        return jsonify({"error": "붙여넣은 내용에서 부품 정보를 찾을 수 없습니다"}), 400
+
+    conn = get_db()
+    created_ids = []
+    for unit_text, part_name, q_code, note, cost, cycle_days, cycle_unit in parsed:
+        cur = conn.execute(
+            "INSERT INTO bulk_part_entries (raw_unit_text, part_name, q_code, note, cost, cycle_days, cycle_unit) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (unit_text, part_name, q_code, note, cost, cycle_days, cycle_unit),
+        )
+        created_ids.append(cur.lastrowid)
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "created_count": len(created_ids)}), 201
+
+
+@app.route("/api/bulk-parts/<int:entry_id>", methods=["PUT"])
+def update_bulk_part(entry_id):
+    data = request.get_json()
+    conn = get_db()
+    entry = conn.execute("SELECT * FROM bulk_part_entries WHERE id = ?", (entry_id,)).fetchone()
+    if not entry:
+        conn.close()
+        return jsonify({"error": "항목을 찾을 수 없습니다"}), 404
+    part_name = (data.get("part_name") or entry["part_name"]).strip()
+    q_code = data.get("q_code", entry["q_code"])
+    note = data.get("note", entry["note"])
+    cost = data.get("cost", entry["cost"])
+    cycle_days, cycle_unit = resolve_cycle(data, entry["cycle_days"], entry["cycle_unit"])
+    conn.execute(
+        "UPDATE bulk_part_entries SET part_name = ?, q_code = ?, note = ?, cost = ?, cycle_days = ?, cycle_unit = ? WHERE id = ?",
+        (part_name, q_code, note, cost, cycle_days, cycle_unit, entry_id),
+    )
+    if "unit_ids" in data:
+        conn.execute("DELETE FROM bulk_part_entry_units WHERE entry_id = ?", (entry_id,))
+        for uid in data["unit_ids"]:
+            conn.execute(
+                "INSERT OR IGNORE INTO bulk_part_entry_units (entry_id, unit_id) VALUES (?, ?)",
+                (entry_id, uid),
+            )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/bulk-parts/<int:entry_id>/register", methods=["POST"])
+def register_bulk_part(entry_id):
+    conn = get_db()
+    entry = conn.execute("SELECT * FROM bulk_part_entries WHERE id = ?", (entry_id,)).fetchone()
+    if not entry:
+        conn.close()
+        return jsonify({"error": "항목을 찾을 수 없습니다"}), 404
+    unit_ids = [
+        r["unit_id"] for r in conn.execute(
+            "SELECT unit_id FROM bulk_part_entry_units WHERE entry_id = ?", (entry_id,)
+        ).fetchall()
+    ]
+    if not unit_ids:
+        conn.close()
+        return jsonify({"error": "유닛을 먼저 선택하세요"}), 400
+
+    part_ids = []
+    for uid in unit_ids:
+        unit = conn.execute("SELECT * FROM units WHERE id = ? AND deleted_at IS NULL", (uid,)).fetchone()
+        if not unit:
+            continue
+        part_id = insert_part(
+            conn, uid, entry["part_name"], spec=entry["q_code"] or "",
+            cost=entry["cost"] or 0, note=entry["note"] or "",
+            cycle_days=entry["cycle_days"], cycle_unit=entry["cycle_unit"] or "N/A",
+        )
+        part_ids.append(part_id)
+        log_activity(conn, "create", "part", part_id, entry["part_name"], "부품 일괄 등록")
+    conn.execute("UPDATE bulk_part_entries SET status = 'registered' WHERE id = ?", (entry_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "part_ids": part_ids})
+
+
+@app.route("/api/bulk-parts/<int:entry_id>", methods=["DELETE"])
+def delete_bulk_part(entry_id):
+    conn = get_db()
+    conn.execute("DELETE FROM bulk_part_entries WHERE id = ?", (entry_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/parts/<int:part_id>", methods=["PUT"])
+def update_part(part_id):
+    data = request.get_json()
+    conn = get_db()
+    part = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
+    if not part:
+        conn.close()
+        return jsonify({"error": "부품을 찾을 수 없습니다"}), 404
+    name = (data.get("name") or part["name"]).strip()
+    spec = data.get("spec", part["spec"])
+    cycle_days, cycle_unit = resolve_cycle(data, part["cycle_days"], part["cycle_unit"])
+    note = data.get("note", part["note"])
+    memo = sanitize_rich_html(data.get("memo", part["memo"]))
+    # drawing_data가 요청에 없으면(도면 아닌 다른 항목만 수정) 기존 해시 참조를 그대로 둔다.
+    # part["drawing_data"]는 이미 해시 참조이므로 다시 store_drawing_blob에 넣으면 안 된다.
+    if "drawing_data" in data:
+        new_drawing = data["drawing_data"]
+        if new_drawing and len(new_drawing) > MAX_DRAWING_DATA_LEN:
+            conn.close()
+            return jsonify({"error": "도면 이미지 용량이 너무 큽니다 (최대 5MB)"}), 400
+        drawing_data = store_drawing_blob(conn, new_drawing)
+    else:
+        drawing_data = part["drawing_data"]
+    icon = (data.get("icon") or part["icon"]).strip()
+    pos_x = data.get("pos_x", part["pos_x"])
+    pos_y = data.get("pos_y", part["pos_y"])
+    width = data.get("width", part["width"])
+    height = data.get("height", part["height"])
+    supplier_contact = data.get("supplier_contact", part["supplier_contact"])
+    lead_time_days = data.get("lead_time_days", part["lead_time_days"])
+    lead_time_days = int(lead_time_days) if lead_time_days not in (None, "") else None
+
+    # 기준 설비에서 동기화된 부품(local_only=0)은 재고수량/안전재고/금액/구매처가
+    # 기준 설비 값을 그대로 따라야 하므로, 기준 설비가 아닌 곳에서는 이 값들의 변경 요청을
+    # 무시한다. 각 설비에서 직접 등록한 독립 부품(local_only=1)은 그대로 자유롭게 수정 가능.
+    unit_row = conn.execute("SELECT equipment_id FROM units WHERE id = ?", (part["unit_id"],)).fetchone()
+    locked = bool(unit_row) and unit_row["equipment_id"] != get_master_equipment_id(conn) and not part["local_only"]
+    if locked:
+        cost = part["cost"]
+        stock_qty = int(part["stock_qty"] or 0)
+        safety_stock = int(part["safety_stock"] or 0)
+        supplier = part["supplier"]
+    else:
+        cost = data.get("cost", part["cost"])
+        stock_qty = int(data.get("stock_qty", part["stock_qty"]) or 0)
+        safety_stock = int(data.get("safety_stock", part["safety_stock"]) or 0)
+        supplier = data.get("supplier", part["supplier"])
+    meaningful_change = (
+        name != part["name"] or spec != part["spec"] or cycle_days != part["cycle_days"]
+        or cycle_unit != part["cycle_unit"] or cost != part["cost"] or note != part["note"]
+        or stock_qty != (part["stock_qty"] or 0) or supplier != part["supplier"]
+    )
+    conn.execute(
+        """UPDATE parts SET name = ?, spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, memo = ?,
+           drawing_data = ?, icon = ?, pos_x = ?, pos_y = ?, width = ?, height = ?,
+           stock_qty = ?, safety_stock = ?, supplier = ?, supplier_contact = ?, lead_time_days = ? WHERE id = ?""",
+        (name, spec, cycle_days, cycle_unit, cost, note, memo, drawing_data, icon, pos_x, pos_y, width, height,
+         stock_qty, safety_stock, supplier, supplier_contact, lead_time_days, part_id),
+    )
+    if meaningful_change:
+        log_activity(conn, "update", "part", part_id, name, "부품 정보 수정")
+    conn.commit()
+    row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
+    conn.close()
+    return jsonify(serialize_part(conn, row))
+
+
+@app.route("/api/parts/<int:part_id>", methods=["DELETE"])
+def delete_part(part_id):
+    conn = get_db()
+    part = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
+    if not part:
+        conn.close()
+        return jsonify({"error": "부품을 찾을 수 없습니다"}), 404
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute("UPDATE parts SET deleted_at = ? WHERE id = ?", (now, part_id))
+    log_activity(conn, "delete", "part", part_id, part["name"], "휴지통으로 이동")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/parts/<int:part_id>/replace", methods=["POST"])
+def replace_part(part_id):
+    data = request.get_json()
+    replaced_date = data.get("replaced_date") or str(date.today())
+    cost = float(data.get("cost") or 0)
+    note = (data.get("note") or "").strip()
+
+    conn = get_db()
+    part = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
+    if not part:
+        conn.close()
+        return jsonify({"error": "부품을 찾을 수 없습니다"}), 404
+    conn.execute(
+        "INSERT INTO replacement_history (part_id, replaced_date, cost, note) VALUES (?, ?, ?, ?)",
+        (part_id, replaced_date, cost, note),
+    )
+    conn.execute(
+        "UPDATE parts SET last_replaced_date = ? WHERE id = ? AND (last_replaced_date IS NULL OR ? >= last_replaced_date)",
+        (replaced_date, part_id, replaced_date),
+    )
+    log_activity(conn, "replace", "part", part_id, part["name"], f"교체 기록 추가 ({replaced_date})")
+    conn.commit()
+    row = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
+    conn.close()
+    return jsonify(serialize_part(conn, row)), 201
+
+
+@app.route("/api/parts/<int:part_id>/history")
+def part_history(part_id):
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM replacement_history WHERE part_id = ? ORDER BY replaced_date DESC, id DESC",
+        (part_id,),
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/history/<int:history_id>", methods=["DELETE"])
+def delete_history(history_id):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM replacement_history WHERE id = ?", (history_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "이력을 찾을 수 없습니다"}), 404
+    part_id = row["part_id"]
+    conn.execute("DELETE FROM replacement_history WHERE id = ?", (history_id,))
+    # 삭제 후 남아있는 이력 중 가장 최근 날짜를 기준으로 교체주기 계산용 last_replaced_date를 다시 계산한다
+    # (남은 이력이 없으면 "미기록" 상태로 되돌아간다).
+    remaining = conn.execute(
+        "SELECT MAX(replaced_date) AS last_date FROM replacement_history WHERE part_id = ?", (part_id,)
+    ).fetchone()
+    conn.execute(
+        "UPDATE parts SET last_replaced_date = ? WHERE id = ?",
+        (remaining["last_date"], part_id),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/equipments/<int:equipment_id>/notes")
+def get_notes(equipment_id):
+    conn = get_db()
+    row = conn.execute(
+        "SELECT content, updated_at FROM equipment_notes WHERE equipment_id = ?", (equipment_id,)
+    ).fetchone()
+    conn.close()
+    return jsonify(dict(row) if row else {"content": "", "updated_at": None})
+
+
+@app.route("/api/equipments/<int:equipment_id>/notes", methods=["PUT"])
+def update_notes(equipment_id):
+    data = request.get_json()
+    content = sanitize_rich_html(data.get("content") or "")
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO equipment_notes (equipment_id, content, updated_at) VALUES (?, ?, datetime('now','localtime')) "
+        "ON CONFLICT(equipment_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+        (equipment_id, content),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT content, updated_at FROM equipment_notes WHERE equipment_id = ?", (equipment_id,)
+    ).fetchone()
+    conn.close()
+    return jsonify(dict(row))
+
+
+@app.route("/api/units/<int:unit_id>/notes")
+def get_unit_notes(unit_id):
+    conn = get_db()
+    row = conn.execute(
+        "SELECT content, updated_at FROM unit_notes WHERE unit_id = ?", (unit_id,)
+    ).fetchone()
+    conn.close()
+    return jsonify(dict(row) if row else {"content": "", "updated_at": None})
+
+
+@app.route("/api/units/<int:unit_id>/notes", methods=["PUT"])
+def update_unit_notes(unit_id):
+    data = request.get_json()
+    content = sanitize_rich_html(data.get("content") or "")
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO unit_notes (unit_id, content, updated_at) VALUES (?, ?, datetime('now','localtime')) "
+        "ON CONFLICT(unit_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+        (unit_id, content),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT content, updated_at FROM unit_notes WHERE unit_id = ?", (unit_id,)
+    ).fetchone()
+    conn.close()
+    return jsonify(dict(row))
+
+
+@app.route("/api/unit-templates")
+def list_unit_templates():
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM unit_templates ORDER BY id").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/unit-templates", methods=["POST"])
+def add_unit_template():
+    data = request.get_json()
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "유닛 이름을 입력하세요"}), 400
+    icon = (data.get("icon") or "⚙️").strip()
+    color = (data.get("color") or "#1a3a5c").strip()
+    pos_x = data.get("pos_x")
+    pos_y = data.get("pos_y")
+    if pos_x is None or pos_y is None:
+        pos_x, pos_y = random.uniform(15, 85), random.uniform(20, 80)
+    width = data.get("width") or 140
+    height = data.get("height") or 110
+    conn = get_db()
+    cur = conn.execute(
+        "INSERT INTO unit_templates (name, icon, color, pos_x, pos_y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (name, icon, color, pos_x, pos_y, width, height),
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM unit_templates WHERE id = ?", (cur.lastrowid,)).fetchone()
+    conn.close()
+    return jsonify(dict(row)), 201
+
+
+@app.route("/api/unit-templates/<int:template_id>", methods=["PUT"])
+def update_unit_template(template_id):
+    data = request.get_json()
+    conn = get_db()
+    t = conn.execute("SELECT * FROM unit_templates WHERE id = ?", (template_id,)).fetchone()
+    if not t:
+        conn.close()
+        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
+    name = (data.get("name") or t["name"]).strip()
+    icon = (data.get("icon") or t["icon"]).strip()
+    color = (data.get("color") or t["color"]).strip()
+    pos_x = data.get("pos_x", t["pos_x"])
+    pos_y = data.get("pos_y", t["pos_y"])
+    width = data.get("width", t["width"])
+    height = data.get("height", t["height"])
+    conn.execute(
+        "UPDATE unit_templates SET name = ?, icon = ?, color = ?, pos_x = ?, pos_y = ?, width = ?, height = ? WHERE id = ?",
+        (name, icon, color, pos_x, pos_y, width, height, template_id),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/unit-templates/<int:template_id>", methods=["DELETE"])
+def delete_unit_template(template_id):
+    conn = get_db()
+    conn.execute("DELETE FROM unit_templates WHERE id = ?", (template_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/unit-templates/apply", methods=["POST"])
+def apply_unit_templates():
+    """마지막으로 BACKUP한 기준 설비(TEAG01호기)의 유닛+부품 구성 스냅샷을 20개 설비 전체에
+    일괄 반영한다(아래 "기본 유닛 구성" 캔버스의 템플릿이 아니라, BACKUP 스냅샷을 기준으로 동작한다)."""
+    conn = get_db()
+    backup_units = conn.execute("SELECT * FROM master_backup_units ORDER BY id").fetchall()
+    if not backup_units:
+        conn.close()
+        return jsonify({"error": "백업된 구성이 없습니다. 먼저 BACKUP 버튼으로 기준 설비 구성을 백업해주세요."}), 400
+    equipments = conn.execute("SELECT id FROM equipments WHERE deleted_at IS NULL").fetchall()
+    backup_names = {u["name"] for u in backup_units}
+
+    total_parts = 0
+    for eq in equipments:
+        existing = {
+            u["name"]: u
+            for u in conn.execute(
+                "SELECT * FROM units WHERE equipment_id = ? AND deleted_at IS NULL", (eq["id"],)
+            ).fetchall()
+        }
+        for bu in backup_units:
+            if bu["name"] in existing:
+                u = existing[bu["name"]]
+                target_unit_id = u["id"]
+                conn.execute(
+                    "UPDATE units SET icon = ?, color = ?, pos_x = ?, pos_y = ?, width = ?, height = ?, "
+                    "drawing_data = ? WHERE id = ?",
+                    (bu["icon"], bu["color"], bu["pos_x"], bu["pos_y"], bu["width"], bu["height"],
+                     bu["drawing_data"], target_unit_id),
+                )
+            else:
+                cur = conn.execute(
+                    "INSERT INTO units (equipment_id, name, icon, color, pos_x, pos_y, width, height, drawing_data) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (eq["id"], bu["name"], bu["icon"], bu["color"], bu["pos_x"], bu["pos_y"], bu["width"],
+                     bu["height"], bu["drawing_data"]),
+                )
+                target_unit_id = cur.lastrowid
+            total_parts += sync_parts_from_backup_to_unit(conn, bu["name"], target_unit_id)
+        for name, u in existing.items():
+            if name not in backup_names:
+                conn.execute("DELETE FROM units WHERE id = ?", (u["id"],))
+
+    conn.commit()
+    conn.close()
+    return jsonify({
+        "ok": True, "equipment_count": len(equipments), "unit_count": len(backup_units), "part_count": total_parts,
+    })
+
+
+@app.route("/api/unit-templates/apply-selected", methods=["POST"])
+def apply_unit_templates_selected():
+    """BACKUP 스냅샷 중 요청에 담긴 유닛/부품만 골라서 전체 설비에 반영한다("선택 적용").
+    "모든 설비에 적용"과 달리 유닛 자체는 만들거나 지우지 않고(대상 설비에 해당 이름의
+    유닛이 없으면 그 설비는 건너뜀), 선택하지 않은 기존 부품도 삭제하지 않는다 - 어디까지나
+    고른 부품만 추가/갱신하는 용도다.
+    요청 형식: {"selections": {"유닛 이름": ["부품 이름", ...], ...}}"""
+    data = request.get_json() or {}
+    selections = data.get("selections") or {}
+    conn = get_db()
+    backup_unit_names = {u["name"] for u in conn.execute("SELECT name FROM master_backup_units").fetchall()}
+    if not backup_unit_names:
+        conn.close()
+        return jsonify({"error": "백업된 구성이 없습니다. 먼저 BACKUP 버튼으로 기준 설비 구성을 백업해주세요."}), 400
+
+    equipments = conn.execute("SELECT id FROM equipments WHERE deleted_at IS NULL").fetchall()
+
+    applied_count = 0
+    touched_equipment_ids = set()
+    for unit_name, part_names in selections.items():
+        if unit_name not in backup_unit_names or not part_names:
+            continue
+        for eq in equipments:
+            target_unit = conn.execute(
+                "SELECT id FROM units WHERE equipment_id = ? AND name = ? AND deleted_at IS NULL",
+                (eq["id"], unit_name),
+            ).fetchone()
+            if not target_unit:
+                continue
+            n = sync_selected_parts_from_backup_to_unit(conn, unit_name, target_unit["id"], part_names)
+            if n:
+                applied_count += n
+                touched_equipment_ids.add(eq["id"])
+
+    if applied_count:
+        log_activity(
+            conn, "apply", "master", None, get_master_equipment_name(conn),
+            f"선택 적용: 설비 {len(touched_equipment_ids)}개, 부품 {applied_count}건 반영",
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "equipment_count": len(touched_equipment_ids), "applied_count": applied_count})
+
+
+@app.route("/api/master-equipment-name")
+def api_master_equipment_name():
+    conn = get_db()
+    master_id = get_master_equipment_id(conn)
+    name = get_master_equipment_name(conn)
+    conn.close()
+    return jsonify({"id": master_id, "name": name})
+
+
+@app.route("/api/master-equipment-id", methods=["PUT"])
+def set_master_equipment_id():
+    """기준 설비를 변경한다. 기존 BACKUP 스냅샷은 이전 기준 설비 구성 기준이라 새 기준
+    설비에는 더 이상 의미가 없으므로 함께 지운다 - 변경 후에는 다시 BACKUP을 진행해야
+    "모든 설비에 적용"/"선택 적용"을 쓸 수 있다."""
+    data = request.get_json() or {}
+    new_id = data.get("equipment_id")
+    conn = get_db()
+    equipment = conn.execute(
+        "SELECT * FROM equipments WHERE id = ? AND deleted_at IS NULL", (new_id,)
+    ).fetchone()
+    if not equipment:
+        conn.close()
+        return jsonify({"error": "설비를 찾을 수 없습니다"}), 404
+    old_name = get_master_equipment_name(conn)
+    set_config(conn, "master_equipment_id", str(new_id))
+    conn.execute("DELETE FROM master_backup_units")
+    conn.execute("DELETE FROM master_backup_parts")
+    conn.execute("DELETE FROM app_config WHERE key = 'master_backup_at'")
+    log_activity(
+        conn, "update", "master", new_id, equipment["name"],
+        f"기준 설비를 {old_name}에서 {equipment['name']}(으)로 변경 (기존 백업은 삭제됨)",
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "id": new_id, "name": equipment["name"]})
+
+
+@app.route("/api/master-backup")
+def get_master_backup():
+    conn = get_db()
+    meta = get_master_backup_meta(conn)
+    conn.close()
+    return jsonify(meta)
+
+
+@app.route("/api/master-backup/detail")
+def get_master_backup_detail():
+    """"선택 적용" 모달에서 고를 수 있도록, 백업된 유닛별 부품 목록을 반환한다."""
+    conn = get_db()
+    units = conn.execute("SELECT * FROM master_backup_units ORDER BY id").fetchall()
+    result = []
+    for u in units:
+        parts = conn.execute(
+            "SELECT name, spec FROM master_backup_parts WHERE unit_name = ? ORDER BY id", (u["name"],)
+        ).fetchall()
+        result.append({
+            "name": u["name"],
+            "icon": u["icon"],
+            "parts": [{"name": p["name"], "spec": p["spec"]} for p in parts],
+        })
+    conn.close()
+    return jsonify(result)
+
+
+@app.route("/api/master-backup", methods=["POST"])
+def make_master_backup():
+    conn = get_db()
+    create_master_backup(conn)
+    conn.commit()
+    meta = get_master_backup_meta(conn)
+    conn.close()
+    return jsonify(meta)
+
+
+@app.route("/api/vacuum", methods=["POST"])
+def api_vacuum():
+    """도면 교체·영구 삭제 등으로 안 쓰게 된 공간은 SQLite가 자동으로 파일에서 돌려주지
+    않고 재사용 대기 상태로만 남겨둔다. VACUUM으로 DB 파일을 다시 정리해 실제 용량을
+    줄인다. 시간이 걸릴 수 있어 사용자가 직접 원할 때 눌러서 실행한다.
+    같은 부품/유닛이 삭제되거나 도면이 바뀌어 어디서도 더 이상 참조하지 않게 된
+    drawing_blobs도 VACUUM 전에 함께 정리한다."""
+    before_size = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
+    conn = get_db()
+    try:
+        removed_blobs = cleanup_orphaned_drawing_blobs(conn)
+        conn.commit()
+        conn.execute("VACUUM")
+    except sqlite3.Error as e:
+        conn.close()
+        return jsonify({"error": f"DB 최적화 중 오류가 발생했습니다: {e}"}), 500
+    conn.commit()
+    conn.close()
+    # VACUUM으로 줄어든 실제 파일 크기는 커넥션을 완전히 닫아야 파일 시스템에 반영되므로,
+    # close() 이후에 다시 측정한다.
+    after_size = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
+    log_conn = get_db()
+    log_activity(
+        log_conn, "vacuum", "db", None, "DB 최적화",
+        f"{before_size / 1024 / 1024:.1f}MB → {after_size / 1024 / 1024:.1f}MB "
+        f"(안 쓰는 도면 {removed_blobs}개 정리)",
+    )
+    log_conn.commit()
+    log_conn.close()
+    return jsonify({
+        "ok": True,
+        "before_mb": round(before_size / 1024 / 1024, 1),
+        "after_mb": round(after_size / 1024 / 1024, 1),
+        "freed_mb": round((before_size - after_size) / 1024 / 1024, 1),
+    })
+
+
+@app.route("/api/alerts")
+def api_alerts():
+    return jsonify(get_alert_parts())
+
+
+@app.route("/api/calendar")
+def api_calendar():
+    today = date.today()
+    year = request.args.get("year", today.year, type=int)
+    month = request.args.get("month", today.month, type=int)
+    if month < 1 or month > 12:
+        return jsonify({"error": "잘못된 월입니다"}), 400
+    # 화면에서 다음 6개월치까지만 넘겨볼 수 있게 하므로, 서버에서도 그 범위를 벗어난
+    # 요청은 막는다.
+    months_ahead = (year - today.year) * 12 + (month - today.month)
+    if months_ahead > 6:
+        return jsonify({"error": "6개월 이후 달은 조회할 수 없습니다"}), 400
+    days = get_calendar_due_parts(year, month)
+    return jsonify({"year": year, "month": month, "days": days})
+
+
+@app.route("/api/alerts/export")
+def export_alerts_csv():
+    parts = get_alert_parts()
+    header = ["상태", "설비", "유닛", "부품명", "규격", "교체주기(일)", "최근교체일", "다음교체예정일", "남은/초과일수", "비고"]
+    rows = []
+    for p in parts:
+        days_text = f"{abs(p['days_left'])}일 초과" if p["status"] == "overdue" else f"{p['days_left']}일 남음"
+        rows.append([
+            p["label"], p["equipment_name"], p["unit_name"], p["name"], p.get("spec") or "",
+            p["cycle_days"], p.get("last_replaced_date") or "", p.get("next_due") or "",
+            days_text, p.get("note") or "",
+        ])
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return csv_response(f"교체현황_{timestamp}.csv", header, rows)
+
+
+@app.route("/api/search")
+def api_search():
+    q = (request.args.get("q") or "").strip()
+    status = request.args.get("status") or None
+    equipment_id = request.args.get("equipment_id")
+    equipment_id = int(equipment_id) if equipment_id else None
+    page = request.args.get("page", 1, type=int)
+    page_size = request.args.get("page_size", SEARCH_DEFAULT_PAGE_SIZE, type=int)
+    return jsonify(search_parts(q, status=status, equipment_id=equipment_id, page=page, page_size=page_size))
+
+
+def build_stats_payload(conn, unit_names, start_date=None, end_date=None):
+    """부품 규격 기준(금액순/사용량 많은순/교체주기 짧은순) 통계를 만든다."""
+    period_active = bool(start_date or end_date)
+    spec_rows = get_part_spec_stats(conn, unit_names, start_date=start_date, end_date=end_date)
+    # 순위는 실제 교체 이력 금액 합산(replacement_cost_total) 기준으로만 매긴다. 구매 금액은
+    # 별도 항목으로 항상 같이 보여준다. 기간 필터가 없으면 아직 교체하지 않은 부품도 구매
+    # 금액을 볼 수 있게 전부 보여주고, 기간 필터가 있으면 그 기간에 실제 교체 기록이 있는
+    # 부품만 보여준다.
+    by_cost = sorted(
+        (r for r in spec_rows if period_active is False or r["usage_count"] > 0),
+        key=lambda r: r["replacement_cost_total"], reverse=True
+    )
+    by_usage = sorted(spec_rows, key=lambda r: r["usage_count"], reverse=True)
+    # 순위는 실제 평균 교체 간격(avg_actual_interval_days) 기준으로만 매긴다. 표준주기는
+    # 별도 항목으로 항상 같이 보여준다. 실제 이력이 2회 미만이라 간격을 계산할 수 없는
+    # 부품은 목록에서 제외한다.
+    by_short_cycle = sorted(
+        (r for r in spec_rows if r["avg_actual_interval_days"] is not None),
+        key=lambda r: r["avg_actual_interval_days"]
+    )
+
+    all_unit_names = [
+        r["name"] for r in conn.execute(
+            "SELECT DISTINCT name FROM units WHERE deleted_at IS NULL ORDER BY name"
+        ).fetchall()
+    ]
+
+    return {
+        "by_cost": by_cost,
+        "by_usage": by_usage,
+        "by_short_cycle": by_short_cycle,
+        "unit_names": all_unit_names,
+        "period_active": bool(start_date or end_date),
+    }
+
+
+@app.route("/api/stats")
+def api_stats():
+    unit_names = request.args.getlist("unit_name")
+    start_date = request.args.get("start_date") or None
+    end_date = request.args.get("end_date") or None
+    conn = get_db()
+    payload = build_stats_payload(conn, unit_names, start_date=start_date, end_date=end_date)
+    conn.close()
+    return jsonify(payload)
+
+
+def format_cycle_for_export(days, unit):
+    if days is None or unit == "N/A":
+        return "N/A"
+    if unit == "년":
+        return f"{round(days / 365, 2)}년"
+    return f"{days}일"
+
+
+@app.route("/api/stats/export.csv")
+def export_stats_csv():
+    unit_names = request.args.getlist("unit_name")
+    start_date = request.args.get("start_date") or None
+    end_date = request.args.get("end_date") or None
+    conn = get_db()
+    payload = build_stats_payload(conn, unit_names, start_date=start_date, end_date=end_date)
+    conn.close()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+
+    writer.writerow(["[금액순 (부품 규격 기준, 교체 이력 금액 합산 기준 정렬)]"])
+    writer.writerow(["순위", "부품명", "규격", "구매금액", "교체 이력 금액 합산", "등록 수", "교체 횟수"])
+    for i, r in enumerate(payload["by_cost"], 1):
+        writer.writerow([
+            i, r["name"], r["spec"], r["purchase_cost"], r["replacement_cost_total"],
+            r["instance_count"], r["usage_count"],
+        ])
+    writer.writerow([])
+
+    writer.writerow(["[사용량 많은순 (부품 규격 기준)]"])
+    writer.writerow(["순위", "부품명", "규격", "교체 횟수", "등록 수", "구매금액", "교체 이력 금액 합산"])
+    for i, r in enumerate(payload["by_usage"], 1):
+        writer.writerow([
+            i, r["name"], r["spec"], r["usage_count"], r["instance_count"],
+            r["purchase_cost"], r["replacement_cost_total"],
+        ])
+    writer.writerow([])
+
+    writer.writerow(["[교체 주기 짧은순 (부품 규격 기준, 실제 평균 교체 간격 기준 정렬)]"])
+    writer.writerow(["순위", "부품명", "규격", "표준주기", "실제 평균 교체 간격", "등록 수"])
+    for i, r in enumerate(payload["by_short_cycle"], 1):
+        writer.writerow([
+            i, r["name"], r["spec"], format_cycle_for_export(r["min_cycle_days"], r["min_cycle_unit"]),
+            f'{r["avg_actual_interval_days"]}일', r["instance_count"],
+        ])
+
+    data = "﻿" + buf.getvalue()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"통계_{timestamp}.csv"
+    encoded_name = quote(filename)
+    return Response(
+        data,
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename=stats.csv; filename*=UTF-8''{encoded_name}"
+        },
+    )
+
+
+def build_stats_pptx(payload, unit_names):
+    """조건별(금액순/사용량순/교체주기순) TOP 5를 표+막대 그래프로 함께 보여주는
+    보고서 형태의 PPT를 생성한다."""
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+
+    title_slide = prs.slides.add_slide(prs.slide_layouts[0])
+    title_slide.shapes.title.text = "부품/유닛 통계 리포트"
+    filter_text = ", ".join(unit_names) if unit_names else "전체 유닛"
+    title_slide.placeholders[1].text = (
+        f"생성일: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n필터: {filter_text}\n"
+        f"조건별 TOP 5 표 및 막대 그래프"
+    )
+
+    blank_layout = prs.slide_layouts[6]
+
+    def add_report_slide(title, headers, rows, chart_labels, chart_values, chart_value_title, number_format="0"):
+        """표(왼쪽, 상위 5건)와 막대 그래프(오른쪽)를 함께 보여주는 보고서 슬라이드를 추가한다."""
+        slide = prs.slides.add_slide(blank_layout)
+        title_box = slide.shapes.add_textbox(Inches(0.4), Inches(0.3), Inches(12.5), Inches(0.7))
+        tf = title_box.text_frame
+        tf.text = title
+        tf.paragraphs[0].font.size = Pt(28)
+        tf.paragraphs[0].font.bold = True
+
+        n_rows = len(rows) + 1
+        n_cols = len(headers)
+        if rows:
+            table = slide.shapes.add_table(
+                n_rows, n_cols, Inches(0.4), Inches(1.3), Inches(6.1), Inches(0.5 * n_rows)
+            ).table
+            for c, h in enumerate(headers):
+                cell = table.cell(0, c)
+                cell.text = str(h)
+                cell.text_frame.paragraphs[0].font.bold = True
+                cell.text_frame.paragraphs[0].font.size = Pt(13)
+            for r_i, row in enumerate(rows, 1):
+                for c_i, val in enumerate(row):
+                    cell = table.cell(r_i, c_i)
+                    cell.text = str(val)
+                    cell.text_frame.paragraphs[0].font.size = Pt(12)
+        else:
+            empty_box = slide.shapes.add_textbox(Inches(0.4), Inches(1.5), Inches(6.1), Inches(1.0))
+            empty_box.text_frame.text = "표시할 데이터가 없습니다."
+
+        if chart_labels:
+            chart_data = CategoryChartData()
+            chart_data.categories = chart_labels
+            chart_data.add_series(chart_value_title, chart_values)
+            chart_frame = slide.shapes.add_chart(
+                XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(6.9), Inches(1.3), Inches(6.0), Inches(4.8), chart_data
+            )
+            chart = chart_frame.chart
+            chart.has_legend = False
+            plot = chart.plots[0]
+            plot.has_data_labels = True
+            plot.data_labels.font.size = Pt(11)
+            plot.data_labels.number_format = number_format
+            plot.data_labels.number_format_is_linked = False
+            chart.category_axis.tick_labels.font.size = Pt(10)
+            chart.value_axis.tick_labels.font.size = Pt(10)
+
+    def chart_label(r):
+        return f'{r["name"]} ({r["spec"]})' if r.get("spec") else r["name"]
+
+    by_cost5 = payload["by_cost"][:5]
+    add_report_slide(
+        "금액순 TOP 5 (부품 규격 기준, 교체 이력 금액 합산 기준 정렬)",
+        ["순위", "부품명", "규격", "구매금액(원)", "교체 이력 금액 합산(원)", "등록 수", "교체 횟수"],
+        [
+            [
+                i, r["name"], r["spec"], f'{r["purchase_cost"]:,.0f}', f'{r["replacement_cost_total"]:,.0f}',
+                r["instance_count"], r["usage_count"],
+            ]
+            for i, r in enumerate(by_cost5, 1)
+        ],
+        [chart_label(r) for r in by_cost5],
+        [r["replacement_cost_total"] for r in by_cost5],
+        "교체 이력 금액 합산(원)",
+        number_format="#,##0",
+    )
+
+    by_usage5 = payload["by_usage"][:5]
+    add_report_slide(
+        "사용량 많은순 TOP 5 (부품 규격 기준)",
+        ["순위", "부품명", "규격", "교체 횟수", "등록 수", "구매금액(원)", "교체 이력 금액 합산(원)"],
+        [
+            [
+                i, r["name"], r["spec"], r["usage_count"], r["instance_count"],
+                f'{r["purchase_cost"]:,.0f}', f'{r["replacement_cost_total"]:,.0f}',
+            ]
+            for i, r in enumerate(by_usage5, 1)
+        ],
+        [chart_label(r) for r in by_usage5],
+        [r["usage_count"] for r in by_usage5],
+        "교체 횟수",
+    )
+
+    by_short5 = payload["by_short_cycle"][:5]
+    add_report_slide(
+        "교체 주기 짧은순 TOP 5 (부품 규격 기준, 실제 평균 교체 간격 기준 정렬)",
+        ["순위", "부품명", "규격", "표준주기", "실제 평균 교체 간격(일)", "등록 수"],
+        [
+            [
+                i, r["name"], r["spec"], format_cycle_for_export(r["min_cycle_days"], r["min_cycle_unit"]),
+                r["avg_actual_interval_days"], r["instance_count"],
+            ]
+            for i, r in enumerate(by_short5, 1)
+        ],
+        [chart_label(r) for r in by_short5],
+        [r["avg_actual_interval_days"] for r in by_short5],
+        "실제 평균 교체 간격(일)",
+    )
+
+    buf = io.BytesIO()
+    prs.save(buf)
+    buf.seek(0)
+    return buf
+
+
+@app.route("/api/stats/export.pptx")
+def export_stats_pptx():
+    unit_names = request.args.getlist("unit_name")
+    start_date = request.args.get("start_date") or None
+    end_date = request.args.get("end_date") or None
+    try:
+        conn = get_db()
+        payload = build_stats_payload(conn, unit_names, start_date=start_date, end_date=end_date)
+        conn.close()
+        buf = build_stats_pptx(payload, unit_names)
+    except Exception:
+        # PPT 생성 중 예기치 못한 오류가 나도 서버가 조용히 죽거나 모호한 메시지 대신,
+        # 콘솔에 원인을 남기고 클라이언트에는 명확한 오류를 반환한다.
+        traceback.print_exc()
+        return jsonify({"error": "PPT 생성 중 오류가 발생했습니다. 서버 콘솔의 오류 메시지를 확인해주세요."}), 500
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=f"통계_{timestamp}.pptx",
+        mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    )
+
+
+@app.route("/api/backup", methods=["POST"])
+def download_backup():
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"equipment_backup_{timestamp}.db"
+    dest_path = os.path.join(BACKUP_DIR, filename)
+    shutil.copyfile(DB_PATH, dest_path)
+    conn = get_db()
+    log_activity(conn, "backup", "backup", None, filename, f"백업 파일 저장: {dest_path}")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "filename": filename, "path": dest_path})
+
+
+@app.route("/trash")
+def trash_page():
+    return render_template("trash.html")
+
+
+@app.route("/api/trash")
+def api_trash():
+    conn = get_db()
+    equipments = conn.execute("""
+        SELECT *, (SELECT COUNT(*) FROM units WHERE equipment_id = equipments.id) AS unit_count
+        FROM equipments WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC
+    """).fetchall()
+    # 소속 설비/유닛이 함께 삭제된(연쇄 삭제된) 항목은 부모를 복원하면 같이 복원되므로
+    # 여기서는 "단독으로" 삭제된 유닛/부품만 보여준다 (부모는 살아있는데 이것만 삭제된 경우).
+    # 휴지통 화면은 도면을 표시하지 않으므로 drawing_data는 조회하지 않는다.
+    units = conn.execute(f"""
+        SELECT {UNIT_COLS_SANS_DRAWING}, e.name AS equipment_name
+        FROM units u
+        JOIN equipments e ON u.equipment_id = e.id
+        WHERE u.deleted_at IS NOT NULL AND e.deleted_at IS NULL
+        ORDER BY u.deleted_at DESC
+    """).fetchall()
+    parts = conn.execute(f"""
+        SELECT {PART_COLS_SANS_DRAWING}, u.name AS unit_name, e.name AS equipment_name
+        FROM parts p
+        JOIN units u ON p.unit_id = u.id
+        JOIN equipments e ON u.equipment_id = e.id
+        WHERE p.deleted_at IS NOT NULL AND u.deleted_at IS NULL
+        ORDER BY p.deleted_at DESC
+    """).fetchall()
+    conn.close()
+    return jsonify({
+        "equipments": [dict(r) for r in equipments],
+        "units": [dict(r) for r in units],
+        "parts": [dict(r) for r in parts],
+    })
+
+
+@app.route("/api/trash/equipment/<int:equipment_id>/restore", methods=["POST"])
+def restore_equipment(equipment_id):
+    conn = get_db()
+    equipment = conn.execute("SELECT * FROM equipments WHERE id = ?", (equipment_id,)).fetchone()
+    if not equipment:
+        conn.close()
+        return jsonify({"error": "설비를 찾을 수 없습니다"}), 404
+    conn.execute("UPDATE equipments SET deleted_at = NULL WHERE id = ?", (equipment_id,))
+    unit_ids = [
+        r["id"] for r in conn.execute(
+            "SELECT id FROM units WHERE equipment_id = ?", (equipment_id,)
+        ).fetchall()
+    ]
+    if unit_ids:
+        placeholders = ",".join("?" for _ in unit_ids)
+        conn.execute(f"UPDATE units SET deleted_at = NULL WHERE id IN ({placeholders})", unit_ids)
+        conn.execute(f"UPDATE parts SET deleted_at = NULL WHERE unit_id IN ({placeholders})", unit_ids)
+    log_activity(conn, "restore", "equipment", equipment_id, equipment["name"], "휴지통에서 복원")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/trash/unit/<int:unit_id>/restore", methods=["POST"])
+def restore_unit(unit_id):
+    conn = get_db()
+    unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
+    if not unit:
+        conn.close()
+        return jsonify({"error": "유닛을 찾을 수 없습니다"}), 404
+    conn.execute("UPDATE units SET deleted_at = NULL WHERE id = ?", (unit_id,))
+    conn.execute("UPDATE parts SET deleted_at = NULL WHERE unit_id = ?", (unit_id,))
+    log_activity(conn, "restore", "unit", unit_id, unit["name"], "휴지통에서 복원")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/trash/part/<int:part_id>/restore", methods=["POST"])
+def restore_part(part_id):
+    conn = get_db()
+    part = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
+    if not part:
+        conn.close()
+        return jsonify({"error": "부품을 찾을 수 없습니다"}), 404
+    conn.execute("UPDATE parts SET deleted_at = NULL WHERE id = ?", (part_id,))
+    log_activity(conn, "restore", "part", part_id, part["name"], "휴지통에서 복원")
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/trash/equipment/<int:equipment_id>", methods=["DELETE"])
+def permanent_delete_equipment(equipment_id):
+    conn = get_db()
+    equipment = conn.execute("SELECT * FROM equipments WHERE id = ?", (equipment_id,)).fetchone()
+    if equipment:
+        conn.execute("DELETE FROM equipments WHERE id = ?", (equipment_id,))
+        log_activity(conn, "permanent_delete", "equipment", equipment_id, equipment["name"], "영구 삭제")
+        conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/trash/unit/<int:unit_id>", methods=["DELETE"])
+def permanent_delete_unit(unit_id):
+    conn = get_db()
+    unit = conn.execute("SELECT * FROM units WHERE id = ?", (unit_id,)).fetchone()
+    if unit:
+        conn.execute("DELETE FROM units WHERE id = ?", (unit_id,))
+        log_activity(conn, "permanent_delete", "unit", unit_id, unit["name"], "영구 삭제")
+        conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/trash/part/<int:part_id>", methods=["DELETE"])
+def permanent_delete_part(part_id):
+    conn = get_db()
+    part = conn.execute("SELECT * FROM parts WHERE id = ?", (part_id,)).fetchone()
+    if part:
+        conn.execute("DELETE FROM parts WHERE id = ?", (part_id,))
+        log_activity(conn, "permanent_delete", "part", part_id, part["name"], "영구 삭제")
+        conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/trash/empty", methods=["POST"])
+def empty_trash():
+    """휴지통에 있는 설비/유닛/부품을 한 번에 모두 영구 삭제한다. 삭제된 설비는 소속 유닛/부품이
+    (FK ON DELETE CASCADE로) 함께 삭제되므로, 부모 설비가 살아있는 채로 단독 삭제된 유닛/부품만
+    별도로 골라 지운다 - /api/trash가 목록을 보여주는 기준과 동일하다."""
+    conn = get_db()
+    equipments = conn.execute("SELECT id FROM equipments WHERE deleted_at IS NOT NULL").fetchall()
+    units = conn.execute("""
+        SELECT u.id FROM units u JOIN equipments e ON u.equipment_id = e.id
+        WHERE u.deleted_at IS NOT NULL AND e.deleted_at IS NULL
+    """).fetchall()
+    parts = conn.execute("""
+        SELECT p.id FROM parts p JOIN units u ON p.unit_id = u.id
+        WHERE p.deleted_at IS NOT NULL AND u.deleted_at IS NULL
+    """).fetchall()
+    equipment_ids = [r["id"] for r in equipments]
+    unit_ids = [r["id"] for r in units]
+    part_ids = [r["id"] for r in parts]
+    if equipment_ids:
+        placeholders = ",".join("?" for _ in equipment_ids)
+        conn.execute(f"DELETE FROM equipments WHERE id IN ({placeholders})", equipment_ids)
+    if unit_ids:
+        placeholders = ",".join("?" for _ in unit_ids)
+        conn.execute(f"DELETE FROM units WHERE id IN ({placeholders})", unit_ids)
+    if part_ids:
+        placeholders = ",".join("?" for _ in part_ids)
+        conn.execute(f"DELETE FROM parts WHERE id IN ({placeholders})", part_ids)
+    if equipment_ids or unit_ids or part_ids:
+        log_activity(
+            conn, "permanent_delete", "trash", None, "휴지통 비우기",
+            f"설비 {len(equipment_ids)}개, 유닛 {len(unit_ids)}개, 부품 {len(part_ids)}개 영구 삭제",
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({
+        "ok": True, "equipment_count": len(equipment_ids), "unit_count": len(unit_ids), "part_count": len(part_ids),
+    })
+
+
+@app.route("/activity-log")
+def activity_log_page():
+    return render_template("activity_log.html")
+
+
+@app.route("/api/activity-log")
+def api_activity_log():
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM activity_log ORDER BY id DESC LIMIT 300"
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+def mail_scheduler_loop():
+    """30초마다 예약 시간을 확인해, 설정된 시각(HH:MM)이 되면 하루 1회 발송한다."""
+    last_sent_date = None
+    while True:
+        try:
+            conn = get_db()
+            t = get_config(conn, "mail_schedule_time")
+            conn.close()
+            if t:
+                now = datetime.now()
+                if now.strftime("%H:%M") == t and last_sent_date != now.strftime("%Y-%m-%d"):
+                    ok, msg = send_status_mail()
+                    print(f"[예약 메일] {now:%Y-%m-%d %H:%M} → {msg}")
+                    last_sent_date = now.strftime("%Y-%m-%d")
+        except Exception as e:
+            print("[예약 메일] 오류:", e)
+        time.sleep(30)
+
+
+def activity_log_cleanup_loop():
+    """하루에 한 번, 보관 기간(ACTIVITY_LOG_RETENTION_DAYS)이 지난 활동 로그를 정리한다.
+    last_run_date를 None으로 시작해, 프로그램을 새로 켤 때마다 한 번은 즉시 정리하고
+    이후로는 날짜가 바뀔 때만 다시 실행한다."""
+    last_run_date = None
+    while True:
+        try:
+            today = datetime.now().strftime("%Y-%m-%d")
+            if last_run_date != today:
+                conn = get_db()
+                removed = cleanup_old_activity_log(conn)
+                conn.commit()
+                conn.close()
+                if removed:
+                    print(f"[활동 로그 정리] {removed}건 삭제 ({ACTIVITY_LOG_RETENTION_DAYS}일 이상 경과)")
+                last_run_date = today
+        except Exception as e:
+            print("[활동 로그 정리] 오류:", e)
+        time.sleep(3600)
+
+
+if __name__ == "__main__":
+    # 같은 컴퓨터에서 다른 설비군을 위해 이 프로그램 폴더를 통째로 복사해 두 번째 인스턴스를
+    # 띄울 때, 소스 코드를 고치지 않고도 포트를 바꿀 수 있도록 실행 인자/환경변수로 받는다.
+    # 우선순위: 실행 인자(python app.py 5001) > 환경변수(PORT) > 기본값 5000.
+    if len(sys.argv) > 1:
+        PORT = int(sys.argv[1])
+    else:
+        PORT = int(os.environ.get("PORT", 5000))
+
+    init_db()
+    _conn = get_db()
+    app.secret_key = get_config(_conn, "secret_key")
+    _conn.close()
+    lan_ip = get_lan_ip()
+    print("설비 부품 교체 관리 시스템 시작!")
+    print(f"  이 컴퓨터에서 접속: http://localhost:{PORT}")
+    print(f"  같은 네트워크의 다른 사람 접속: http://{lan_ip}:{PORT}")
+    print("  (다른 사람이 접속 안 되면 Windows 방화벽에서 Python 허용 여부를 확인하세요)")
+    print(f"  최초 접속 비밀번호: {DEFAULT_PASSWORD} (로그인 후 반드시 변경해주세요)")
+    threading.Thread(target=mail_scheduler_loop, daemon=True).start()
+    threading.Thread(target=activity_log_cleanup_loop, daemon=True).start()
+    app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)

@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>설비 부품 교체 관리 시스템</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/theme.js"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="d-flex align-items-center gap-2">
+    <a href="/" class="btn btn-sm btn-outline-light"><i class="bi bi-arrow-left"></i> 대시보드</a>
+    <i class="bi bi-cpu"></i>
+    <h1 id="equipmentPageTitle">설비</h1>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span id="clock" class="clock"></span>
+    <button id="editModeBtn" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-pencil-square"></i> 설비 구성 편집
+    </button>
+  </div>
+</header>
+
+<main class="container-fluid py-4">
+
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <div class="legend">
+      <span class="legend-item"><span class="dot dot-ok"></span> 정상</span>
+      <span class="legend-item"><span class="dot dot-soon"></span> 교체 임박</span>
+      <span class="legend-item"><span class="dot dot-overdue"></span> 교체 필요</span>
+      <span class="legend-item"><span class="dot dot-unknown"></span> 미기록 / 부품 없음</span>
+    </div>
+    <div class="legend">
+      <span class="legend-item"><i class="bi bi-geo-alt"></i> 위치: <span id="equipmentLocationView">-</span></span>
+      <span class="legend-item"><i class="bi bi-calendar-event"></i> SETUP: <span id="equipmentSetupDateView">-</span></span>
+      <span class="legend-item"><i class="bi bi-hourglass-split"></i> 가동: <span id="equipmentRuntimeView">-</span></span>
+      <button type="button" id="editEquipmentInfoBtn" class="btn btn-sm btn-link p-0 text-decoration-none legend-edit-btn">
+        <i class="bi bi-pencil"></i>
+      </button>
+    </div>
+  </div>
+
+  <div id="equipment" class="equipment-frame">
+    <div class="equipment-label" id="equipmentLabel">유닛을 클릭하면 상세 페이지로 이동 · 편집 모드에서 드래그로 배치/크기 변경</div>
+    <div id="canvas" class="equipment-canvas"></div>
+    <div class="canvas-actions">
+      <button id="addUnitBtn" class="btn btn-sm btn-outline-primary d-none">
+        <i class="bi bi-plus-lg"></i> 유닛 추가
+      </button>
+      <button id="pasteUnitBtn" class="btn btn-sm btn-outline-secondary d-none">
+        <i class="bi bi-clipboard-check"></i> 붙여넣기
+      </button>
+    </div>
+  </div>
+
+  <div class="notes-section">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h6 class="mb-0"><i class="bi bi-journal-text"></i> 설비 메모 / 구매처 링크</h6>
+      <div class="d-flex align-items-center gap-2">
+        <span id="notesSavedAt" class="text-muted small"></span>
+        <button id="editNotesBtn" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-pencil"></i> 편집
+        </button>
+        <button id="saveNotesBtn" class="btn btn-sm btn-primary d-none">저장</button>
+        <button id="cancelNotesBtn" class="btn btn-sm btn-outline-secondary d-none">취소</button>
+      </div>
+    </div>
+    <div id="notesView" class="notes-view"></div>
+    <div id="notesEdit" class="form-control d-none rich-edit" contenteditable="true" style="min-height: 160px;"
+      data-placeholder="설비 정보, 부품 구매 사이트 URL, 엑셀 표 등을 자유롭게 기록하세요. (엑셀 표를 붙여넣으면 서식이 유지되고, http://, https://로 시작하는 링크는 자동으로 클릭 가능한 링크가 됩니다)"></div>
+  </div>
+
+</main>
+
+<!-- 유닛 추가/편집 모달 -->
+<div class="modal fade" id="unitEditModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="unitEditTitle">유닛 추가</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="unitEditForm">
+          <input type="hidden" id="unitEditId">
+          <div class="mb-2">
+            <label class="form-label">유닛 이름</label>
+            <input type="text" class="form-control" id="unitEditName" required>
+          </div>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label">아이콘 (이모지)</label>
+              <input type="text" class="form-control" id="unitEditIcon" placeholder="⚙️">
+            </div>
+            <div class="col-6">
+              <label class="form-label">색상</label>
+              <input type="color" class="form-control form-control-color w-100" id="unitEditColor" value="#1a3a5c">
+            </div>
+          </div>
+          <div id="unitIconPicker" class="icon-picker"></div>
+          <div class="mb-2 mt-3">
+            <div class="d-flex justify-content-between align-items-center">
+              <label class="form-label mb-0">도면</label>
+              <div class="d-flex align-items-center gap-2">
+                <span id="unitDrawingStatus" class="small text-muted"></span>
+                <button type="button" id="unitDrawingBtn" class="btn btn-sm btn-outline-secondary">
+                  <i class="bi bi-image"></i> 도면 추가/변경
+                </button>
+              </div>
+            </div>
+            <div id="unitDrawingArea" class="part-drawing-paste d-none" tabindex="0">
+              <div id="unitDrawingPlaceholder" class="part-drawing-placeholder">
+                <i class="bi bi-clipboard"></i> 이 영역을 클릭한 후 이미지를 붙여넣으세요 (Ctrl+V)
+              </div>
+              <img id="unitDrawingPreview" class="part-drawing-preview d-none">
+            </div>
+            <button type="button" id="unitDrawingRemoveBtn" class="btn btn-sm btn-outline-danger d-none mt-2">
+              <i class="bi bi-trash"></i> 도면 삭제
+            </button>
+          </div>
+          <button type="submit" class="btn btn-primary w-100 mt-2">저장</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 유닛 도면 보기 모달 -->
+<div class="modal fade" id="unitDrawingModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="unitDrawingModalTitle">도면</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center">
+        <img id="unitDrawingModalImg" class="drawing-modal-img">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 설비 위치/SETUP 일자 편집 모달 -->
+<div class="modal fade" id="equipmentInfoModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">설비 정보 편집</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="equipmentInfoForm">
+          <div class="mb-2">
+            <label class="form-label">설비 위치</label>
+            <input type="text" class="form-control" id="equipmentLocationInput" placeholder="예: 2공장 3층 A라인">
+          </div>
+          <div class="mb-2">
+            <label class="form-label">SETUP 일자</label>
+            <input type="date" class="form-control" id="equipmentSetupDateInput">
+          </div>
+          <button type="submit" class="btn btn-primary w-100 mt-2">저장</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>const EQUIPMENT_ID = {{ equipment_id }};</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/static/idb_clipboard.js"></script>
+<script src="/static/equipment.js"></script>
+</body>
+</html>

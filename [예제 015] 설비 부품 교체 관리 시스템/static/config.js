@@ -1,0 +1,544 @@
+let unitEditModal;
+let applySelectedModal;
+let changeMasterModal;
+let masterEquipmentName = "기준 설비";
+let masterEquipmentId = null;
+
+const ICON_CHOICES = [
+  "⚙️", "🔧", "🔩", "🛠️", "🪛", "🔨", "📦", "🖥️",
+  "🖨️", "💻", "📡", "🎛️", "🚨", "💡", "🔌", "⚡",
+  "🔋", "🌡️", "💧", "🧪", "🧯", "🧰", "🏭", "⚗️",
+  "🌀", "🗜️", "🧲", "📊", "🛞", "🚿", "🔥", "❄️",
+];
+
+function renderIconPicker(containerId, inputId, current) {
+  const container = document.getElementById(containerId);
+  const input = document.getElementById(inputId);
+  container.innerHTML = ICON_CHOICES.map(
+    (ic) => `<button type="button" class="icon-choice ${ic === current ? "selected" : ""}" data-icon="${ic}">${ic}</button>`
+  ).join("");
+  container.classList.add("d-none");
+  container.querySelectorAll(".icon-choice").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      input.value = btn.dataset.icon;
+      container.querySelectorAll(".icon-choice").forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+      container.classList.add("d-none");
+    });
+  });
+  if (!container.dataset.toggleBound) {
+    container.dataset.toggleBound = "1";
+    input.addEventListener("click", () => {
+      container.classList.toggle("d-none");
+    });
+    document.addEventListener("click", (e) => {
+      if (!container.contains(e.target) && e.target !== input) {
+        container.classList.add("d-none");
+      }
+    });
+  }
+}
+
+function tick() {
+  const el = document.getElementById("clock");
+  if (el) el.textContent = new Date().toLocaleString("ko-KR");
+}
+
+async function fetchJson(url, options) {
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    window.location.href = "/login";
+    throw new Error("로그인이 필요합니다");
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || "요청 처리 중 오류가 발생했습니다");
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+async function loadTemplates() {
+  const templates = await fetchJson("/api/unit-templates");
+  renderCanvas(templates);
+}
+
+function renderCanvas(templates) {
+  const canvas = document.getElementById("canvas");
+  canvas.innerHTML = templates.map(templateCardHtml).join("");
+  templates.forEach((t) => {
+    const card = canvas.querySelector(`[data-template-id="${t.id}"]`);
+    card.style.left = `${t.pos_x}%`;
+    card.style.top = `${t.pos_y}%`;
+    card.style.width = `${t.width}px`;
+    card.style.height = `${t.height}px`;
+
+    card.querySelector(".edit-unit-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openUnitEditModal(t);
+    });
+    card.querySelector(".delete-unit-btn")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm(`"${t.name}" 유닛을 기본 구성에서 삭제할까요?`)) return;
+      await fetchJson(`/api/unit-templates/${t.id}`, { method: "DELETE" });
+      loadTemplates();
+    });
+    card.querySelector(".copy-unit-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      copyUnit(t);
+    });
+
+    makeDraggable(card, t);
+    makeResizable(card, t);
+    makeResizableHorizontal(card, t);
+  });
+}
+
+const MIN_UNIT_WIDTH = 90;
+const MIN_UNIT_HEIGHT = 80;
+const MAX_UNIT_WIDTH = 320;
+const MAX_UNIT_HEIGHT = 260;
+
+function makeResizable(card, template) {
+  const handle = card.querySelector(".resize-handle");
+  if (!handle) return;
+
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startWidth = card.offsetWidth;
+    const startHeight = card.offsetHeight;
+
+    card.classList.add("dragging");
+
+    function onMove(ev) {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      const w = Math.min(Math.max(startWidth + dx, MIN_UNIT_WIDTH), MAX_UNIT_WIDTH);
+      const h = Math.min(Math.max(startHeight + dy, MIN_UNIT_HEIGHT), MAX_UNIT_HEIGHT);
+      card.style.width = `${w}px`;
+      card.style.height = `${h}px`;
+    }
+
+    async function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      card.classList.remove("dragging");
+      const width = card.offsetWidth;
+      const height = card.offsetHeight;
+      template.width = width;
+      template.height = height;
+      await fetchJson(`/api/unit-templates/${template.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ width, height }),
+      });
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+function makeResizableHorizontal(card, template) {
+  const handle = card.querySelector(".resize-handle-h");
+  if (!handle) return;
+
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX;
+    const startWidth = card.offsetWidth;
+
+    card.classList.add("dragging");
+
+    function onMove(ev) {
+      const dx = ev.clientX - startX;
+      const w = Math.min(Math.max(startWidth + dx, MIN_UNIT_WIDTH), MAX_UNIT_WIDTH);
+      card.style.width = `${w}px`;
+    }
+
+    async function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      card.classList.remove("dragging");
+      const width = card.offsetWidth;
+      template.width = width;
+      await fetchJson(`/api/unit-templates/${template.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ width }),
+      });
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+function makeDraggable(card, template) {
+  card.addEventListener("mousedown", (e) => {
+    if (e.target.closest(".unit-edit-actions")) return;
+    e.preventDefault();
+
+    const canvas = document.getElementById("canvas");
+    const rect = canvas.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startLeft = (parseFloat(card.style.left) / 100) * rect.width;
+    const startTop = (parseFloat(card.style.top) / 100) * rect.height;
+    let moved = false;
+
+    card.classList.add("dragging");
+
+    function onMove(ev) {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved = true;
+      const px = Math.min(Math.max(startLeft + dx, rect.width * 0.04), rect.width * 0.96);
+      const py = Math.min(Math.max(startTop + dy, rect.height * 0.04), rect.height * 0.96);
+      card.style.left = `${(px / rect.width) * 100}%`;
+      card.style.top = `${(py / rect.height) * 100}%`;
+    }
+
+    async function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      card.classList.remove("dragging");
+      if (moved) {
+        const pos_x = parseFloat(card.style.left);
+        const pos_y = parseFloat(card.style.top);
+        template.pos_x = pos_x;
+        template.pos_y = pos_y;
+        await fetchJson(`/api/unit-templates/${template.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pos_x, pos_y }),
+        });
+      } else {
+        openUnitEditModal(template);
+      }
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+function templateCardHtml(t) {
+  return `
+    <div class="unit-card edit-mode" data-template-id="${t.id}" style="--uc:${t.color}">
+      <div class="unit-icon-wrap"><span class="unit-icon">${t.icon}</span></div>
+      <div class="unit-name">${escapeHtml(t.name)}</div>
+      <div class="unit-edit-actions">
+        <button class="edit-unit-btn" title="편집"><i class="bi bi-pencil"></i></button>
+        <button class="copy-unit-btn" title="복사"><i class="bi bi-copy"></i></button>
+        <button class="delete-unit-btn" title="삭제"><i class="bi bi-trash"></i></button>
+      </div>
+      <div class="resize-handle" title="크기 조절 (가로+세로)"></div>
+      <div class="resize-handle-h" title="가로 크기 조절"></div>
+    </div>`;
+}
+
+const UNIT_CLIPBOARD_KEY = "unitClipboard";
+
+function copyUnit(template) {
+  const clipboard = {
+    name: template.name,
+    icon: template.icon,
+    color: template.color,
+    width: template.width,
+    height: template.height,
+    parts: [],
+  };
+  localStorage.setItem(UNIT_CLIPBOARD_KEY, JSON.stringify(clipboard));
+  updatePasteButton();
+  alert(`"${template.name}" 유닛을 복사했습니다.\n"붙여넣기" 버튼으로 동일한 유닛을 만들 수 있습니다.`);
+}
+
+function getUnitClipboard() {
+  const raw = localStorage.getItem(UNIT_CLIPBOARD_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function updatePasteButton() {
+  const clipboard = getUnitClipboard();
+  const btn = document.getElementById("pasteUnitBtn");
+  btn.classList.toggle("d-none", !clipboard);
+  if (clipboard) btn.title = `"${clipboard.name}" 붙여넣기`;
+}
+
+async function pasteUnit() {
+  const clipboard = getUnitClipboard();
+  if (!clipboard) {
+    alert("복사된 유닛이 없습니다. 먼저 유닛의 복사 아이콘을 눌러주세요.");
+    return;
+  }
+  await fetchJson("/api/unit-templates", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: `${clipboard.name} 복사본`,
+      icon: clipboard.icon,
+      color: clipboard.color,
+      width: clipboard.width,
+      height: clipboard.height,
+    }),
+  });
+  loadTemplates();
+}
+
+function openUnitEditModal(template) {
+  document.getElementById("unitEditTitle").textContent = template ? "유닛 편집" : "유닛 추가";
+  document.getElementById("unitEditId").value = template ? template.id : "";
+  document.getElementById("unitEditName").value = template ? template.name : "";
+  const icon = template ? template.icon : "⚙️";
+  document.getElementById("unitEditIcon").value = icon;
+  document.getElementById("unitEditColor").value = template ? template.color : "#1a3a5c";
+  renderIconPicker("unitIconPicker", "unitEditIcon", icon);
+  unitEditModal.show();
+}
+
+async function loadMasterEquipmentName() {
+  const res = await fetchJson("/api/master-equipment-name");
+  masterEquipmentName = res.name;
+  masterEquipmentId = res.id;
+  document.getElementById("masterEquipmentName").textContent = res.name;
+}
+
+async function openChangeMasterModal() {
+  const equipments = await fetchJson("/api/equipments");
+  const select = document.getElementById("changeMasterSelect");
+  select.innerHTML = equipments.map((e) => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join("");
+  select.value = masterEquipmentId;
+  document.getElementById("changeMasterCurrentName").textContent = masterEquipmentName;
+  changeMasterModal.show();
+}
+
+async function loadMasterBackupStatus() {
+  const meta = await fetchJson("/api/master-backup");
+  const el = document.getElementById("masterBackupStatus");
+  if (meta.backed_up_at) {
+    el.textContent = `마지막 백업: ${meta.backed_up_at} (유닛 ${meta.unit_count}개, 부품 ${meta.part_count}개)`;
+  } else {
+    el.textContent = "백업된 구성이 없습니다";
+  }
+}
+
+function applySelectedUnitGroupHtml(unit) {
+  const partsHtml = unit.parts.length
+    ? unit.parts.map((p) => `
+        <label class="form-check d-flex align-items-center gap-2 mb-1">
+          <input class="form-check-input part-select" type="checkbox" data-unit="${escapeHtml(unit.name)}" data-part="${escapeHtml(p.name)}">
+          <span>${escapeHtml(p.name)}${p.spec ? ` <span class="text-muted small">(${escapeHtml(p.spec)})</span>` : ""}</span>
+        </label>`).join("")
+    : `<p class="text-muted small mb-0">등록된 부품이 없습니다.</p>`;
+  return `
+    <div class="apply-selected-unit-group mb-3 pb-3 border-bottom">
+      <label class="form-check d-flex align-items-center gap-2">
+        <input class="form-check-input unit-select-all" type="checkbox" data-unit="${escapeHtml(unit.name)}" ${unit.parts.length ? "" : "disabled"}>
+        <span class="fw-bold">${unit.icon || "⚙️"} ${escapeHtml(unit.name)}</span>
+      </label>
+      <div class="ps-4 mt-2">${partsHtml}</div>
+    </div>`;
+}
+
+function updateUnitSelectAllState(unitName) {
+  const list = document.getElementById("applySelectedUnitList");
+  const parts = list.querySelectorAll(`.part-select[data-unit="${CSS.escape(unitName)}"]`);
+  const unitCk = list.querySelector(`.unit-select-all[data-unit="${CSS.escape(unitName)}"]`);
+  if (!unitCk || parts.length === 0) return;
+  const checkedCount = Array.from(parts).filter((el) => el.checked).length;
+  unitCk.checked = checkedCount === parts.length;
+  unitCk.indeterminate = checkedCount > 0 && checkedCount < parts.length;
+}
+
+async function openApplySelectedModal() {
+  const list = document.getElementById("applySelectedUnitList");
+  const emptyMsg = document.getElementById("applySelectedEmptyMsg");
+  const confirmBtn = document.getElementById("applySelectedConfirmBtn");
+  const units = await fetchJson("/api/master-backup/detail");
+  if (units.length === 0) {
+    list.innerHTML = "";
+    emptyMsg.classList.remove("d-none");
+    confirmBtn.disabled = true;
+  } else {
+    emptyMsg.classList.add("d-none");
+    confirmBtn.disabled = false;
+    list.innerHTML = units.map(applySelectedUnitGroupHtml).join("");
+    list.querySelectorAll(".unit-select-all").forEach((unitCk) => {
+      unitCk.addEventListener("change", () => {
+        const unitName = unitCk.dataset.unit;
+        list.querySelectorAll(`.part-select[data-unit="${CSS.escape(unitName)}"]`).forEach((partCk) => {
+          partCk.checked = unitCk.checked;
+        });
+        unitCk.indeterminate = false;
+      });
+    });
+    list.querySelectorAll(".part-select").forEach((partCk) => {
+      partCk.addEventListener("change", () => updateUnitSelectAllState(partCk.dataset.unit));
+    });
+  }
+  applySelectedModal.show();
+}
+
+function collectApplySelectedSelections() {
+  const list = document.getElementById("applySelectedUnitList");
+  const selections = {};
+  list.querySelectorAll(".part-select:checked").forEach((partCk) => {
+    const unitName = partCk.dataset.unit;
+    if (!selections[unitName]) selections[unitName] = [];
+    selections[unitName].push(partCk.dataset.part);
+  });
+  return selections;
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  unitEditModal = new bootstrap.Modal(document.getElementById("unitEditModal"));
+  applySelectedModal = new bootstrap.Modal(document.getElementById("applySelectedModal"));
+  changeMasterModal = new bootstrap.Modal(document.getElementById("changeMasterModal"));
+
+  tick();
+  setInterval(tick, 1000);
+  loadTemplates();
+  updatePasteButton();
+  loadMasterEquipmentName();
+  loadMasterBackupStatus();
+
+  document.getElementById("addUnitBtn").addEventListener("click", () => openUnitEditModal(null));
+  document.getElementById("pasteUnitBtn").addEventListener("click", pasteUnit);
+
+  document.getElementById("changeMasterBtn").addEventListener("click", () => {
+    openChangeMasterModal();
+  });
+
+  document.getElementById("changeMasterConfirmBtn").addEventListener("click", async () => {
+    const select = document.getElementById("changeMasterSelect");
+    const newId = parseInt(select.value, 10);
+    if (newId === masterEquipmentId) {
+      alert("이미 기준 설비로 설정되어 있습니다.");
+      return;
+    }
+    const selectedName = select.selectedOptions[0].textContent;
+    const ok = confirm(
+      `기준 설비를 "${selectedName}"(으)로 변경하시겠습니까?\n` +
+      "기존에 BACKUP한 구성 스냅샷은 삭제되며, 변경 후 다시 BACKUP을 진행해야 " +
+      '"모든 설비에 적용"/"선택 적용"을 사용할 수 있습니다.'
+    );
+    if (!ok) return;
+    try {
+      const result = await fetchJson("/api/master-equipment-id", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ equipment_id: newId }),
+      });
+      changeMasterModal.hide();
+      masterEquipmentId = result.id;
+      masterEquipmentName = result.name;
+      document.getElementById("masterEquipmentName").textContent = result.name;
+      await loadMasterBackupStatus();
+      alert(`기준 설비가 "${result.name}"(으)로 변경되었습니다.`);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById("backupMasterBtn").addEventListener("click", async () => {
+    const ok = confirm(
+      `기준 설비(${masterEquipmentName})의 현재 유닛 구성과 그 안의 모든 부품 정보를 백업합니다.\n` +
+      "기존에 백업된 내용이 있다면 덮어씁니다.\n\n" +
+      "계속하시겠습니까?"
+    );
+    if (!ok) return;
+    try {
+      const meta = await fetchJson("/api/master-backup", { method: "POST" });
+      await loadMasterBackupStatus();
+      alert(`백업이 완료되었습니다. (유닛 ${meta.unit_count}개, 부품 ${meta.part_count}개)`);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById("applyBtn").addEventListener("click", async () => {
+    const ok = confirm(
+      `마지막으로 BACKUP한 기준 설비(${masterEquipmentName}) 구성을 20개 설비 전체에 적용합니다.\n` +
+      "- 이름이 같은 유닛/부품은 백업된 값으로 갱신됩니다.\n" +
+      "- 백업에 없는 이름의 유닛/부품은 각 설비에서 삭제되며, 등록된 이력도 함께 삭제됩니다.\n" +
+      "- 각 설비에서 직접 등록한 독립 부품은 영향받지 않습니다.\n\n" +
+      "계속하시겠습니까?"
+    );
+    if (!ok) return;
+    try {
+      const result = await fetchJson("/api/unit-templates/apply", { method: "POST" });
+      alert(`설비 ${result.equipment_count}대에 유닛 구성(${result.unit_count}개)/부품(${result.part_count}개)을 적용했습니다.`);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById("applySelectedBtn").addEventListener("click", () => {
+    openApplySelectedModal();
+  });
+
+  document.getElementById("applySelectedConfirmBtn").addEventListener("click", async () => {
+    const selections = collectApplySelectedSelections();
+    if (Object.keys(selections).length === 0) {
+      alert("선택된 부품이 없습니다.");
+      return;
+    }
+    try {
+      const result = await fetchJson("/api/unit-templates/apply-selected", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ selections }),
+      });
+      applySelectedModal.hide();
+      alert(`설비 ${result.equipment_count}곳에 부품 ${result.applied_count}건을 적용했습니다.`);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById("unitEditForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = document.getElementById("unitEditId").value;
+    const payload = {
+      name: document.getElementById("unitEditName").value.trim(),
+      icon: document.getElementById("unitEditIcon").value.trim(),
+      color: document.getElementById("unitEditColor").value,
+    };
+    try {
+      if (id) {
+        await fetchJson(`/api/unit-templates/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await fetchJson(`/api/unit-templates`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
+      unitEditModal.hide();
+      loadTemplates();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+});
