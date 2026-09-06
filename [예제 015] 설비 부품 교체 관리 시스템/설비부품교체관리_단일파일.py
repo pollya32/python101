@@ -855,21 +855,26 @@ def sync_parts_from_backup_to_unit(conn, unit_name, target_unit_id):
     """master_backup_parts에 저장된 unit_name의 부품 구성을 target_unit_id 유닛에 동기화한다.
     이름이 같은 부품은 백업 시점 값으로 갱신되고, 새 부품은 추가되며, 백업에 없는 이름의 부품은
     삭제된다(교체 이력도 함께 삭제). 단, 각 설비에서 직접 등록한 독립 부품(local_only=1)은
-    동기화 대상에서 완전히 제외되어 갱신/삭제되지 않는다."""
+    동기화 대상에서 완전히 제외되어 갱신/삭제되지 않는다.
+    이름 존재 여부를 확인할 때는 local_only 부품도 포함시킨다 - 그렇지 않으면 이미 그
+    이름으로 등록된 독립 부품이 있는데도 못 본 척하고 똑같은 이름의 카드를 하나 더
+    추가해버려서, 화면에 이름이 같은 부품 카드가 중복으로 보이는 문제가 있었다."""
     backup_parts = conn.execute(
         "SELECT * FROM master_backup_parts WHERE unit_name = ? ORDER BY id", (unit_name,)
     ).fetchall()
     backup_names = {p["name"] for p in backup_parts}
-    existing = {
-        p["name"]: p
-        for p in conn.execute(
-            "SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL AND (local_only IS NULL OR local_only = 0)",
-            (target_unit_id,),
-        ).fetchall()
-    }
+    target_parts = conn.execute(
+        "SELECT * FROM parts WHERE unit_id = ? AND deleted_at IS NULL", (target_unit_id,)
+    ).fetchall()
+    existing_by_name = {p["name"]: p for p in target_parts}
+    synced_existing = {p["name"]: p for p in target_parts if not p["local_only"]}
     for bp in backup_parts:
-        if bp["name"] in existing:
-            ep = existing[bp["name"]]
+        current = existing_by_name.get(bp["name"])
+        if current is not None and current["local_only"]:
+            # 이 이름은 이미 이 설비에서 독립 부품으로 등록되어 있으므로 동기화하지 않는다
+            continue
+        if bp["name"] in synced_existing:
+            ep = synced_existing[bp["name"]]
             conn.execute(
                 """UPDATE parts SET spec = ?, cycle_days = ?, cycle_unit = ?, cost = ?, note = ?, memo = ?,
                    drawing_data = ?, icon = ?, pos_x = ?, pos_y = ?, width = ?, height = ?,
@@ -895,7 +900,7 @@ def sync_parts_from_backup_to_unit(conn, unit_name, target_unit_id):
                     bp["lead_time_days"],
                 ),
             )
-    for name, ep in existing.items():
+    for name, ep in synced_existing.items():
         if name not in backup_names:
             conn.execute("DELETE FROM parts WHERE id = ?", (ep["id"],))
     return len(backup_parts)
