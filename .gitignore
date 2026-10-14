@@ -8,3 +8,5 @@
 node_modules/
 .astro/
 dist/
+# [예제 015] 생성 데이터 (generate_data.py로 다시 만들 수 있음)
+*/data/*.csv
