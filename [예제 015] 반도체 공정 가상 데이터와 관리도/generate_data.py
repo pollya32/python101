@@ -41,7 +41,7 @@ def run_wafer(rng, wafer_id, drift=0.0, fault=None):
     return rows
 
 
-def generate(n_wafers=100, seed=42, drift_per_wafer=0.02):
+def generate(n_wafers=100, seed=None, drift_per_wafer=0.02):
     rng = np.random.default_rng(seed)
     data, labels = [], []
     for i in range(n_wafers):
@@ -61,15 +61,19 @@ def generate(n_wafers=100, seed=42, drift_per_wafer=0.02):
 def main():
     parser = argparse.ArgumentParser(description="반도체 식각 설비 가상 데이터 생성")
     parser.add_argument("--wafers", type=int, default=100, help="웨이퍼 수")
-    parser.add_argument("--seed", type=int, default=42, help="난수 시드")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="난수 시드 (생략하면 매번 랜덤, 같은 값을 주면 같은 데이터 재현)")
     parser.add_argument("--drift", type=float, default=0.02, help="웨이퍼당 온도 드리프트(℃)")
     parser.add_argument("--out", default=Path(__file__).parent / "data", type=Path)
     args = parser.parse_args()
 
+    if args.seed is None:
+        args.seed = int(np.random.SeedSequence().entropy % 1_000_000)  # 매번 새로운 시드
     trace, summary = generate(args.wafers, args.seed, args.drift)
     args.out.mkdir(parents=True, exist_ok=True)
     trace.to_csv(args.out / "trace.csv", index=False)
     summary.to_csv(args.out / "summary.csv")
+    print(f"seed {args.seed}  (같은 데이터를 다시 만들려면: --seed {args.seed})")
     print(f"trace {trace.shape}, summary {summary.shape} -> {args.out}")
     print(summary["fault"].value_counts().to_string())
 

@@ -10,7 +10,10 @@ python generate_data.py      # data/trace.csv, data/summary.csv 생성
 python control_chart.py      # output/control_chart.png, output/violations.csv 생성
 ```
 
-옵션 예시: `python generate_data.py --wafers 200 --drift 0.01 --seed 7`,
+`generate_data.py`는 실행할 때마다 새로운 랜덤 데이터를 만들고, 사용한 시드를 화면에 출력합니다.
+같은 데이터를 다시 만들려면 그 시드를 `--seed`로 넘기면 됩니다.
+
+옵션 예시: `python generate_data.py --wafers 200 --drift 0.01 --seed 42`,
 `python control_chart.py --base 30`
 
 ## 가상 데이터 구성 (`generate_data.py`)
@@ -33,7 +36,7 @@ python control_chart.py      # output/control_chart.png, output/violations.csv �
 
 ![관리도](output/control_chart.png)
 
-결과 해석 (기본 설정):
+결과 해석 (`--seed 42`, 위 그림 기준):
 - **온도**: 열화로 인한 드리프트 때문에 W033 이후 대부분이 UCL을 넘습니다 → PM(예방정비) 시점 신호
 - **RF 파워**: `rf_drop` 고장 웨이퍼 3장이 정확히 검출됩니다
 - **압력**: `pressure_spike` 고장 웨이퍼 5장이 정확히 검출됩니다
