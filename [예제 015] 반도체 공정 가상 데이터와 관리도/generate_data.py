@@ -1,11 +1,11 @@
-"""식각(Etch) 설비 FDC 가상 데이터 생성기.
+"""설정 파일(YAML) 기반 반도체 설비 FDC 가상 데이터 생성기.
 
 웨이퍼마다 레시피 스텝별 센서 trace(초 단위)를 만들고,
-설비 열화(온도 드리프트)와 고장(RF 저하, 압력 스파이크)을 주입한다.
+설비 열화(드리프트)와 고장을 주입한다. 설비 종류는 configs/*.yaml로 정의한다.
 
-출력:
-    data/trace.csv    웨이퍼별·초 단위 센서값 (시계열)
-    data/summary.csv  웨이퍼별·스텝별 평균/표준편차 + 고장 라벨
+출력 (기본):
+    data/<equipment>/trace.csv    웨이퍼별·초 단위 센서값 (시계열)
+    data/<equipment>/summary.csv  웨이퍼별·스텝별 평균/표준편차 + 고장 라벨
 """
 import argparse
 from pathlib import Path
@@ -13,45 +13,56 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-STEPS = {  # step: (초, 온도℃, 압력mTorr, RF W, 가스 sccm)
-    "stabilize": (10, 60, 50, 0, 100),
-    "main_etch": (40, 65, 30, 500, 80),
-    "over_etch": (15, 65, 30, 300, 60),
-    "purge":     (5,  60, 80, 0, 200),
-}
-FAULTS = [None, "rf_drop", "pressure_spike"]
-FAULT_PROB = [0.9, 0.05, 0.05]
+from config import DEFAULT_CONFIG, data_dir, load_config
 
 
-def run_wafer(rng, wafer_id, drift=0.0, fault=None):
+def apply_fault(value, fault, k, duration):
+    """스텝 안에서 k번째 초의 센서값에 고장을 적용한다."""
+    if k < fault.get("start", 0):
+        return value
+    if fault["type"] == "scale":
+        return value * fault["value"]
+    if fault["type"] == "offset":
+        return value + fault["value"]
+    return value + fault["value"] * (k + 1) / duration  # ramp
+
+
+def run_wafer(rng, cfg, wafer_id, index, fault=None):
+    sensors = cfg["sensors"]
     rows, t = [], 0
-    for step, (dur, temp, pres, rf, gas) in STEPS.items():
-        for _ in range(dur):
-            r = dict(wafer_id=wafer_id, time_s=t, step=step,
-                     temp=temp + drift + rng.normal(0, 0.3),
-                     pressure=pres + rng.normal(0, 0.5),
-                     rf_power=rf + rng.normal(0, 3) if rf else 0.0,
-                     gas_flow=gas + rng.normal(0, 1))
-            if fault == "rf_drop" and step == "main_etch" and t > 30:
-                r["rf_power"] *= 0.85
-            if fault == "pressure_spike" and step == "over_etch":
-                r["pressure"] += 8
+    for step in cfg["steps"]:
+        for k in range(step["duration"]):
+            r = dict(wafer_id=wafer_id, time_s=t, step=step["name"])
+            for name, spec in sensors.items():
+                setpoint = step[name]
+                if setpoint == 0:  # 꺼진 센서
+                    r[name] = 0.0
+                    continue
+                r[name] = setpoint + spec.get("drift", 0) * index + rng.normal(0, spec["noise"])
+            if fault and fault["step"] == step["name"]:
+                s = fault["sensor"]
+                r[s] = apply_fault(r[s], fault, k, step["duration"])
             rows.append(r)
             t += 1
     return rows
 
 
-def generate(n_wafers=100, seed=None, drift_per_wafer=0.02):
+def generate(cfg, n_wafers=None, seed=None):
     rng = np.random.default_rng(seed)
+    n_wafers = n_wafers or cfg.get("wafers", 100)
+    faults = cfg.get("faults", [])
+    choices = [None] + faults
+    probs = [1 - sum(f["prob"] for f in faults)] + [f["prob"] for f in faults]
+
     data, labels = [], []
     for i in range(n_wafers):
         wafer_id = f"W{i:03d}"
-        fault = rng.choice(FAULTS, p=FAULT_PROB)
-        data += run_wafer(rng, wafer_id, drift=i * drift_per_wafer, fault=fault)  # 장비 열화
-        labels.append({"wafer_id": wafer_id, "fault": fault or "normal"})
+        fault = choices[rng.choice(len(choices), p=probs)]
+        data += run_wafer(rng, cfg, wafer_id, i, fault)
+        labels.append({"wafer_id": wafer_id, "fault": fault["name"] if fault else "normal"})
 
     trace = pd.DataFrame(data)
-    summary = (trace.groupby(["wafer_id", "step"])[["temp", "pressure", "rf_power"]]
+    summary = (trace.groupby(["wafer_id", "step"])[list(cfg["sensors"])]
                .agg(["mean", "std"]).unstack())
     summary.columns = ["_".join(c) for c in summary.columns]
     summary = summary.join(pd.DataFrame(labels).set_index("wafer_id"))
@@ -59,22 +70,25 @@ def generate(n_wafers=100, seed=None, drift_per_wafer=0.02):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="반도체 식각 설비 가상 데이터 생성")
-    parser.add_argument("--wafers", type=int, default=100, help="웨이퍼 수")
+    parser = argparse.ArgumentParser(description="반도체 설비 가상 데이터 생성")
+    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="설비 설정 YAML")
+    parser.add_argument("--wafers", type=int, default=None, help="웨이퍼 수 (생략하면 설정 파일 값)")
     parser.add_argument("--seed", type=int, default=None,
                         help="난수 시드 (생략하면 매번 랜덤, 같은 값을 주면 같은 데이터 재현)")
-    parser.add_argument("--drift", type=float, default=0.02, help="웨이퍼당 온도 드리프트(℃)")
-    parser.add_argument("--out", default=Path(__file__).parent / "data", type=Path)
+    parser.add_argument("--out", type=Path, default=None, help="저장 폴더 (기본: data/<equipment>)")
     args = parser.parse_args()
 
+    cfg = load_config(args.config)
     if args.seed is None:
         args.seed = int(np.random.SeedSequence().entropy % 1_000_000)  # 매번 새로운 시드
-    trace, summary = generate(args.wafers, args.seed, args.drift)
-    args.out.mkdir(parents=True, exist_ok=True)
-    trace.to_csv(args.out / "trace.csv", index=False)
-    summary.to_csv(args.out / "summary.csv")
-    print(f"seed {args.seed}  (같은 데이터를 다시 만들려면: --seed {args.seed})")
-    print(f"trace {trace.shape}, summary {summary.shape} -> {args.out}")
+    out = args.out or data_dir(cfg)
+
+    trace, summary = generate(cfg, args.wafers, args.seed)
+    out.mkdir(parents=True, exist_ok=True)
+    trace.to_csv(out / "trace.csv", index=False)
+    summary.to_csv(out / "summary.csv")
+    print(f"[{cfg['equipment']}] seed {args.seed}  (같은 데이터를 다시 만들려면: --seed {args.seed})")
+    print(f"trace {trace.shape}, summary {summary.shape} -> {out}")
     print(summary["fault"].value_counts().to_string())
 
 

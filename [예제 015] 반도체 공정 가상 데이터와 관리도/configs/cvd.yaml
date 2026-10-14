@@ -1,0 +1,30 @@
+# PECVD 산화막(SiO2) 증착 설비 가상 데이터 설정
+equipment: cvd
+title: PECVD tool
+wafers: 100
+
+sensors:
+  heater_temp: {unit: "°C",   noise: 0.5}
+  pressure:    {unit: "Torr", noise: 0.01, drift: 0.0005}  # 챔버 벽 증착물 누적
+  rf_power:    {unit: "W",    noise: 2}
+  sih4_flow:   {unit: "sccm", noise: 0.8}
+  n2o_flow:    {unit: "sccm", noise: 5}
+
+steps:
+  - {name: heat_up,    duration: 30, heater_temp: 400, pressure: 5.0, rf_power: 0,   sih4_flow: 0,   n2o_flow: 0}
+  - {name: gas_stab,   duration: 20, heater_temp: 400, pressure: 2.5, rf_power: 0,   sih4_flow: 150, n2o_flow: 2000}
+  - {name: deposition, duration: 60, heater_temp: 400, pressure: 2.5, rf_power: 300, sih4_flow: 150, n2o_flow: 2000}
+  - {name: purge,      duration: 15, heater_temp: 400, pressure: 3.0, rf_power: 0,   sih4_flow: 0,   n2o_flow: 3000}
+
+faults:
+  - {name: sih4_mfc_drift, prob: 0.04, step: deposition, sensor: sih4_flow,   type: ramp,   value: 12}
+  - {name: heater_drop,    prob: 0.03, step: deposition, sensor: heater_temp, type: offset, value: -6, start: 30}
+  - {name: rf_mismatch,    prob: 0.03, step: deposition, sensor: rf_power,    type: scale,  value: 0.9}
+
+chart:
+  baseline: 25
+  metrics:
+    - {sensor: heater_temp, step: deposition}
+    - {sensor: sih4_flow,   step: deposition}
+    - {sensor: rf_power,    step: deposition}
+    - {sensor: pressure,    step: deposition}

@@ -1,0 +1,35 @@
+# 식각(Etch) 설비 가상 데이터 설정
+equipment: etch
+title: Etch tool
+wafers: 100
+
+# 센서: 단위, 잡음(정규분포 표준편차), 웨이퍼당 드리프트(설비 열화)
+sensors:
+  temp:     {unit: "°C",    noise: 0.3, drift: 0.02}
+  pressure: {unit: "mTorr", noise: 0.5}
+  rf_power: {unit: "W",     noise: 3}
+  gas_flow: {unit: "sccm",  noise: 1}
+
+# 레시피 스텝: duration(초) + 센서별 설정값. 설정값 0 = 꺼짐(잡음 없이 0)
+steps:
+  - {name: stabilize, duration: 10, temp: 60, pressure: 50, rf_power: 0,   gas_flow: 100}
+  - {name: main_etch, duration: 40, temp: 65, pressure: 30, rf_power: 500, gas_flow: 80}
+  - {name: over_etch, duration: 15, temp: 65, pressure: 30, rf_power: 300, gas_flow: 60}
+  - {name: purge,     duration: 5,  temp: 60, pressure: 80, rf_power: 0,   gas_flow: 200}
+
+# 고장: 웨이퍼마다 최대 1개가 prob 확률로 발생
+#   type  scale  = 값에 value를 곱함
+#         offset = 값에 value를 더함
+#         ramp   = 스텝 동안 0에서 value까지 점점 더해짐 (MFC 드리프트 등)
+#   start = 스텝 시작 후 몇 초부터 적용할지 (생략하면 0)
+faults:
+  - {name: rf_drop,        prob: 0.05, step: main_etch, sensor: rf_power, type: scale,  value: 0.85, start: 21}
+  - {name: pressure_spike, prob: 0.05, step: over_etch, sensor: pressure, type: offset, value: 8}
+
+# 관리도: 기준 구간 웨이퍼 수 + 그릴 항목(스텝별 평균)
+chart:
+  baseline: 25
+  metrics:
+    - {sensor: temp,     step: main_etch}
+    - {sensor: rf_power, step: main_etch}
+    - {sensor: pressure, step: over_etch}
