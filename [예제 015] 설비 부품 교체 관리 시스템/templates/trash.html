@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>휴지통 - 설비 부품 교체 관리 시스템</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/theme.js"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="d-flex align-items-center gap-2">
+    <a href="/" class="btn btn-sm btn-outline-light"><i class="bi bi-arrow-left"></i> 대시보드</a>
+    <i class="bi bi-trash3-fill"></i>
+    <h1>휴지통</h1>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span id="clock" class="clock"></span>
+    <button id="emptyTrashBtn" class="btn btn-sm btn-outline-danger">
+      <i class="bi bi-trash3-fill"></i> 휴지통 비우기
+    </button>
+  </div>
+</header>
+
+<main class="container-fluid py-4">
+
+  <p class="text-muted small mb-3">
+    삭제된 설비/유닛/부품을 복원하거나 영구적으로 삭제할 수 있습니다.
+    설비를 복원하면 소속된 유닛과 부품도 함께 복원됩니다. 영구 삭제는 되돌릴 수 없습니다.
+  </p>
+
+  <div class="bulk-table-wrap mb-4">
+    <div class="p-3 border-bottom"><strong><i class="bi bi-cpu"></i> 삭제된 설비</strong></div>
+    <table class="table bulk-table align-middle mb-0">
+      <thead>
+        <tr><th>이름</th><th>유닛 수</th><th>삭제 일시</th><th style="width:220px"></th></tr>
+      </thead>
+      <tbody id="trashEquipmentBody"></tbody>
+    </table>
+    <p id="trashEquipmentEmpty" class="text-muted text-center py-3 mb-0 d-none">삭제된 설비가 없습니다.</p>
+  </div>
+
+  <div class="bulk-table-wrap mb-4">
+    <div class="p-3 border-bottom"><strong><i class="bi bi-hdd-stack"></i> 삭제된 유닛</strong></div>
+    <table class="table bulk-table align-middle mb-0">
+      <thead>
+        <tr><th>이름</th><th>소속 설비</th><th>삭제 일시</th><th style="width:220px"></th></tr>
+      </thead>
+      <tbody id="trashUnitBody"></tbody>
+    </table>
+    <p id="trashUnitEmpty" class="text-muted text-center py-3 mb-0 d-none">삭제된 유닛이 없습니다.</p>
+  </div>
+
+  <div class="bulk-table-wrap">
+    <div class="p-3 border-bottom"><strong><i class="bi bi-gear"></i> 삭제된 부품</strong></div>
+    <table class="table bulk-table align-middle mb-0">
+      <thead>
+        <tr><th>이름</th><th>소속 유닛</th><th>소속 설비</th><th>삭제 일시</th><th style="width:220px"></th></tr>
+      </thead>
+      <tbody id="trashPartBody"></tbody>
+    </table>
+    <p id="trashPartEmpty" class="text-muted text-center py-3 mb-0 d-none">삭제된 부품이 없습니다.</p>
+  </div>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/static/trash.js"></script>
+</body>
+</html>
