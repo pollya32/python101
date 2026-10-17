@@ -44,6 +44,39 @@ function tick() {
   if (el) el.textContent = new Date().toLocaleString("ko-KR");
 }
 
+// ── 화면 배율 자동 조정: 모니터/창 폭에 맞춰 캔버스 전체를 축소해 카드 겹침 방지 ──
+function applyCanvasAutoScale(canvas, referenceWidth) {
+  if (!canvas) return 1;
+  let wrap = canvas.parentElement;
+  if (!wrap.classList.contains("canvas-scale-wrap")) {
+    wrap = document.createElement("div");
+    wrap.className = "canvas-scale-wrap";
+    canvas.parentNode.insertBefore(wrap, canvas);
+    wrap.appendChild(canvas);
+  }
+  canvas.style.transform = "none";
+  canvas.style.width = "";
+  const available = wrap.clientWidth;
+  const scale = Math.max(0.55, Math.min(1, available / referenceWidth));
+  canvas.style.width = `${referenceWidth}px`;
+  canvas.style.transformOrigin = "top left";
+  canvas.style.transform = `scale(${scale})`;
+  const naturalHeight = canvas.scrollHeight;
+  wrap.style.height = `${naturalHeight * scale}px`;
+  wrap.style.position = "relative";
+  wrap.style.overflow = "hidden";
+  canvas.dataset.currentScale = String(scale);
+  return scale;
+}
+
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
 // ── 리치 메모/노트: 엑셀 표 붙여넣기 시 서식(표 구조) 유지 ─────────────────
 const RICH_ALLOWED_TAGS = {
   TABLE: [], THEAD: [], TBODY: [], TFOOT: [], TR: [], COL: [], COLGROUP: [], CAPTION: [],
@@ -332,6 +365,7 @@ function renderCanvas(units) {
     makeResizable(card, u);
     makeResizableHorizontal(card, u);
   });
+  applyCanvasAutoScale(canvas, 1100);
 }
 
 const MIN_UNIT_WIDTH = 90;
@@ -352,12 +386,14 @@ function makeResizable(card, unit) {
     const startY = e.clientY;
     const startWidth = card.offsetWidth;
     const startHeight = card.offsetHeight;
+    const canvasEl = document.getElementById("canvas");
+    const scale = parseFloat(canvasEl?.dataset.currentScale || "1") || 1;
 
     card.classList.add("dragging");
 
     function onMove(ev) {
-      const dx = ev.clientX - startX;
-      const dy = ev.clientY - startY;
+      const dx = (ev.clientX - startX) / scale;
+      const dy = (ev.clientY - startY) / scale;
       const w = Math.min(Math.max(startWidth + dx, MIN_UNIT_WIDTH), MAX_UNIT_WIDTH);
       const h = Math.min(Math.max(startHeight + dy, MIN_UNIT_HEIGHT), MAX_UNIT_HEIGHT);
       card.style.width = `${w}px`;
@@ -395,11 +431,13 @@ function makeResizableHorizontal(card, unit) {
 
     const startX = e.clientX;
     const startWidth = card.offsetWidth;
+    const canvasEl = document.getElementById("canvas");
+    const scale = parseFloat(canvasEl?.dataset.currentScale || "1") || 1;
 
     card.classList.add("dragging");
 
     function onMove(ev) {
-      const dx = ev.clientX - startX;
+      const dx = (ev.clientX - startX) / scale;
       const w = Math.min(Math.max(startWidth + dx, MIN_UNIT_WIDTH), MAX_UNIT_WIDTH);
       card.style.width = `${w}px`;
     }
@@ -703,6 +741,10 @@ document.addEventListener("DOMContentLoaded", () => {
   loadEquipmentHeader();
   loadUnits();
   loadNotes();
+
+  window.addEventListener("resize", debounce(() => {
+    applyCanvasAutoScale(document.getElementById("canvas"), 1100);
+  }, 150));
 
   document.getElementById("unitDrawingBtn").addEventListener("click", () => {
     const area = document.getElementById("unitDrawingArea");

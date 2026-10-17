@@ -30,6 +30,39 @@ function tick() {
   if (el) el.textContent = new Date().toLocaleString("ko-KR");
 }
 
+// ── 화면 배율 자동 조정: 모니터/창 폭에 맞춰 캔버스 전체를 축소해 카드 겹침 방지 ──
+function applyCanvasAutoScale(canvas, referenceWidth) {
+  if (!canvas) return 1;
+  let wrap = canvas.parentElement;
+  if (!wrap.classList.contains("canvas-scale-wrap")) {
+    wrap = document.createElement("div");
+    wrap.className = "canvas-scale-wrap";
+    canvas.parentNode.insertBefore(wrap, canvas);
+    wrap.appendChild(canvas);
+  }
+  canvas.style.transform = "none";
+  canvas.style.width = "";
+  const available = wrap.clientWidth;
+  const scale = Math.max(0.55, Math.min(1, available / referenceWidth));
+  canvas.style.width = `${referenceWidth}px`;
+  canvas.style.transformOrigin = "top left";
+  canvas.style.transform = `scale(${scale})`;
+  const naturalHeight = canvas.scrollHeight;
+  wrap.style.height = `${naturalHeight * scale}px`;
+  wrap.style.position = "relative";
+  wrap.style.overflow = "hidden";
+  canvas.dataset.currentScale = String(scale);
+  return scale;
+}
+
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
 async function fetchJson(url, options) {
   const res = await fetch(url, options);
   if (res.status === 401) {
@@ -121,6 +154,7 @@ function renderGrid(equipments, sortBy) {
 
     makeDraggable(card, eq);
   });
+  applyCanvasAutoScale(grid, 1300);
 }
 
 function makeDraggable(card, eq) {
@@ -271,6 +305,10 @@ document.addEventListener("DOMContentLoaded", () => {
   tick();
   setInterval(tick, 1000);
   loadEquipments();
+
+  window.addEventListener("resize", debounce(() => {
+    applyCanvasAutoScale(document.getElementById("equipmentGrid"), 1300);
+  }, 150));
 
   document.getElementById("changePasswordBtn").addEventListener("click", () => {
     document.getElementById("changePasswordForm").reset();

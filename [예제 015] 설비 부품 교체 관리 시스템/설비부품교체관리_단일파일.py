@@ -3454,27 +3454,27 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>
 :root {
-  --pri: #4338ca;
-  --pri-dark: #362f8c;
-  --accent: #6366f1;
-  --bg-a: #e5e7eb;
-  --bg-b: #f3f4f6;
+  --pri: #6366f1;
+  --pri-dark: #4f52d9;
+  --accent: #818cf8;
+  --bg-a: #fafafc;
+  --bg-b: #fafafc;
   --surface: #ffffff;
-  --border: #e5e7eb;
-  --text: #1e2432;
-  --text-muted: #6b7280;
-  --radius-lg: 18px;
-  --radius-md: 14px;
-  --radius-sm: 10px;
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
-  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
+  --border: #eef0f5;
+  --text: #2b2f3a;
+  --text-muted: #8b8fa3;
+  --radius-lg: 22px;
+  --radius-md: 16px;
+  --radius-sm: 12px;
+  --shadow-sm: 0 2px 8px rgba(30, 30, 60, 0.05);
+  --shadow-md: 0 8px 22px rgba(30, 30, 60, 0.07);
+  --shadow-lg: 0 16px 36px rgba(30, 30, 60, 0.10);
 }
 
 * { box-sizing: border-box; }
 
 body {
-  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background: var(--bg-a);
   background-attachment: fixed;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
@@ -3528,14 +3528,16 @@ body {
   box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
 }
 .btn-outline-light {
-  border-color: rgba(255, 255, 255, 0.45);
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
 }
-.btn-outline-light:hover {
-  background: rgba(255, 255, 255, 0.22);
-  border-color: rgba(255, 255, 255, 0.6);
-  color: #fff;
+.btn-outline-light:hover,
+.btn-outline-light:focus,
+.btn-outline-light.show {
+  background: #f6f6fb;
+  border-color: #e3e4ef;
+  color: var(--text);
 }
 .btn-warning {
   background: #f59e0b;
@@ -3557,8 +3559,8 @@ body {
 
 /* ── 상단바 ───────────────────────────────────────────────────── */
 .topbar {
-  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
-  color: #fff;
+  background: var(--surface);
+  color: var(--text);
   padding: 14px 24px;
   display: flex;
   align-items: center;
@@ -3566,11 +3568,12 @@ body {
   position: sticky;
   top: 0;
   z-index: 90;
-  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(30, 30, 60, 0.02);
 }
-.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
-.topbar i.bi { font-size: 18px; opacity: 0.9; }
-.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
+.topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
 .legend {
@@ -3596,14 +3599,11 @@ body {
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
-  background:
-    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
-    linear-gradient(180deg, #fcfcfd, #e9eaed);
-  background-size: 22px 22px, 100% 100%;
-  border: 1px solid #dcdee2;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 30px 22px 22px;
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
+  box-shadow: var(--shadow-sm);
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
@@ -3634,8 +3634,9 @@ body {
 
 .unit-shape {
   --shape-color: var(--pri);
-  border: 3px solid var(--shape-color);
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
   /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
      여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
   max-width: 1600px;
@@ -3667,6 +3668,7 @@ body {
   .equipment-canvas.dashboard-canvas { min-height: 1150px; }
 }
 .equipment-card {
+  --card-accent: transparent;
   position: absolute;
   top: 0;
   left: 0;
@@ -3674,29 +3676,31 @@ body {
   width: 150px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-top: 3px solid var(--pri);
   border-radius: var(--radius-md);
   padding: 20px 10px 14px;
   cursor: pointer;
   text-align: center;
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  box-shadow: var(--shadow-sm), inset 4px 0 0 0 var(--card-accent);
+  transition: box-shadow 0.18s ease;
   user-select: none;
   touch-action: none;
   box-sizing: border-box;
 }
 .equipment-card:hover {
-  box-shadow: var(--shadow-lg);
-  border-top-color: var(--accent);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 5;
 }
 .equipment-card.edit-mode { cursor: grab; }
 .equipment-card.dragging {
   cursor: grabbing;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 20;
   transition: none;
 }
+.equipment-card:has(.dot-ok) { --card-accent: #86efac; }
+.equipment-card:has(.dot-soon) { --card-accent: #fde68a; }
+.equipment-card:has(.dot-overdue) { --card-accent: #fca5a5; }
+.equipment-card:has(.dot-unknown) { --card-accent: #e2e4ec; }
 .equipment-card .unit-icon { font-size: 30px; }
 
 .align-guide {
@@ -3710,6 +3714,9 @@ body {
 .align-guide-h { left: 0; right: 0; height: 2px; transform: translateY(-50%); }
 
 /* ── 캔버스 ───────────────────────────────────────────────────── */
+.canvas-scale-wrap {
+  width: 100%;
+}
 .equipment-canvas {
   position: relative;
   width: 100%;
@@ -3730,7 +3737,7 @@ body {
   width: 140px;
   min-height: 110px;
   background: var(--surface);
-  border: 1.5px solid var(--uc);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 14px 10px 10px;
   cursor: pointer;
@@ -4319,7 +4326,8 @@ html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
 .master-badge {
   font-size: 11px;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.18);
+  background: color-mix(in srgb, var(--pri) 10%, white);
+  color: var(--pri);
   border-radius: 999px;
   padding: 3px 10px;
   margin-left: 8px;
@@ -4857,6 +4865,39 @@ function tick() {
   if (el) el.textContent = new Date().toLocaleString("ko-KR");
 }
 
+// ── 화면 배율 자동 조정: 모니터/창 폭에 맞춰 캔버스 전체를 축소해 카드 겹침 방지 ──
+function applyCanvasAutoScale(canvas, referenceWidth) {
+  if (!canvas) return 1;
+  let wrap = canvas.parentElement;
+  if (!wrap.classList.contains("canvas-scale-wrap")) {
+    wrap = document.createElement("div");
+    wrap.className = "canvas-scale-wrap";
+    canvas.parentNode.insertBefore(wrap, canvas);
+    wrap.appendChild(canvas);
+  }
+  canvas.style.transform = "none";
+  canvas.style.width = "";
+  const available = wrap.clientWidth;
+  const scale = Math.max(0.55, Math.min(1, available / referenceWidth));
+  canvas.style.width = `${referenceWidth}px`;
+  canvas.style.transformOrigin = "top left";
+  canvas.style.transform = `scale(${scale})`;
+  const naturalHeight = canvas.scrollHeight;
+  wrap.style.height = `${naturalHeight * scale}px`;
+  wrap.style.position = "relative";
+  wrap.style.overflow = "hidden";
+  canvas.dataset.currentScale = String(scale);
+  return scale;
+}
+
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
 async function fetchJson(url, options) {
   const res = await fetch(url, options);
   if (res.status === 401) {
@@ -4948,6 +4989,7 @@ function renderGrid(equipments, sortBy) {
 
     makeDraggable(card, eq);
   });
+  applyCanvasAutoScale(grid, 1300);
 }
 
 function makeDraggable(card, eq) {
@@ -5098,6 +5140,10 @@ document.addEventListener("DOMContentLoaded", () => {
   tick();
   setInterval(tick, 1000);
   loadEquipments();
+
+  window.addEventListener("resize", debounce(() => {
+    applyCanvasAutoScale(document.getElementById("equipmentGrid"), 1300);
+  }, 150));
 
   document.getElementById("changePasswordBtn").addEventListener("click", () => {
     document.getElementById("changePasswordForm").reset();
@@ -5443,27 +5489,27 @@ EQUIPMENT_HTML = r"""<!DOCTYPE html>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>
 :root {
-  --pri: #4338ca;
-  --pri-dark: #362f8c;
-  --accent: #6366f1;
-  --bg-a: #e5e7eb;
-  --bg-b: #f3f4f6;
+  --pri: #6366f1;
+  --pri-dark: #4f52d9;
+  --accent: #818cf8;
+  --bg-a: #fafafc;
+  --bg-b: #fafafc;
   --surface: #ffffff;
-  --border: #e5e7eb;
-  --text: #1e2432;
-  --text-muted: #6b7280;
-  --radius-lg: 18px;
-  --radius-md: 14px;
-  --radius-sm: 10px;
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
-  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
+  --border: #eef0f5;
+  --text: #2b2f3a;
+  --text-muted: #8b8fa3;
+  --radius-lg: 22px;
+  --radius-md: 16px;
+  --radius-sm: 12px;
+  --shadow-sm: 0 2px 8px rgba(30, 30, 60, 0.05);
+  --shadow-md: 0 8px 22px rgba(30, 30, 60, 0.07);
+  --shadow-lg: 0 16px 36px rgba(30, 30, 60, 0.10);
 }
 
 * { box-sizing: border-box; }
 
 body {
-  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background: var(--bg-a);
   background-attachment: fixed;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
@@ -5517,14 +5563,16 @@ body {
   box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
 }
 .btn-outline-light {
-  border-color: rgba(255, 255, 255, 0.45);
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
 }
-.btn-outline-light:hover {
-  background: rgba(255, 255, 255, 0.22);
-  border-color: rgba(255, 255, 255, 0.6);
-  color: #fff;
+.btn-outline-light:hover,
+.btn-outline-light:focus,
+.btn-outline-light.show {
+  background: #f6f6fb;
+  border-color: #e3e4ef;
+  color: var(--text);
 }
 .btn-warning {
   background: #f59e0b;
@@ -5546,8 +5594,8 @@ body {
 
 /* ── 상단바 ───────────────────────────────────────────────────── */
 .topbar {
-  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
-  color: #fff;
+  background: var(--surface);
+  color: var(--text);
   padding: 14px 24px;
   display: flex;
   align-items: center;
@@ -5555,11 +5603,12 @@ body {
   position: sticky;
   top: 0;
   z-index: 90;
-  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(30, 30, 60, 0.02);
 }
-.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
-.topbar i.bi { font-size: 18px; opacity: 0.9; }
-.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
+.topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
 .legend {
@@ -5585,14 +5634,11 @@ body {
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
-  background:
-    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
-    linear-gradient(180deg, #fcfcfd, #e9eaed);
-  background-size: 22px 22px, 100% 100%;
-  border: 1px solid #dcdee2;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 30px 22px 22px;
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
+  box-shadow: var(--shadow-sm);
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
@@ -5623,8 +5669,9 @@ body {
 
 .unit-shape {
   --shape-color: var(--pri);
-  border: 3px solid var(--shape-color);
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
   /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
      여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
   max-width: 1600px;
@@ -5656,6 +5703,7 @@ body {
   .equipment-canvas.dashboard-canvas { min-height: 1150px; }
 }
 .equipment-card {
+  --card-accent: transparent;
   position: absolute;
   top: 0;
   left: 0;
@@ -5663,29 +5711,31 @@ body {
   width: 150px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-top: 3px solid var(--pri);
   border-radius: var(--radius-md);
   padding: 20px 10px 14px;
   cursor: pointer;
   text-align: center;
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  box-shadow: var(--shadow-sm), inset 4px 0 0 0 var(--card-accent);
+  transition: box-shadow 0.18s ease;
   user-select: none;
   touch-action: none;
   box-sizing: border-box;
 }
 .equipment-card:hover {
-  box-shadow: var(--shadow-lg);
-  border-top-color: var(--accent);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 5;
 }
 .equipment-card.edit-mode { cursor: grab; }
 .equipment-card.dragging {
   cursor: grabbing;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 20;
   transition: none;
 }
+.equipment-card:has(.dot-ok) { --card-accent: #86efac; }
+.equipment-card:has(.dot-soon) { --card-accent: #fde68a; }
+.equipment-card:has(.dot-overdue) { --card-accent: #fca5a5; }
+.equipment-card:has(.dot-unknown) { --card-accent: #e2e4ec; }
 .equipment-card .unit-icon { font-size: 30px; }
 
 .align-guide {
@@ -5699,6 +5749,9 @@ body {
 .align-guide-h { left: 0; right: 0; height: 2px; transform: translateY(-50%); }
 
 /* ── 캔버스 ───────────────────────────────────────────────────── */
+.canvas-scale-wrap {
+  width: 100%;
+}
 .equipment-canvas {
   position: relative;
   width: 100%;
@@ -5719,7 +5772,7 @@ body {
   width: 140px;
   min-height: 110px;
   background: var(--surface);
-  border: 1.5px solid var(--uc);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 14px 10px 10px;
   cursor: pointer;
@@ -6308,7 +6361,8 @@ html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
 .master-badge {
   font-size: 11px;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.18);
+  background: color-mix(in srgb, var(--pri) 10%, white);
+  color: var(--pri);
   border-radius: 999px;
   padding: 3px 10px;
   margin-left: 8px;
@@ -6846,6 +6900,39 @@ function tick() {
   if (el) el.textContent = new Date().toLocaleString("ko-KR");
 }
 
+// ── 화면 배율 자동 조정: 모니터/창 폭에 맞춰 캔버스 전체를 축소해 카드 겹침 방지 ──
+function applyCanvasAutoScale(canvas, referenceWidth) {
+  if (!canvas) return 1;
+  let wrap = canvas.parentElement;
+  if (!wrap.classList.contains("canvas-scale-wrap")) {
+    wrap = document.createElement("div");
+    wrap.className = "canvas-scale-wrap";
+    canvas.parentNode.insertBefore(wrap, canvas);
+    wrap.appendChild(canvas);
+  }
+  canvas.style.transform = "none";
+  canvas.style.width = "";
+  const available = wrap.clientWidth;
+  const scale = Math.max(0.55, Math.min(1, available / referenceWidth));
+  canvas.style.width = `${referenceWidth}px`;
+  canvas.style.transformOrigin = "top left";
+  canvas.style.transform = `scale(${scale})`;
+  const naturalHeight = canvas.scrollHeight;
+  wrap.style.height = `${naturalHeight * scale}px`;
+  wrap.style.position = "relative";
+  wrap.style.overflow = "hidden";
+  canvas.dataset.currentScale = String(scale);
+  return scale;
+}
+
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
 // ── 리치 메모/노트: 엑셀 표 붙여넣기 시 서식(표 구조) 유지 ─────────────────
 const RICH_ALLOWED_TAGS = {
   TABLE: [], THEAD: [], TBODY: [], TFOOT: [], TR: [], COL: [], COLGROUP: [], CAPTION: [],
@@ -7134,6 +7221,7 @@ function renderCanvas(units) {
     makeResizable(card, u);
     makeResizableHorizontal(card, u);
   });
+  applyCanvasAutoScale(canvas, 1100);
 }
 
 const MIN_UNIT_WIDTH = 90;
@@ -7154,12 +7242,14 @@ function makeResizable(card, unit) {
     const startY = e.clientY;
     const startWidth = card.offsetWidth;
     const startHeight = card.offsetHeight;
+    const canvasEl = document.getElementById("canvas");
+    const scale = parseFloat(canvasEl?.dataset.currentScale || "1") || 1;
 
     card.classList.add("dragging");
 
     function onMove(ev) {
-      const dx = ev.clientX - startX;
-      const dy = ev.clientY - startY;
+      const dx = (ev.clientX - startX) / scale;
+      const dy = (ev.clientY - startY) / scale;
       const w = Math.min(Math.max(startWidth + dx, MIN_UNIT_WIDTH), MAX_UNIT_WIDTH);
       const h = Math.min(Math.max(startHeight + dy, MIN_UNIT_HEIGHT), MAX_UNIT_HEIGHT);
       card.style.width = `${w}px`;
@@ -7197,11 +7287,13 @@ function makeResizableHorizontal(card, unit) {
 
     const startX = e.clientX;
     const startWidth = card.offsetWidth;
+    const canvasEl = document.getElementById("canvas");
+    const scale = parseFloat(canvasEl?.dataset.currentScale || "1") || 1;
 
     card.classList.add("dragging");
 
     function onMove(ev) {
-      const dx = ev.clientX - startX;
+      const dx = (ev.clientX - startX) / scale;
       const w = Math.min(Math.max(startWidth + dx, MIN_UNIT_WIDTH), MAX_UNIT_WIDTH);
       card.style.width = `${w}px`;
     }
@@ -7506,6 +7598,10 @@ document.addEventListener("DOMContentLoaded", () => {
   loadUnits();
   loadNotes();
 
+  window.addEventListener("resize", debounce(() => {
+    applyCanvasAutoScale(document.getElementById("canvas"), 1100);
+  }, 150));
+
   document.getElementById("unitDrawingBtn").addEventListener("click", () => {
     const area = document.getElementById("unitDrawingArea");
     area.classList.toggle("d-none");
@@ -7625,27 +7721,27 @@ UNIT_HTML = r"""<!DOCTYPE html>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>
 :root {
-  --pri: #4338ca;
-  --pri-dark: #362f8c;
-  --accent: #6366f1;
-  --bg-a: #e5e7eb;
-  --bg-b: #f3f4f6;
+  --pri: #6366f1;
+  --pri-dark: #4f52d9;
+  --accent: #818cf8;
+  --bg-a: #fafafc;
+  --bg-b: #fafafc;
   --surface: #ffffff;
-  --border: #e5e7eb;
-  --text: #1e2432;
-  --text-muted: #6b7280;
-  --radius-lg: 18px;
-  --radius-md: 14px;
-  --radius-sm: 10px;
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
-  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
+  --border: #eef0f5;
+  --text: #2b2f3a;
+  --text-muted: #8b8fa3;
+  --radius-lg: 22px;
+  --radius-md: 16px;
+  --radius-sm: 12px;
+  --shadow-sm: 0 2px 8px rgba(30, 30, 60, 0.05);
+  --shadow-md: 0 8px 22px rgba(30, 30, 60, 0.07);
+  --shadow-lg: 0 16px 36px rgba(30, 30, 60, 0.10);
 }
 
 * { box-sizing: border-box; }
 
 body {
-  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background: var(--bg-a);
   background-attachment: fixed;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
@@ -7699,14 +7795,16 @@ body {
   box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
 }
 .btn-outline-light {
-  border-color: rgba(255, 255, 255, 0.45);
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
 }
-.btn-outline-light:hover {
-  background: rgba(255, 255, 255, 0.22);
-  border-color: rgba(255, 255, 255, 0.6);
-  color: #fff;
+.btn-outline-light:hover,
+.btn-outline-light:focus,
+.btn-outline-light.show {
+  background: #f6f6fb;
+  border-color: #e3e4ef;
+  color: var(--text);
 }
 .btn-warning {
   background: #f59e0b;
@@ -7728,8 +7826,8 @@ body {
 
 /* ── 상단바 ───────────────────────────────────────────────────── */
 .topbar {
-  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
-  color: #fff;
+  background: var(--surface);
+  color: var(--text);
   padding: 14px 24px;
   display: flex;
   align-items: center;
@@ -7737,11 +7835,12 @@ body {
   position: sticky;
   top: 0;
   z-index: 90;
-  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(30, 30, 60, 0.02);
 }
-.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
-.topbar i.bi { font-size: 18px; opacity: 0.9; }
-.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
+.topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
 .legend {
@@ -7767,14 +7866,11 @@ body {
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
-  background:
-    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
-    linear-gradient(180deg, #fcfcfd, #e9eaed);
-  background-size: 22px 22px, 100% 100%;
-  border: 1px solid #dcdee2;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 30px 22px 22px;
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
+  box-shadow: var(--shadow-sm);
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
@@ -7805,8 +7901,9 @@ body {
 
 .unit-shape {
   --shape-color: var(--pri);
-  border: 3px solid var(--shape-color);
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
   /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
      여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
   max-width: 1600px;
@@ -7838,6 +7935,7 @@ body {
   .equipment-canvas.dashboard-canvas { min-height: 1150px; }
 }
 .equipment-card {
+  --card-accent: transparent;
   position: absolute;
   top: 0;
   left: 0;
@@ -7845,29 +7943,31 @@ body {
   width: 150px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-top: 3px solid var(--pri);
   border-radius: var(--radius-md);
   padding: 20px 10px 14px;
   cursor: pointer;
   text-align: center;
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  box-shadow: var(--shadow-sm), inset 4px 0 0 0 var(--card-accent);
+  transition: box-shadow 0.18s ease;
   user-select: none;
   touch-action: none;
   box-sizing: border-box;
 }
 .equipment-card:hover {
-  box-shadow: var(--shadow-lg);
-  border-top-color: var(--accent);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 5;
 }
 .equipment-card.edit-mode { cursor: grab; }
 .equipment-card.dragging {
   cursor: grabbing;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 20;
   transition: none;
 }
+.equipment-card:has(.dot-ok) { --card-accent: #86efac; }
+.equipment-card:has(.dot-soon) { --card-accent: #fde68a; }
+.equipment-card:has(.dot-overdue) { --card-accent: #fca5a5; }
+.equipment-card:has(.dot-unknown) { --card-accent: #e2e4ec; }
 .equipment-card .unit-icon { font-size: 30px; }
 
 .align-guide {
@@ -7881,6 +7981,9 @@ body {
 .align-guide-h { left: 0; right: 0; height: 2px; transform: translateY(-50%); }
 
 /* ── 캔버스 ───────────────────────────────────────────────────── */
+.canvas-scale-wrap {
+  width: 100%;
+}
 .equipment-canvas {
   position: relative;
   width: 100%;
@@ -7901,7 +8004,7 @@ body {
   width: 140px;
   min-height: 110px;
   background: var(--surface);
-  border: 1.5px solid var(--uc);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 14px 10px 10px;
   cursor: pointer;
@@ -8490,7 +8593,8 @@ html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
 .master-badge {
   font-size: 11px;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.18);
+  background: color-mix(in srgb, var(--pri) 10%, white);
+  color: var(--pri);
   border-radius: 999px;
   padding: 3px 10px;
   margin-left: 8px;
@@ -9156,6 +9260,39 @@ function tick() {
   if (el) el.textContent = new Date().toLocaleString("ko-KR");
 }
 
+// ── 화면 배율 자동 조정: 모니터/창 폭에 맞춰 캔버스 전체를 축소해 카드 겹침 방지 ──
+function applyCanvasAutoScale(canvas, referenceWidth) {
+  if (!canvas) return 1;
+  let wrap = canvas.parentElement;
+  if (!wrap.classList.contains("canvas-scale-wrap")) {
+    wrap = document.createElement("div");
+    wrap.className = "canvas-scale-wrap";
+    canvas.parentNode.insertBefore(wrap, canvas);
+    wrap.appendChild(canvas);
+  }
+  canvas.style.transform = "none";
+  canvas.style.width = "";
+  const available = wrap.clientWidth;
+  const scale = Math.max(0.55, Math.min(1, available / referenceWidth));
+  canvas.style.width = `${referenceWidth}px`;
+  canvas.style.transformOrigin = "top left";
+  canvas.style.transform = `scale(${scale})`;
+  const naturalHeight = canvas.scrollHeight;
+  wrap.style.height = `${naturalHeight * scale}px`;
+  wrap.style.position = "relative";
+  wrap.style.overflow = "hidden";
+  canvas.dataset.currentScale = String(scale);
+  return scale;
+}
+
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
 async function fetchJson(url, options) {
   const res = await fetch(url, options);
   if (res.status === 401) {
@@ -9479,6 +9616,7 @@ function renderPartsCanvas(parts) {
     makeResizable(card, p);
     makeResizableHorizontal(card, p);
   });
+  applyCanvasAutoScale(canvas, 1600);
 }
 
 const MIN_SIZE_W = 90;
@@ -9499,12 +9637,14 @@ function makeResizable(card, part) {
     const startY = e.clientY;
     const startWidth = card.offsetWidth;
     const startHeight = card.offsetHeight;
+    const canvasEl = document.getElementById("partsCanvas");
+    const scale = parseFloat(canvasEl?.dataset.currentScale || "1") || 1;
 
     card.classList.add("dragging");
 
     function onMove(ev) {
-      const dx = ev.clientX - startX;
-      const dy = ev.clientY - startY;
+      const dx = (ev.clientX - startX) / scale;
+      const dy = (ev.clientY - startY) / scale;
       const w = Math.min(Math.max(startWidth + dx, MIN_SIZE_W), MAX_SIZE_W);
       const h = Math.min(Math.max(startHeight + dy, MIN_SIZE_H), MAX_SIZE_H);
       card.style.width = `${w}px`;
@@ -9542,11 +9682,13 @@ function makeResizableHorizontal(card, part) {
 
     const startX = e.clientX;
     const startWidth = card.offsetWidth;
+    const canvasEl = document.getElementById("partsCanvas");
+    const scale = parseFloat(canvasEl?.dataset.currentScale || "1") || 1;
 
     card.classList.add("dragging");
 
     function onMove(ev) {
-      const dx = ev.clientX - startX;
+      const dx = (ev.clientX - startX) / scale;
       const w = Math.min(Math.max(startWidth + dx, MIN_SIZE_W), MAX_SIZE_W);
       card.style.width = `${w}px`;
     }
@@ -9957,6 +10099,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   const masterInfo = await fetchJson("/api/master-equipment-name");
   MASTER_EQUIPMENT_ID = masterInfo.id;
   document.getElementById("masterEquipmentName").textContent = masterInfo.name;
+
+  window.addEventListener("resize", debounce(() => {
+    applyCanvasAutoScale(document.getElementById("partsCanvas"), 1600);
+  }, 150));
+
   loadUnitHeader();
   loadParts();
   loadNotes();
@@ -10137,27 +10284,27 @@ CONFIG_HTML = r"""<!DOCTYPE html>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>
 :root {
-  --pri: #4338ca;
-  --pri-dark: #362f8c;
-  --accent: #6366f1;
-  --bg-a: #e5e7eb;
-  --bg-b: #f3f4f6;
+  --pri: #6366f1;
+  --pri-dark: #4f52d9;
+  --accent: #818cf8;
+  --bg-a: #fafafc;
+  --bg-b: #fafafc;
   --surface: #ffffff;
-  --border: #e5e7eb;
-  --text: #1e2432;
-  --text-muted: #6b7280;
-  --radius-lg: 18px;
-  --radius-md: 14px;
-  --radius-sm: 10px;
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
-  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
+  --border: #eef0f5;
+  --text: #2b2f3a;
+  --text-muted: #8b8fa3;
+  --radius-lg: 22px;
+  --radius-md: 16px;
+  --radius-sm: 12px;
+  --shadow-sm: 0 2px 8px rgba(30, 30, 60, 0.05);
+  --shadow-md: 0 8px 22px rgba(30, 30, 60, 0.07);
+  --shadow-lg: 0 16px 36px rgba(30, 30, 60, 0.10);
 }
 
 * { box-sizing: border-box; }
 
 body {
-  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background: var(--bg-a);
   background-attachment: fixed;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
@@ -10211,14 +10358,16 @@ body {
   box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
 }
 .btn-outline-light {
-  border-color: rgba(255, 255, 255, 0.45);
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
 }
-.btn-outline-light:hover {
-  background: rgba(255, 255, 255, 0.22);
-  border-color: rgba(255, 255, 255, 0.6);
-  color: #fff;
+.btn-outline-light:hover,
+.btn-outline-light:focus,
+.btn-outline-light.show {
+  background: #f6f6fb;
+  border-color: #e3e4ef;
+  color: var(--text);
 }
 .btn-warning {
   background: #f59e0b;
@@ -10240,8 +10389,8 @@ body {
 
 /* ── 상단바 ───────────────────────────────────────────────────── */
 .topbar {
-  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
-  color: #fff;
+  background: var(--surface);
+  color: var(--text);
   padding: 14px 24px;
   display: flex;
   align-items: center;
@@ -10249,11 +10398,12 @@ body {
   position: sticky;
   top: 0;
   z-index: 90;
-  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(30, 30, 60, 0.02);
 }
-.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
-.topbar i.bi { font-size: 18px; opacity: 0.9; }
-.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
+.topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
 .legend {
@@ -10279,14 +10429,11 @@ body {
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
-  background:
-    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
-    linear-gradient(180deg, #fcfcfd, #e9eaed);
-  background-size: 22px 22px, 100% 100%;
-  border: 1px solid #dcdee2;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 30px 22px 22px;
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
+  box-shadow: var(--shadow-sm);
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
@@ -10317,8 +10464,9 @@ body {
 
 .unit-shape {
   --shape-color: var(--pri);
-  border: 3px solid var(--shape-color);
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
   /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
      여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
   max-width: 1600px;
@@ -10350,6 +10498,7 @@ body {
   .equipment-canvas.dashboard-canvas { min-height: 1150px; }
 }
 .equipment-card {
+  --card-accent: transparent;
   position: absolute;
   top: 0;
   left: 0;
@@ -10357,29 +10506,31 @@ body {
   width: 150px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-top: 3px solid var(--pri);
   border-radius: var(--radius-md);
   padding: 20px 10px 14px;
   cursor: pointer;
   text-align: center;
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  box-shadow: var(--shadow-sm), inset 4px 0 0 0 var(--card-accent);
+  transition: box-shadow 0.18s ease;
   user-select: none;
   touch-action: none;
   box-sizing: border-box;
 }
 .equipment-card:hover {
-  box-shadow: var(--shadow-lg);
-  border-top-color: var(--accent);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 5;
 }
 .equipment-card.edit-mode { cursor: grab; }
 .equipment-card.dragging {
   cursor: grabbing;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 20;
   transition: none;
 }
+.equipment-card:has(.dot-ok) { --card-accent: #86efac; }
+.equipment-card:has(.dot-soon) { --card-accent: #fde68a; }
+.equipment-card:has(.dot-overdue) { --card-accent: #fca5a5; }
+.equipment-card:has(.dot-unknown) { --card-accent: #e2e4ec; }
 .equipment-card .unit-icon { font-size: 30px; }
 
 .align-guide {
@@ -10393,6 +10544,9 @@ body {
 .align-guide-h { left: 0; right: 0; height: 2px; transform: translateY(-50%); }
 
 /* ── 캔버스 ───────────────────────────────────────────────────── */
+.canvas-scale-wrap {
+  width: 100%;
+}
 .equipment-canvas {
   position: relative;
   width: 100%;
@@ -10413,7 +10567,7 @@ body {
   width: 140px;
   min-height: 110px;
   background: var(--surface);
-  border: 1.5px solid var(--uc);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 14px 10px 10px;
   cursor: pointer;
@@ -11002,7 +11156,8 @@ html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
 .master-badge {
   font-size: 11px;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.18);
+  background: color-mix(in srgb, var(--pri) 10%, white);
+  color: var(--pri);
   border-radius: 999px;
   padding: 3px 10px;
   margin-left: 8px;
@@ -11467,6 +11622,39 @@ function tick() {
   if (el) el.textContent = new Date().toLocaleString("ko-KR");
 }
 
+// ── 화면 배율 자동 조정: 모니터/창 폭에 맞춰 캔버스 전체를 축소해 카드 겹침 방지 ──
+function applyCanvasAutoScale(canvas, referenceWidth) {
+  if (!canvas) return 1;
+  let wrap = canvas.parentElement;
+  if (!wrap.classList.contains("canvas-scale-wrap")) {
+    wrap = document.createElement("div");
+    wrap.className = "canvas-scale-wrap";
+    canvas.parentNode.insertBefore(wrap, canvas);
+    wrap.appendChild(canvas);
+  }
+  canvas.style.transform = "none";
+  canvas.style.width = "";
+  const available = wrap.clientWidth;
+  const scale = Math.max(0.55, Math.min(1, available / referenceWidth));
+  canvas.style.width = `${referenceWidth}px`;
+  canvas.style.transformOrigin = "top left";
+  canvas.style.transform = `scale(${scale})`;
+  const naturalHeight = canvas.scrollHeight;
+  wrap.style.height = `${naturalHeight * scale}px`;
+  wrap.style.position = "relative";
+  wrap.style.overflow = "hidden";
+  canvas.dataset.currentScale = String(scale);
+  return scale;
+}
+
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
 async function fetchJson(url, options) {
   const res = await fetch(url, options);
   if (res.status === 401) {
@@ -11520,6 +11708,7 @@ function renderCanvas(templates) {
     makeResizable(card, t);
     makeResizableHorizontal(card, t);
   });
+  applyCanvasAutoScale(canvas, 1100);
 }
 
 const MIN_UNIT_WIDTH = 90;
@@ -11539,12 +11728,14 @@ function makeResizable(card, template) {
     const startY = e.clientY;
     const startWidth = card.offsetWidth;
     const startHeight = card.offsetHeight;
+    const canvasEl = document.getElementById("canvas");
+    const scale = parseFloat(canvasEl?.dataset.currentScale || "1") || 1;
 
     card.classList.add("dragging");
 
     function onMove(ev) {
-      const dx = ev.clientX - startX;
-      const dy = ev.clientY - startY;
+      const dx = (ev.clientX - startX) / scale;
+      const dy = (ev.clientY - startY) / scale;
       const w = Math.min(Math.max(startWidth + dx, MIN_UNIT_WIDTH), MAX_UNIT_WIDTH);
       const h = Math.min(Math.max(startHeight + dy, MIN_UNIT_HEIGHT), MAX_UNIT_HEIGHT);
       card.style.width = `${w}px`;
@@ -11581,11 +11772,13 @@ function makeResizableHorizontal(card, template) {
 
     const startX = e.clientX;
     const startWidth = card.offsetWidth;
+    const canvasEl = document.getElementById("canvas");
+    const scale = parseFloat(canvasEl?.dataset.currentScale || "1") || 1;
 
     card.classList.add("dragging");
 
     function onMove(ev) {
-      const dx = ev.clientX - startX;
+      const dx = (ev.clientX - startX) / scale;
       const w = Math.min(Math.max(startWidth + dx, MIN_UNIT_WIDTH), MAX_UNIT_WIDTH);
       card.style.width = `${w}px`;
     }
@@ -11842,6 +12035,10 @@ document.addEventListener("DOMContentLoaded", () => {
   loadMasterEquipmentName();
   loadMasterBackupStatus();
 
+  window.addEventListener("resize", debounce(() => {
+    applyCanvasAutoScale(document.getElementById("canvas"), 1100);
+  }, 150));
+
   document.getElementById("addUnitBtn").addEventListener("click", () => openUnitEditModal(null));
   document.getElementById("pasteUnitBtn").addEventListener("click", pasteUnit);
 
@@ -11981,27 +12178,27 @@ ALERTS_HTML = r"""<!DOCTYPE html>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>
 :root {
-  --pri: #4338ca;
-  --pri-dark: #362f8c;
-  --accent: #6366f1;
-  --bg-a: #e5e7eb;
-  --bg-b: #f3f4f6;
+  --pri: #6366f1;
+  --pri-dark: #4f52d9;
+  --accent: #818cf8;
+  --bg-a: #fafafc;
+  --bg-b: #fafafc;
   --surface: #ffffff;
-  --border: #e5e7eb;
-  --text: #1e2432;
-  --text-muted: #6b7280;
-  --radius-lg: 18px;
-  --radius-md: 14px;
-  --radius-sm: 10px;
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
-  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
+  --border: #eef0f5;
+  --text: #2b2f3a;
+  --text-muted: #8b8fa3;
+  --radius-lg: 22px;
+  --radius-md: 16px;
+  --radius-sm: 12px;
+  --shadow-sm: 0 2px 8px rgba(30, 30, 60, 0.05);
+  --shadow-md: 0 8px 22px rgba(30, 30, 60, 0.07);
+  --shadow-lg: 0 16px 36px rgba(30, 30, 60, 0.10);
 }
 
 * { box-sizing: border-box; }
 
 body {
-  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background: var(--bg-a);
   background-attachment: fixed;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
@@ -12055,14 +12252,16 @@ body {
   box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
 }
 .btn-outline-light {
-  border-color: rgba(255, 255, 255, 0.45);
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
 }
-.btn-outline-light:hover {
-  background: rgba(255, 255, 255, 0.22);
-  border-color: rgba(255, 255, 255, 0.6);
-  color: #fff;
+.btn-outline-light:hover,
+.btn-outline-light:focus,
+.btn-outline-light.show {
+  background: #f6f6fb;
+  border-color: #e3e4ef;
+  color: var(--text);
 }
 .btn-warning {
   background: #f59e0b;
@@ -12084,8 +12283,8 @@ body {
 
 /* ── 상단바 ───────────────────────────────────────────────────── */
 .topbar {
-  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
-  color: #fff;
+  background: var(--surface);
+  color: var(--text);
   padding: 14px 24px;
   display: flex;
   align-items: center;
@@ -12093,11 +12292,12 @@ body {
   position: sticky;
   top: 0;
   z-index: 90;
-  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(30, 30, 60, 0.02);
 }
-.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
-.topbar i.bi { font-size: 18px; opacity: 0.9; }
-.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
+.topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
 .legend {
@@ -12123,14 +12323,11 @@ body {
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
-  background:
-    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
-    linear-gradient(180deg, #fcfcfd, #e9eaed);
-  background-size: 22px 22px, 100% 100%;
-  border: 1px solid #dcdee2;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 30px 22px 22px;
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
+  box-shadow: var(--shadow-sm);
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
@@ -12161,8 +12358,9 @@ body {
 
 .unit-shape {
   --shape-color: var(--pri);
-  border: 3px solid var(--shape-color);
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
   /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
      여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
   max-width: 1600px;
@@ -12194,6 +12392,7 @@ body {
   .equipment-canvas.dashboard-canvas { min-height: 1150px; }
 }
 .equipment-card {
+  --card-accent: transparent;
   position: absolute;
   top: 0;
   left: 0;
@@ -12201,29 +12400,31 @@ body {
   width: 150px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-top: 3px solid var(--pri);
   border-radius: var(--radius-md);
   padding: 20px 10px 14px;
   cursor: pointer;
   text-align: center;
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  box-shadow: var(--shadow-sm), inset 4px 0 0 0 var(--card-accent);
+  transition: box-shadow 0.18s ease;
   user-select: none;
   touch-action: none;
   box-sizing: border-box;
 }
 .equipment-card:hover {
-  box-shadow: var(--shadow-lg);
-  border-top-color: var(--accent);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 5;
 }
 .equipment-card.edit-mode { cursor: grab; }
 .equipment-card.dragging {
   cursor: grabbing;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 20;
   transition: none;
 }
+.equipment-card:has(.dot-ok) { --card-accent: #86efac; }
+.equipment-card:has(.dot-soon) { --card-accent: #fde68a; }
+.equipment-card:has(.dot-overdue) { --card-accent: #fca5a5; }
+.equipment-card:has(.dot-unknown) { --card-accent: #e2e4ec; }
 .equipment-card .unit-icon { font-size: 30px; }
 
 .align-guide {
@@ -12237,6 +12438,9 @@ body {
 .align-guide-h { left: 0; right: 0; height: 2px; transform: translateY(-50%); }
 
 /* ── 캔버스 ───────────────────────────────────────────────────── */
+.canvas-scale-wrap {
+  width: 100%;
+}
 .equipment-canvas {
   position: relative;
   width: 100%;
@@ -12257,7 +12461,7 @@ body {
   width: 140px;
   min-height: 110px;
   background: var(--surface);
-  border: 1.5px solid var(--uc);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 14px 10px 10px;
   cursor: pointer;
@@ -12846,7 +13050,8 @@ html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
 .master-badge {
   font-size: 11px;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.18);
+  background: color-mix(in srgb, var(--pri) 10%, white);
+  color: var(--pri);
   border-radius: 999px;
   padding: 3px 10px;
   margin-left: 8px;
@@ -13197,6 +13402,39 @@ function tick() {
   if (el) el.textContent = new Date().toLocaleString("ko-KR");
 }
 
+// ── 화면 배율 자동 조정: 모니터/창 폭에 맞춰 캔버스 전체를 축소해 카드 겹침 방지 ──
+function applyCanvasAutoScale(canvas, referenceWidth) {
+  if (!canvas) return 1;
+  let wrap = canvas.parentElement;
+  if (!wrap.classList.contains("canvas-scale-wrap")) {
+    wrap = document.createElement("div");
+    wrap.className = "canvas-scale-wrap";
+    canvas.parentNode.insertBefore(wrap, canvas);
+    wrap.appendChild(canvas);
+  }
+  canvas.style.transform = "none";
+  canvas.style.width = "";
+  const available = wrap.clientWidth;
+  const scale = Math.max(0.55, Math.min(1, available / referenceWidth));
+  canvas.style.width = `${referenceWidth}px`;
+  canvas.style.transformOrigin = "top left";
+  canvas.style.transform = `scale(${scale})`;
+  const naturalHeight = canvas.scrollHeight;
+  wrap.style.height = `${naturalHeight * scale}px`;
+  wrap.style.position = "relative";
+  wrap.style.overflow = "hidden";
+  canvas.dataset.currentScale = String(scale);
+  return scale;
+}
+
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
 function escapeHtml(s) {
   const div = document.createElement("div");
   div.textContent = s;
@@ -13398,27 +13636,27 @@ SEARCH_HTML = r"""<!DOCTYPE html>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>
 :root {
-  --pri: #4338ca;
-  --pri-dark: #362f8c;
-  --accent: #6366f1;
-  --bg-a: #e5e7eb;
-  --bg-b: #f3f4f6;
+  --pri: #6366f1;
+  --pri-dark: #4f52d9;
+  --accent: #818cf8;
+  --bg-a: #fafafc;
+  --bg-b: #fafafc;
   --surface: #ffffff;
-  --border: #e5e7eb;
-  --text: #1e2432;
-  --text-muted: #6b7280;
-  --radius-lg: 18px;
-  --radius-md: 14px;
-  --radius-sm: 10px;
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
-  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
+  --border: #eef0f5;
+  --text: #2b2f3a;
+  --text-muted: #8b8fa3;
+  --radius-lg: 22px;
+  --radius-md: 16px;
+  --radius-sm: 12px;
+  --shadow-sm: 0 2px 8px rgba(30, 30, 60, 0.05);
+  --shadow-md: 0 8px 22px rgba(30, 30, 60, 0.07);
+  --shadow-lg: 0 16px 36px rgba(30, 30, 60, 0.10);
 }
 
 * { box-sizing: border-box; }
 
 body {
-  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background: var(--bg-a);
   background-attachment: fixed;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
@@ -13472,14 +13710,16 @@ body {
   box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
 }
 .btn-outline-light {
-  border-color: rgba(255, 255, 255, 0.45);
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
 }
-.btn-outline-light:hover {
-  background: rgba(255, 255, 255, 0.22);
-  border-color: rgba(255, 255, 255, 0.6);
-  color: #fff;
+.btn-outline-light:hover,
+.btn-outline-light:focus,
+.btn-outline-light.show {
+  background: #f6f6fb;
+  border-color: #e3e4ef;
+  color: var(--text);
 }
 .btn-warning {
   background: #f59e0b;
@@ -13501,8 +13741,8 @@ body {
 
 /* ── 상단바 ───────────────────────────────────────────────────── */
 .topbar {
-  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
-  color: #fff;
+  background: var(--surface);
+  color: var(--text);
   padding: 14px 24px;
   display: flex;
   align-items: center;
@@ -13510,11 +13750,12 @@ body {
   position: sticky;
   top: 0;
   z-index: 90;
-  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(30, 30, 60, 0.02);
 }
-.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
-.topbar i.bi { font-size: 18px; opacity: 0.9; }
-.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
+.topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
 .legend {
@@ -13540,14 +13781,11 @@ body {
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
-  background:
-    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
-    linear-gradient(180deg, #fcfcfd, #e9eaed);
-  background-size: 22px 22px, 100% 100%;
-  border: 1px solid #dcdee2;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 30px 22px 22px;
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
+  box-shadow: var(--shadow-sm);
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
@@ -13578,8 +13816,9 @@ body {
 
 .unit-shape {
   --shape-color: var(--pri);
-  border: 3px solid var(--shape-color);
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
   /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
      여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
   max-width: 1600px;
@@ -13611,6 +13850,7 @@ body {
   .equipment-canvas.dashboard-canvas { min-height: 1150px; }
 }
 .equipment-card {
+  --card-accent: transparent;
   position: absolute;
   top: 0;
   left: 0;
@@ -13618,29 +13858,31 @@ body {
   width: 150px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-top: 3px solid var(--pri);
   border-radius: var(--radius-md);
   padding: 20px 10px 14px;
   cursor: pointer;
   text-align: center;
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  box-shadow: var(--shadow-sm), inset 4px 0 0 0 var(--card-accent);
+  transition: box-shadow 0.18s ease;
   user-select: none;
   touch-action: none;
   box-sizing: border-box;
 }
 .equipment-card:hover {
-  box-shadow: var(--shadow-lg);
-  border-top-color: var(--accent);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 5;
 }
 .equipment-card.edit-mode { cursor: grab; }
 .equipment-card.dragging {
   cursor: grabbing;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 20;
   transition: none;
 }
+.equipment-card:has(.dot-ok) { --card-accent: #86efac; }
+.equipment-card:has(.dot-soon) { --card-accent: #fde68a; }
+.equipment-card:has(.dot-overdue) { --card-accent: #fca5a5; }
+.equipment-card:has(.dot-unknown) { --card-accent: #e2e4ec; }
 .equipment-card .unit-icon { font-size: 30px; }
 
 .align-guide {
@@ -13654,6 +13896,9 @@ body {
 .align-guide-h { left: 0; right: 0; height: 2px; transform: translateY(-50%); }
 
 /* ── 캔버스 ───────────────────────────────────────────────────── */
+.canvas-scale-wrap {
+  width: 100%;
+}
 .equipment-canvas {
   position: relative;
   width: 100%;
@@ -13674,7 +13919,7 @@ body {
   width: 140px;
   min-height: 110px;
   background: var(--surface);
-  border: 1.5px solid var(--uc);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 14px 10px 10px;
   cursor: pointer;
@@ -14263,7 +14508,8 @@ html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
 .master-badge {
   font-size: 11px;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.18);
+  background: color-mix(in srgb, var(--pri) 10%, white);
+  color: var(--pri);
   border-radius: 999px;
   padding: 3px 10px;
   margin-left: 8px;
@@ -14602,6 +14848,39 @@ function tick() {
   if (el) el.textContent = new Date().toLocaleString("ko-KR");
 }
 
+// ── 화면 배율 자동 조정: 모니터/창 폭에 맞춰 캔버스 전체를 축소해 카드 겹침 방지 ──
+function applyCanvasAutoScale(canvas, referenceWidth) {
+  if (!canvas) return 1;
+  let wrap = canvas.parentElement;
+  if (!wrap.classList.contains("canvas-scale-wrap")) {
+    wrap = document.createElement("div");
+    wrap.className = "canvas-scale-wrap";
+    canvas.parentNode.insertBefore(wrap, canvas);
+    wrap.appendChild(canvas);
+  }
+  canvas.style.transform = "none";
+  canvas.style.width = "";
+  const available = wrap.clientWidth;
+  const scale = Math.max(0.55, Math.min(1, available / referenceWidth));
+  canvas.style.width = `${referenceWidth}px`;
+  canvas.style.transformOrigin = "top left";
+  canvas.style.transform = `scale(${scale})`;
+  const naturalHeight = canvas.scrollHeight;
+  wrap.style.height = `${naturalHeight * scale}px`;
+  wrap.style.position = "relative";
+  wrap.style.overflow = "hidden";
+  canvas.dataset.currentScale = String(scale);
+  return scale;
+}
+
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
 function escapeHtml(s) {
   const div = document.createElement("div");
   div.textContent = s;
@@ -14765,27 +15044,27 @@ STATS_HTML = r"""<!DOCTYPE html>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>
 :root {
-  --pri: #4338ca;
-  --pri-dark: #362f8c;
-  --accent: #6366f1;
-  --bg-a: #e5e7eb;
-  --bg-b: #f3f4f6;
+  --pri: #6366f1;
+  --pri-dark: #4f52d9;
+  --accent: #818cf8;
+  --bg-a: #fafafc;
+  --bg-b: #fafafc;
   --surface: #ffffff;
-  --border: #e5e7eb;
-  --text: #1e2432;
-  --text-muted: #6b7280;
-  --radius-lg: 18px;
-  --radius-md: 14px;
-  --radius-sm: 10px;
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
-  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
+  --border: #eef0f5;
+  --text: #2b2f3a;
+  --text-muted: #8b8fa3;
+  --radius-lg: 22px;
+  --radius-md: 16px;
+  --radius-sm: 12px;
+  --shadow-sm: 0 2px 8px rgba(30, 30, 60, 0.05);
+  --shadow-md: 0 8px 22px rgba(30, 30, 60, 0.07);
+  --shadow-lg: 0 16px 36px rgba(30, 30, 60, 0.10);
 }
 
 * { box-sizing: border-box; }
 
 body {
-  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background: var(--bg-a);
   background-attachment: fixed;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
@@ -14839,14 +15118,16 @@ body {
   box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
 }
 .btn-outline-light {
-  border-color: rgba(255, 255, 255, 0.45);
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
 }
-.btn-outline-light:hover {
-  background: rgba(255, 255, 255, 0.22);
-  border-color: rgba(255, 255, 255, 0.6);
-  color: #fff;
+.btn-outline-light:hover,
+.btn-outline-light:focus,
+.btn-outline-light.show {
+  background: #f6f6fb;
+  border-color: #e3e4ef;
+  color: var(--text);
 }
 .btn-warning {
   background: #f59e0b;
@@ -14868,8 +15149,8 @@ body {
 
 /* ── 상단바 ───────────────────────────────────────────────────── */
 .topbar {
-  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
-  color: #fff;
+  background: var(--surface);
+  color: var(--text);
   padding: 14px 24px;
   display: flex;
   align-items: center;
@@ -14877,11 +15158,12 @@ body {
   position: sticky;
   top: 0;
   z-index: 90;
-  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(30, 30, 60, 0.02);
 }
-.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
-.topbar i.bi { font-size: 18px; opacity: 0.9; }
-.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
+.topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
 .legend {
@@ -14907,14 +15189,11 @@ body {
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
-  background:
-    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
-    linear-gradient(180deg, #fcfcfd, #e9eaed);
-  background-size: 22px 22px, 100% 100%;
-  border: 1px solid #dcdee2;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 30px 22px 22px;
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
+  box-shadow: var(--shadow-sm);
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
@@ -14945,8 +15224,9 @@ body {
 
 .unit-shape {
   --shape-color: var(--pri);
-  border: 3px solid var(--shape-color);
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
   /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
      여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
   max-width: 1600px;
@@ -14978,6 +15258,7 @@ body {
   .equipment-canvas.dashboard-canvas { min-height: 1150px; }
 }
 .equipment-card {
+  --card-accent: transparent;
   position: absolute;
   top: 0;
   left: 0;
@@ -14985,29 +15266,31 @@ body {
   width: 150px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-top: 3px solid var(--pri);
   border-radius: var(--radius-md);
   padding: 20px 10px 14px;
   cursor: pointer;
   text-align: center;
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  box-shadow: var(--shadow-sm), inset 4px 0 0 0 var(--card-accent);
+  transition: box-shadow 0.18s ease;
   user-select: none;
   touch-action: none;
   box-sizing: border-box;
 }
 .equipment-card:hover {
-  box-shadow: var(--shadow-lg);
-  border-top-color: var(--accent);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 5;
 }
 .equipment-card.edit-mode { cursor: grab; }
 .equipment-card.dragging {
   cursor: grabbing;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 20;
   transition: none;
 }
+.equipment-card:has(.dot-ok) { --card-accent: #86efac; }
+.equipment-card:has(.dot-soon) { --card-accent: #fde68a; }
+.equipment-card:has(.dot-overdue) { --card-accent: #fca5a5; }
+.equipment-card:has(.dot-unknown) { --card-accent: #e2e4ec; }
 .equipment-card .unit-icon { font-size: 30px; }
 
 .align-guide {
@@ -15021,6 +15304,9 @@ body {
 .align-guide-h { left: 0; right: 0; height: 2px; transform: translateY(-50%); }
 
 /* ── 캔버스 ───────────────────────────────────────────────────── */
+.canvas-scale-wrap {
+  width: 100%;
+}
 .equipment-canvas {
   position: relative;
   width: 100%;
@@ -15041,7 +15327,7 @@ body {
   width: 140px;
   min-height: 110px;
   background: var(--surface);
-  border: 1.5px solid var(--uc);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 14px 10px 10px;
   cursor: pointer;
@@ -15630,7 +15916,8 @@ html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
 .master-badge {
   font-size: 11px;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.18);
+  background: color-mix(in srgb, var(--pri) 10%, white);
+  color: var(--pri);
   border-radius: 999px;
   padding: 3px 10px;
   margin-left: 8px;
@@ -15983,6 +16270,39 @@ function tick() {
   if (el) el.textContent = new Date().toLocaleString("ko-KR");
 }
 
+// ── 화면 배율 자동 조정: 모니터/창 폭에 맞춰 캔버스 전체를 축소해 카드 겹침 방지 ──
+function applyCanvasAutoScale(canvas, referenceWidth) {
+  if (!canvas) return 1;
+  let wrap = canvas.parentElement;
+  if (!wrap.classList.contains("canvas-scale-wrap")) {
+    wrap = document.createElement("div");
+    wrap.className = "canvas-scale-wrap";
+    canvas.parentNode.insertBefore(wrap, canvas);
+    wrap.appendChild(canvas);
+  }
+  canvas.style.transform = "none";
+  canvas.style.width = "";
+  const available = wrap.clientWidth;
+  const scale = Math.max(0.55, Math.min(1, available / referenceWidth));
+  canvas.style.width = `${referenceWidth}px`;
+  canvas.style.transformOrigin = "top left";
+  canvas.style.transform = `scale(${scale})`;
+  const naturalHeight = canvas.scrollHeight;
+  wrap.style.height = `${naturalHeight * scale}px`;
+  wrap.style.position = "relative";
+  wrap.style.overflow = "hidden";
+  canvas.dataset.currentScale = String(scale);
+  return scale;
+}
+
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
 function escapeHtml(s) {
   const div = document.createElement("div");
   div.textContent = s;
@@ -16248,27 +16568,27 @@ LOGIN_HTML = r"""<!DOCTYPE html>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>
 :root {
-  --pri: #4338ca;
-  --pri-dark: #362f8c;
-  --accent: #6366f1;
-  --bg-a: #e5e7eb;
-  --bg-b: #f3f4f6;
+  --pri: #6366f1;
+  --pri-dark: #4f52d9;
+  --accent: #818cf8;
+  --bg-a: #fafafc;
+  --bg-b: #fafafc;
   --surface: #ffffff;
-  --border: #e5e7eb;
-  --text: #1e2432;
-  --text-muted: #6b7280;
-  --radius-lg: 18px;
-  --radius-md: 14px;
-  --radius-sm: 10px;
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
-  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
+  --border: #eef0f5;
+  --text: #2b2f3a;
+  --text-muted: #8b8fa3;
+  --radius-lg: 22px;
+  --radius-md: 16px;
+  --radius-sm: 12px;
+  --shadow-sm: 0 2px 8px rgba(30, 30, 60, 0.05);
+  --shadow-md: 0 8px 22px rgba(30, 30, 60, 0.07);
+  --shadow-lg: 0 16px 36px rgba(30, 30, 60, 0.10);
 }
 
 * { box-sizing: border-box; }
 
 body {
-  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background: var(--bg-a);
   background-attachment: fixed;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
@@ -16322,14 +16642,16 @@ body {
   box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
 }
 .btn-outline-light {
-  border-color: rgba(255, 255, 255, 0.45);
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
 }
-.btn-outline-light:hover {
-  background: rgba(255, 255, 255, 0.22);
-  border-color: rgba(255, 255, 255, 0.6);
-  color: #fff;
+.btn-outline-light:hover,
+.btn-outline-light:focus,
+.btn-outline-light.show {
+  background: #f6f6fb;
+  border-color: #e3e4ef;
+  color: var(--text);
 }
 .btn-warning {
   background: #f59e0b;
@@ -16351,8 +16673,8 @@ body {
 
 /* ── 상단바 ───────────────────────────────────────────────────── */
 .topbar {
-  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
-  color: #fff;
+  background: var(--surface);
+  color: var(--text);
   padding: 14px 24px;
   display: flex;
   align-items: center;
@@ -16360,11 +16682,12 @@ body {
   position: sticky;
   top: 0;
   z-index: 90;
-  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(30, 30, 60, 0.02);
 }
-.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
-.topbar i.bi { font-size: 18px; opacity: 0.9; }
-.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
+.topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
 .legend {
@@ -16390,14 +16713,11 @@ body {
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
-  background:
-    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
-    linear-gradient(180deg, #fcfcfd, #e9eaed);
-  background-size: 22px 22px, 100% 100%;
-  border: 1px solid #dcdee2;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 30px 22px 22px;
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
+  box-shadow: var(--shadow-sm);
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
@@ -16428,8 +16748,9 @@ body {
 
 .unit-shape {
   --shape-color: var(--pri);
-  border: 3px solid var(--shape-color);
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
   /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
      여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
   max-width: 1600px;
@@ -16461,6 +16782,7 @@ body {
   .equipment-canvas.dashboard-canvas { min-height: 1150px; }
 }
 .equipment-card {
+  --card-accent: transparent;
   position: absolute;
   top: 0;
   left: 0;
@@ -16468,29 +16790,31 @@ body {
   width: 150px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-top: 3px solid var(--pri);
   border-radius: var(--radius-md);
   padding: 20px 10px 14px;
   cursor: pointer;
   text-align: center;
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  box-shadow: var(--shadow-sm), inset 4px 0 0 0 var(--card-accent);
+  transition: box-shadow 0.18s ease;
   user-select: none;
   touch-action: none;
   box-sizing: border-box;
 }
 .equipment-card:hover {
-  box-shadow: var(--shadow-lg);
-  border-top-color: var(--accent);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 5;
 }
 .equipment-card.edit-mode { cursor: grab; }
 .equipment-card.dragging {
   cursor: grabbing;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 20;
   transition: none;
 }
+.equipment-card:has(.dot-ok) { --card-accent: #86efac; }
+.equipment-card:has(.dot-soon) { --card-accent: #fde68a; }
+.equipment-card:has(.dot-overdue) { --card-accent: #fca5a5; }
+.equipment-card:has(.dot-unknown) { --card-accent: #e2e4ec; }
 .equipment-card .unit-icon { font-size: 30px; }
 
 .align-guide {
@@ -16504,6 +16828,9 @@ body {
 .align-guide-h { left: 0; right: 0; height: 2px; transform: translateY(-50%); }
 
 /* ── 캔버스 ───────────────────────────────────────────────────── */
+.canvas-scale-wrap {
+  width: 100%;
+}
 .equipment-canvas {
   position: relative;
   width: 100%;
@@ -16524,7 +16851,7 @@ body {
   width: 140px;
   min-height: 110px;
   background: var(--surface);
-  border: 1.5px solid var(--uc);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 14px 10px 10px;
   cursor: pointer;
@@ -17113,7 +17440,8 @@ html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
 .master-badge {
   font-size: 11px;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.18);
+  background: color-mix(in srgb, var(--pri) 10%, white);
+  color: var(--pri);
   border-radius: 999px;
   padding: 3px 10px;
   margin-left: 8px;
@@ -17438,27 +17766,27 @@ BULK_ADD_PARTS_HTML = r"""<!DOCTYPE html>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>
 :root {
-  --pri: #4338ca;
-  --pri-dark: #362f8c;
-  --accent: #6366f1;
-  --bg-a: #e5e7eb;
-  --bg-b: #f3f4f6;
+  --pri: #6366f1;
+  --pri-dark: #4f52d9;
+  --accent: #818cf8;
+  --bg-a: #fafafc;
+  --bg-b: #fafafc;
   --surface: #ffffff;
-  --border: #e5e7eb;
-  --text: #1e2432;
-  --text-muted: #6b7280;
-  --radius-lg: 18px;
-  --radius-md: 14px;
-  --radius-sm: 10px;
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
-  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
+  --border: #eef0f5;
+  --text: #2b2f3a;
+  --text-muted: #8b8fa3;
+  --radius-lg: 22px;
+  --radius-md: 16px;
+  --radius-sm: 12px;
+  --shadow-sm: 0 2px 8px rgba(30, 30, 60, 0.05);
+  --shadow-md: 0 8px 22px rgba(30, 30, 60, 0.07);
+  --shadow-lg: 0 16px 36px rgba(30, 30, 60, 0.10);
 }
 
 * { box-sizing: border-box; }
 
 body {
-  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background: var(--bg-a);
   background-attachment: fixed;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
@@ -17512,14 +17840,16 @@ body {
   box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
 }
 .btn-outline-light {
-  border-color: rgba(255, 255, 255, 0.45);
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
 }
-.btn-outline-light:hover {
-  background: rgba(255, 255, 255, 0.22);
-  border-color: rgba(255, 255, 255, 0.6);
-  color: #fff;
+.btn-outline-light:hover,
+.btn-outline-light:focus,
+.btn-outline-light.show {
+  background: #f6f6fb;
+  border-color: #e3e4ef;
+  color: var(--text);
 }
 .btn-warning {
   background: #f59e0b;
@@ -17541,8 +17871,8 @@ body {
 
 /* ── 상단바 ───────────────────────────────────────────────────── */
 .topbar {
-  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
-  color: #fff;
+  background: var(--surface);
+  color: var(--text);
   padding: 14px 24px;
   display: flex;
   align-items: center;
@@ -17550,11 +17880,12 @@ body {
   position: sticky;
   top: 0;
   z-index: 90;
-  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(30, 30, 60, 0.02);
 }
-.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
-.topbar i.bi { font-size: 18px; opacity: 0.9; }
-.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
+.topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
 .legend {
@@ -17580,14 +17911,11 @@ body {
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
-  background:
-    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
-    linear-gradient(180deg, #fcfcfd, #e9eaed);
-  background-size: 22px 22px, 100% 100%;
-  border: 1px solid #dcdee2;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 30px 22px 22px;
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
+  box-shadow: var(--shadow-sm);
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
@@ -17618,8 +17946,9 @@ body {
 
 .unit-shape {
   --shape-color: var(--pri);
-  border: 3px solid var(--shape-color);
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
   /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
      여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
   max-width: 1600px;
@@ -17651,6 +17980,7 @@ body {
   .equipment-canvas.dashboard-canvas { min-height: 1150px; }
 }
 .equipment-card {
+  --card-accent: transparent;
   position: absolute;
   top: 0;
   left: 0;
@@ -17658,29 +17988,31 @@ body {
   width: 150px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-top: 3px solid var(--pri);
   border-radius: var(--radius-md);
   padding: 20px 10px 14px;
   cursor: pointer;
   text-align: center;
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  box-shadow: var(--shadow-sm), inset 4px 0 0 0 var(--card-accent);
+  transition: box-shadow 0.18s ease;
   user-select: none;
   touch-action: none;
   box-sizing: border-box;
 }
 .equipment-card:hover {
-  box-shadow: var(--shadow-lg);
-  border-top-color: var(--accent);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 5;
 }
 .equipment-card.edit-mode { cursor: grab; }
 .equipment-card.dragging {
   cursor: grabbing;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 20;
   transition: none;
 }
+.equipment-card:has(.dot-ok) { --card-accent: #86efac; }
+.equipment-card:has(.dot-soon) { --card-accent: #fde68a; }
+.equipment-card:has(.dot-overdue) { --card-accent: #fca5a5; }
+.equipment-card:has(.dot-unknown) { --card-accent: #e2e4ec; }
 .equipment-card .unit-icon { font-size: 30px; }
 
 .align-guide {
@@ -17694,6 +18026,9 @@ body {
 .align-guide-h { left: 0; right: 0; height: 2px; transform: translateY(-50%); }
 
 /* ── 캔버스 ───────────────────────────────────────────────────── */
+.canvas-scale-wrap {
+  width: 100%;
+}
 .equipment-canvas {
   position: relative;
   width: 100%;
@@ -17714,7 +18049,7 @@ body {
   width: 140px;
   min-height: 110px;
   background: var(--surface);
-  border: 1.5px solid var(--uc);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 14px 10px 10px;
   cursor: pointer;
@@ -18303,7 +18638,8 @@ html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
 .master-badge {
   font-size: 11px;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.18);
+  background: color-mix(in srgb, var(--pri) 10%, white);
+  color: var(--pri);
   border-radius: 999px;
   padding: 3px 10px;
   margin-left: 8px;
@@ -18658,6 +18994,39 @@ function tick() {
   if (el) el.textContent = new Date().toLocaleString("ko-KR");
 }
 
+// ── 화면 배율 자동 조정: 모니터/창 폭에 맞춰 캔버스 전체를 축소해 카드 겹침 방지 ──
+function applyCanvasAutoScale(canvas, referenceWidth) {
+  if (!canvas) return 1;
+  let wrap = canvas.parentElement;
+  if (!wrap.classList.contains("canvas-scale-wrap")) {
+    wrap = document.createElement("div");
+    wrap.className = "canvas-scale-wrap";
+    canvas.parentNode.insertBefore(wrap, canvas);
+    wrap.appendChild(canvas);
+  }
+  canvas.style.transform = "none";
+  canvas.style.width = "";
+  const available = wrap.clientWidth;
+  const scale = Math.max(0.55, Math.min(1, available / referenceWidth));
+  canvas.style.width = `${referenceWidth}px`;
+  canvas.style.transformOrigin = "top left";
+  canvas.style.transform = `scale(${scale})`;
+  const naturalHeight = canvas.scrollHeight;
+  wrap.style.height = `${naturalHeight * scale}px`;
+  wrap.style.position = "relative";
+  wrap.style.overflow = "hidden";
+  canvas.dataset.currentScale = String(scale);
+  return scale;
+}
+
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
 function escapeHtml(s) {
   const div = document.createElement("div");
   div.textContent = s || "";
@@ -18932,27 +19301,27 @@ TRASH_HTML = r"""<!DOCTYPE html>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>
 :root {
-  --pri: #4338ca;
-  --pri-dark: #362f8c;
-  --accent: #6366f1;
-  --bg-a: #e5e7eb;
-  --bg-b: #f3f4f6;
+  --pri: #6366f1;
+  --pri-dark: #4f52d9;
+  --accent: #818cf8;
+  --bg-a: #fafafc;
+  --bg-b: #fafafc;
   --surface: #ffffff;
-  --border: #e5e7eb;
-  --text: #1e2432;
-  --text-muted: #6b7280;
-  --radius-lg: 18px;
-  --radius-md: 14px;
-  --radius-sm: 10px;
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
-  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
+  --border: #eef0f5;
+  --text: #2b2f3a;
+  --text-muted: #8b8fa3;
+  --radius-lg: 22px;
+  --radius-md: 16px;
+  --radius-sm: 12px;
+  --shadow-sm: 0 2px 8px rgba(30, 30, 60, 0.05);
+  --shadow-md: 0 8px 22px rgba(30, 30, 60, 0.07);
+  --shadow-lg: 0 16px 36px rgba(30, 30, 60, 0.10);
 }
 
 * { box-sizing: border-box; }
 
 body {
-  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background: var(--bg-a);
   background-attachment: fixed;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
@@ -19006,14 +19375,16 @@ body {
   box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
 }
 .btn-outline-light {
-  border-color: rgba(255, 255, 255, 0.45);
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
 }
-.btn-outline-light:hover {
-  background: rgba(255, 255, 255, 0.22);
-  border-color: rgba(255, 255, 255, 0.6);
-  color: #fff;
+.btn-outline-light:hover,
+.btn-outline-light:focus,
+.btn-outline-light.show {
+  background: #f6f6fb;
+  border-color: #e3e4ef;
+  color: var(--text);
 }
 .btn-warning {
   background: #f59e0b;
@@ -19035,8 +19406,8 @@ body {
 
 /* ── 상단바 ───────────────────────────────────────────────────── */
 .topbar {
-  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
-  color: #fff;
+  background: var(--surface);
+  color: var(--text);
   padding: 14px 24px;
   display: flex;
   align-items: center;
@@ -19044,11 +19415,12 @@ body {
   position: sticky;
   top: 0;
   z-index: 90;
-  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(30, 30, 60, 0.02);
 }
-.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
-.topbar i.bi { font-size: 18px; opacity: 0.9; }
-.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
+.topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
 .legend {
@@ -19074,14 +19446,11 @@ body {
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
-  background:
-    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
-    linear-gradient(180deg, #fcfcfd, #e9eaed);
-  background-size: 22px 22px, 100% 100%;
-  border: 1px solid #dcdee2;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 30px 22px 22px;
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
+  box-shadow: var(--shadow-sm);
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
@@ -19112,8 +19481,9 @@ body {
 
 .unit-shape {
   --shape-color: var(--pri);
-  border: 3px solid var(--shape-color);
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
   /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
      여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
   max-width: 1600px;
@@ -19145,6 +19515,7 @@ body {
   .equipment-canvas.dashboard-canvas { min-height: 1150px; }
 }
 .equipment-card {
+  --card-accent: transparent;
   position: absolute;
   top: 0;
   left: 0;
@@ -19152,29 +19523,31 @@ body {
   width: 150px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-top: 3px solid var(--pri);
   border-radius: var(--radius-md);
   padding: 20px 10px 14px;
   cursor: pointer;
   text-align: center;
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  box-shadow: var(--shadow-sm), inset 4px 0 0 0 var(--card-accent);
+  transition: box-shadow 0.18s ease;
   user-select: none;
   touch-action: none;
   box-sizing: border-box;
 }
 .equipment-card:hover {
-  box-shadow: var(--shadow-lg);
-  border-top-color: var(--accent);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 5;
 }
 .equipment-card.edit-mode { cursor: grab; }
 .equipment-card.dragging {
   cursor: grabbing;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 20;
   transition: none;
 }
+.equipment-card:has(.dot-ok) { --card-accent: #86efac; }
+.equipment-card:has(.dot-soon) { --card-accent: #fde68a; }
+.equipment-card:has(.dot-overdue) { --card-accent: #fca5a5; }
+.equipment-card:has(.dot-unknown) { --card-accent: #e2e4ec; }
 .equipment-card .unit-icon { font-size: 30px; }
 
 .align-guide {
@@ -19188,6 +19561,9 @@ body {
 .align-guide-h { left: 0; right: 0; height: 2px; transform: translateY(-50%); }
 
 /* ── 캔버스 ───────────────────────────────────────────────────── */
+.canvas-scale-wrap {
+  width: 100%;
+}
 .equipment-canvas {
   position: relative;
   width: 100%;
@@ -19208,7 +19584,7 @@ body {
   width: 140px;
   min-height: 110px;
   background: var(--surface);
-  border: 1.5px solid var(--uc);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 14px 10px 10px;
   cursor: pointer;
@@ -19797,7 +20173,8 @@ html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
 .master-badge {
   font-size: 11px;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.18);
+  background: color-mix(in srgb, var(--pri) 10%, white);
+  color: var(--pri);
   border-radius: 999px;
   padding: 3px 10px;
   margin-left: 8px;
@@ -20145,6 +20522,39 @@ function tick() {
   if (el) el.textContent = new Date().toLocaleString("ko-KR");
 }
 
+// ── 화면 배율 자동 조정: 모니터/창 폭에 맞춰 캔버스 전체를 축소해 카드 겹침 방지 ──
+function applyCanvasAutoScale(canvas, referenceWidth) {
+  if (!canvas) return 1;
+  let wrap = canvas.parentElement;
+  if (!wrap.classList.contains("canvas-scale-wrap")) {
+    wrap = document.createElement("div");
+    wrap.className = "canvas-scale-wrap";
+    canvas.parentNode.insertBefore(wrap, canvas);
+    wrap.appendChild(canvas);
+  }
+  canvas.style.transform = "none";
+  canvas.style.width = "";
+  const available = wrap.clientWidth;
+  const scale = Math.max(0.55, Math.min(1, available / referenceWidth));
+  canvas.style.width = `${referenceWidth}px`;
+  canvas.style.transformOrigin = "top left";
+  canvas.style.transform = `scale(${scale})`;
+  const naturalHeight = canvas.scrollHeight;
+  wrap.style.height = `${naturalHeight * scale}px`;
+  wrap.style.position = "relative";
+  wrap.style.overflow = "hidden";
+  canvas.dataset.currentScale = String(scale);
+  return scale;
+}
+
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
 function escapeHtml(s) {
   const div = document.createElement("div");
   div.textContent = s || "";
@@ -20315,27 +20725,27 @@ ACTIVITY_LOG_HTML = r"""<!DOCTYPE html>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>
 :root {
-  --pri: #4338ca;
-  --pri-dark: #362f8c;
-  --accent: #6366f1;
-  --bg-a: #e5e7eb;
-  --bg-b: #f3f4f6;
+  --pri: #6366f1;
+  --pri-dark: #4f52d9;
+  --accent: #818cf8;
+  --bg-a: #fafafc;
+  --bg-b: #fafafc;
   --surface: #ffffff;
-  --border: #e5e7eb;
-  --text: #1e2432;
-  --text-muted: #6b7280;
-  --radius-lg: 18px;
-  --radius-md: 14px;
-  --radius-sm: 10px;
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
-  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
+  --border: #eef0f5;
+  --text: #2b2f3a;
+  --text-muted: #8b8fa3;
+  --radius-lg: 22px;
+  --radius-md: 16px;
+  --radius-sm: 12px;
+  --shadow-sm: 0 2px 8px rgba(30, 30, 60, 0.05);
+  --shadow-md: 0 8px 22px rgba(30, 30, 60, 0.07);
+  --shadow-lg: 0 16px 36px rgba(30, 30, 60, 0.10);
 }
 
 * { box-sizing: border-box; }
 
 body {
-  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background: var(--bg-a);
   background-attachment: fixed;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
@@ -20389,14 +20799,16 @@ body {
   box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
 }
 .btn-outline-light {
-  border-color: rgba(255, 255, 255, 0.45);
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
 }
-.btn-outline-light:hover {
-  background: rgba(255, 255, 255, 0.22);
-  border-color: rgba(255, 255, 255, 0.6);
-  color: #fff;
+.btn-outline-light:hover,
+.btn-outline-light:focus,
+.btn-outline-light.show {
+  background: #f6f6fb;
+  border-color: #e3e4ef;
+  color: var(--text);
 }
 .btn-warning {
   background: #f59e0b;
@@ -20418,8 +20830,8 @@ body {
 
 /* ── 상단바 ───────────────────────────────────────────────────── */
 .topbar {
-  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
-  color: #fff;
+  background: var(--surface);
+  color: var(--text);
   padding: 14px 24px;
   display: flex;
   align-items: center;
@@ -20427,11 +20839,12 @@ body {
   position: sticky;
   top: 0;
   z-index: 90;
-  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(30, 30, 60, 0.02);
 }
-.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
-.topbar i.bi { font-size: 18px; opacity: 0.9; }
-.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
+.topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
 .legend {
@@ -20457,14 +20870,11 @@ body {
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
-  background:
-    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
-    linear-gradient(180deg, #fcfcfd, #e9eaed);
-  background-size: 22px 22px, 100% 100%;
-  border: 1px solid #dcdee2;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 30px 22px 22px;
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
+  box-shadow: var(--shadow-sm);
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
@@ -20495,8 +20905,9 @@ body {
 
 .unit-shape {
   --shape-color: var(--pri);
-  border: 3px solid var(--shape-color);
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
   /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
      여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
   max-width: 1600px;
@@ -20528,6 +20939,7 @@ body {
   .equipment-canvas.dashboard-canvas { min-height: 1150px; }
 }
 .equipment-card {
+  --card-accent: transparent;
   position: absolute;
   top: 0;
   left: 0;
@@ -20535,29 +20947,31 @@ body {
   width: 150px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-top: 3px solid var(--pri);
   border-radius: var(--radius-md);
   padding: 20px 10px 14px;
   cursor: pointer;
   text-align: center;
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  box-shadow: var(--shadow-sm), inset 4px 0 0 0 var(--card-accent);
+  transition: box-shadow 0.18s ease;
   user-select: none;
   touch-action: none;
   box-sizing: border-box;
 }
 .equipment-card:hover {
-  box-shadow: var(--shadow-lg);
-  border-top-color: var(--accent);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 5;
 }
 .equipment-card.edit-mode { cursor: grab; }
 .equipment-card.dragging {
   cursor: grabbing;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 20;
   transition: none;
 }
+.equipment-card:has(.dot-ok) { --card-accent: #86efac; }
+.equipment-card:has(.dot-soon) { --card-accent: #fde68a; }
+.equipment-card:has(.dot-overdue) { --card-accent: #fca5a5; }
+.equipment-card:has(.dot-unknown) { --card-accent: #e2e4ec; }
 .equipment-card .unit-icon { font-size: 30px; }
 
 .align-guide {
@@ -20571,6 +20985,9 @@ body {
 .align-guide-h { left: 0; right: 0; height: 2px; transform: translateY(-50%); }
 
 /* ── 캔버스 ───────────────────────────────────────────────────── */
+.canvas-scale-wrap {
+  width: 100%;
+}
 .equipment-canvas {
   position: relative;
   width: 100%;
@@ -20591,7 +21008,7 @@ body {
   width: 140px;
   min-height: 110px;
   background: var(--surface);
-  border: 1.5px solid var(--uc);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 14px 10px 10px;
   cursor: pointer;
@@ -21180,7 +21597,8 @@ html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
 .master-badge {
   font-size: 11px;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.18);
+  background: color-mix(in srgb, var(--pri) 10%, white);
+  color: var(--pri);
   border-radius: 999px;
   padding: 3px 10px;
   margin-left: 8px;
@@ -21499,6 +21917,39 @@ function tick() {
   if (el) el.textContent = new Date().toLocaleString("ko-KR");
 }
 
+// ── 화면 배율 자동 조정: 모니터/창 폭에 맞춰 캔버스 전체를 축소해 카드 겹침 방지 ──
+function applyCanvasAutoScale(canvas, referenceWidth) {
+  if (!canvas) return 1;
+  let wrap = canvas.parentElement;
+  if (!wrap.classList.contains("canvas-scale-wrap")) {
+    wrap = document.createElement("div");
+    wrap.className = "canvas-scale-wrap";
+    canvas.parentNode.insertBefore(wrap, canvas);
+    wrap.appendChild(canvas);
+  }
+  canvas.style.transform = "none";
+  canvas.style.width = "";
+  const available = wrap.clientWidth;
+  const scale = Math.max(0.55, Math.min(1, available / referenceWidth));
+  canvas.style.width = `${referenceWidth}px`;
+  canvas.style.transformOrigin = "top left";
+  canvas.style.transform = `scale(${scale})`;
+  const naturalHeight = canvas.scrollHeight;
+  wrap.style.height = `${naturalHeight * scale}px`;
+  wrap.style.position = "relative";
+  wrap.style.overflow = "hidden";
+  canvas.dataset.currentScale = String(scale);
+  return scale;
+}
+
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
 function escapeHtml(s) {
   const div = document.createElement("div");
   div.textContent = s || "";
@@ -21591,27 +22042,27 @@ INVENTORY_HTML = r"""<!DOCTYPE html>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>
 :root {
-  --pri: #4338ca;
-  --pri-dark: #362f8c;
-  --accent: #6366f1;
-  --bg-a: #e5e7eb;
-  --bg-b: #f3f4f6;
+  --pri: #6366f1;
+  --pri-dark: #4f52d9;
+  --accent: #818cf8;
+  --bg-a: #fafafc;
+  --bg-b: #fafafc;
   --surface: #ffffff;
-  --border: #e5e7eb;
-  --text: #1e2432;
-  --text-muted: #6b7280;
-  --radius-lg: 18px;
-  --radius-md: 14px;
-  --radius-sm: 10px;
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
-  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
+  --border: #eef0f5;
+  --text: #2b2f3a;
+  --text-muted: #8b8fa3;
+  --radius-lg: 22px;
+  --radius-md: 16px;
+  --radius-sm: 12px;
+  --shadow-sm: 0 2px 8px rgba(30, 30, 60, 0.05);
+  --shadow-md: 0 8px 22px rgba(30, 30, 60, 0.07);
+  --shadow-lg: 0 16px 36px rgba(30, 30, 60, 0.10);
 }
 
 * { box-sizing: border-box; }
 
 body {
-  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background: var(--bg-a);
   background-attachment: fixed;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
@@ -21665,14 +22116,16 @@ body {
   box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
 }
 .btn-outline-light {
-  border-color: rgba(255, 255, 255, 0.45);
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
 }
-.btn-outline-light:hover {
-  background: rgba(255, 255, 255, 0.22);
-  border-color: rgba(255, 255, 255, 0.6);
-  color: #fff;
+.btn-outline-light:hover,
+.btn-outline-light:focus,
+.btn-outline-light.show {
+  background: #f6f6fb;
+  border-color: #e3e4ef;
+  color: var(--text);
 }
 .btn-warning {
   background: #f59e0b;
@@ -21694,8 +22147,8 @@ body {
 
 /* ── 상단바 ───────────────────────────────────────────────────── */
 .topbar {
-  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
-  color: #fff;
+  background: var(--surface);
+  color: var(--text);
   padding: 14px 24px;
   display: flex;
   align-items: center;
@@ -21703,11 +22156,12 @@ body {
   position: sticky;
   top: 0;
   z-index: 90;
-  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(30, 30, 60, 0.02);
 }
-.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
-.topbar i.bi { font-size: 18px; opacity: 0.9; }
-.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
+.topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
 .legend {
@@ -21733,14 +22187,11 @@ body {
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
-  background:
-    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
-    linear-gradient(180deg, #fcfcfd, #e9eaed);
-  background-size: 22px 22px, 100% 100%;
-  border: 1px solid #dcdee2;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 30px 22px 22px;
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
+  box-shadow: var(--shadow-sm);
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
@@ -21771,8 +22222,9 @@ body {
 
 .unit-shape {
   --shape-color: var(--pri);
-  border: 3px solid var(--shape-color);
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
   /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
      여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
   max-width: 1600px;
@@ -21804,6 +22256,7 @@ body {
   .equipment-canvas.dashboard-canvas { min-height: 1150px; }
 }
 .equipment-card {
+  --card-accent: transparent;
   position: absolute;
   top: 0;
   left: 0;
@@ -21811,29 +22264,31 @@ body {
   width: 150px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-top: 3px solid var(--pri);
   border-radius: var(--radius-md);
   padding: 20px 10px 14px;
   cursor: pointer;
   text-align: center;
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  box-shadow: var(--shadow-sm), inset 4px 0 0 0 var(--card-accent);
+  transition: box-shadow 0.18s ease;
   user-select: none;
   touch-action: none;
   box-sizing: border-box;
 }
 .equipment-card:hover {
-  box-shadow: var(--shadow-lg);
-  border-top-color: var(--accent);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 5;
 }
 .equipment-card.edit-mode { cursor: grab; }
 .equipment-card.dragging {
   cursor: grabbing;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 20;
   transition: none;
 }
+.equipment-card:has(.dot-ok) { --card-accent: #86efac; }
+.equipment-card:has(.dot-soon) { --card-accent: #fde68a; }
+.equipment-card:has(.dot-overdue) { --card-accent: #fca5a5; }
+.equipment-card:has(.dot-unknown) { --card-accent: #e2e4ec; }
 .equipment-card .unit-icon { font-size: 30px; }
 
 .align-guide {
@@ -21847,6 +22302,9 @@ body {
 .align-guide-h { left: 0; right: 0; height: 2px; transform: translateY(-50%); }
 
 /* ── 캔버스 ───────────────────────────────────────────────────── */
+.canvas-scale-wrap {
+  width: 100%;
+}
 .equipment-canvas {
   position: relative;
   width: 100%;
@@ -21867,7 +22325,7 @@ body {
   width: 140px;
   min-height: 110px;
   background: var(--surface);
-  border: 1.5px solid var(--uc);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 14px 10px 10px;
   cursor: pointer;
@@ -22456,7 +22914,8 @@ html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
 .master-badge {
   font-size: 11px;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.18);
+  background: color-mix(in srgb, var(--pri) 10%, white);
+  color: var(--pri);
   border-radius: 999px;
   padding: 3px 10px;
   margin-left: 8px;
@@ -22818,6 +23277,39 @@ function tick() {
   if (el) el.textContent = new Date().toLocaleString("ko-KR");
 }
 
+// ── 화면 배율 자동 조정: 모니터/창 폭에 맞춰 캔버스 전체를 축소해 카드 겹침 방지 ──
+function applyCanvasAutoScale(canvas, referenceWidth) {
+  if (!canvas) return 1;
+  let wrap = canvas.parentElement;
+  if (!wrap.classList.contains("canvas-scale-wrap")) {
+    wrap = document.createElement("div");
+    wrap.className = "canvas-scale-wrap";
+    canvas.parentNode.insertBefore(wrap, canvas);
+    wrap.appendChild(canvas);
+  }
+  canvas.style.transform = "none";
+  canvas.style.width = "";
+  const available = wrap.clientWidth;
+  const scale = Math.max(0.55, Math.min(1, available / referenceWidth));
+  canvas.style.width = `${referenceWidth}px`;
+  canvas.style.transformOrigin = "top left";
+  canvas.style.transform = `scale(${scale})`;
+  const naturalHeight = canvas.scrollHeight;
+  wrap.style.height = `${naturalHeight * scale}px`;
+  wrap.style.position = "relative";
+  wrap.style.overflow = "hidden";
+  canvas.dataset.currentScale = String(scale);
+  return scale;
+}
+
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
 function escapeHtml(s) {
   const div = document.createElement("div");
   div.textContent = s || "";
@@ -22999,27 +23491,27 @@ ROLLOUT_HTML = r"""<!DOCTYPE html>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>
 :root {
-  --pri: #4338ca;
-  --pri-dark: #362f8c;
-  --accent: #6366f1;
-  --bg-a: #e5e7eb;
-  --bg-b: #f3f4f6;
+  --pri: #6366f1;
+  --pri-dark: #4f52d9;
+  --accent: #818cf8;
+  --bg-a: #fafafc;
+  --bg-b: #fafafc;
   --surface: #ffffff;
-  --border: #e5e7eb;
-  --text: #1e2432;
-  --text-muted: #6b7280;
-  --radius-lg: 18px;
-  --radius-md: 14px;
-  --radius-sm: 10px;
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.09);
-  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.14);
+  --border: #eef0f5;
+  --text: #2b2f3a;
+  --text-muted: #8b8fa3;
+  --radius-lg: 22px;
+  --radius-md: 16px;
+  --radius-sm: 12px;
+  --shadow-sm: 0 2px 8px rgba(30, 30, 60, 0.05);
+  --shadow-md: 0 8px 22px rgba(30, 30, 60, 0.07);
+  --shadow-lg: 0 16px 36px rgba(30, 30, 60, 0.10);
 }
 
 * { box-sizing: border-box; }
 
 body {
-  background: linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background: var(--bg-a);
   background-attachment: fixed;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
@@ -23073,14 +23565,16 @@ body {
   box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
 }
 .btn-outline-light {
-  border-color: rgba(255, 255, 255, 0.45);
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
 }
-.btn-outline-light:hover {
-  background: rgba(255, 255, 255, 0.22);
-  border-color: rgba(255, 255, 255, 0.6);
-  color: #fff;
+.btn-outline-light:hover,
+.btn-outline-light:focus,
+.btn-outline-light.show {
+  background: #f6f6fb;
+  border-color: #e3e4ef;
+  color: var(--text);
 }
 .btn-warning {
   background: #f59e0b;
@@ -23102,8 +23596,8 @@ body {
 
 /* ── 상단바 ───────────────────────────────────────────────────── */
 .topbar {
-  background: linear-gradient(120deg, var(--pri), var(--accent) 130%);
-  color: #fff;
+  background: var(--surface);
+  color: var(--text);
   padding: 14px 24px;
   display: flex;
   align-items: center;
@@ -23111,11 +23605,12 @@ body {
   position: sticky;
   top: 0;
   z-index: 90;
-  box-shadow: 0 4px 18px rgba(67, 56, 202, 0.25);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(30, 30, 60, 0.02);
 }
-.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
-.topbar i.bi { font-size: 18px; opacity: 0.9; }
-.clock { font-size: 12px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
+.topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
 .legend {
@@ -23141,14 +23636,11 @@ body {
 
 /* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
 .equipment-frame {
-  background:
-    radial-gradient(circle, rgba(100, 116, 139, 0.14) 1px, transparent 1px),
-    linear-gradient(180deg, #fcfcfd, #e9eaed);
-  background-size: 22px 22px, 100% 100%;
-  border: 1px solid #dcdee2;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 30px 22px 22px;
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md);
+  box-shadow: var(--shadow-sm);
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
@@ -23179,8 +23671,9 @@ body {
 
 .unit-shape {
   --shape-color: var(--pri);
-  border: 3px solid var(--shape-color);
-  box-shadow: inset 0 0 0 6px #fff, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 12%, transparent);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
   /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
      여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
   max-width: 1600px;
@@ -23212,6 +23705,7 @@ body {
   .equipment-canvas.dashboard-canvas { min-height: 1150px; }
 }
 .equipment-card {
+  --card-accent: transparent;
   position: absolute;
   top: 0;
   left: 0;
@@ -23219,29 +23713,31 @@ body {
   width: 150px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-top: 3px solid var(--pri);
   border-radius: var(--radius-md);
   padding: 20px 10px 14px;
   cursor: pointer;
   text-align: center;
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  box-shadow: var(--shadow-sm), inset 4px 0 0 0 var(--card-accent);
+  transition: box-shadow 0.18s ease;
   user-select: none;
   touch-action: none;
   box-sizing: border-box;
 }
 .equipment-card:hover {
-  box-shadow: var(--shadow-lg);
-  border-top-color: var(--accent);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 5;
 }
 .equipment-card.edit-mode { cursor: grab; }
 .equipment-card.dragging {
   cursor: grabbing;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
   z-index: 20;
   transition: none;
 }
+.equipment-card:has(.dot-ok) { --card-accent: #86efac; }
+.equipment-card:has(.dot-soon) { --card-accent: #fde68a; }
+.equipment-card:has(.dot-overdue) { --card-accent: #fca5a5; }
+.equipment-card:has(.dot-unknown) { --card-accent: #e2e4ec; }
 .equipment-card .unit-icon { font-size: 30px; }
 
 .align-guide {
@@ -23255,6 +23751,9 @@ body {
 .align-guide-h { left: 0; right: 0; height: 2px; transform: translateY(-50%); }
 
 /* ── 캔버스 ───────────────────────────────────────────────────── */
+.canvas-scale-wrap {
+  width: 100%;
+}
 .equipment-canvas {
   position: relative;
   width: 100%;
@@ -23275,7 +23774,7 @@ body {
   width: 140px;
   min-height: 110px;
   background: var(--surface);
-  border: 1.5px solid var(--uc);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 14px 10px 10px;
   cursor: pointer;
@@ -23864,7 +24363,8 @@ html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
 .master-badge {
   font-size: 11px;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.18);
+  background: color-mix(in srgb, var(--pri) 10%, white);
+  color: var(--pri);
   border-radius: 999px;
   padding: 3px 10px;
   margin-left: 8px;
@@ -24239,6 +24739,39 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
 function tick() {
   const el = document.getElementById("clock");
   if (el) el.textContent = new Date().toLocaleString("ko-KR");
+}
+
+// ── 화면 배율 자동 조정: 모니터/창 폭에 맞춰 캔버스 전체를 축소해 카드 겹침 방지 ──
+function applyCanvasAutoScale(canvas, referenceWidth) {
+  if (!canvas) return 1;
+  let wrap = canvas.parentElement;
+  if (!wrap.classList.contains("canvas-scale-wrap")) {
+    wrap = document.createElement("div");
+    wrap.className = "canvas-scale-wrap";
+    canvas.parentNode.insertBefore(wrap, canvas);
+    wrap.appendChild(canvas);
+  }
+  canvas.style.transform = "none";
+  canvas.style.width = "";
+  const available = wrap.clientWidth;
+  const scale = Math.max(0.55, Math.min(1, available / referenceWidth));
+  canvas.style.width = `${referenceWidth}px`;
+  canvas.style.transformOrigin = "top left";
+  canvas.style.transform = `scale(${scale})`;
+  const naturalHeight = canvas.scrollHeight;
+  wrap.style.height = `${naturalHeight * scale}px`;
+  wrap.style.position = "relative";
+  wrap.style.overflow = "hidden";
+  canvas.dataset.currentScale = String(scale);
+  return scale;
+}
+
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
 }
 
 function escapeHtml(s) {

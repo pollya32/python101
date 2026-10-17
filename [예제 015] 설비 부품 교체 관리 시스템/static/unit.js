@@ -51,6 +51,39 @@ function tick() {
   if (el) el.textContent = new Date().toLocaleString("ko-KR");
 }
 
+// ── 화면 배율 자동 조정: 모니터/창 폭에 맞춰 캔버스 전체를 축소해 카드 겹침 방지 ──
+function applyCanvasAutoScale(canvas, referenceWidth) {
+  if (!canvas) return 1;
+  let wrap = canvas.parentElement;
+  if (!wrap.classList.contains("canvas-scale-wrap")) {
+    wrap = document.createElement("div");
+    wrap.className = "canvas-scale-wrap";
+    canvas.parentNode.insertBefore(wrap, canvas);
+    wrap.appendChild(canvas);
+  }
+  canvas.style.transform = "none";
+  canvas.style.width = "";
+  const available = wrap.clientWidth;
+  const scale = Math.max(0.55, Math.min(1, available / referenceWidth));
+  canvas.style.width = `${referenceWidth}px`;
+  canvas.style.transformOrigin = "top left";
+  canvas.style.transform = `scale(${scale})`;
+  const naturalHeight = canvas.scrollHeight;
+  wrap.style.height = `${naturalHeight * scale}px`;
+  wrap.style.position = "relative";
+  wrap.style.overflow = "hidden";
+  canvas.dataset.currentScale = String(scale);
+  return scale;
+}
+
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
 async function fetchJson(url, options) {
   const res = await fetch(url, options);
   if (res.status === 401) {
@@ -374,6 +407,7 @@ function renderPartsCanvas(parts) {
     makeResizable(card, p);
     makeResizableHorizontal(card, p);
   });
+  applyCanvasAutoScale(canvas, 1600);
 }
 
 const MIN_SIZE_W = 90;
@@ -394,12 +428,14 @@ function makeResizable(card, part) {
     const startY = e.clientY;
     const startWidth = card.offsetWidth;
     const startHeight = card.offsetHeight;
+    const canvasEl = document.getElementById("partsCanvas");
+    const scale = parseFloat(canvasEl?.dataset.currentScale || "1") || 1;
 
     card.classList.add("dragging");
 
     function onMove(ev) {
-      const dx = ev.clientX - startX;
-      const dy = ev.clientY - startY;
+      const dx = (ev.clientX - startX) / scale;
+      const dy = (ev.clientY - startY) / scale;
       const w = Math.min(Math.max(startWidth + dx, MIN_SIZE_W), MAX_SIZE_W);
       const h = Math.min(Math.max(startHeight + dy, MIN_SIZE_H), MAX_SIZE_H);
       card.style.width = `${w}px`;
@@ -437,11 +473,13 @@ function makeResizableHorizontal(card, part) {
 
     const startX = e.clientX;
     const startWidth = card.offsetWidth;
+    const canvasEl = document.getElementById("partsCanvas");
+    const scale = parseFloat(canvasEl?.dataset.currentScale || "1") || 1;
 
     card.classList.add("dragging");
 
     function onMove(ev) {
-      const dx = ev.clientX - startX;
+      const dx = (ev.clientX - startX) / scale;
       const w = Math.min(Math.max(startWidth + dx, MIN_SIZE_W), MAX_SIZE_W);
       card.style.width = `${w}px`;
     }
@@ -852,6 +890,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   const masterInfo = await fetchJson("/api/master-equipment-name");
   MASTER_EQUIPMENT_ID = masterInfo.id;
   document.getElementById("masterEquipmentName").textContent = masterInfo.name;
+
+  window.addEventListener("resize", debounce(() => {
+    applyCanvasAutoScale(document.getElementById("partsCanvas"), 1600);
+  }, 150));
+
   loadUnitHeader();
   loadParts();
   loadNotes();
