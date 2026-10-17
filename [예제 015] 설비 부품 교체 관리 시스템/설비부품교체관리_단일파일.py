@@ -3575,6 +3575,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  row-gap: 8px;
   position: sticky;
   top: 0;
   z-index: 90;
@@ -3583,6 +3585,11 @@ body {
 }
 .topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
 .topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.topbar > div:last-child {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  justify-content: flex-end;
+}
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -5637,6 +5644,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  row-gap: 8px;
   position: sticky;
   top: 0;
   z-index: 90;
@@ -5645,6 +5654,11 @@ body {
 }
 .topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
 .topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.topbar > div:last-child {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  justify-content: flex-end;
+}
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -7896,6 +7910,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  row-gap: 8px;
   position: sticky;
   top: 0;
   z-index: 90;
@@ -7904,6 +7920,11 @@ body {
 }
 .topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
 .topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.topbar > div:last-child {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  justify-content: flex-end;
+}
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -10486,6 +10507,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  row-gap: 8px;
   position: sticky;
   top: 0;
   z-index: 90;
@@ -10494,6 +10517,11 @@ body {
 }
 .topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
 .topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.topbar > div:last-child {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  justify-content: flex-end;
+}
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -12407,6 +12435,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  row-gap: 8px;
   position: sticky;
   top: 0;
   z-index: 90;
@@ -12415,6 +12445,11 @@ body {
 }
 .topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
 .topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.topbar > div:last-child {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  justify-content: flex-end;
+}
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -13892,6 +13927,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  row-gap: 8px;
   position: sticky;
   top: 0;
   z-index: 90;
@@ -13900,6 +13937,11 @@ body {
 }
 .topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
 .topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.topbar > div:last-child {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  justify-content: flex-end;
+}
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -15327,6 +15369,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  row-gap: 8px;
   position: sticky;
   top: 0;
   z-index: 90;
@@ -15335,6 +15379,11 @@ body {
 }
 .topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
 .topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.topbar > div:last-child {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  justify-content: flex-end;
+}
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -16878,6 +16927,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  row-gap: 8px;
   position: sticky;
   top: 0;
   z-index: 90;
@@ -16886,6 +16937,11 @@ body {
 }
 .topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
 .topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.topbar > div:last-child {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  justify-content: flex-end;
+}
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -18103,6 +18159,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  row-gap: 8px;
   position: sticky;
   top: 0;
   z-index: 90;
@@ -18111,6 +18169,11 @@ body {
 }
 .topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
 .topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.topbar > div:last-child {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  justify-content: flex-end;
+}
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -19665,6 +19728,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  row-gap: 8px;
   position: sticky;
   top: 0;
   z-index: 90;
@@ -19673,6 +19738,11 @@ body {
 }
 .topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
 .topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.topbar > div:last-child {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  justify-content: flex-end;
+}
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -21116,6 +21186,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  row-gap: 8px;
   position: sticky;
   top: 0;
   z-index: 90;
@@ -21124,6 +21196,11 @@ body {
 }
 .topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
 .topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.topbar > div:last-child {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  justify-content: flex-end;
+}
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -22460,6 +22537,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  row-gap: 8px;
   position: sticky;
   top: 0;
   z-index: 90;
@@ -22468,6 +22547,11 @@ body {
 }
 .topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
 .topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.topbar > div:last-child {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  justify-content: flex-end;
+}
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -23936,6 +24020,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  row-gap: 8px;
   position: sticky;
   top: 0;
   z-index: 90;
@@ -23944,6 +24030,11 @@ body {
 }
 .topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
 .topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.topbar > div:last-child {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  justify-content: flex-end;
+}
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
