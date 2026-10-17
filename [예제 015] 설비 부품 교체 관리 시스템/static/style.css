@@ -130,10 +130,63 @@ body {
 }
 .topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
 .topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.dashboard-title-group { position: relative; }
+.dashboard-title-edit-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.dashboard-title-group:hover .dashboard-title-edit-btn,
+.dashboard-title-edit-btn:focus-visible {
+  opacity: 1;
+}
+.dashboard-title-edit-btn:hover {
+  background: var(--border);
+  color: var(--pri);
+}
+.dashboard-title-input {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  border: 1px solid var(--pri);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  background: var(--surface);
+  outline: none;
+  max-width: 320px;
+}
+.dashboard-title-save-btn,
+.dashboard-title-cancel-btn {
+  border: none;
+  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.dashboard-title-save-btn { background: var(--pri); color: #fff; }
+.dashboard-title-save-btn:hover { background: var(--pri-dark); }
+.dashboard-title-cancel-btn { background: var(--border); color: var(--text-muted); }
+.dashboard-title-cancel-btn:hover { background: color-mix(in srgb, var(--text) 8%, var(--border)); color: var(--text); }
 .topbar > div:last-child {
   flex-wrap: wrap;
   row-gap: 8px;
   justify-content: flex-end;
+}
+.topbar .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.topbar .btn i.bi {
+  font-size: 13px;
 }
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 

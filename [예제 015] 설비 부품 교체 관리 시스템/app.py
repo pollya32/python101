@@ -1666,7 +1666,32 @@ def change_password():
 
 @app.route("/")
 def dashboard():
-    return render_template("dashboard.html", user_name=session.get("user_name", ""))
+    conn = get_db()
+    dashboard_title = get_config(conn, "dashboard_title") or "설비 대시보드"
+    conn.close()
+    return render_template(
+        "dashboard.html", user_name=session.get("user_name", ""), dashboard_title=dashboard_title
+    )
+
+
+@app.route("/api/dashboard-title", methods=["PUT"])
+def set_dashboard_title():
+    data = request.get_json() or {}
+    new_title = (data.get("title") or "").strip()
+    if not new_title:
+        return jsonify({"error": "제목을 입력하세요"}), 400
+    if len(new_title) > 60:
+        return jsonify({"error": "제목이 너무 깁니다"}), 400
+    conn = get_db()
+    old_title = get_config(conn, "dashboard_title") or "설비 대시보드"
+    set_config(conn, "dashboard_title", new_title)
+    log_activity(
+        conn, "update", "dashboard", 0, new_title,
+        f"대시보드 제목을 \"{old_title}\"에서 \"{new_title}\"(으)로 변경",
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "title": new_title})
 
 
 @app.route("/alerts")

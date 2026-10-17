@@ -1693,7 +1693,32 @@ def change_password():
 
 @app.route("/")
 def dashboard():
-    return DASHBOARD_HTML.replace("__USER_NAME__", _html_escape(session.get("user_name", "")))
+    conn = get_db()
+    dashboard_title = get_config(conn, "dashboard_title") or "설비 대시보드"
+    conn.close()
+    html = DASHBOARD_HTML.replace("__USER_NAME__", _html_escape(session.get("user_name", "")))
+    html = html.replace("__DASHBOARD_TITLE__", _html_escape(dashboard_title))
+    return html
+
+
+@app.route("/api/dashboard-title", methods=["PUT"])
+def set_dashboard_title():
+    data = request.get_json() or {}
+    new_title = (data.get("title") or "").strip()
+    if not new_title:
+        return jsonify({"error": "제목을 입력하세요"}), 400
+    if len(new_title) > 60:
+        return jsonify({"error": "제목이 너무 깁니다"}), 400
+    conn = get_db()
+    old_title = get_config(conn, "dashboard_title") or "설비 대시보드"
+    set_config(conn, "dashboard_title", new_title)
+    log_activity(
+        conn, "update", "dashboard", 0, new_title,
+        f"대시보드 제목을 \"{old_title}\"에서 \"{new_title}\"(으)로 변경",
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "title": new_title})
 
 
 @app.route("/alerts")
@@ -3449,7 +3474,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>설비 대시보드 - 설비 부품 교체 관리 시스템</title>
+<title id="pageTitle">__DASHBOARD_TITLE__ - 설비 부품 교체 관리 시스템</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>
@@ -3590,6 +3615,59 @@ body {
   row-gap: 8px;
   justify-content: flex-end;
 }
+.topbar .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.topbar .btn i.bi {
+  font-size: 13px;
+}
+.dashboard-title-group { position: relative; }
+.dashboard-title-edit-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.dashboard-title-group:hover .dashboard-title-edit-btn,
+.dashboard-title-edit-btn:focus-visible {
+  opacity: 1;
+}
+.dashboard-title-edit-btn:hover {
+  background: var(--border);
+  color: var(--pri);
+}
+.dashboard-title-input {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  border: 1px solid var(--pri);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  background: var(--surface);
+  outline: none;
+  max-width: 320px;
+}
+.dashboard-title-save-btn,
+.dashboard-title-cancel-btn {
+  border: none;
+  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.dashboard-title-save-btn { background: var(--pri); color: #fff; }
+.dashboard-title-save-btn:hover { background: var(--pri-dark); }
+.dashboard-title-cancel-btn { background: var(--border); color: var(--text-muted); }
+.dashboard-title-cancel-btn:hover { background: color-mix(in srgb, var(--text) 8%, var(--border)); color: var(--text); }
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -4647,9 +4725,12 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
 <body>
 
 <header class="topbar">
-  <div class="d-flex align-items-center gap-2">
+  <div class="d-flex align-items-center gap-2 dashboard-title-group" id="dashboardTitleGroup">
     <i class="bi bi-grid-3x3-gap-fill"></i>
-    <h1>설비 대시보드</h1>
+    <h1 id="dashboardTitle" data-title="__DASHBOARD_TITLE__">__DASHBOARD_TITLE__</h1>
+    <button type="button" id="dashboardTitleEditBtn" class="dashboard-title-edit-btn" title="제목 수정">
+      <i class="bi bi-pencil"></i>
+    </button>
   </div>
   <div class="d-flex align-items-center gap-2">
     <span id="clock" class="clock"></span>
@@ -5507,6 +5588,85 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 });
+
+// ── 대시보드 제목 수정 ──────────────────────────────────────────────
+document.addEventListener("DOMContentLoaded", () => {
+  const group = document.getElementById("dashboardTitleGroup");
+  const titleEl = document.getElementById("dashboardTitle");
+  const editBtn = document.getElementById("dashboardTitleEditBtn");
+  if (!group || !titleEl || !editBtn) return;
+
+  function startEdit() {
+    const current = titleEl.dataset.title || titleEl.textContent.trim();
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "dashboard-title-input";
+    input.value = current;
+    input.maxLength = 60;
+
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.className = "dashboard-title-save-btn";
+    saveBtn.title = "저장";
+    saveBtn.innerHTML = '<i class="bi bi-check-lg"></i>';
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "dashboard-title-cancel-btn";
+    cancelBtn.title = "취소";
+    cancelBtn.innerHTML = '<i class="bi bi-x-lg"></i>';
+
+    titleEl.replaceWith(input);
+    editBtn.classList.add("d-none");
+    input.after(saveBtn, cancelBtn);
+    input.focus();
+    input.select();
+
+    function restore(newTitle) {
+      const h1 = document.createElement("h1");
+      h1.id = "dashboardTitle";
+      h1.dataset.title = newTitle;
+      h1.textContent = newTitle;
+      input.replaceWith(h1);
+      saveBtn.remove();
+      cancelBtn.remove();
+      editBtn.classList.remove("d-none");
+    }
+
+    async function save() {
+      const newTitle = input.value.trim();
+      if (!newTitle) {
+        alert("제목을 입력하세요");
+        input.focus();
+        return;
+      }
+      if (newTitle === current) {
+        restore(current);
+        return;
+      }
+      try {
+        await fetchJson("/api/dashboard-title", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: newTitle }),
+        });
+        document.title = `${newTitle} - 설비 부품 교체 관리 시스템`;
+        restore(newTitle);
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    saveBtn.addEventListener("click", save);
+    cancelBtn.addEventListener("click", () => restore(current));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") save();
+      if (e.key === "Escape") restore(current);
+    });
+  }
+
+  editBtn.addEventListener("click", startEdit);
+});
 </script>
 </body>
 </html>
@@ -5659,6 +5819,59 @@ body {
   row-gap: 8px;
   justify-content: flex-end;
 }
+.topbar .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.topbar .btn i.bi {
+  font-size: 13px;
+}
+.dashboard-title-group { position: relative; }
+.dashboard-title-edit-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.dashboard-title-group:hover .dashboard-title-edit-btn,
+.dashboard-title-edit-btn:focus-visible {
+  opacity: 1;
+}
+.dashboard-title-edit-btn:hover {
+  background: var(--border);
+  color: var(--pri);
+}
+.dashboard-title-input {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  border: 1px solid var(--pri);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  background: var(--surface);
+  outline: none;
+  max-width: 320px;
+}
+.dashboard-title-save-btn,
+.dashboard-title-cancel-btn {
+  border: none;
+  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.dashboard-title-save-btn { background: var(--pri); color: #fff; }
+.dashboard-title-save-btn:hover { background: var(--pri-dark); }
+.dashboard-title-cancel-btn { background: var(--border); color: var(--text-muted); }
+.dashboard-title-cancel-btn:hover { background: color-mix(in srgb, var(--text) 8%, var(--border)); color: var(--text); }
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -7925,6 +8138,59 @@ body {
   row-gap: 8px;
   justify-content: flex-end;
 }
+.topbar .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.topbar .btn i.bi {
+  font-size: 13px;
+}
+.dashboard-title-group { position: relative; }
+.dashboard-title-edit-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.dashboard-title-group:hover .dashboard-title-edit-btn,
+.dashboard-title-edit-btn:focus-visible {
+  opacity: 1;
+}
+.dashboard-title-edit-btn:hover {
+  background: var(--border);
+  color: var(--pri);
+}
+.dashboard-title-input {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  border: 1px solid var(--pri);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  background: var(--surface);
+  outline: none;
+  max-width: 320px;
+}
+.dashboard-title-save-btn,
+.dashboard-title-cancel-btn {
+  border: none;
+  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.dashboard-title-save-btn { background: var(--pri); color: #fff; }
+.dashboard-title-save-btn:hover { background: var(--pri-dark); }
+.dashboard-title-cancel-btn { background: var(--border); color: var(--text-muted); }
+.dashboard-title-cancel-btn:hover { background: color-mix(in srgb, var(--text) 8%, var(--border)); color: var(--text); }
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -10522,6 +10788,59 @@ body {
   row-gap: 8px;
   justify-content: flex-end;
 }
+.topbar .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.topbar .btn i.bi {
+  font-size: 13px;
+}
+.dashboard-title-group { position: relative; }
+.dashboard-title-edit-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.dashboard-title-group:hover .dashboard-title-edit-btn,
+.dashboard-title-edit-btn:focus-visible {
+  opacity: 1;
+}
+.dashboard-title-edit-btn:hover {
+  background: var(--border);
+  color: var(--pri);
+}
+.dashboard-title-input {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  border: 1px solid var(--pri);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  background: var(--surface);
+  outline: none;
+  max-width: 320px;
+}
+.dashboard-title-save-btn,
+.dashboard-title-cancel-btn {
+  border: none;
+  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.dashboard-title-save-btn { background: var(--pri); color: #fff; }
+.dashboard-title-save-btn:hover { background: var(--pri-dark); }
+.dashboard-title-cancel-btn { background: var(--border); color: var(--text-muted); }
+.dashboard-title-cancel-btn:hover { background: color-mix(in srgb, var(--text) 8%, var(--border)); color: var(--text); }
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -12450,6 +12769,59 @@ body {
   row-gap: 8px;
   justify-content: flex-end;
 }
+.topbar .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.topbar .btn i.bi {
+  font-size: 13px;
+}
+.dashboard-title-group { position: relative; }
+.dashboard-title-edit-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.dashboard-title-group:hover .dashboard-title-edit-btn,
+.dashboard-title-edit-btn:focus-visible {
+  opacity: 1;
+}
+.dashboard-title-edit-btn:hover {
+  background: var(--border);
+  color: var(--pri);
+}
+.dashboard-title-input {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  border: 1px solid var(--pri);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  background: var(--surface);
+  outline: none;
+  max-width: 320px;
+}
+.dashboard-title-save-btn,
+.dashboard-title-cancel-btn {
+  border: none;
+  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.dashboard-title-save-btn { background: var(--pri); color: #fff; }
+.dashboard-title-save-btn:hover { background: var(--pri-dark); }
+.dashboard-title-cancel-btn { background: var(--border); color: var(--text-muted); }
+.dashboard-title-cancel-btn:hover { background: color-mix(in srgb, var(--text) 8%, var(--border)); color: var(--text); }
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -13942,6 +14314,59 @@ body {
   row-gap: 8px;
   justify-content: flex-end;
 }
+.topbar .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.topbar .btn i.bi {
+  font-size: 13px;
+}
+.dashboard-title-group { position: relative; }
+.dashboard-title-edit-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.dashboard-title-group:hover .dashboard-title-edit-btn,
+.dashboard-title-edit-btn:focus-visible {
+  opacity: 1;
+}
+.dashboard-title-edit-btn:hover {
+  background: var(--border);
+  color: var(--pri);
+}
+.dashboard-title-input {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  border: 1px solid var(--pri);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  background: var(--surface);
+  outline: none;
+  max-width: 320px;
+}
+.dashboard-title-save-btn,
+.dashboard-title-cancel-btn {
+  border: none;
+  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.dashboard-title-save-btn { background: var(--pri); color: #fff; }
+.dashboard-title-save-btn:hover { background: var(--pri-dark); }
+.dashboard-title-cancel-btn { background: var(--border); color: var(--text-muted); }
+.dashboard-title-cancel-btn:hover { background: color-mix(in srgb, var(--text) 8%, var(--border)); color: var(--text); }
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -15384,6 +15809,59 @@ body {
   row-gap: 8px;
   justify-content: flex-end;
 }
+.topbar .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.topbar .btn i.bi {
+  font-size: 13px;
+}
+.dashboard-title-group { position: relative; }
+.dashboard-title-edit-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.dashboard-title-group:hover .dashboard-title-edit-btn,
+.dashboard-title-edit-btn:focus-visible {
+  opacity: 1;
+}
+.dashboard-title-edit-btn:hover {
+  background: var(--border);
+  color: var(--pri);
+}
+.dashboard-title-input {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  border: 1px solid var(--pri);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  background: var(--surface);
+  outline: none;
+  max-width: 320px;
+}
+.dashboard-title-save-btn,
+.dashboard-title-cancel-btn {
+  border: none;
+  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.dashboard-title-save-btn { background: var(--pri); color: #fff; }
+.dashboard-title-save-btn:hover { background: var(--pri-dark); }
+.dashboard-title-cancel-btn { background: var(--border); color: var(--text-muted); }
+.dashboard-title-cancel-btn:hover { background: color-mix(in srgb, var(--text) 8%, var(--border)); color: var(--text); }
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -16942,6 +17420,59 @@ body {
   row-gap: 8px;
   justify-content: flex-end;
 }
+.topbar .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.topbar .btn i.bi {
+  font-size: 13px;
+}
+.dashboard-title-group { position: relative; }
+.dashboard-title-edit-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.dashboard-title-group:hover .dashboard-title-edit-btn,
+.dashboard-title-edit-btn:focus-visible {
+  opacity: 1;
+}
+.dashboard-title-edit-btn:hover {
+  background: var(--border);
+  color: var(--pri);
+}
+.dashboard-title-input {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  border: 1px solid var(--pri);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  background: var(--surface);
+  outline: none;
+  max-width: 320px;
+}
+.dashboard-title-save-btn,
+.dashboard-title-cancel-btn {
+  border: none;
+  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.dashboard-title-save-btn { background: var(--pri); color: #fff; }
+.dashboard-title-save-btn:hover { background: var(--pri-dark); }
+.dashboard-title-cancel-btn { background: var(--border); color: var(--text-muted); }
+.dashboard-title-cancel-btn:hover { background: color-mix(in srgb, var(--text) 8%, var(--border)); color: var(--text); }
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -18174,6 +18705,59 @@ body {
   row-gap: 8px;
   justify-content: flex-end;
 }
+.topbar .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.topbar .btn i.bi {
+  font-size: 13px;
+}
+.dashboard-title-group { position: relative; }
+.dashboard-title-edit-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.dashboard-title-group:hover .dashboard-title-edit-btn,
+.dashboard-title-edit-btn:focus-visible {
+  opacity: 1;
+}
+.dashboard-title-edit-btn:hover {
+  background: var(--border);
+  color: var(--pri);
+}
+.dashboard-title-input {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  border: 1px solid var(--pri);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  background: var(--surface);
+  outline: none;
+  max-width: 320px;
+}
+.dashboard-title-save-btn,
+.dashboard-title-cancel-btn {
+  border: none;
+  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.dashboard-title-save-btn { background: var(--pri); color: #fff; }
+.dashboard-title-save-btn:hover { background: var(--pri-dark); }
+.dashboard-title-cancel-btn { background: var(--border); color: var(--text-muted); }
+.dashboard-title-cancel-btn:hover { background: color-mix(in srgb, var(--text) 8%, var(--border)); color: var(--text); }
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -19743,6 +20327,59 @@ body {
   row-gap: 8px;
   justify-content: flex-end;
 }
+.topbar .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.topbar .btn i.bi {
+  font-size: 13px;
+}
+.dashboard-title-group { position: relative; }
+.dashboard-title-edit-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.dashboard-title-group:hover .dashboard-title-edit-btn,
+.dashboard-title-edit-btn:focus-visible {
+  opacity: 1;
+}
+.dashboard-title-edit-btn:hover {
+  background: var(--border);
+  color: var(--pri);
+}
+.dashboard-title-input {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  border: 1px solid var(--pri);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  background: var(--surface);
+  outline: none;
+  max-width: 320px;
+}
+.dashboard-title-save-btn,
+.dashboard-title-cancel-btn {
+  border: none;
+  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.dashboard-title-save-btn { background: var(--pri); color: #fff; }
+.dashboard-title-save-btn:hover { background: var(--pri-dark); }
+.dashboard-title-cancel-btn { background: var(--border); color: var(--text-muted); }
+.dashboard-title-cancel-btn:hover { background: color-mix(in srgb, var(--text) 8%, var(--border)); color: var(--text); }
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -21201,6 +21838,59 @@ body {
   row-gap: 8px;
   justify-content: flex-end;
 }
+.topbar .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.topbar .btn i.bi {
+  font-size: 13px;
+}
+.dashboard-title-group { position: relative; }
+.dashboard-title-edit-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.dashboard-title-group:hover .dashboard-title-edit-btn,
+.dashboard-title-edit-btn:focus-visible {
+  opacity: 1;
+}
+.dashboard-title-edit-btn:hover {
+  background: var(--border);
+  color: var(--pri);
+}
+.dashboard-title-input {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  border: 1px solid var(--pri);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  background: var(--surface);
+  outline: none;
+  max-width: 320px;
+}
+.dashboard-title-save-btn,
+.dashboard-title-cancel-btn {
+  border: none;
+  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.dashboard-title-save-btn { background: var(--pri); color: #fff; }
+.dashboard-title-save-btn:hover { background: var(--pri-dark); }
+.dashboard-title-cancel-btn { background: var(--border); color: var(--text-muted); }
+.dashboard-title-cancel-btn:hover { background: color-mix(in srgb, var(--text) 8%, var(--border)); color: var(--text); }
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -22359,6 +23049,7 @@ const TARGET_LABEL = {
   part: "부품",
   backup: "백업",
   trash: "휴지통",
+  dashboard: "대시보드",
 };
 
 const ACTION_BADGE = {
@@ -22552,6 +23243,59 @@ body {
   row-gap: 8px;
   justify-content: flex-end;
 }
+.topbar .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.topbar .btn i.bi {
+  font-size: 13px;
+}
+.dashboard-title-group { position: relative; }
+.dashboard-title-edit-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.dashboard-title-group:hover .dashboard-title-edit-btn,
+.dashboard-title-edit-btn:focus-visible {
+  opacity: 1;
+}
+.dashboard-title-edit-btn:hover {
+  background: var(--border);
+  color: var(--pri);
+}
+.dashboard-title-input {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  border: 1px solid var(--pri);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  background: var(--surface);
+  outline: none;
+  max-width: 320px;
+}
+.dashboard-title-save-btn,
+.dashboard-title-cancel-btn {
+  border: none;
+  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.dashboard-title-save-btn { background: var(--pri); color: #fff; }
+.dashboard-title-save-btn:hover { background: var(--pri-dark); }
+.dashboard-title-cancel-btn { background: var(--border); color: var(--text-muted); }
+.dashboard-title-cancel-btn:hover { background: color-mix(in srgb, var(--text) 8%, var(--border)); color: var(--text); }
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */
@@ -24035,6 +24779,59 @@ body {
   row-gap: 8px;
   justify-content: flex-end;
 }
+.topbar .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.topbar .btn i.bi {
+  font-size: 13px;
+}
+.dashboard-title-group { position: relative; }
+.dashboard-title-edit-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.dashboard-title-group:hover .dashboard-title-edit-btn,
+.dashboard-title-edit-btn:focus-visible {
+  opacity: 1;
+}
+.dashboard-title-edit-btn:hover {
+  background: var(--border);
+  color: var(--pri);
+}
+.dashboard-title-input {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  border: 1px solid var(--pri);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  background: var(--surface);
+  outline: none;
+  max-width: 320px;
+}
+.dashboard-title-save-btn,
+.dashboard-title-cancel-btn {
+  border: none;
+  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.dashboard-title-save-btn { background: var(--pri); color: #fff; }
+.dashboard-title-save-btn:hover { background: var(--pri-dark); }
+.dashboard-title-cancel-btn { background: var(--border); color: var(--text-muted); }
+.dashboard-title-cancel-btn:hover { background: color-mix(in srgb, var(--text) 8%, var(--border)); color: var(--text); }
 .clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* ── 범례 ─────────────────────────────────────────────────────── */

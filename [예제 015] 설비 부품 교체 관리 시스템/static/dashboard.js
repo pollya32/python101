@@ -638,3 +638,82 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 });
+
+// ── 대시보드 제목 수정 ──────────────────────────────────────────────
+document.addEventListener("DOMContentLoaded", () => {
+  const group = document.getElementById("dashboardTitleGroup");
+  const titleEl = document.getElementById("dashboardTitle");
+  const editBtn = document.getElementById("dashboardTitleEditBtn");
+  if (!group || !titleEl || !editBtn) return;
+
+  function startEdit() {
+    const current = titleEl.dataset.title || titleEl.textContent.trim();
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "dashboard-title-input";
+    input.value = current;
+    input.maxLength = 60;
+
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.className = "dashboard-title-save-btn";
+    saveBtn.title = "저장";
+    saveBtn.innerHTML = '<i class="bi bi-check-lg"></i>';
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "dashboard-title-cancel-btn";
+    cancelBtn.title = "취소";
+    cancelBtn.innerHTML = '<i class="bi bi-x-lg"></i>';
+
+    titleEl.replaceWith(input);
+    editBtn.classList.add("d-none");
+    input.after(saveBtn, cancelBtn);
+    input.focus();
+    input.select();
+
+    function restore(newTitle) {
+      const h1 = document.createElement("h1");
+      h1.id = "dashboardTitle";
+      h1.dataset.title = newTitle;
+      h1.textContent = newTitle;
+      input.replaceWith(h1);
+      saveBtn.remove();
+      cancelBtn.remove();
+      editBtn.classList.remove("d-none");
+    }
+
+    async function save() {
+      const newTitle = input.value.trim();
+      if (!newTitle) {
+        alert("제목을 입력하세요");
+        input.focus();
+        return;
+      }
+      if (newTitle === current) {
+        restore(current);
+        return;
+      }
+      try {
+        await fetchJson("/api/dashboard-title", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: newTitle }),
+        });
+        document.title = `${newTitle} - 설비 부품 교체 관리 시스템`;
+        restore(newTitle);
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    saveBtn.addEventListener("click", save);
+    cancelBtn.addEventListener("click", () => restore(current));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") save();
+      if (e.key === "Escape") restore(current);
+    });
+  }
+
+  editBtn.addEventListener("click", startEdit);
+});

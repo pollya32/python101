@@ -38,6 +38,7 @@ const TARGET_LABEL = {
   part: "부품",
   backup: "백업",
   trash: "휴지통",
+  dashboard: "대시보드",
 };
 
 const ACTION_BADGE = {
