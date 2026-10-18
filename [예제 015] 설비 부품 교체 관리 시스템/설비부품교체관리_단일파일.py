@@ -3477,6 +3477,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 <title id="pageTitle">__DASHBOARD_TITLE__ - 설비 부품 교체 관리 시스템</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <style>
 :root {
   --pri: #6366f1;
@@ -3501,7 +3502,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 body {
   background: var(--bg-a);
   background-attachment: fixed;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
   color: var(--text);
 }
@@ -4021,6 +4022,12 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 .part-card:hover { box-shadow: var(--shadow-sm); }
 .part-card .part-title { font-weight: 700; font-size: 14px; }
 .part-card .part-spec { font-size: 12px; color: var(--text-muted); }
+.badge-ok, .badge-soon, .badge-overdue, .badge-unknown {
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-weight: 700;
+  font-size: 11.5px;
+}
 .badge-ok { background: #d1fae5; color: #065f46; }
 .badge-soon { background: #fef3c7; color: #92400e; }
 .badge-overdue { background: #fee2e2; color: #991b1b; }
@@ -4524,9 +4531,15 @@ html[data-theme="cyber"] .unit-icon-wrap {
   background: #14203c;
   background: color-mix(in srgb, var(--uc) 24%, #0d1428);
 }
-html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap,
+html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap {
+  background: color-mix(in srgb, #22c55e 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap {
+  background: color-mix(in srgb, #f59e0b 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap {
+  background: color-mix(in srgb, #ef4444 22%, #0d1428);
+}
 html[data-theme="cyber"] .equipment-card:has(.dot-unknown) .unit-icon-wrap {
   background: #14203c;
 }
@@ -5681,6 +5694,7 @@ EQUIPMENT_HTML = r"""<!DOCTYPE html>
 <title>설비 부품 교체 관리 시스템</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <style>
 :root {
   --pri: #6366f1;
@@ -5705,7 +5719,7 @@ EQUIPMENT_HTML = r"""<!DOCTYPE html>
 body {
   background: var(--bg-a);
   background-attachment: fixed;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
   color: var(--text);
 }
@@ -6225,6 +6239,12 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 .part-card:hover { box-shadow: var(--shadow-sm); }
 .part-card .part-title { font-weight: 700; font-size: 14px; }
 .part-card .part-spec { font-size: 12px; color: var(--text-muted); }
+.badge-ok, .badge-soon, .badge-overdue, .badge-unknown {
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-weight: 700;
+  font-size: 11.5px;
+}
 .badge-ok { background: #d1fae5; color: #065f46; }
 .badge-soon { background: #fef3c7; color: #92400e; }
 .badge-overdue { background: #fee2e2; color: #991b1b; }
@@ -6728,9 +6748,15 @@ html[data-theme="cyber"] .unit-icon-wrap {
   background: #14203c;
   background: color-mix(in srgb, var(--uc) 24%, #0d1428);
 }
-html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap,
+html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap {
+  background: color-mix(in srgb, #22c55e 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap {
+  background: color-mix(in srgb, #f59e0b 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap {
+  background: color-mix(in srgb, #ef4444 22%, #0d1428);
+}
 html[data-theme="cyber"] .equipment-card:has(.dot-unknown) .unit-icon-wrap {
   background: #14203c;
 }
@@ -8000,6 +8026,7 @@ UNIT_HTML = r"""<!DOCTYPE html>
 <title>유닛 상세 - 설비 부품 교체 관리 시스템</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <style>
 :root {
   --pri: #6366f1;
@@ -8024,7 +8051,7 @@ UNIT_HTML = r"""<!DOCTYPE html>
 body {
   background: var(--bg-a);
   background-attachment: fixed;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
   color: var(--text);
 }
@@ -8544,6 +8571,12 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 .part-card:hover { box-shadow: var(--shadow-sm); }
 .part-card .part-title { font-weight: 700; font-size: 14px; }
 .part-card .part-spec { font-size: 12px; color: var(--text-muted); }
+.badge-ok, .badge-soon, .badge-overdue, .badge-unknown {
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-weight: 700;
+  font-size: 11.5px;
+}
 .badge-ok { background: #d1fae5; color: #065f46; }
 .badge-soon { background: #fef3c7; color: #92400e; }
 .badge-overdue { background: #fee2e2; color: #991b1b; }
@@ -9047,9 +9080,15 @@ html[data-theme="cyber"] .unit-icon-wrap {
   background: #14203c;
   background: color-mix(in srgb, var(--uc) 24%, #0d1428);
 }
-html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap,
+html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap {
+  background: color-mix(in srgb, #22c55e 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap {
+  background: color-mix(in srgb, #f59e0b 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap {
+  background: color-mix(in srgb, #ef4444 22%, #0d1428);
+}
 html[data-theme="cyber"] .equipment-card:has(.dot-unknown) .unit-icon-wrap {
   background: #14203c;
 }
@@ -10650,6 +10689,7 @@ CONFIG_HTML = r"""<!DOCTYPE html>
 <title>기본 유닛 구성 - 설비 부품 교체 관리 시스템</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <style>
 :root {
   --pri: #6366f1;
@@ -10674,7 +10714,7 @@ CONFIG_HTML = r"""<!DOCTYPE html>
 body {
   background: var(--bg-a);
   background-attachment: fixed;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
   color: var(--text);
 }
@@ -11194,6 +11234,12 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 .part-card:hover { box-shadow: var(--shadow-sm); }
 .part-card .part-title { font-weight: 700; font-size: 14px; }
 .part-card .part-spec { font-size: 12px; color: var(--text-muted); }
+.badge-ok, .badge-soon, .badge-overdue, .badge-unknown {
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-weight: 700;
+  font-size: 11.5px;
+}
 .badge-ok { background: #d1fae5; color: #065f46; }
 .badge-soon { background: #fef3c7; color: #92400e; }
 .badge-overdue { background: #fee2e2; color: #991b1b; }
@@ -11697,9 +11743,15 @@ html[data-theme="cyber"] .unit-icon-wrap {
   background: #14203c;
   background: color-mix(in srgb, var(--uc) 24%, #0d1428);
 }
-html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap,
+html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap {
+  background: color-mix(in srgb, #22c55e 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap {
+  background: color-mix(in srgb, #f59e0b 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap {
+  background: color-mix(in srgb, #ef4444 22%, #0d1428);
+}
 html[data-theme="cyber"] .equipment-card:has(.dot-unknown) .unit-icon-wrap {
   background: #14203c;
 }
@@ -12631,6 +12683,7 @@ ALERTS_HTML = r"""<!DOCTYPE html>
 <title>전체 교체 현황 - 설비 부품 교체 관리 시스템</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <style>
 :root {
   --pri: #6366f1;
@@ -12655,7 +12708,7 @@ ALERTS_HTML = r"""<!DOCTYPE html>
 body {
   background: var(--bg-a);
   background-attachment: fixed;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
   color: var(--text);
 }
@@ -13175,6 +13228,12 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 .part-card:hover { box-shadow: var(--shadow-sm); }
 .part-card .part-title { font-weight: 700; font-size: 14px; }
 .part-card .part-spec { font-size: 12px; color: var(--text-muted); }
+.badge-ok, .badge-soon, .badge-overdue, .badge-unknown {
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-weight: 700;
+  font-size: 11.5px;
+}
 .badge-ok { background: #d1fae5; color: #065f46; }
 .badge-soon { background: #fef3c7; color: #92400e; }
 .badge-overdue { background: #fee2e2; color: #991b1b; }
@@ -13678,9 +13737,15 @@ html[data-theme="cyber"] .unit-icon-wrap {
   background: #14203c;
   background: color-mix(in srgb, var(--uc) 24%, #0d1428);
 }
-html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap,
+html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap {
+  background: color-mix(in srgb, #22c55e 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap {
+  background: color-mix(in srgb, #f59e0b 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap {
+  background: color-mix(in srgb, #ef4444 22%, #0d1428);
+}
 html[data-theme="cyber"] .equipment-card:has(.dot-unknown) .unit-icon-wrap {
   background: #14203c;
 }
@@ -14176,6 +14241,7 @@ SEARCH_HTML = r"""<!DOCTYPE html>
 <title>부품 검색 - 설비 부품 교체 관리 시스템</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <style>
 :root {
   --pri: #6366f1;
@@ -14200,7 +14266,7 @@ SEARCH_HTML = r"""<!DOCTYPE html>
 body {
   background: var(--bg-a);
   background-attachment: fixed;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
   color: var(--text);
 }
@@ -14720,6 +14786,12 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 .part-card:hover { box-shadow: var(--shadow-sm); }
 .part-card .part-title { font-weight: 700; font-size: 14px; }
 .part-card .part-spec { font-size: 12px; color: var(--text-muted); }
+.badge-ok, .badge-soon, .badge-overdue, .badge-unknown {
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-weight: 700;
+  font-size: 11.5px;
+}
 .badge-ok { background: #d1fae5; color: #065f46; }
 .badge-soon { background: #fef3c7; color: #92400e; }
 .badge-overdue { background: #fee2e2; color: #991b1b; }
@@ -15223,9 +15295,15 @@ html[data-theme="cyber"] .unit-icon-wrap {
   background: #14203c;
   background: color-mix(in srgb, var(--uc) 24%, #0d1428);
 }
-html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap,
+html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap {
+  background: color-mix(in srgb, #22c55e 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap {
+  background: color-mix(in srgb, #f59e0b 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap {
+  background: color-mix(in srgb, #ef4444 22%, #0d1428);
+}
 html[data-theme="cyber"] .equipment-card:has(.dot-unknown) .unit-icon-wrap {
   background: #14203c;
 }
@@ -15671,6 +15749,7 @@ STATS_HTML = r"""<!DOCTYPE html>
 <title>통계 - 설비 부품 교체 관리 시스템</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <style>
 :root {
   --pri: #6366f1;
@@ -15695,7 +15774,7 @@ STATS_HTML = r"""<!DOCTYPE html>
 body {
   background: var(--bg-a);
   background-attachment: fixed;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
   color: var(--text);
 }
@@ -16215,6 +16294,12 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 .part-card:hover { box-shadow: var(--shadow-sm); }
 .part-card .part-title { font-weight: 700; font-size: 14px; }
 .part-card .part-spec { font-size: 12px; color: var(--text-muted); }
+.badge-ok, .badge-soon, .badge-overdue, .badge-unknown {
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-weight: 700;
+  font-size: 11.5px;
+}
 .badge-ok { background: #d1fae5; color: #065f46; }
 .badge-soon { background: #fef3c7; color: #92400e; }
 .badge-overdue { background: #fee2e2; color: #991b1b; }
@@ -16718,9 +16803,15 @@ html[data-theme="cyber"] .unit-icon-wrap {
   background: #14203c;
   background: color-mix(in srgb, var(--uc) 24%, #0d1428);
 }
-html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap,
+html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap {
+  background: color-mix(in srgb, #22c55e 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap {
+  background: color-mix(in srgb, #f59e0b 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap {
+  background: color-mix(in srgb, #ef4444 22%, #0d1428);
+}
 html[data-theme="cyber"] .equipment-card:has(.dot-unknown) .unit-icon-wrap {
   background: #14203c;
 }
@@ -17282,6 +17373,7 @@ LOGIN_HTML = r"""<!DOCTYPE html>
 <title>로그인 - 설비 부품 교체 관리 시스템</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <style>
 :root {
   --pri: #6366f1;
@@ -17306,7 +17398,7 @@ LOGIN_HTML = r"""<!DOCTYPE html>
 body {
   background: var(--bg-a);
   background-attachment: fixed;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
   color: var(--text);
 }
@@ -17826,6 +17918,12 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 .part-card:hover { box-shadow: var(--shadow-sm); }
 .part-card .part-title { font-weight: 700; font-size: 14px; }
 .part-card .part-spec { font-size: 12px; color: var(--text-muted); }
+.badge-ok, .badge-soon, .badge-overdue, .badge-unknown {
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-weight: 700;
+  font-size: 11.5px;
+}
 .badge-ok { background: #d1fae5; color: #065f46; }
 .badge-soon { background: #fef3c7; color: #92400e; }
 .badge-overdue { background: #fee2e2; color: #991b1b; }
@@ -18329,9 +18427,15 @@ html[data-theme="cyber"] .unit-icon-wrap {
   background: #14203c;
   background: color-mix(in srgb, var(--uc) 24%, #0d1428);
 }
-html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap,
+html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap {
+  background: color-mix(in srgb, #22c55e 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap {
+  background: color-mix(in srgb, #f59e0b 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap {
+  background: color-mix(in srgb, #ef4444 22%, #0d1428);
+}
 html[data-theme="cyber"] .equipment-card:has(.dot-unknown) .unit-icon-wrap {
   background: #14203c;
 }
@@ -18567,6 +18671,7 @@ BULK_ADD_PARTS_HTML = r"""<!DOCTYPE html>
 <title>부품 일괄 등록 - 설비 부품 교체 관리 시스템</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <style>
 :root {
   --pri: #6366f1;
@@ -18591,7 +18696,7 @@ BULK_ADD_PARTS_HTML = r"""<!DOCTYPE html>
 body {
   background: var(--bg-a);
   background-attachment: fixed;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
   color: var(--text);
 }
@@ -19111,6 +19216,12 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 .part-card:hover { box-shadow: var(--shadow-sm); }
 .part-card .part-title { font-weight: 700; font-size: 14px; }
 .part-card .part-spec { font-size: 12px; color: var(--text-muted); }
+.badge-ok, .badge-soon, .badge-overdue, .badge-unknown {
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-weight: 700;
+  font-size: 11.5px;
+}
 .badge-ok { background: #d1fae5; color: #065f46; }
 .badge-soon { background: #fef3c7; color: #92400e; }
 .badge-overdue { background: #fee2e2; color: #991b1b; }
@@ -19614,9 +19725,15 @@ html[data-theme="cyber"] .unit-icon-wrap {
   background: #14203c;
   background: color-mix(in srgb, var(--uc) 24%, #0d1428);
 }
-html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap,
+html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap {
+  background: color-mix(in srgb, #22c55e 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap {
+  background: color-mix(in srgb, #f59e0b 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap {
+  background: color-mix(in srgb, #ef4444 22%, #0d1428);
+}
 html[data-theme="cyber"] .equipment-card:has(.dot-unknown) .unit-icon-wrap {
   background: #14203c;
 }
@@ -20189,6 +20306,7 @@ TRASH_HTML = r"""<!DOCTYPE html>
 <title>휴지통 - 설비 부품 교체 관리 시스템</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <style>
 :root {
   --pri: #6366f1;
@@ -20213,7 +20331,7 @@ TRASH_HTML = r"""<!DOCTYPE html>
 body {
   background: var(--bg-a);
   background-attachment: fixed;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
   color: var(--text);
 }
@@ -20733,6 +20851,12 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 .part-card:hover { box-shadow: var(--shadow-sm); }
 .part-card .part-title { font-weight: 700; font-size: 14px; }
 .part-card .part-spec { font-size: 12px; color: var(--text-muted); }
+.badge-ok, .badge-soon, .badge-overdue, .badge-unknown {
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-weight: 700;
+  font-size: 11.5px;
+}
 .badge-ok { background: #d1fae5; color: #065f46; }
 .badge-soon { background: #fef3c7; color: #92400e; }
 .badge-overdue { background: #fee2e2; color: #991b1b; }
@@ -21236,9 +21360,15 @@ html[data-theme="cyber"] .unit-icon-wrap {
   background: #14203c;
   background: color-mix(in srgb, var(--uc) 24%, #0d1428);
 }
-html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap,
+html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap {
+  background: color-mix(in srgb, #22c55e 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap {
+  background: color-mix(in srgb, #f59e0b 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap {
+  background: color-mix(in srgb, #ef4444 22%, #0d1428);
+}
 html[data-theme="cyber"] .equipment-card:has(.dot-unknown) .unit-icon-wrap {
   background: #14203c;
 }
@@ -21700,6 +21830,7 @@ ACTIVITY_LOG_HTML = r"""<!DOCTYPE html>
 <title>변경 이력 - 설비 부품 교체 관리 시스템</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <style>
 :root {
   --pri: #6366f1;
@@ -21724,7 +21855,7 @@ ACTIVITY_LOG_HTML = r"""<!DOCTYPE html>
 body {
   background: var(--bg-a);
   background-attachment: fixed;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
   color: var(--text);
 }
@@ -22244,6 +22375,12 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 .part-card:hover { box-shadow: var(--shadow-sm); }
 .part-card .part-title { font-weight: 700; font-size: 14px; }
 .part-card .part-spec { font-size: 12px; color: var(--text-muted); }
+.badge-ok, .badge-soon, .badge-overdue, .badge-unknown {
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-weight: 700;
+  font-size: 11.5px;
+}
 .badge-ok { background: #d1fae5; color: #065f46; }
 .badge-soon { background: #fef3c7; color: #92400e; }
 .badge-overdue { background: #fee2e2; color: #991b1b; }
@@ -22747,9 +22884,15 @@ html[data-theme="cyber"] .unit-icon-wrap {
   background: #14203c;
   background: color-mix(in srgb, var(--uc) 24%, #0d1428);
 }
-html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap,
+html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap {
+  background: color-mix(in srgb, #22c55e 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap {
+  background: color-mix(in srgb, #f59e0b 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap {
+  background: color-mix(in srgb, #ef4444 22%, #0d1428);
+}
 html[data-theme="cyber"] .equipment-card:has(.dot-unknown) .unit-icon-wrap {
   background: #14203c;
 }
@@ -23105,6 +23248,7 @@ INVENTORY_HTML = r"""<!DOCTYPE html>
 <title>재고 관리 - 설비 부품 교체 관리 시스템</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <style>
 :root {
   --pri: #6366f1;
@@ -23129,7 +23273,7 @@ INVENTORY_HTML = r"""<!DOCTYPE html>
 body {
   background: var(--bg-a);
   background-attachment: fixed;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
   color: var(--text);
 }
@@ -23649,6 +23793,12 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 .part-card:hover { box-shadow: var(--shadow-sm); }
 .part-card .part-title { font-weight: 700; font-size: 14px; }
 .part-card .part-spec { font-size: 12px; color: var(--text-muted); }
+.badge-ok, .badge-soon, .badge-overdue, .badge-unknown {
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-weight: 700;
+  font-size: 11.5px;
+}
 .badge-ok { background: #d1fae5; color: #065f46; }
 .badge-soon { background: #fef3c7; color: #92400e; }
 .badge-overdue { background: #fee2e2; color: #991b1b; }
@@ -24152,9 +24302,15 @@ html[data-theme="cyber"] .unit-icon-wrap {
   background: #14203c;
   background: color-mix(in srgb, var(--uc) 24%, #0d1428);
 }
-html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap,
+html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap {
+  background: color-mix(in srgb, #22c55e 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap {
+  background: color-mix(in srgb, #f59e0b 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap {
+  background: color-mix(in srgb, #ef4444 22%, #0d1428);
+}
 html[data-theme="cyber"] .equipment-card:has(.dot-unknown) .unit-icon-wrap {
   background: #14203c;
 }
@@ -24641,6 +24797,7 @@ ROLLOUT_HTML = r"""<!DOCTYPE html>
 <title>횡전개 현황판 - 설비 부품 교체 관리 시스템</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
 <style>
 :root {
   --pri: #6366f1;
@@ -24665,7 +24822,7 @@ ROLLOUT_HTML = r"""<!DOCTYPE html>
 body {
   background: var(--bg-a);
   background-attachment: fixed;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
   color: var(--text);
 }
@@ -25185,6 +25342,12 @@ html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 
 .part-card:hover { box-shadow: var(--shadow-sm); }
 .part-card .part-title { font-weight: 700; font-size: 14px; }
 .part-card .part-spec { font-size: 12px; color: var(--text-muted); }
+.badge-ok, .badge-soon, .badge-overdue, .badge-unknown {
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-weight: 700;
+  font-size: 11.5px;
+}
 .badge-ok { background: #d1fae5; color: #065f46; }
 .badge-soon { background: #fef3c7; color: #92400e; }
 .badge-overdue { background: #fee2e2; color: #991b1b; }
@@ -25688,9 +25851,15 @@ html[data-theme="cyber"] .unit-icon-wrap {
   background: #14203c;
   background: color-mix(in srgb, var(--uc) 24%, #0d1428);
 }
-html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap,
-html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap,
+html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap {
+  background: color-mix(in srgb, #22c55e 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap {
+  background: color-mix(in srgb, #f59e0b 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap {
+  background: color-mix(in srgb, #ef4444 22%, #0d1428);
+}
 html[data-theme="cyber"] .equipment-card:has(.dot-unknown) .unit-icon-wrap {
   background: #14203c;
 }
