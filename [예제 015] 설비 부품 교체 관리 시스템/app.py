@@ -1518,6 +1518,7 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
             "min_cycle_days": r["min_cycle_days"],
             "min_cycle_unit": r["min_cycle_unit"] if r["min_cycle_days"] is not None else "일",
             "avg_actual_interval_days": None,
+            "last_replaced_date": None,
         }
 
     # 구매(예상) 금액은 기준 설비에 등록된 값 하나만 쓴다. 같은 부품명+규격이 기준 설비 안의
@@ -1560,6 +1561,24 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
         key = (r["name"], r["spec"])
         if key in groups and r["avg_actual_interval_days"] is not None:
             groups[key]["avg_actual_interval_days"] = round(r["avg_actual_interval_days"], 1)
+
+    # 규격별 최근 교체일(항상 전체 이력 기준, 기간 필터와 무관 - 보고서의 "최근 교체일"
+    # 열은 분석 기간 밖이라도 가장 최근 교체가 언제였는지 그대로 보여줘야 의미가 있다).
+    last_replaced_rows = conn.execute(f"""
+        SELECT p.name AS name, COALESCE(p.spec, '') AS spec,
+               MAX(h.replaced_date) AS last_replaced_date
+        FROM replacement_history h
+        JOIN parts p ON h.part_id = p.id
+        JOIN units u ON p.unit_id = u.id
+        JOIN equipments e ON u.equipment_id = e.id
+        WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
+        {unit_filter_sql}
+        GROUP BY p.name, COALESCE(p.spec, '')
+    """, unit_filter_params).fetchall()
+    for r in last_replaced_rows:
+        key = (r["name"], r["spec"])
+        if key in groups:
+            groups[key]["last_replaced_date"] = r["last_replaced_date"]
 
     # 실제 교체 이력의 사용횟수/금액은 이력 테이블과 부품을 직접 JOIN해서 규격별로 합산한다.
     hist_sql = f"""
@@ -3206,6 +3225,284 @@ def export_stats_pptx():
         download_name=f"통계_{timestamp}.pptx",
         mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation",
     )
+
+
+REPORT_WINDOW_DAYS = 60
+REPORT_STALE_WINDOW_DAYS = 90
+# 평균 실제 교체 간격이 설정 주기 대비 이 비율 이하로 짧으면 "교체 필요"/"교체 임박"으로
+# 본다 (part_status의 "남은 기간" 기준과는 다른 지표라 별도 임계값을 쓴다).
+REPORT_SHORT_CYCLE_OVERDUE_RATIO = 0.75
+REPORT_SHORT_CYCLE_SOON_RATIO = 0.90
+# 동일 부품 규격이 설비마다 평균 교체 간격이 이 배수 이상 차이 나면 편차가 크다고 본다.
+REPORT_VARIANCE_RATIO = 1.5
+
+
+def report_cycle_status(avg_actual_interval_days, min_cycle_days):
+    """보고서 표의 '상태' 배지를 계산한다. part_status와 달리 '최근 교체일 기준 남은
+    기간'이 아니라 '평균 실제 교체 간격이 설정 주기 대비 얼마나 짧은가'로 판단한다."""
+    if min_cycle_days is None or avg_actual_interval_days is None:
+        return {"status": "unknown", "label": "N/A", "ratio": None}
+    ratio = avg_actual_interval_days / min_cycle_days if min_cycle_days > 0 else None
+    if ratio is None:
+        return {"status": "unknown", "label": "N/A", "ratio": None}
+    if ratio <= REPORT_SHORT_CYCLE_OVERDUE_RATIO:
+        return {"status": "overdue", "label": "교체 필요", "ratio": ratio}
+    if ratio <= REPORT_SHORT_CYCLE_SOON_RATIO:
+        return {"status": "soon", "label": "교체 임박", "ratio": ratio}
+    return {"status": "ok", "label": "정상", "ratio": ratio}
+
+
+def build_report_cost_variance_insight(conn):
+    """동일 부품 규격인데 설비별 평균 교체 간격 편차가 큰 경우를 찾는다. 설비 2곳 이상에서
+    각각 2건 이상 교체 이력(=간격 1건 이상)이 있는 규격만 비교 대상으로 삼는다."""
+    rows = conn.execute("""
+        WITH ordered_hist AS (
+            SELECT h.part_id, h.replaced_date, e.id AS equipment_id, e.name AS equipment_name,
+                   p.name AS name, COALESCE(p.spec, '') AS spec,
+                   LAG(h.replaced_date) OVER (PARTITION BY h.part_id ORDER BY h.replaced_date) AS prev_date
+            FROM replacement_history h
+            JOIN parts p ON h.part_id = p.id
+            JOIN units u ON p.unit_id = u.id
+            JOIN equipments e ON u.equipment_id = e.id
+            WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
+        )
+        SELECT name, spec, equipment_id,
+               AVG(julianday(replaced_date) - julianday(prev_date)) AS avg_interval
+        FROM ordered_hist
+        WHERE prev_date IS NOT NULL
+        GROUP BY name, spec, equipment_id
+    """).fetchall()
+    by_spec = {}
+    for r in rows:
+        key = (r["name"], r["spec"])
+        by_spec.setdefault(key, []).append(r["avg_interval"])
+
+    best = None  # (ratio, name, spec, min_v, max_v)
+    for (name, spec), intervals in by_spec.items():
+        if len(intervals) < 2:
+            continue
+        min_v, max_v = min(intervals), max(intervals)
+        if min_v <= 0:
+            continue
+        ratio = max_v / min_v
+        if ratio < REPORT_VARIANCE_RATIO:
+            continue
+        if best is None or ratio > best[0]:
+            best = (ratio, name, spec, min_v, max_v)
+
+    if best is None:
+        return None
+    _, name, spec, min_v, max_v = best
+    return (
+        f"<b>{html_lib.escape(name)}</b>은(는) 동일 스펙 기준 다른 설비 대비 교체 간격 편차가 큽니다 "
+        f"(최소 {round(min_v)}일 ~ 최대 {round(max_v)}일)."
+    )
+
+
+def build_report_stale_equipment_insight(conn, window_days=REPORT_STALE_WINDOW_DAYS):
+    """최근 window_days일 안에 교체 기록이 한 건도 없는(또는 아예 없던) 설비를 찾는다."""
+    cutoff = (date.today() - timedelta(days=window_days)).isoformat()
+    equipments = conn.execute(
+        "SELECT id, name FROM equipments WHERE deleted_at IS NULL ORDER BY id"
+    ).fetchall()
+    last_dates = {
+        r["equipment_id"]: r["last_date"]
+        for r in conn.execute("""
+            SELECT e.id AS equipment_id, MAX(h.replaced_date) AS last_date
+            FROM equipments e
+            JOIN units u ON u.equipment_id = e.id AND u.deleted_at IS NULL
+            JOIN parts p ON p.unit_id = u.id AND p.deleted_at IS NULL
+            JOIN replacement_history h ON h.part_id = p.id
+            WHERE e.deleted_at IS NULL
+            GROUP BY e.id
+        """).fetchall()
+    }
+    stale_names = []
+    for e in equipments:
+        last_date = last_dates.get(e["id"])
+        if last_date is None or last_date < cutoff:
+            stale_names.append(e["name"])
+    if not stale_names:
+        return None
+    if len(stale_names) == 1:
+        return (
+            f"<b>{html_lib.escape(stale_names[0])}</b>은(는) 최근 {window_days}일간 교체 기록이 없어 "
+            f"상태 파악이 어렵습니다. 점검을 권장합니다."
+        )
+    return (
+        f"<b>{html_lib.escape(stale_names[0])}</b> 외 {len(stale_names) - 1}개 설비는 최근 {window_days}일간 "
+        f"교체 기록이 없어 상태 파악이 어렵습니다. 점검을 권장합니다."
+    )
+
+
+def build_report_cost_trend_insight(conn, window_days=REPORT_WINDOW_DAYS):
+    """최근 window_days일 교체 비용 합계를, 그 직전 window_days일과 비교한다."""
+    today = date.today()
+    recent_start = (today - timedelta(days=window_days)).isoformat()
+    prev_start = (today - timedelta(days=window_days * 2)).isoformat()
+
+    recent_rows = get_part_spec_stats(conn, start_date=recent_start, end_date=None)
+    prev_rows = get_part_spec_stats(conn, start_date=prev_start, end_date=recent_start)
+
+    recent_cost = sum(r["replacement_cost_total"] for r in recent_rows)
+    prev_cost = sum(r["replacement_cost_total"] for r in prev_rows)
+    if not prev_cost:
+        return None  # 비교할 직전 기간 데이터가 없으면 비율 계산이 의미가 없다
+
+    pct = round((recent_cost - prev_cost) / prev_cost * 100)
+    if pct == 0:
+        return None
+
+    if pct > 0:
+        prev_by_key = {(r["name"], r["spec"]): r["replacement_cost_total"] for r in prev_rows}
+        top = None  # (delta, name)
+        for r in recent_rows:
+            delta = r["replacement_cost_total"] - prev_by_key.get((r["name"], r["spec"]), 0)
+            if delta > 0 and (top is None or delta > top[0]):
+                top = (delta, r["name"])
+        reason = f" {html_lib.escape(top[1])} 비용 상승이 주된 원인입니다." if top else ""
+        return f"이번 분석 기간 교체 비용은 직전 {window_days}일 대비 <b>{pct}% 증가</b>했습니다.{reason}"
+    return f"이번 분석 기간 교체 비용은 직전 {window_days}일 대비 <b>{abs(pct)}% 감소</b>했습니다."
+
+
+def build_report_short_cycle_insights(spec_rows, max_items=3):
+    """설정 주기보다 평균 실제 교체 간격이 눈에 띄게 짧은 부품(상위 max_items개)에 대한
+    경고 문장을 만든다."""
+    candidates = []
+    for r in spec_rows:
+        info = report_cycle_status(r["avg_actual_interval_days"], r["min_cycle_days"])
+        if info["status"] != "overdue":
+            continue
+        candidates.append((info["ratio"], r))
+    candidates.sort(key=lambda t: t[0])  # 비율이 작을수록(더 짧을수록) 먼저
+    sentences = []
+    for ratio, r in candidates[:max_items]:
+        pct = round((1 - ratio) * 100)
+        sentences.append(
+            f"<b>{html_lib.escape(r['name'])}</b>은(는) 설정 주기({r['min_cycle_days']}일)보다 평균 "
+            f"<b>{pct}% 빠르게</b>({r['avg_actual_interval_days']}일) 교체되고 있습니다. "
+            f"교체 주기 재설정을 검토해보세요."
+        )
+    return sentences
+
+
+def build_report_data(conn, window_days=REPORT_WINDOW_DAYS):
+    """부품 교체 분석 보고서 한 페이지에 필요한 데이터를 전부 모은다.
+    LLM 없이 기존 통계 집계 함수 + 규칙 기반 판정만으로 구성한다."""
+    today = date.today()
+    window_start = (today - timedelta(days=window_days)).isoformat()
+
+    # 전체 규격 통계(전체 이력 기준) - 표/짧은주기 경고에 사용
+    spec_rows = get_part_spec_stats(conn)
+    cycle_rows = [r for r in spec_rows if r["avg_actual_interval_days"] is not None]
+    cycle_rows.sort(key=lambda r: r["avg_actual_interval_days"])
+    table_rows = []
+    for r in cycle_rows[:15]:
+        info = report_cycle_status(r["avg_actual_interval_days"], r["min_cycle_days"])
+        table_rows.append({
+            "name": r["name"],
+            "spec": r["spec"] or "-",
+            "min_cycle_days": r["min_cycle_days"],
+            "avg_actual_interval_days": r["avg_actual_interval_days"],
+            "last_replaced_date": r["last_replaced_date"] or "-",
+            "status": info["status"],
+            "status_label": info["label"],
+        })
+    avg_cycle_values = [r["avg_actual_interval_days"] for r in cycle_rows]
+    avg_cycle_days = round(sum(avg_cycle_values) / len(avg_cycle_values)) if avg_cycle_values else None
+
+    # 최근 window_days일 기준 비용 상위 5개 규격 (막대그래프)
+    window_spec_rows = get_part_spec_stats(conn, start_date=window_start, end_date=None)
+    cost_rows = sorted(
+        (r for r in window_spec_rows if r["usage_count"] > 0),
+        key=lambda r: r["replacement_cost_total"], reverse=True
+    )[:5]
+    max_cost = cost_rows[0]["replacement_cost_total"] if cost_rows else 0
+    cost_bars = [{
+        "name": r["name"],
+        "cost": r["replacement_cost_total"],
+        "pct": round(r["replacement_cost_total"] / max_cost * 100) if max_cost else 0,
+    } for r in cost_rows]
+
+    # 최근 window_days일 교체 건수/비용 합계
+    hist_summary = conn.execute(
+        "SELECT COUNT(*) AS cnt, COALESCE(SUM(cost), 0) AS total_cost "
+        "FROM replacement_history WHERE replaced_date >= ?", (window_start,)
+    ).fetchone()
+
+    # 설비 상태 분포 (대시보드와 동일한 overall_status 계산 재사용)
+    equipments = conn.execute("SELECT * FROM equipments WHERE deleted_at IS NULL ORDER BY id").fetchall()
+    eq_statuses = equipments_with_status_bulk(conn, equipments)
+    status_counts = {"ok": 0, "soon": 0, "overdue": 0, "unknown": 0}
+    for eq in eq_statuses:
+        key = eq["overall_status"] if eq["overall_status"] in status_counts else "unknown"
+        status_counts[key] += 1
+    total_eq = len(eq_statuses) or 1
+    ok_deg = round(360 * status_counts["ok"] / total_eq)
+    soon_deg = round(360 * status_counts["soon"] / total_eq)
+    overdue_deg = round(360 * status_counts["overdue"] / total_eq)
+    donut = {
+        "counts": status_counts,
+        "total": len(eq_statuses),
+        "b1": ok_deg,
+        "b2": ok_deg + soon_deg,
+        "b3": ok_deg + soon_deg + overdue_deg,
+    }
+
+    insights = []
+    for sentence in build_report_short_cycle_insights(spec_rows):
+        insights.append({"tag": "warn", "label": "주의", "text": sentence})
+    variance_insight = build_report_cost_variance_insight(conn)
+    if variance_insight:
+        insights.append({"tag": "caution", "label": "참고", "text": variance_insight})
+    stale_insight = build_report_stale_equipment_insight(conn)
+    if stale_insight:
+        insights.append({"tag": "info", "label": "정보", "text": stale_insight})
+    trend_insight = build_report_cost_trend_insight(conn, window_days)
+    if trend_insight:
+        insights.append({"tag": "info", "label": "정보", "text": trend_insight})
+
+    return {
+        "window_days": window_days,
+        "generated_at": today.isoformat(),
+        "equipment_count": len(equipments),
+        "unit_count": conn.execute("SELECT COUNT(*) AS n FROM units WHERE deleted_at IS NULL").fetchone()["n"],
+        "total_count": hist_summary["cnt"],
+        "total_cost": hist_summary["total_cost"],
+        "avg_cycle_days": avg_cycle_days,
+        "donut": donut,
+        "cost_bars": cost_bars,
+        "table_rows": table_rows,
+        "insights": insights,
+    }
+
+
+@app.route("/report")
+def report_page():
+    return render_template("report.html")
+
+
+@app.route("/api/report")
+def api_report():
+    conn = get_db()
+    data = build_report_data(conn)
+    conn.close()
+    return jsonify(data)
+
+
+@app.route("/report/export.csv")
+def export_report_csv():
+    conn = get_db()
+    data = build_report_data(conn)
+    conn.close()
+    header = ["부품명", "스펙", "설정 주기(일)", "평균 실제 간격(일)", "최근 교체일", "상태"]
+    rows = [
+        [r["name"], r["spec"], r["min_cycle_days"] or "N/A", r["avg_actual_interval_days"],
+         r["last_replaced_date"], r["status_label"]]
+        for r in data["table_rows"]
+    ]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return csv_response(f"부품교체분석보고서_{timestamp}.csv", header, rows)
 
 
 @app.route("/api/backup", methods=["POST"])

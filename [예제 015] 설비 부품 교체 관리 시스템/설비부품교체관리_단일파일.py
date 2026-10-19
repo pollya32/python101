@@ -1545,6 +1545,7 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
             "min_cycle_days": r["min_cycle_days"],
             "min_cycle_unit": r["min_cycle_unit"] if r["min_cycle_days"] is not None else "일",
             "avg_actual_interval_days": None,
+            "last_replaced_date": None,
         }
 
     # 구매(예상) 금액은 기준 설비에 등록된 값 하나만 쓴다. 같은 부품명+규격이 기준 설비 안의
@@ -1587,6 +1588,24 @@ def get_part_spec_stats(conn, unit_names=None, start_date=None, end_date=None):
         key = (r["name"], r["spec"])
         if key in groups and r["avg_actual_interval_days"] is not None:
             groups[key]["avg_actual_interval_days"] = round(r["avg_actual_interval_days"], 1)
+
+    # 규격별 최근 교체일(항상 전체 이력 기준, 기간 필터와 무관 - 보고서의 "최근 교체일"
+    # 열은 분석 기간 밖이라도 가장 최근 교체가 언제였는지 그대로 보여줘야 의미가 있다).
+    last_replaced_rows = conn.execute(f"""
+        SELECT p.name AS name, COALESCE(p.spec, '') AS spec,
+               MAX(h.replaced_date) AS last_replaced_date
+        FROM replacement_history h
+        JOIN parts p ON h.part_id = p.id
+        JOIN units u ON p.unit_id = u.id
+        JOIN equipments e ON u.equipment_id = e.id
+        WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
+        {unit_filter_sql}
+        GROUP BY p.name, COALESCE(p.spec, '')
+    """, unit_filter_params).fetchall()
+    for r in last_replaced_rows:
+        key = (r["name"], r["spec"])
+        if key in groups:
+            groups[key]["last_replaced_date"] = r["last_replaced_date"]
 
     # 실제 교체 이력의 사용횟수/금액은 이력 테이블과 부품을 직접 JOIN해서 규격별로 합산한다.
     hist_sql = f"""
@@ -3235,6 +3254,284 @@ def export_stats_pptx():
     )
 
 
+REPORT_WINDOW_DAYS = 60
+REPORT_STALE_WINDOW_DAYS = 90
+# 평균 실제 교체 간격이 설정 주기 대비 이 비율 이하로 짧으면 "교체 필요"/"교체 임박"으로
+# 본다 (part_status의 "남은 기간" 기준과는 다른 지표라 별도 임계값을 쓴다).
+REPORT_SHORT_CYCLE_OVERDUE_RATIO = 0.75
+REPORT_SHORT_CYCLE_SOON_RATIO = 0.90
+# 동일 부품 규격이 설비마다 평균 교체 간격이 이 배수 이상 차이 나면 편차가 크다고 본다.
+REPORT_VARIANCE_RATIO = 1.5
+
+
+def report_cycle_status(avg_actual_interval_days, min_cycle_days):
+    """보고서 표의 '상태' 배지를 계산한다. part_status와 달리 '최근 교체일 기준 남은
+    기간'이 아니라 '평균 실제 교체 간격이 설정 주기 대비 얼마나 짧은가'로 판단한다."""
+    if min_cycle_days is None or avg_actual_interval_days is None:
+        return {"status": "unknown", "label": "N/A", "ratio": None}
+    ratio = avg_actual_interval_days / min_cycle_days if min_cycle_days > 0 else None
+    if ratio is None:
+        return {"status": "unknown", "label": "N/A", "ratio": None}
+    if ratio <= REPORT_SHORT_CYCLE_OVERDUE_RATIO:
+        return {"status": "overdue", "label": "교체 필요", "ratio": ratio}
+    if ratio <= REPORT_SHORT_CYCLE_SOON_RATIO:
+        return {"status": "soon", "label": "교체 임박", "ratio": ratio}
+    return {"status": "ok", "label": "정상", "ratio": ratio}
+
+
+def build_report_cost_variance_insight(conn):
+    """동일 부품 규격인데 설비별 평균 교체 간격 편차가 큰 경우를 찾는다. 설비 2곳 이상에서
+    각각 2건 이상 교체 이력(=간격 1건 이상)이 있는 규격만 비교 대상으로 삼는다."""
+    rows = conn.execute("""
+        WITH ordered_hist AS (
+            SELECT h.part_id, h.replaced_date, e.id AS equipment_id, e.name AS equipment_name,
+                   p.name AS name, COALESCE(p.spec, '') AS spec,
+                   LAG(h.replaced_date) OVER (PARTITION BY h.part_id ORDER BY h.replaced_date) AS prev_date
+            FROM replacement_history h
+            JOIN parts p ON h.part_id = p.id
+            JOIN units u ON p.unit_id = u.id
+            JOIN equipments e ON u.equipment_id = e.id
+            WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
+        )
+        SELECT name, spec, equipment_id,
+               AVG(julianday(replaced_date) - julianday(prev_date)) AS avg_interval
+        FROM ordered_hist
+        WHERE prev_date IS NOT NULL
+        GROUP BY name, spec, equipment_id
+    """).fetchall()
+    by_spec = {}
+    for r in rows:
+        key = (r["name"], r["spec"])
+        by_spec.setdefault(key, []).append(r["avg_interval"])
+
+    best = None  # (ratio, name, spec, min_v, max_v)
+    for (name, spec), intervals in by_spec.items():
+        if len(intervals) < 2:
+            continue
+        min_v, max_v = min(intervals), max(intervals)
+        if min_v <= 0:
+            continue
+        ratio = max_v / min_v
+        if ratio < REPORT_VARIANCE_RATIO:
+            continue
+        if best is None or ratio > best[0]:
+            best = (ratio, name, spec, min_v, max_v)
+
+    if best is None:
+        return None
+    _, name, spec, min_v, max_v = best
+    return (
+        f"<b>{html_lib.escape(name)}</b>은(는) 동일 스펙 기준 다른 설비 대비 교체 간격 편차가 큽니다 "
+        f"(최소 {round(min_v)}일 ~ 최대 {round(max_v)}일)."
+    )
+
+
+def build_report_stale_equipment_insight(conn, window_days=REPORT_STALE_WINDOW_DAYS):
+    """최근 window_days일 안에 교체 기록이 한 건도 없는(또는 아예 없던) 설비를 찾는다."""
+    cutoff = (date.today() - timedelta(days=window_days)).isoformat()
+    equipments = conn.execute(
+        "SELECT id, name FROM equipments WHERE deleted_at IS NULL ORDER BY id"
+    ).fetchall()
+    last_dates = {
+        r["equipment_id"]: r["last_date"]
+        for r in conn.execute("""
+            SELECT e.id AS equipment_id, MAX(h.replaced_date) AS last_date
+            FROM equipments e
+            JOIN units u ON u.equipment_id = e.id AND u.deleted_at IS NULL
+            JOIN parts p ON p.unit_id = u.id AND p.deleted_at IS NULL
+            JOIN replacement_history h ON h.part_id = p.id
+            WHERE e.deleted_at IS NULL
+            GROUP BY e.id
+        """).fetchall()
+    }
+    stale_names = []
+    for e in equipments:
+        last_date = last_dates.get(e["id"])
+        if last_date is None or last_date < cutoff:
+            stale_names.append(e["name"])
+    if not stale_names:
+        return None
+    if len(stale_names) == 1:
+        return (
+            f"<b>{html_lib.escape(stale_names[0])}</b>은(는) 최근 {window_days}일간 교체 기록이 없어 "
+            f"상태 파악이 어렵습니다. 점검을 권장합니다."
+        )
+    return (
+        f"<b>{html_lib.escape(stale_names[0])}</b> 외 {len(stale_names) - 1}개 설비는 최근 {window_days}일간 "
+        f"교체 기록이 없어 상태 파악이 어렵습니다. 점검을 권장합니다."
+    )
+
+
+def build_report_cost_trend_insight(conn, window_days=REPORT_WINDOW_DAYS):
+    """최근 window_days일 교체 비용 합계를, 그 직전 window_days일과 비교한다."""
+    today = date.today()
+    recent_start = (today - timedelta(days=window_days)).isoformat()
+    prev_start = (today - timedelta(days=window_days * 2)).isoformat()
+
+    recent_rows = get_part_spec_stats(conn, start_date=recent_start, end_date=None)
+    prev_rows = get_part_spec_stats(conn, start_date=prev_start, end_date=recent_start)
+
+    recent_cost = sum(r["replacement_cost_total"] for r in recent_rows)
+    prev_cost = sum(r["replacement_cost_total"] for r in prev_rows)
+    if not prev_cost:
+        return None  # 비교할 직전 기간 데이터가 없으면 비율 계산이 의미가 없다
+
+    pct = round((recent_cost - prev_cost) / prev_cost * 100)
+    if pct == 0:
+        return None
+
+    if pct > 0:
+        prev_by_key = {(r["name"], r["spec"]): r["replacement_cost_total"] for r in prev_rows}
+        top = None  # (delta, name)
+        for r in recent_rows:
+            delta = r["replacement_cost_total"] - prev_by_key.get((r["name"], r["spec"]), 0)
+            if delta > 0 and (top is None or delta > top[0]):
+                top = (delta, r["name"])
+        reason = f" {html_lib.escape(top[1])} 비용 상승이 주된 원인입니다." if top else ""
+        return f"이번 분석 기간 교체 비용은 직전 {window_days}일 대비 <b>{pct}% 증가</b>했습니다.{reason}"
+    return f"이번 분석 기간 교체 비용은 직전 {window_days}일 대비 <b>{abs(pct)}% 감소</b>했습니다."
+
+
+def build_report_short_cycle_insights(spec_rows, max_items=3):
+    """설정 주기보다 평균 실제 교체 간격이 눈에 띄게 짧은 부품(상위 max_items개)에 대한
+    경고 문장을 만든다."""
+    candidates = []
+    for r in spec_rows:
+        info = report_cycle_status(r["avg_actual_interval_days"], r["min_cycle_days"])
+        if info["status"] != "overdue":
+            continue
+        candidates.append((info["ratio"], r))
+    candidates.sort(key=lambda t: t[0])  # 비율이 작을수록(더 짧을수록) 먼저
+    sentences = []
+    for ratio, r in candidates[:max_items]:
+        pct = round((1 - ratio) * 100)
+        sentences.append(
+            f"<b>{html_lib.escape(r['name'])}</b>은(는) 설정 주기({r['min_cycle_days']}일)보다 평균 "
+            f"<b>{pct}% 빠르게</b>({r['avg_actual_interval_days']}일) 교체되고 있습니다. "
+            f"교체 주기 재설정을 검토해보세요."
+        )
+    return sentences
+
+
+def build_report_data(conn, window_days=REPORT_WINDOW_DAYS):
+    """부품 교체 분석 보고서 한 페이지에 필요한 데이터를 전부 모은다.
+    LLM 없이 기존 통계 집계 함수 + 규칙 기반 판정만으로 구성한다."""
+    today = date.today()
+    window_start = (today - timedelta(days=window_days)).isoformat()
+
+    # 전체 규격 통계(전체 이력 기준) - 표/짧은주기 경고에 사용
+    spec_rows = get_part_spec_stats(conn)
+    cycle_rows = [r for r in spec_rows if r["avg_actual_interval_days"] is not None]
+    cycle_rows.sort(key=lambda r: r["avg_actual_interval_days"])
+    table_rows = []
+    for r in cycle_rows[:15]:
+        info = report_cycle_status(r["avg_actual_interval_days"], r["min_cycle_days"])
+        table_rows.append({
+            "name": r["name"],
+            "spec": r["spec"] or "-",
+            "min_cycle_days": r["min_cycle_days"],
+            "avg_actual_interval_days": r["avg_actual_interval_days"],
+            "last_replaced_date": r["last_replaced_date"] or "-",
+            "status": info["status"],
+            "status_label": info["label"],
+        })
+    avg_cycle_values = [r["avg_actual_interval_days"] for r in cycle_rows]
+    avg_cycle_days = round(sum(avg_cycle_values) / len(avg_cycle_values)) if avg_cycle_values else None
+
+    # 최근 window_days일 기준 비용 상위 5개 규격 (막대그래프)
+    window_spec_rows = get_part_spec_stats(conn, start_date=window_start, end_date=None)
+    cost_rows = sorted(
+        (r for r in window_spec_rows if r["usage_count"] > 0),
+        key=lambda r: r["replacement_cost_total"], reverse=True
+    )[:5]
+    max_cost = cost_rows[0]["replacement_cost_total"] if cost_rows else 0
+    cost_bars = [{
+        "name": r["name"],
+        "cost": r["replacement_cost_total"],
+        "pct": round(r["replacement_cost_total"] / max_cost * 100) if max_cost else 0,
+    } for r in cost_rows]
+
+    # 최근 window_days일 교체 건수/비용 합계
+    hist_summary = conn.execute(
+        "SELECT COUNT(*) AS cnt, COALESCE(SUM(cost), 0) AS total_cost "
+        "FROM replacement_history WHERE replaced_date >= ?", (window_start,)
+    ).fetchone()
+
+    # 설비 상태 분포 (대시보드와 동일한 overall_status 계산 재사용)
+    equipments = conn.execute("SELECT * FROM equipments WHERE deleted_at IS NULL ORDER BY id").fetchall()
+    eq_statuses = equipments_with_status_bulk(conn, equipments)
+    status_counts = {"ok": 0, "soon": 0, "overdue": 0, "unknown": 0}
+    for eq in eq_statuses:
+        key = eq["overall_status"] if eq["overall_status"] in status_counts else "unknown"
+        status_counts[key] += 1
+    total_eq = len(eq_statuses) or 1
+    ok_deg = round(360 * status_counts["ok"] / total_eq)
+    soon_deg = round(360 * status_counts["soon"] / total_eq)
+    overdue_deg = round(360 * status_counts["overdue"] / total_eq)
+    donut = {
+        "counts": status_counts,
+        "total": len(eq_statuses),
+        "b1": ok_deg,
+        "b2": ok_deg + soon_deg,
+        "b3": ok_deg + soon_deg + overdue_deg,
+    }
+
+    insights = []
+    for sentence in build_report_short_cycle_insights(spec_rows):
+        insights.append({"tag": "warn", "label": "주의", "text": sentence})
+    variance_insight = build_report_cost_variance_insight(conn)
+    if variance_insight:
+        insights.append({"tag": "caution", "label": "참고", "text": variance_insight})
+    stale_insight = build_report_stale_equipment_insight(conn)
+    if stale_insight:
+        insights.append({"tag": "info", "label": "정보", "text": stale_insight})
+    trend_insight = build_report_cost_trend_insight(conn, window_days)
+    if trend_insight:
+        insights.append({"tag": "info", "label": "정보", "text": trend_insight})
+
+    return {
+        "window_days": window_days,
+        "generated_at": today.isoformat(),
+        "equipment_count": len(equipments),
+        "unit_count": conn.execute("SELECT COUNT(*) AS n FROM units WHERE deleted_at IS NULL").fetchone()["n"],
+        "total_count": hist_summary["cnt"],
+        "total_cost": hist_summary["total_cost"],
+        "avg_cycle_days": avg_cycle_days,
+        "donut": donut,
+        "cost_bars": cost_bars,
+        "table_rows": table_rows,
+        "insights": insights,
+    }
+
+
+@app.route("/report")
+def report_page():
+    return REPORT_HTML
+
+
+@app.route("/api/report")
+def api_report():
+    conn = get_db()
+    data = build_report_data(conn)
+    conn.close()
+    return jsonify(data)
+
+
+@app.route("/report/export.csv")
+def export_report_csv():
+    conn = get_db()
+    data = build_report_data(conn)
+    conn.close()
+    header = ["부품명", "스펙", "설정 주기(일)", "평균 실제 간격(일)", "최근 교체일", "상태"]
+    rows = [
+        [r["name"], r["spec"], r["min_cycle_days"] or "N/A", r["avg_actual_interval_days"],
+         r["last_replaced_date"], r["status_label"]]
+        for r in data["table_rows"]
+    ]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return csv_response(f"부품교체분석보고서_{timestamp}.csv", header, rows)
+
+
 @app.route("/api/backup", methods=["POST"])
 def download_backup():
     os.makedirs(BACKUP_DIR, exist_ok=True)
@@ -4756,6 +5053,9 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
     <button id="statsBtn" class="btn btn-sm btn-outline-light">
       <i class="bi bi-bar-chart-fill"></i> 통계
     </button>
+    <a href="/report" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-file-earmark-text"></i> 보고서
+    </a>
     <a href="/config" class="btn btn-sm btn-outline-light">
       <i class="bi bi-diagram-3"></i> 기본 유닛 구성
     </a>
@@ -26595,6 +26895,1580 @@ document.addEventListener("DOMContentLoaded", () => {
       alert(err.message);
     }
   });
+});
+</script>
+</body>
+</html>
+"""
+
+
+REPORT_HTML = r"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>부품 교체 분석 보고서 - 설비 부품 교체 관리 시스템</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<style>
+:root {
+  --pri: #6366f1;
+  --pri-dark: #4f52d9;
+  --accent: #818cf8;
+  --bg-a: #fafafc;
+  --bg-b: #fafafc;
+  --surface: #ffffff;
+  --border: #eef0f5;
+  --text: #3a3f52;
+  --text-muted: #9498ab;
+  --radius-lg: 28px;
+  --radius-md: 20px;
+  --radius-sm: 14px;
+  --shadow-sm: 0 4px 16px rgba(60, 60, 110, 0.06);
+  --shadow-md: 0 8px 22px rgba(60, 60, 110, 0.08);
+  --shadow-lg: 0 12px 30px rgba(60, 60, 110, 0.10);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--bg-a);
+  background-attachment: fixed;
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  color: var(--text);
+}
+
+/* ── 로그인 페이지 ────────────────────────────────────────────── */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 36px 32px;
+  max-width: 380px;
+  width: 100%;
+  text-align: center;
+}
+.login-icon {
+  font-size: 40px;
+  color: var(--pri);
+  margin-bottom: 10px;
+}
+.login-card h1 {
+  font-size: 18px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+/* ── 버튼 공통 리스킨 ─────────────────────────────────────────── */
+.btn {
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: all 0.15s ease;
+}
+.btn-primary {
+  background: var(--pri);
+  border-color: var(--pri);
+  box-shadow: 0 2px 8px rgba(67, 56, 202, 0.35);
+}
+.btn-primary:hover {
+  background: var(--pri-dark);
+  border-color: var(--pri-dark);
+  box-shadow: 0 4px 14px rgba(67, 56, 202, 0.4);
+}
+.btn-outline-light {
+  border: none;
+  border-radius: 999px;
+  background: var(--border);
+  color: var(--text-muted);
+}
+.btn-outline-light:hover,
+.btn-outline-light:focus,
+.btn-outline-light.show {
+  background: color-mix(in srgb, var(--text) 8%, var(--border));
+  color: var(--text);
+}
+#accountMenuBtn {
+  background: var(--pri);
+  color: #fff;
+}
+#accountMenuBtn:hover,
+#accountMenuBtn:focus,
+#accountMenuBtn.show {
+  background: var(--pri-dark);
+  color: #fff;
+}
+.btn-warning {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+}
+.btn-warning:hover { background: #d97706; border-color: #d97706; color: #fff; }
+.btn-outline-secondary { border-color: var(--border); color: var(--text-muted); }
+.btn-outline-secondary:hover { background: #f3f4f6; color: var(--text); }
+.btn-outline-primary { color: var(--pri); border-color: var(--pri); }
+.btn-outline-primary:hover { background: var(--pri); border-color: var(--pri); }
+.btn-outline-danger:hover { box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25); }
+
+.form-control:focus, .form-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 0.2rem rgba(99, 102, 241, 0.2);
+}
+
+/* ── 상단바 ───────────────────────────────────────────────────── */
+.topbar {
+  background: var(--surface);
+  color: var(--text);
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  row-gap: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 90;
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(30, 30, 60, 0.02);
+}
+.topbar h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--text); }
+.topbar i.bi { font-size: 18px; opacity: 1; color: var(--pri); }
+.topbar > div:last-child {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  justify-content: flex-end;
+}
+.topbar .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.topbar .btn i.bi {
+  font-size: 13px;
+}
+.dashboard-title-group { position: relative; }
+.dashboard-title-edit-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.dashboard-title-group:hover .dashboard-title-edit-btn,
+.dashboard-title-edit-btn:focus-visible {
+  opacity: 1;
+}
+.dashboard-title-edit-btn:hover {
+  background: var(--border);
+  color: var(--pri);
+}
+.dashboard-title-input {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  border: 1px solid var(--pri);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  background: var(--surface);
+  outline: none;
+  max-width: 320px;
+}
+.dashboard-title-save-btn,
+.dashboard-title-cancel-btn {
+  border: none;
+  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.dashboard-title-save-btn { background: var(--pri); color: #fff; }
+.dashboard-title-save-btn:hover { background: var(--pri-dark); }
+.dashboard-title-cancel-btn { background: var(--border); color: var(--text-muted); }
+.dashboard-title-cancel-btn:hover { background: color-mix(in srgb, var(--text) 8%, var(--border)); color: var(--text); }
+.clock { font-size: 12px; opacity: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* ── 범례 ─────────────────────────────────────────────────────── */
+.legend {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  font-size: 13px;
+  color: var(--text-muted);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 13px 28px;
+  box-shadow: var(--shadow-sm);
+}
+.legend-item { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-shadow: 0 0 0 3px currentColor; opacity: 0.9; }
+.dot-ok { background: #22c55e; color: rgba(34, 197, 94, 0.18); }
+.dot-soon { background: #f59e0b; color: rgba(245, 158, 11, 0.18); }
+.dot-overdue { background: #ef4444; color: rgba(239, 68, 68, 0.18); }
+.dot-unknown { background: #9ca3af; color: rgba(156, 163, 175, 0.18); }
+.legend-edit-btn { font-size: 13px; color: var(--pri); line-height: 1; }
+.legend-edit-btn:hover { color: var(--pri); opacity: 0.8; }
+
+/* ── 설비 프레임 / 유닛 도형 프레임 ───────────────────────────── */
+.equipment-frame {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 30px 22px 22px;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.12), rgba(245, 158, 11, 0.12));
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  color: #92400e;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  margin-bottom: 14px;
+  text-align: center;
+}
+.equipment-label {
+  position: absolute;
+  top: -14px;
+  left: 22px;
+  background: linear-gradient(120deg, var(--pri), var(--accent));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 14px;
+  border-radius: 999px;
+  box-shadow: 0 3px 10px rgba(67, 56, 202, 0.3);
+}
+
+.unit-shape {
+  --shape-color: var(--pri);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  /* 유닛 부품 구성 화면은 설비 화면(.equipment-frame 기본 1100px)보다 부품을 넓게 배치할
+     여유가 필요해, 이 화면에서만 최대 가로폭을 넓힌다. */
+  max-width: 1600px;
+}
+.unit-shape-header {
+  text-align: center;
+  margin-bottom: 6px;
+}
+.unit-shape-icon {
+  font-size: 42px;
+  display: block;
+  line-height: 1.2;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.12));
+}
+.unit-shape-name {
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--shape-color);
+}
+
+/* ── 대시보드 그리드 ──────────────────────────────────────────── */
+.equipment-canvas.dashboard-canvas {
+  max-width: 1300px;
+  margin: 10px auto 0;
+  min-height: 860px;
+}
+@media (max-width: 768px) {
+  .equipment-canvas.dashboard-canvas { min-height: 1150px; }
+}
+.equipment-card {
+  --card-accent: transparent;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 150px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px 12px 18px;
+  cursor: pointer;
+  text-align: center;
+  box-shadow: var(--shadow-sm), inset 4px 0 0 0 var(--card-accent);
+  transition: box-shadow 0.18s ease;
+  user-select: none;
+  touch-action: none;
+  box-sizing: border-box;
+}
+.equipment-card:hover {
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
+  z-index: 5;
+}
+.equipment-card.edit-mode { cursor: grab; }
+.equipment-card.dragging {
+  cursor: grabbing;
+  box-shadow: var(--shadow-lg), inset 4px 0 0 0 var(--card-accent);
+  z-index: 20;
+  transition: none;
+}
+.equipment-card:has(.dot-ok) { --card-accent: #86efac; }
+.equipment-card:has(.dot-soon) { --card-accent: #fde68a; }
+.equipment-card:has(.dot-overdue) { --card-accent: #fca5a5; }
+.equipment-card:has(.dot-unknown) { --card-accent: #e2e4ec; }
+.equipment-card:has(.dot-ok) .unit-icon-wrap { background: #e9faf0; }
+.equipment-card:has(.dot-soon) .unit-icon-wrap { background: #fff7e6; }
+.equipment-card:has(.dot-overdue) .unit-icon-wrap { background: #fff0f0; }
+.equipment-card:has(.dot-unknown) .unit-icon-wrap { background: #f3f3f7; }
+.equipment-card .unit-icon { font-size: 30px; }
+
+.align-guide {
+  position: absolute;
+  background: var(--accent, #f59e0b);
+  opacity: 0.9;
+  pointer-events: none;
+  z-index: 30;
+}
+.align-guide-v { top: 0; bottom: 0; width: 2px; transform: translateX(-50%); }
+.align-guide-h { left: 0; right: 0; height: 2px; transform: translateY(-50%); }
+
+/* ── 캔버스 ───────────────────────────────────────────────────── */
+.canvas-scale-wrap {
+  width: 100%;
+}
+.equipment-canvas {
+  position: relative;
+  width: 100%;
+  min-height: 460px;
+  margin-top: 10px;
+}
+@media (max-width: 768px) {
+  .equipment-canvas { min-height: 620px; }
+}
+
+/* ── 유닛/부품 카드 ───────────────────────────────────────────── */
+.unit-card {
+  --uc: #4338ca;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 140px;
+  min-height: 110px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px 10px 10px;
+  cursor: pointer;
+  transition: box-shadow 0.18s ease, transform 0.12s ease;
+  text-align: center;
+  user-select: none;
+  touch-action: none;
+  box-sizing: border-box;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.unit-card:hover {
+  box-shadow: var(--shadow-lg);
+  z-index: 5;
+}
+.edit-mode.unit-card { cursor: grab; }
+.unit-card.dragging {
+  cursor: grabbing;
+  box-shadow: var(--shadow-lg);
+  z-index: 20;
+  transition: none;
+}
+.unit-icon-wrap {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 8px;
+  background: #eef0fb;
+  background: color-mix(in srgb, var(--uc) 14%, white);
+}
+.overdue-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(239, 68, 68, 0.4);
+}
+.soon-badge {
+  position: absolute;
+  top: -6px;
+  left: -8px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #f59e0b;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(245, 158, 11, 0.4);
+}
+.unit-drawing-btn {
+  position: absolute;
+  bottom: -6px;
+  right: -8px;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--pri);
+  color: #fff;
+  font-size: 10px;
+  line-height: 19px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(67, 56, 202, 0.4);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.unit-drawing-btn:hover { transform: scale(1.12); }
+html[data-theme="cyber"] .unit-drawing-btn { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(6, 182, 212, 0.6); }
+.unit-icon { font-size: 22px; display: block; line-height: 1; }
+.unit-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; letter-spacing: -0.01em; }
+.unit-status-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+.unit-part-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-weight: 500;
+}
+.unit-edit-actions {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  display: none;
+  gap: 4px;
+}
+.edit-mode .unit-edit-actions { display: flex; }
+.unit-edit-actions button {
+  border: none;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 7px;
+  font-size: 11px;
+  padding: 3px 6px;
+  transition: background 0.15s;
+}
+.unit-edit-actions button:hover { background: rgba(15, 23, 42, 0.14); }
+
+.resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  display: none;
+  cursor: nwse-resize;
+}
+.edit-mode .resize-handle { display: block; }
+.resize-handle::before {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid rgba(67, 56, 202, 0.45);
+  border-bottom: 2px solid rgba(67, 56, 202, 0.45);
+}
+
+.resize-handle-h {
+  position: absolute;
+  right: -3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 30px;
+  display: none;
+  cursor: ew-resize;
+}
+.edit-mode .resize-handle-h { display: block; }
+.resize-handle-h::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+  background: rgba(67, 56, 202, 0.4);
+}
+
+.canvas-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* ── 부품 목록/배지 ───────────────────────────────────────────── */
+.part-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 15px;
+  margin-bottom: 10px;
+  background: #fafbfe;
+  transition: box-shadow 0.15s;
+}
+.part-card:hover { box-shadow: var(--shadow-sm); }
+.part-card .part-title { font-weight: 700; font-size: 14px; }
+.part-card .part-spec { font-size: 12px; color: var(--text-muted); }
+.badge-ok, .badge-soon, .badge-overdue, .badge-unknown {
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-weight: 700;
+  font-size: 11.5px;
+}
+.badge-ok { background: #d1fae5; color: #065f46; }
+.badge-soon { background: #fef3c7; color: #92400e; }
+.badge-overdue { background: #fee2e2; color: #991b1b; }
+.badge-unknown { background: #e5e7eb; color: #374151; }
+
+.history-row { font-size: 13px; border-bottom: 1px solid #f1f1f1; padding: 7px 0; }
+
+/* ── 메모장 ───────────────────────────────────────────────────── */
+.notes-section {
+  max-width: 1100px;
+  margin: 20px auto 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+}
+.notes-view {
+  min-height: 60px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+  color: #333;
+  line-height: 1.6;
+}
+.notes-view:empty::before,
+.notes-view.is-empty::before {
+  content: "등록된 메모가 없습니다. \"편집\" 버튼을 눌러 설비 정보나 부품 구매처 링크를 기록해보세요.";
+  color: #9ca3af;
+}
+.notes-view a {
+  color: var(--pri);
+  word-break: break-all;
+  font-weight: 500;
+}
+#notesEdit { font-size: 14px; }
+
+/* ── 리치 메모/노트 (엑셀 표 붙여넣기 서식 유지) ─────────────────────── */
+.rich-edit {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.rich-edit:empty::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+}
+.notes-view table,
+.part-memo-view table,
+.rich-edit table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  max-width: 100%;
+}
+.notes-view td, .notes-view th,
+.part-memo-view td, .part-memo-view th,
+.rich-edit td, .rich-edit th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.notes-view th, .part-memo-view th, .rich-edit th { background: #f3f4f6; font-weight: 700; }
+.rich-edit table td, .rich-edit table th { cursor: text; }
+
+.table-edit-toolbar {
+  position: fixed;
+  z-index: 3000;
+  display: flex;
+  gap: 3px;
+  background: #1f2937;
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+.table-edit-toolbar button {
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.table-edit-toolbar button:hover { background: rgba(255, 255, 255, 0.18); }
+.table-edit-toolbar button[data-action^="del-"] { color: #fca5a5; }
+
+.part-memo-section { border-top: 1px solid var(--border); padding-top: 12px; }
+.part-memo-view {
+  min-height: 32px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13.5px;
+  color: #333;
+  line-height: 1.6;
+}
+.part-memo-view:empty::before,
+.part-memo-view.is-empty::before {
+  content: "등록된 메모가 없습니다.";
+  color: #9ca3af;
+}
+.part-memo-view a {
+  color: var(--pri);
+  word-break: break-all;
+  font-weight: 500;
+}
+
+/* ── 부품 도면 ────────────────────────────────────────────────── */
+.part-drawing-paste {
+  margin-top: 8px;
+  min-height: 90px;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: #f8f9fc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  cursor: text;
+}
+.part-drawing-paste:focus { outline: none; border-color: var(--pri); }
+.part-drawing-placeholder { color: #9ca3af; font-size: 13px; text-align: center; }
+.part-drawing-preview {
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: var(--radius-sm);
+}
+.drawing-modal-img { max-width: 100%; max-height: 75vh; }
+
+/* ── 모달 리스킨 ──────────────────────────────────────────────── */
+.modal-content { border: none; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
+.modal-header { border-bottom: 1px solid var(--border); padding: 18px 22px; }
+.modal-title { font-weight: 700; letter-spacing: -0.01em; }
+.modal-body { padding: 20px 22px; }
+.form-label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+
+/* ── 아이콘 선택기 ────────────────────────────────────────────── */
+.icon-picker {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+  padding: 10px;
+  background: #f8f9fc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  max-height: 168px;
+  overflow-y: auto;
+}
+.icon-choice {
+  width: 34px;
+  height: 34px;
+  border: 1.5px solid transparent;
+  border-radius: 9px;
+  background: #fff;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.icon-choice:hover { background: #eef0fb; transform: translateY(-1px); }
+.icon-choice.selected {
+  border-color: var(--pri);
+  background: color-mix(in srgb, var(--pri) 12%, white);
+  box-shadow: 0 0 0 2px rgba(67, 56, 202, 0.18);
+}
+
+/* ── 대시보드 검색/정렬 툴바 ──────────────────────────────────── */
+.dashboard-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1100px;
+  margin: 0 auto 16px;
+}
+.dashboard-toolbar .search-box {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
+}
+.dashboard-toolbar .search-box i {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.dashboard-toolbar .search-box input {
+  padding-left: 34px;
+  padding-top: 9px;
+  padding-bottom: 9px;
+  border-radius: 999px;
+  border: none;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.dashboard-toolbar select {
+  border-radius: 999px;
+  border: none;
+  background: var(--surface);
+  font-size: 13px;
+  padding: 9px 18px;
+  box-shadow: var(--shadow-sm);
+}
+.dashboard-toolbar .search-box input:focus,
+.dashboard-toolbar select:focus {
+  box-shadow: 0 0 0 0.2rem rgba(99, 102, 241, 0.2);
+}
+.nav-badge {
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  margin-left: 2px;
+}
+
+/* ── 전체 교체 현황 목록 ──────────────────────────────────────── */
+.alerts-list {
+  max-width: 900px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.alert-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.alert-row:last-child { border-bottom: none; }
+.alert-row:hover { background: #f8f9fd; }
+.alert-badge { flex-shrink: 0; min-width: 66px; text-align: center; }
+.alert-main { flex: 1; min-width: 0; }
+.alert-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.alert-sep { color: var(--text-muted); margin: 0 2px; }
+.alert-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+.calendar-weekdays, .calendar-grid {
+  max-width: 900px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+.calendar-weekdays {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: center;
+}
+.calendar-cell {
+  min-height: 84px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.calendar-cell.calendar-cell-empty { background: transparent; border-color: transparent; }
+.calendar-cell.calendar-cell-today { border-color: var(--pri); border-width: 2px; }
+.calendar-cell-date { font-size: 12px; font-weight: 600; color: var(--text); }
+.calendar-cell-dots { display: flex; flex-wrap: wrap; gap: 3px; }
+.calendar-cell.calendar-has-items {
+  cursor: pointer;
+  transition: background 0.12s, box-shadow 0.12s;
+}
+.calendar-cell.calendar-has-items:hover { background: #f8f9fd; box-shadow: var(--shadow-sm); }
+.calendar-cell-count { font-size: 11px; color: var(--text-muted); margin-top: auto; }
+.alert-chevron { color: var(--text-muted); flex-shrink: 0; }
+
+/* ── 통계 페이지 ───────────────────────────────────────────────── */
+.unit-filter-menu {
+  max-height: 320px;
+  overflow-y: auto;
+  min-width: 240px;
+}
+.unit-filter-menu .form-check { padding-left: 1.6em; }
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+@media (max-width: 900px) {
+  .stats-grid { grid-template-columns: 1fr; }
+}
+.stats-panel.stats-panel-wide {
+  grid-column: 1 / -1;
+}
+.stats-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 0 6px;
+}
+.stats-panel h6 {
+  font-weight: 700;
+  padding: 0 18px 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid #f1f2f6;
+}
+.stats-subtitle {
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.stats-list {
+  max-height: 380px;
+  overflow-y: auto;
+}
+.stats-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.stats-row:last-child { border-bottom: none; }
+.stats-row:hover { background: #f8f9fd; }
+.stats-rank {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--pri) 12%, white);
+  color: var(--pri);
+  font-size: 11px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── 통계 인터랙티브 막대 차트 (상위 5건) ─────────────────────── */
+.stats-chart {
+  padding: 4px 18px 10px;
+  border-bottom: 1px solid #f1f2f6;
+  margin-bottom: 2px;
+}
+.stat-bar-chart { width: 100%; height: auto; display: block; }
+.stat-bar-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-muted);
+  font-family: inherit;
+}
+.stat-bar-track { fill: var(--border); }
+.stat-bar-fill {
+  fill: var(--pri);
+  transition: fill 0.12s ease;
+}
+.stat-bar-row { cursor: pointer; outline: none; }
+.stat-bar-row:hover .stat-bar-fill,
+.stat-bar-row:focus .stat-bar-fill { fill: var(--accent); }
+.stat-bar-row:focus .stat-bar-track { stroke: var(--accent); stroke-width: 1.5; }
+.stat-bar-value {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-family: inherit;
+}
+.stat-chart-tooltip {
+  position: fixed;
+  z-index: 4000;
+  background: #1f2937;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  white-space: nowrap;
+}
+html[data-theme="cyber"] .stats-chart { border-bottom-color: var(--border); }
+
+/* ── 부품 일괄 등록 페이지 ────────────────────────────────────── */
+.master-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--pri) 10%, white);
+  color: var(--pri);
+  border-radius: 999px;
+  padding: 3px 10px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.bulk-paste-box {
+  max-width: 1300px;
+  margin: 0 auto 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 18px;
+}
+.bulk-paste-box textarea { font-family: ui-monospace, monospace; font-size: 13px; }
+.bulk-table-wrap {
+  max-width: 1300px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.bulk-table { margin-bottom: 0; font-size: 13.5px; }
+.bulk-table thead th {
+  background: #f8f9fd;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+}
+.bulk-table td { vertical-align: middle; }
+.bulk-table .form-select-sm, .bulk-table .form-control-sm { font-size: 12.5px; }
+.bulk-cycle-group { min-width: 105px; }
+.bulk-cycle-group input { width: 55px; flex: 0 0 auto; }
+.bulk-status-pending { color: var(--text-muted); }
+.bulk-status-registered { color: #16a34a; font-weight: 700; }
+
+/* ══ 사이버틱 테마 ══════════════════════════════════════════════
+   html[data-theme="cyber"]가 붙으면 전체 화면이 네온/다크 스타일로 전환된다.
+   모든 효과는 정적 CSS(변수 재정의 + 색상 오버라이드)로만 구현되어 있어
+   애니메이션/필터 등 렌더링 비용이 발생하는 요소가 없다. */
+html[data-theme="cyber"] {
+  --pri: #06b6d4;
+  --pri-dark: #0891b2;
+  --accent: #d946ef;
+  --bg-a: #060913;
+  --bg-b: #0b1022;
+  --surface: #0f1629;
+  --border: #1e335c;
+  --text: #d7e4f5;
+  --text-muted: #7c93b5;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.55), 0 0 12px rgba(6, 182, 212, 0.07);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 20px rgba(6, 182, 212, 0.1);
+}
+html[data-theme="cyber"] body {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(6, 182, 212, 0.08), transparent 45%),
+    radial-gradient(circle at 80% 100%, rgba(217, 70, 239, 0.06), transparent 45%),
+    linear-gradient(180deg, var(--bg-a), var(--bg-b) 320px);
+  background-attachment: fixed;
+}
+html[data-theme="cyber"] .topbar {
+  background: linear-gradient(120deg, #0b1428, #101a35 60%, #1a1033);
+  border-bottom: 1px solid rgba(6, 182, 212, 0.45);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5), 0 1px 12px rgba(6, 182, 212, 0.15);
+}
+html[data-theme="cyber"] .topbar h1 {
+  background: linear-gradient(90deg, #22d3ee, #e879f9);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+html[data-theme="cyber"] .equipment-frame {
+  background:
+    radial-gradient(circle, rgba(6, 182, 212, 0.16) 1px, transparent 1px),
+    linear-gradient(180deg, #0c1327, #090e1e);
+  background-size: 22px 22px, 100% 100%;
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md);
+}
+html[data-theme="cyber"] .unit-shape {
+  box-shadow: inset 0 0 0 6px #0a101f, var(--shadow-md), 0 0 0 4px color-mix(in srgb, var(--shape-color) 22%, transparent);
+}
+html[data-theme="cyber"] .unit-icon-wrap {
+  background: #14203c;
+  background: color-mix(in srgb, var(--uc) 24%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-ok) .unit-icon-wrap {
+  background: color-mix(in srgb, #22c55e 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-soon) .unit-icon-wrap {
+  background: color-mix(in srgb, #f59e0b 20%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-overdue) .unit-icon-wrap {
+  background: color-mix(in srgb, #ef4444 22%, #0d1428);
+}
+html[data-theme="cyber"] .equipment-card:has(.dot-unknown) .unit-icon-wrap {
+  background: #14203c;
+}
+html[data-theme="cyber"] .overdue-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(239, 68, 68, 0.7); }
+html[data-theme="cyber"] .soon-badge { box-shadow: 0 0 0 2px #0f1629, 0 0 8px rgba(245, 158, 11, 0.7); }
+html[data-theme="cyber"] .dot-ok { box-shadow: 0 0 0 3px currentColor, 0 0 8px #22c55e; }
+html[data-theme="cyber"] .dot-soon { box-shadow: 0 0 0 3px currentColor, 0 0 8px #f59e0b; }
+html[data-theme="cyber"] .dot-overdue { box-shadow: 0 0 0 3px currentColor, 0 0 8px #ef4444; }
+html[data-theme="cyber"] .part-card { background: #0d1428; }
+html[data-theme="cyber"] .badge-ok { background: rgba(34, 197, 94, 0.16); color: #4ade80; }
+html[data-theme="cyber"] .badge-soon { background: rgba(245, 158, 11, 0.16); color: #fbbf24; }
+html[data-theme="cyber"] .badge-overdue { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+html[data-theme="cyber"] .badge-unknown { background: rgba(148, 163, 184, 0.16); color: #94a3b8; }
+html[data-theme="cyber"] .history-row { border-bottom-color: var(--border); }
+html[data-theme="cyber"] .notes-view,
+html[data-theme="cyber"] .part-memo-view { color: var(--text); }
+html[data-theme="cyber"] .notes-view th,
+html[data-theme="cyber"] .part-memo-view th,
+html[data-theme="cyber"] .rich-edit th { background: #14203c; }
+html[data-theme="cyber"] .master-hint {
+  background: linear-gradient(120deg, rgba(217, 119, 6, 0.14), rgba(245, 158, 11, 0.1));
+  color: #fbbf24;
+}
+html[data-theme="cyber"] .btn-outline-secondary { color: #9fb4d6; border-color: #2a4470; }
+html[data-theme="cyber"] .btn-outline-secondary:hover { background: #1a2a4d; color: var(--text); border-color: #2a4470; }
+html[data-theme="cyber"] .icon-picker { background: #0c1327; }
+html[data-theme="cyber"] .icon-choice { background: #14203c; }
+html[data-theme="cyber"] .icon-choice:hover { background: #1c2c52; }
+html[data-theme="cyber"] .icon-choice.selected { background: color-mix(in srgb, var(--pri) 24%, #0d1428); }
+html[data-theme="cyber"] .part-drawing-paste { background: #0c1327; }
+html[data-theme="cyber"] .alert-row:hover,
+html[data-theme="cyber"] .stats-row:hover { background: #14203c; }
+html[data-theme="cyber"] .bulk-table thead th { background: #0c1327; }
+html[data-theme="cyber"] .bulk-status-registered { color: #4ade80; }
+
+/* 사이버틱: 부트스트랩 기본 컴포넌트(모달/폼/드롭다운/테이블) 다크화 */
+html[data-theme="cyber"] .modal-content { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+html[data-theme="cyber"] .btn-close { filter: invert(1) brightness(1.6); }
+html[data-theme="cyber"] .form-control,
+html[data-theme="cyber"] .form-select {
+  background-color: #0c1327;
+  border-color: #2a4470;
+  color: var(--text);
+}
+html[data-theme="cyber"] .form-control:focus,
+html[data-theme="cyber"] .form-select:focus {
+  background-color: #0c1327;
+  color: var(--text);
+  border-color: var(--pri);
+  box-shadow: 0 0 0 0.2rem rgba(6, 182, 212, 0.25);
+}
+html[data-theme="cyber"] .form-control::placeholder { color: #5a7196; }
+html[data-theme="cyber"] .dropdown-menu { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+html[data-theme="cyber"] .dropdown-item { color: var(--text); }
+html[data-theme="cyber"] .dropdown-item:hover { background: #14203c; color: var(--text); }
+html[data-theme="cyber"] .table { color: var(--text); border-color: var(--border); --bs-table-bg: transparent; --bs-table-color: var(--text); --bs-table-border-color: var(--border); }
+html[data-theme="cyber"] .table-danger { --bs-table-bg: rgba(239, 68, 68, 0.14); --bs-table-color: #fca5a5; }
+html[data-theme="cyber"] .text-muted { color: var(--text-muted) !important; }
+html[data-theme="cyber"] .form-check-input { background-color: #0c1327; border-color: #2a4470; }
+html[data-theme="cyber"] .form-check-input:checked { background-color: var(--pri); border-color: var(--pri); }
+html[data-theme="cyber"] .rich-edit:empty::before,
+html[data-theme="cyber"] .notes-view:empty::before,
+html[data-theme="cyber"] .notes-view.is-empty::before,
+html[data-theme="cyber"] .part-memo-view:empty::before,
+html[data-theme="cyber"] .part-memo-view.is-empty::before,
+html[data-theme="cyber"] .part-drawing-placeholder { color: #5a7196; }
+
+/* ── 횡전개 현황판 ────────────────────────────────────────────── */
+.rollout-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+.rollout-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 16px 18px 12px;
+  display: flex;
+  flex-direction: column;
+}
+.rollout-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rollout-title { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; word-break: break-word; }
+.rollout-card-body { text-align: center; }
+.gauge-svg { width: 190px; max-width: 100%; display: block; margin: 0 auto; }
+.gauge-track { stroke: var(--border); }
+.gauge-pct { font-size: 21px; font-weight: 800; fill: var(--text); }
+.rollout-counts {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+.rollout-count-done { color: #16a34a; }
+.rollout-count-pending { color: #d97706; }
+.rollout-data {
+  margin-top: 12px;
+  border-top: 1px dashed var(--border);
+  padding-top: 12px;
+  overflow-x: auto;
+  font-size: 13px;
+}
+.rollout-data table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data td, .rollout-data th { border: 1px solid var(--border); padding: 4px 8px; font-size: 12.5px; }
+.rollout-data tr:first-child td, .rollout-data th { background: #f3f4f6; font-weight: 700; }
+.rollout-data tr td:first-child { background: #f8f9fd; font-weight: 600; }
+.rollout-updated { font-size: 11.5px; margin-top: 10px; text-align: right; }
+
+html[data-theme="cyber"] .rollout-count-done { color: #4ade80; }
+html[data-theme="cyber"] .rollout-count-pending { color: #fbbf24; }
+html[data-theme="cyber"] .rollout-data tr:first-child td,
+html[data-theme="cyber"] .rollout-data th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data tr td:first-child { background: #0c1327; }
+
+/* 횡전개 데이터 팝업 (게이지 클릭) */
+.rollout-card-body { cursor: pointer; border-radius: var(--radius-sm); transition: background 0.12s ease; }
+.rollout-card-body:hover { background: color-mix(in srgb, var(--pri) 5%, transparent); }
+.rollout-data-modal-table { overflow-x: auto; }
+.rollout-data-modal-table table { border-collapse: collapse; margin: 0 auto; }
+.rollout-data-modal-table td, .rollout-data-modal-table th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
+.rollout-data-modal-table tr:first-child td,
+.rollout-data-modal-table tr:first-child th { background: #f3f4f6; font-weight: 700; }
+.rollout-data-modal-table tr td:nth-child(2) { background: #f8f9fd; font-weight: 600; }
+.rollout-data-modal-table .row-select-cell { text-align: center; width: 34px; background: transparent !important; }
+.rollout-data-modal-table .row-select { cursor: pointer; }
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child td,
+html[data-theme="cyber"] .rollout-data-modal-table tr:first-child th { background: #14203c; }
+html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { background: #0c1327; }
+</style>
+<script>
+// 전체 스타일 테마 (기본 / 사이버틱) 전환.
+// <head>에서 동기 로드되어 본문이 그려지기 전에 저장된 테마를 즉시 적용하므로
+// 페이지 진입 시 밝은 화면이 번쩍이는 현상(FOUC)이 없다. 추가 네트워크 요청이나
+// 반복 실행 코드가 없어 성능에는 영향을 주지 않는다.
+(function () {
+  const THEME_KEY = "appTheme";
+
+  function currentTheme() {
+    return localStorage.getItem(THEME_KEY) === "cyber" ? "cyber" : "default";
+  }
+
+  function applyTheme(theme) {
+    if (theme === "cyber") {
+      document.documentElement.dataset.theme = "cyber";
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+  }
+
+  applyTheme(currentTheme());
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const bar = document.querySelector(".topbar > div:last-of-type");
+    if (!bar) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-sm btn-outline-light theme-toggle-btn";
+    btn.title = "화면 스타일 전환 (기본 / 사이버틱)";
+
+    function refreshLabel() {
+      btn.innerHTML =
+        currentTheme() === "cyber"
+          ? '<i class="bi bi-stars"></i> 사이버'
+          : '<i class="bi bi-palette"></i> 기본';
+    }
+
+    btn.addEventListener("click", () => {
+      const next = currentTheme() === "cyber" ? "default" : "cyber";
+      localStorage.setItem(THEME_KEY, next);
+      applyTheme(next);
+      refreshLabel();
+    });
+
+    refreshLabel();
+    bar.appendChild(btn);
+  });
+})();
+</script>
+<style>
+  .report-main { max-width: 1280px; margin: 0 auto; padding: 32px 28px 70px; }
+
+  .report-header { text-align: center; margin-bottom: 30px; }
+  .report-header h2 { font-size: 22px; font-weight: 800; margin: 0 0 6px; color: var(--text); }
+  .report-header p { color: var(--text-muted); font-size: 13px; margin: 0; }
+
+  .report-stat-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
+    margin-bottom: 30px;
+  }
+  .report-stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px 22px;
+    box-shadow: var(--shadow-sm);
+  }
+  .report-stat-card .label { font-size: 12px; color: var(--text-muted); font-weight: 600; margin-bottom: 8px; }
+  .report-stat-card .value { font-size: 24px; font-weight: 800; letter-spacing: -0.02em; color: var(--text); }
+  .report-stat-card .value .soon-n { color: #f59e0b; }
+  .report-stat-card .value .overdue-n { color: #ef4444; }
+  .report-stat-card .value .sep { color: var(--text-muted); font-size: 14px; font-weight: 600; }
+
+  .report-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 26px 28px;
+    box-shadow: var(--shadow-sm);
+    margin-bottom: 24px;
+  }
+  .report-section h3 {
+    font-size: 15px;
+    font-weight: 800;
+    margin: 0 0 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text);
+  }
+  .report-section h3 .rdot { width: 8px; height: 8px; border-radius: 50%; background: var(--pri); }
+
+  .report-two-col { display: grid; grid-template-columns: 1.3fr 1fr; gap: 22px; }
+
+  .report-empty { color: var(--text-muted); font-size: 13px; text-align: center; padding: 20px 0; }
+
+  .report-bar-chart { display: flex; flex-direction: column; gap: 12px; }
+  .report-bar-row { display: grid; grid-template-columns: 120px 1fr 90px; align-items: center; gap: 10px; }
+  .report-bar-row .rbname { font-size: 12.5px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .report-bar-track { background: #f3f3f8; border-radius: 999px; height: 14px; overflow: hidden; }
+  .report-bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--pri), var(--accent)); }
+  .report-bar-row .rbamount { font-size: 11.5px; color: var(--text-muted); font-weight: 600; text-align: right; }
+
+  .report-donut-wrap { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+  .report-donut {
+    width: 150px; height: 150px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  .report-donut::after {
+    content: "";
+    width: 92px; height: 92px; border-radius: 50%;
+    background: var(--surface);
+    position: absolute;
+  }
+  .report-donut-center { position: relative; z-index: 1; text-align: center; }
+  .report-donut-center .rn { font-size: 20px; font-weight: 800; color: var(--text); }
+  .report-donut-center .rl { font-size: 10.5px; color: var(--text-muted); }
+  .report-donut-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; font-size: 11.5px; color: var(--text-muted); }
+  .report-donut-legend span { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
+  .report-donut-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+  .report-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .report-table thead th {
+    text-align: left;
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 11.5px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .report-table tbody td { padding: 11px 10px; border-bottom: 1px solid var(--border); color: var(--text); }
+  .report-table tbody tr:last-child td { border-bottom: none; }
+
+  .report-insight-list { display: flex; flex-direction: column; gap: 10px; }
+  .report-insight {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-a);
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text);
+  }
+  .report-insight .rtag {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 800;
+    padding: 3px 8px;
+    border-radius: 999px;
+    margin-top: 1px;
+  }
+  .report-insight.warn .rtag { background: rgba(239, 68, 68, 0.12); color: #b91c1c; }
+  .report-insight.caution .rtag { background: rgba(245, 158, 11, 0.14); color: #b45309; }
+  .report-insight.info .rtag { background: rgba(99, 102, 241, 0.12); color: var(--pri-dark); }
+
+  .report-footer-note { text-align: center; font-size: 11.5px; color: var(--text-muted); margin-top: 10px; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="d-flex align-items-center gap-2">
+    <a href="/" class="btn btn-sm btn-outline-light"><i class="bi bi-arrow-left"></i> 대시보드</a>
+    <i class="bi bi-file-earmark-text"></i>
+    <h1>부품 교체 분석 보고서</h1>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span id="clock" class="clock"></span>
+    <a href="/report/export.csv" class="btn btn-sm btn-outline-light">
+      <i class="bi bi-download"></i> CSV 다운로드
+    </a>
+  </div>
+</header>
+
+<main class="report-main">
+  <div class="report-header">
+    <h2 id="reportTitle">부품 교체 분석 보고서</h2>
+    <p id="reportSubtitle"></p>
+  </div>
+
+  <div class="report-stat-row" id="reportStatRow"></div>
+
+  <div class="report-two-col">
+    <div class="report-section">
+      <h3><span class="rdot"></span> <span id="reportCostTitle">교체 비용 상위 부품</span></h3>
+      <div id="reportCostChart"></div>
+    </div>
+
+    <div class="report-section">
+      <h3><span class="rdot"></span> 전체 설비 상태 분포</h3>
+      <div id="reportDonut"></div>
+    </div>
+  </div>
+
+  <div class="report-section">
+    <h3><span class="rdot"></span> 부품별 교체 주기 현황 (실제 평균 간격이 짧은 순)</h3>
+    <div id="reportTableWrap"></div>
+  </div>
+
+  <div class="report-section">
+    <h3><span class="rdot"></span> 분석 요약 (규칙 기반 자동 생성)</h3>
+    <div id="reportInsights"></div>
+  </div>
+
+  <p class="report-footer-note">이 보고서는 등록된 교체 이력을 바탕으로 규칙 기반 계산을 통해 자동 생성됩니다 (LLM 미사용).</p>
+</main>
+
+<script>
+function tick() {
+  const el = document.getElementById("clock");
+  if (el) el.textContent = new Date().toLocaleString("ko-KR");
+}
+
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s == null ? "" : String(s);
+  return div.innerHTML;
+}
+
+function formatMoney(v) {
+  return `₩${Number(v || 0).toLocaleString("ko-KR")}`;
+}
+
+const STATUS_BADGE_LABEL = { ok: "정상", soon: "교체 임박", overdue: "교체 필요", unknown: "N/A" };
+
+function renderStatRow(data) {
+  const el = document.getElementById("reportStatRow");
+  el.innerHTML = `
+    <div class="report-stat-card">
+      <div class="label">총 교체 건수 (최근 ${data.window_days}일)</div>
+      <div class="value">${Number(data.total_count).toLocaleString("ko-KR")}건</div>
+    </div>
+    <div class="report-stat-card">
+      <div class="label">총 교체 비용 (최근 ${data.window_days}일)</div>
+      <div class="value">${formatMoney(data.total_cost)}</div>
+    </div>
+    <div class="report-stat-card">
+      <div class="label">평균 실제 교체 간격</div>
+      <div class="value">${data.avg_cycle_days != null ? data.avg_cycle_days + "일" : "-"}</div>
+    </div>
+    <div class="report-stat-card">
+      <div class="label">교체 필요 / 임박 설비</div>
+      <div class="value"><span class="overdue-n">${data.donut.counts.overdue}건</span> <span class="sep">/</span> <span class="soon-n">${data.donut.counts.soon}건</span></div>
+    </div>
+  `;
+}
+
+function renderCostChart(data) {
+  document.getElementById("reportCostTitle").textContent = `교체 비용 상위 부품 (최근 ${data.window_days}일)`;
+  const el = document.getElementById("reportCostChart");
+  if (!data.cost_bars.length) {
+    el.innerHTML = `<p class="report-empty">최근 ${data.window_days}일간 교체 이력이 없습니다.</p>`;
+    return;
+  }
+  el.innerHTML = `<div class="report-bar-chart">${data.cost_bars.map((b) => `
+    <div class="report-bar-row">
+      <div class="rbname">${escapeHtml(b.name)}</div>
+      <div class="report-bar-track"><div class="report-bar-fill" style="width: ${b.pct}%;"></div></div>
+      <div class="rbamount">${formatMoney(b.cost)}</div>
+    </div>
+  `).join("")}</div>`;
+}
+
+function renderDonut(data) {
+  const d = data.donut;
+  const el = document.getElementById("reportDonut");
+  el.innerHTML = `
+    <div class="report-donut-wrap">
+      <div class="report-donut" style="background: conic-gradient(#22c55e 0deg ${d.b1}deg, #f59e0b ${d.b1}deg ${d.b2}deg, #ef4444 ${d.b2}deg ${d.b3}deg, #9ca3af ${d.b3}deg 360deg);">
+        <div class="report-donut-center">
+          <div class="rn">${d.total}</div>
+          <div class="rl">전체 설비</div>
+        </div>
+      </div>
+      <div class="report-donut-legend">
+        <span><i style="background: #22c55e;"></i>정상 ${d.counts.ok}</span>
+        <span><i style="background: #f59e0b;"></i>임박 ${d.counts.soon}</span>
+        <span><i style="background: #ef4444;"></i>필요 ${d.counts.overdue}</span>
+        <span><i style="background: #9ca3af;"></i>미기록 ${d.counts.unknown}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderTable(data) {
+  const el = document.getElementById("reportTableWrap");
+  if (!data.table_rows.length) {
+    el.innerHTML = `<p class="report-empty">교체 이력이 2건 이상인 부품이 아직 없어 교체 주기를 계산할 수 없습니다.</p>`;
+    return;
+  }
+  el.innerHTML = `
+    <table class="report-table">
+      <thead>
+        <tr><th>부품명</th><th>스펙</th><th>설정 주기</th><th>평균 실제 간격</th><th>최근 교체일</th><th>상태</th></tr>
+      </thead>
+      <tbody>
+        ${data.table_rows.map((r) => `
+          <tr>
+            <td>${escapeHtml(r.name)}</td>
+            <td>${escapeHtml(r.spec)}</td>
+            <td>${r.min_cycle_days ? `${r.min_cycle_days}일` : "N/A"}</td>
+            <td>${r.avg_actual_interval_days}일</td>
+            <td>${escapeHtml(r.last_replaced_date)}</td>
+            <td><span class="badge badge-${r.status}">${escapeHtml(r.status_label)}</span></td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderInsights(data) {
+  const el = document.getElementById("reportInsights");
+  if (!data.insights.length) {
+    el.innerHTML = `<p class="report-empty">분석할 데이터가 아직 충분하지 않습니다. 교체 이력이 쌓이면 분석 문장이 표시됩니다.</p>`;
+    return;
+  }
+  el.innerHTML = `<div class="report-insight-list">${data.insights.map((ins) => `
+    <div class="report-insight ${ins.tag}">
+      <span class="rtag">${escapeHtml(ins.label)}</span>
+      <span>${ins.text}</span>
+    </div>
+  `).join("")}</div>`;
+}
+
+async function loadReport() {
+  const res = await fetch("/api/report");
+  if (res.status === 401) {
+    window.location.href = "/login";
+    return;
+  }
+  const data = await res.json();
+  document.getElementById("reportTitle").textContent = `최근 ${data.window_days}일 부품 교체 분석 보고서`;
+  document.getElementById("reportSubtitle").textContent =
+    `생성일 ${data.generated_at} · 전체 설비 ${data.equipment_count}호기 · 유닛 ${data.unit_count}개 기준`;
+  renderStatRow(data);
+  renderCostChart(data);
+  renderDonut(data);
+  renderTable(data);
+  renderInsights(data);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  tick();
+  setInterval(tick, 1000);
+  loadReport();
 });
 </script>
 </body>
