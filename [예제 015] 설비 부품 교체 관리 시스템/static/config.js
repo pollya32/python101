@@ -377,6 +377,13 @@ async function loadMasterBackupStatus() {
   }
 }
 
+async function loadLlmConfig() {
+  const cfg = await fetchJson("/api/llm-config");
+  document.getElementById("llmServerUrl").value = cfg.server_url || "";
+  document.getElementById("llmModelName").value = cfg.model_name || "";
+  document.getElementById("llmApiKey").value = cfg.api_key || "";
+}
+
 function applySelectedUnitGroupHtml(unit) {
   const partsHtml = unit.parts.length
     ? unit.parts.map((p) => `
@@ -456,6 +463,7 @@ document.addEventListener("DOMContentLoaded", () => {
   updatePasteButton();
   loadMasterEquipmentName();
   loadMasterBackupStatus();
+  loadLlmConfig();
 
   window.addEventListener("resize", debounce(() => {
     applyCanvasAutoScale(document.getElementById("canvas"), 1100);
@@ -580,6 +588,28 @@ document.addEventListener("DOMContentLoaded", () => {
       unitEditModal.hide();
       loadTemplates();
     } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById("llmConfigForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const statusEl = document.getElementById("llmConfigStatus");
+    statusEl.textContent = "저장 중...";
+    try {
+      await fetchJson("/api/llm-config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          server_url: document.getElementById("llmServerUrl").value,
+          model_name: document.getElementById("llmModelName").value,
+          api_key: document.getElementById("llmApiKey").value,
+        }),
+      });
+      statusEl.textContent = "저장되었습니다.";
+      setTimeout(() => { statusEl.textContent = ""; }, 3000);
+    } catch (err) {
+      statusEl.textContent = "";
       alert(err.message);
     }
   });

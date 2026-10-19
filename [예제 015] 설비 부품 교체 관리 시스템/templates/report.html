@@ -123,6 +123,22 @@
   .report-insight.info .rtag { background: rgba(99, 102, 241, 0.12); color: var(--pri-dark); }
 
   .report-footer-note { text-align: center; font-size: 11.5px; color: var(--text-muted); margin-top: 10px; }
+
+  .ask-row { display: flex; gap: 10px; }
+  .ask-row input { flex: 1; }
+  .ask-answer {
+    margin-top: 16px;
+    padding: 14px 16px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-a);
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--text);
+    white-space: pre-wrap;
+  }
+  .ask-answer.ask-error { background: rgba(239, 68, 68, 0.08); color: #b91c1c; }
+  .ask-answer a { color: var(--pri); font-weight: 600; }
+  .ask-loading { color: var(--text-muted); }
 </style>
 </head>
 <body>
@@ -171,7 +187,16 @@
     <div id="reportInsights"></div>
   </div>
 
-  <p class="report-footer-note">이 보고서는 등록된 교체 이력을 바탕으로 규칙 기반 계산을 통해 자동 생성됩니다 (LLM 미사용).</p>
+  <div class="report-section">
+    <h3><span class="rdot"></span> AI에게 질문하기 <span class="text-muted small" style="font-weight: 500;">(사내 LLM 서버 연동 · 이 보고서 데이터를 근거로 답변합니다)</span></h3>
+    <form id="askForm" class="ask-row">
+      <input type="text" class="form-control" id="askInput" placeholder="예: 이번 달 가장 자주 교체되는 부품은?">
+      <button type="submit" class="btn btn-primary" id="askBtn">질문하기</button>
+    </form>
+    <div id="askAnswer"></div>
+  </div>
+
+  <p class="report-footer-note">이 보고서는 등록된 교체 이력을 바탕으로 규칙 기반 계산을 통해 자동 생성됩니다 (LLM 미사용). 위 질문 기능만 설정된 사내 LLM 서버를 사용합니다.</p>
 </main>
 
 <script src="/static/report.js"></script>

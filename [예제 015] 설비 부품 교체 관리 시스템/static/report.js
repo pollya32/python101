@@ -132,8 +132,49 @@ async function loadReport() {
   renderInsights(data);
 }
 
+async function handleAskSubmit(e) {
+  e.preventDefault();
+  const input = document.getElementById("askInput");
+  const btn = document.getElementById("askBtn");
+  const answerEl = document.getElementById("askAnswer");
+  const question = input.value.trim();
+  if (!question) return;
+
+  btn.disabled = true;
+  input.disabled = true;
+  answerEl.innerHTML = `<div class="ask-answer ask-loading">답변을 생성하는 중입니다...</div>`;
+
+  try {
+    const res = await fetch("/api/report/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+    if (res.status === 401) {
+      window.location.href = "/login";
+      return;
+    }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (body.not_configured) {
+        answerEl.innerHTML = `<div class="ask-answer ask-error">${escapeHtml(body.error)} <a href="/config">설정 페이지로 이동</a></div>`;
+      } else {
+        answerEl.innerHTML = `<div class="ask-answer ask-error">${escapeHtml(body.error || "요청 처리 중 오류가 발생했습니다.")}</div>`;
+      }
+      return;
+    }
+    answerEl.innerHTML = `<div class="ask-answer">${escapeHtml(body.answer)}</div>`;
+  } catch (err) {
+    answerEl.innerHTML = `<div class="ask-answer ask-error">요청 중 오류가 발생했습니다: ${escapeHtml(err.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+    input.disabled = false;
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   tick();
   setInterval(tick, 1000);
   loadReport();
+  document.getElementById("askForm").addEventListener("submit", handleAskSubmit);
 });

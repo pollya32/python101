@@ -3532,6 +3532,135 @@ def export_report_csv():
     return csv_response(f"부품교체분석보고서_{timestamp}.csv", header, rows)
 
 
+def get_llm_config(conn):
+    """사내 자체 LLM 서버 연동 설정을 읽는다. 외부(공개) API가 아니라 사내망 안에 있는
+    OpenAI 호환 서버(Ollama/vLLM 등)를 가정하며, API 키는 선택 항목이다."""
+    return {
+        "server_url": get_config(conn, "llm_server_url") or "",
+        "model_name": get_config(conn, "llm_model_name") or "",
+        "api_key": get_config(conn, "llm_api_key") or "",
+    }
+
+
+@app.route("/api/llm-config")
+def api_get_llm_config():
+    conn = get_db()
+    cfg = get_llm_config(conn)
+    conn.close()
+    # 사내 단일 관리자용 데스크톱 도구라 다중 사용자 노출 위험이 없어, 다른 설정값과
+    # 동일하게 API 키도 그대로 돌려줘서 설정 화면에서 바로 확인/수정할 수 있게 한다.
+    return jsonify(cfg)
+
+
+@app.route("/api/llm-config", methods=["PUT"])
+def set_llm_config():
+    data = request.get_json() or {}
+    server_url = (data.get("server_url") or "").strip().rstrip("/")
+    model_name = (data.get("model_name") or "").strip()
+    api_key = (data.get("api_key") or "").strip()
+    conn = get_db()
+    set_config(conn, "llm_server_url", server_url)
+    set_config(conn, "llm_model_name", model_name)
+    set_config(conn, "llm_api_key", api_key)
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+def build_llm_context_block(data):
+    """보고서 데이터를 LLM에 넘길 간결한 텍스트 컨텍스트로 요약한다. 표는 이미
+    build_report_data에서 상위 15개로 제한되어 있어 그대로 사용해도 과도하게 길어지지 않는다."""
+    summary_line = (
+        f"[요약] 최근 {data['window_days']}일 기준 - 전체 설비 {data['equipment_count']}호기, "
+        f"유닛 {data['unit_count']}개, 교체 건수 {data['total_count']}건, "
+        f"교체 비용 합계 {data['total_cost']:,}원"
+    )
+    if data["avg_cycle_days"] is not None:
+        summary_line += f", 평균 실제 교체 간격 {data['avg_cycle_days']}일"
+    lines = [
+        summary_line,
+        f"[설비 상태 분포] 정상 {data['donut']['counts']['ok']}, 임박 {data['donut']['counts']['soon']}, "
+        f"필요 {data['donut']['counts']['overdue']}, 미기록 {data['donut']['counts']['unknown']}",
+    ]
+    if data["cost_bars"]:
+        lines.append("[최근 교체 비용 상위 부품] " + "; ".join(
+            f"{b['name']} {b['cost']:,}원" for b in data["cost_bars"]
+        ))
+    if data["table_rows"]:
+        lines.append("[부품별 교체 주기 현황 (실제 평균 간격이 짧은 순, 최대 15개)]")
+        for r in data["table_rows"]:
+            cycle = f"{r['min_cycle_days']}일" if r["min_cycle_days"] else "N/A"
+            lines.append(
+                f"- {r['name']} ({r['spec']}): 설정 주기 {cycle}, 평균 실제 간격 "
+                f"{r['avg_actual_interval_days']}일, 최근 교체일 {r['last_replaced_date']}, "
+                f"상태 {r['status_label']}"
+            )
+    if data["insights"]:
+        lines.append("[규칙 기반 분석 요약]")
+        for ins in data["insights"]:
+            lines.append(f"- ({ins['label']}) {ins['text']}")
+    return "\n".join(lines)
+
+
+@app.route("/api/report/ask", methods=["POST"])
+def api_report_ask():
+    data = request.get_json() or {}
+    question = (data.get("question") or "").strip()
+    if not question:
+        return jsonify({"error": "질문을 입력하세요"}), 400
+
+    conn = get_db()
+    llm_cfg = get_llm_config(conn)
+    if not llm_cfg["server_url"]:
+        conn.close()
+        return jsonify({
+            "error": "LLM 서버가 아직 설정되지 않았습니다. 설정 페이지에서 연결 정보를 입력해주세요.",
+            "not_configured": True,
+        }), 400
+
+    report_data = build_report_data(conn)
+    conn.close()
+    context_block = build_llm_context_block(report_data)
+
+    headers = {"Content-Type": "application/json"}
+    if llm_cfg["api_key"]:
+        headers["Authorization"] = f"Bearer {llm_cfg['api_key']}"
+    body = {
+        "model": llm_cfg["model_name"] or "default",
+        "messages": [
+            {
+                "role": "system",
+                "content": "당신은 설비 부품 교체 데이터를 분석해주는 도우미입니다. "
+                           "아래 제공된 데이터만 근거로 한국어로 답변하세요. 데이터에 없는 "
+                           "내용은 추측하지 말고 알 수 없다고 답하세요.",
+            },
+            {"role": "user", "content": f"{context_block}\n\n질문: {question}"},
+        ],
+    }
+
+    try:
+        res = requests.post(
+            f"{llm_cfg['server_url']}/v1/chat/completions",
+            headers=headers, json=body, timeout=40,
+        )
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "LLM 서버 응답이 너무 오래 걸립니다. 잠시 후 다시 시도해주세요."}), 504
+    except requests.exceptions.ConnectionError:
+        return jsonify({"error": "LLM 서버에 연결할 수 없습니다. 서버 주소나 네트워크 상태를 확인해주세요."}), 502
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"LLM 요청 중 오류가 발생했습니다: {e}"}), 502
+
+    if res.status_code // 100 != 2:
+        return jsonify({"error": f"LLM 서버 오류 (HTTP {res.status_code}): {res.text[:200]}"}), 502
+
+    try:
+        answer = res.json()["choices"][0]["message"]["content"]
+    except (ValueError, KeyError, IndexError, TypeError):
+        return jsonify({"error": "LLM 서버 응답 형식을 해석할 수 없습니다. 모델/서버 설정을 확인해주세요."}), 502
+
+    return jsonify({"answer": answer})
+
+
 @app.route("/api/backup", methods=["POST"])
 def download_backup():
     os.makedirs(BACKUP_DIR, exist_ok=True)
@@ -12282,6 +12411,30 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
     반영합니다(각 설비에서 직접 등록한 독립 부품은 영향받지 않습니다).
   </p>
 
+  <div class="equipment-frame mb-3" style="max-width: 640px;">
+    <div class="equipment-label"><i class="bi bi-cpu"></i> LLM 연동 설정 (AI 질문 기능)</div>
+    <p class="text-muted small mb-3">
+      보고서 페이지의 "AI에게 질문하기" 기능이 사용할 <strong>사내 자체 LLM 서버</strong> 정보입니다.
+      외부(공개) API가 아닌, 사내망 안에서 접근 가능한 OpenAI 호환 서버 주소를 입력하세요.
+    </p>
+    <form id="llmConfigForm">
+      <div class="mb-2">
+        <label class="form-label">서버 주소</label>
+        <input type="text" class="form-control" id="llmServerUrl" placeholder="http://내부서버주소:포트">
+      </div>
+      <div class="mb-2">
+        <label class="form-label">모델명</label>
+        <input type="text" class="form-control" id="llmModelName" placeholder="예: llama-3-70b">
+      </div>
+      <div class="mb-2">
+        <label class="form-label">API 키 <span class="text-muted small">(선택 — 서버가 요구하는 경우에만 입력)</span></label>
+        <input type="text" class="form-control" id="llmApiKey" placeholder="필요한 경우에만 입력">
+      </div>
+      <button type="submit" class="btn btn-primary">저장</button>
+      <span id="llmConfigStatus" class="small text-muted ms-2"></span>
+    </form>
+  </div>
+
   <div id="templateFrame" class="equipment-frame">
     <div class="equipment-label">유닛을 드래그로 배치 · 모서리로 크기 조절 · 클릭해서 이름/아이콘/색상 편집</div>
     <div id="canvas" class="equipment-canvas"></div>
@@ -12762,6 +12915,13 @@ async function loadMasterBackupStatus() {
   }
 }
 
+async function loadLlmConfig() {
+  const cfg = await fetchJson("/api/llm-config");
+  document.getElementById("llmServerUrl").value = cfg.server_url || "";
+  document.getElementById("llmModelName").value = cfg.model_name || "";
+  document.getElementById("llmApiKey").value = cfg.api_key || "";
+}
+
 function applySelectedUnitGroupHtml(unit) {
   const partsHtml = unit.parts.length
     ? unit.parts.map((p) => `
@@ -12841,6 +13001,7 @@ document.addEventListener("DOMContentLoaded", () => {
   updatePasteButton();
   loadMasterEquipmentName();
   loadMasterBackupStatus();
+  loadLlmConfig();
 
   window.addEventListener("resize", debounce(() => {
     applyCanvasAutoScale(document.getElementById("canvas"), 1100);
@@ -12965,6 +13126,28 @@ document.addEventListener("DOMContentLoaded", () => {
       unitEditModal.hide();
       loadTemplates();
     } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById("llmConfigForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const statusEl = document.getElementById("llmConfigStatus");
+    statusEl.textContent = "저장 중...";
+    try {
+      await fetchJson("/api/llm-config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          server_url: document.getElementById("llmServerUrl").value,
+          model_name: document.getElementById("llmModelName").value,
+          api_key: document.getElementById("llmApiKey").value,
+        }),
+      });
+      statusEl.textContent = "저장되었습니다.";
+      setTimeout(() => { statusEl.textContent = ""; }, 3000);
+    } catch (err) {
+      statusEl.textContent = "";
       alert(err.message);
     }
   });
@@ -28279,6 +28462,22 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
   .report-insight.info .rtag { background: rgba(99, 102, 241, 0.12); color: var(--pri-dark); }
 
   .report-footer-note { text-align: center; font-size: 11.5px; color: var(--text-muted); margin-top: 10px; }
+
+  .ask-row { display: flex; gap: 10px; }
+  .ask-row input { flex: 1; }
+  .ask-answer {
+    margin-top: 16px;
+    padding: 14px 16px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-a);
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--text);
+    white-space: pre-wrap;
+  }
+  .ask-answer.ask-error { background: rgba(239, 68, 68, 0.08); color: #b91c1c; }
+  .ask-answer a { color: var(--pri); font-weight: 600; }
+  .ask-loading { color: var(--text-muted); }
 </style>
 </head>
 <body>
@@ -28327,7 +28526,16 @@ html[data-theme="cyber"] .rollout-data-modal-table tr td:nth-child(2) { backgrou
     <div id="reportInsights"></div>
   </div>
 
-  <p class="report-footer-note">이 보고서는 등록된 교체 이력을 바탕으로 규칙 기반 계산을 통해 자동 생성됩니다 (LLM 미사용).</p>
+  <div class="report-section">
+    <h3><span class="rdot"></span> AI에게 질문하기 <span class="text-muted small" style="font-weight: 500;">(사내 LLM 서버 연동 · 이 보고서 데이터를 근거로 답변합니다)</span></h3>
+    <form id="askForm" class="ask-row">
+      <input type="text" class="form-control" id="askInput" placeholder="예: 이번 달 가장 자주 교체되는 부품은?">
+      <button type="submit" class="btn btn-primary" id="askBtn">질문하기</button>
+    </form>
+    <div id="askAnswer"></div>
+  </div>
+
+  <p class="report-footer-note">이 보고서는 등록된 교체 이력을 바탕으로 규칙 기반 계산을 통해 자동 생성됩니다 (LLM 미사용). 위 질문 기능만 설정된 사내 LLM 서버를 사용합니다.</p>
 </main>
 
 <script>
@@ -28465,10 +28673,51 @@ async function loadReport() {
   renderInsights(data);
 }
 
+async function handleAskSubmit(e) {
+  e.preventDefault();
+  const input = document.getElementById("askInput");
+  const btn = document.getElementById("askBtn");
+  const answerEl = document.getElementById("askAnswer");
+  const question = input.value.trim();
+  if (!question) return;
+
+  btn.disabled = true;
+  input.disabled = true;
+  answerEl.innerHTML = `<div class="ask-answer ask-loading">답변을 생성하는 중입니다...</div>`;
+
+  try {
+    const res = await fetch("/api/report/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+    if (res.status === 401) {
+      window.location.href = "/login";
+      return;
+    }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (body.not_configured) {
+        answerEl.innerHTML = `<div class="ask-answer ask-error">${escapeHtml(body.error)} <a href="/config">설정 페이지로 이동</a></div>`;
+      } else {
+        answerEl.innerHTML = `<div class="ask-answer ask-error">${escapeHtml(body.error || "요청 처리 중 오류가 발생했습니다.")}</div>`;
+      }
+      return;
+    }
+    answerEl.innerHTML = `<div class="ask-answer">${escapeHtml(body.answer)}</div>`;
+  } catch (err) {
+    answerEl.innerHTML = `<div class="ask-answer ask-error">요청 중 오류가 발생했습니다: ${escapeHtml(err.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+    input.disabled = false;
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   tick();
   setInterval(tick, 1000);
   loadReport();
+  document.getElementById("askForm").addEventListener("submit", handleAskSubmit);
 });
 </script>
 </body>

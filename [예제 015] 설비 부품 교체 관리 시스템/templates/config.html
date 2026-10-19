@@ -45,6 +45,30 @@
     반영합니다(각 설비에서 직접 등록한 독립 부품은 영향받지 않습니다).
   </p>
 
+  <div class="equipment-frame mb-3" style="max-width: 640px;">
+    <div class="equipment-label"><i class="bi bi-cpu"></i> LLM 연동 설정 (AI 질문 기능)</div>
+    <p class="text-muted small mb-3">
+      보고서 페이지의 "AI에게 질문하기" 기능이 사용할 <strong>사내 자체 LLM 서버</strong> 정보입니다.
+      외부(공개) API가 아닌, 사내망 안에서 접근 가능한 OpenAI 호환 서버 주소를 입력하세요.
+    </p>
+    <form id="llmConfigForm">
+      <div class="mb-2">
+        <label class="form-label">서버 주소</label>
+        <input type="text" class="form-control" id="llmServerUrl" placeholder="http://내부서버주소:포트">
+      </div>
+      <div class="mb-2">
+        <label class="form-label">모델명</label>
+        <input type="text" class="form-control" id="llmModelName" placeholder="예: llama-3-70b">
+      </div>
+      <div class="mb-2">
+        <label class="form-label">API 키 <span class="text-muted small">(선택 — 서버가 요구하는 경우에만 입력)</span></label>
+        <input type="text" class="form-control" id="llmApiKey" placeholder="필요한 경우에만 입력">
+      </div>
+      <button type="submit" class="btn btn-primary">저장</button>
+      <span id="llmConfigStatus" class="small text-muted ms-2"></span>
+    </form>
+  </div>
+
   <div id="templateFrame" class="equipment-frame">
     <div class="equipment-label">유닛을 드래그로 배치 · 모서리로 크기 조절 · 클릭해서 이름/아이콘/색상 편집</div>
     <div id="canvas" class="equipment-canvas"></div>
