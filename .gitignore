@@ -8,3 +8,5 @@
 node_modules/
 .astro/
 dist/
+# 탐색기 보기 설정 백업
+*/백업_*/
