@@ -14,6 +14,7 @@
   powershell -ExecutionPolicy Bypass -File .\탐색기_보기설정_일괄변경.ps1             # D:\ 전체
   powershell -ExecutionPolicy Bypass -File .\탐색기_보기설정_일괄변경.ps1 E:\사진     # 다른 폴더 지정
   powershell -ExecutionPolicy Bypass -File .\탐색기_보기설정_일괄변경.ps1 -DryRun    # 대상 폴더 개수만 확인
+  (실행 전에 확인을 묻습니다. 묻지 않고 실행하려면 -Yes)
 
 주의
   - 실행 중에는 열리는 탐색기 창을 닫거나 조작하지 마세요.
@@ -22,7 +23,8 @@
 
 param(
     [string]$Root = "D:\",
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$Yes
 )
 
 $ViewDetails = 4                              # 자세히
@@ -97,6 +99,13 @@ Write-Host "폴더 목록 수집 중: $Root"
 $folders = Get-TargetFolders $Root
 Write-Host "대상 폴더: $($folders.Count)개"
 if ($DryRun) { return }
+if (-not $Yes) {
+    $answer = Read-Host "보기 설정을 바꿀까요? (y/N)"
+    if ($answer.Trim().ToLower() -ne "y") {
+        Write-Host "취소했습니다."
+        return
+    }
+}
 
 Set-BagLimit $folders.Count
 

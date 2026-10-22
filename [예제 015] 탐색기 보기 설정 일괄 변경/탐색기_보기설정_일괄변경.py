@@ -15,6 +15,7 @@ r"""
   python 탐색기_보기설정_일괄변경.py            # D:\ 전체
   python 탐색기_보기설정_일괄변경.py E:\사진     # 다른 폴더 지정
   python 탐색기_보기설정_일괄변경.py --dry-run   # 대상 폴더 개수만 확인
+  (실행 전에 확인을 묻습니다. 묻지 않고 실행하려면 --yes)
 
 주의
   - 실행 중에는 열리는 탐색기 창을 닫거나 조작하지 마세요.
@@ -104,6 +105,7 @@ def main():
     parser = argparse.ArgumentParser(description="탐색기 보기 설정 일괄 변경")
     parser.add_argument("root", nargs="?", default="D:\\", help="대상 폴더 (기본값 D:\\)")
     parser.add_argument("--dry-run", action="store_true", help="대상 폴더 개수만 출력")
+    parser.add_argument("--yes", action="store_true", help="확인 없이 실행")
     args = parser.parse_args()
 
     root = os.path.abspath(args.root)
@@ -111,6 +113,9 @@ def main():
     folders = collect_folders(root)
     print(f"대상 폴더: {len(folders)}개")
     if args.dry_run:
+        return
+    if not args.yes and input("보기 설정을 바꿀까요? (y/N): ").strip().lower() != "y":
+        print("취소했습니다.")
         return
 
     raise_bag_limit(len(folders))
