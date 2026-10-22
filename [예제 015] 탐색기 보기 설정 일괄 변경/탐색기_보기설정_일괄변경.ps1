@@ -19,6 +19,12 @@
 주의
   - 실행 중에는 열리는 탐색기 창을 닫거나 조작하지 마세요.
   - 폴더 수가 많으면 시간이 걸립니다 (폴더당 약 0.1~0.5초).
+
+건너뛸 폴더
+  같은 폴더의 '건너뛸_폴더.txt'에 한 줄에 하나씩 경로를 적습니다.
+    D:\사진          → 이 폴더만 건너뜀 (하위 폴더는 적용)
+    D:\사진\*        → 이 폴더와 모든 하위 폴더를 건너뜀
+  '#'으로 시작하는 줄은 무시합니다.
 #>
 
 param(
@@ -32,24 +38,49 @@ $SortColumns = "prop:-System.DateModified;"   # 수정한 날짜, '-' = 내림�
 $GroupBy     = "System.ItemTypeText"          # 유형
 
 $SkipNames = @("System Volume Information", "Config.Msi")
+$SkipFile  = Join-Path $PSScriptRoot "건너뛸_폴더.txt"
 $ShellKey  = "HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell"
 
-function Get-TargetFolders([string]$Start) {
+function ConvertTo-NormPath([string]$Path) {
+    return [IO.Path]::GetFullPath($Path).TrimEnd('\').ToLower()
+}
+
+function Get-SkipList {
+    # 건너뛸_폴더.txt를 읽어 (그 폴더만, 하위 폴더까지) 두 목록으로 돌려준다
+    $only = New-Object System.Collections.Generic.HashSet[string]
+    $tree = New-Object System.Collections.Generic.HashSet[string]
+    if (Test-Path -LiteralPath $SkipFile) {
+        foreach ($line in Get-Content -LiteralPath $SkipFile -Encoding UTF8) {
+            $line = $line.Trim().Trim('"')
+            if ($line -eq "" -or $line.StartsWith("#")) { continue }
+            if ($line.EndsWith("\*")) {
+                [void]$tree.Add((ConvertTo-NormPath $line.Substring(0, $line.Length - 2)))
+            } else {
+                [void]$only.Add((ConvertTo-NormPath $line))
+            }
+        }
+    }
+    return @{ Only = $only; Tree = $tree }
+}
+
+function Get-TargetFolders([string]$Start, $Skip) {
     $result = New-Object System.Collections.Generic.List[string]
     $queue  = New-Object System.Collections.Generic.Queue[string]
+    if ($Skip.Tree.Contains((ConvertTo-NormPath $Start))) { return ,$result }
     $queue.Enqueue($Start)
     while ($queue.Count -gt 0) {
         $dir = $queue.Dequeue()
-        $result.Add($dir)
+        if (-not $Skip.Only.Contains((ConvertTo-NormPath $dir))) { $result.Add($dir) }
         $children = Get-ChildItem -LiteralPath $dir -Directory -Force -ErrorAction SilentlyContinue
         foreach ($child in $children) {
             if ($SkipNames -contains $child.Name -or $child.Name.StartsWith('$')) { continue }
             # 정션/심볼릭 링크는 무한 반복을 막기 위해 건너뜀
             if ($child.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+            if ($Skip.Tree.Contains((ConvertTo-NormPath $child.FullName))) { continue }
             $queue.Enqueue($child.FullName)
         }
     }
-    return $result
+    return ,$result
 }
 
 function Set-BagLimit([int]$Count) {
@@ -96,9 +127,13 @@ function Wait-Navigation($Window, [string]$Path, [int]$TimeoutSec = 10) {
 
 $Root = (Resolve-Path -LiteralPath $Root).ProviderPath
 Write-Host "폴더 목록 수집 중: $Root"
-$folders = Get-TargetFolders $Root
+$skip = Get-SkipList
+if ($skip.Only.Count + $skip.Tree.Count -gt 0) {
+    Write-Host "건너뛸 폴더: 그 폴더만 $($skip.Only.Count)개, 하위 포함 $($skip.Tree.Count)개"
+}
+$folders = Get-TargetFolders $Root $skip
 Write-Host "대상 폴더: $($folders.Count)개"
-if ($DryRun) { return }
+if ($DryRun -or $folders.Count -eq 0) { return }
 if (-not $Yes) {
     $answer = Read-Host "보기 설정을 바꿀까요? (y/N)"
     if ($answer.Trim().ToLower() -ne "y") {

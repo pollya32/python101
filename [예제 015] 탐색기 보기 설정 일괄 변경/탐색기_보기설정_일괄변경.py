@@ -20,6 +20,12 @@ r"""
 주의
   - 실행 중에는 열리는 탐색기 창을 닫거나 조작하지 마세요.
   - 폴더 수가 많으면 시간이 걸립니다 (폴더당 약 0.1~0.5초).
+
+건너뛸 폴더
+  같은 폴더의 '건너뛸_폴더.txt'에 한 줄에 하나씩 경로를 적습니다.
+    D:\사진          → 이 폴더만 건너뜀 (하위 폴더는 적용)
+    D:\사진\*        → 이 폴더와 모든 하위 폴더를 건너뜀
+  '#'으로 시작하는 줄은 무시합니다.
 """
 
 import argparse
@@ -37,14 +43,42 @@ GROUP_BY = "System.ItemTypeText"              # 유형
 
 SKIP_NAMES = {"System Volume Information", "$RECYCLE.BIN", "$Recycle.Bin", "Config.Msi"}
 
+SKIP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "건너뛸_폴더.txt")
+
 SHELL_KEY = r"Software\Classes\Local Settings\Software\Microsoft\Windows\Shell"
 
 
-def collect_folders(root):
-    folders = [root]
+def norm(path):
+    return os.path.normcase(os.path.abspath(path)).rstrip("\\")
+
+
+def load_skip_list():
+    """건너뛸_폴더.txt를 읽어 (그 폴더만, 하위 폴더까지) 두 집합으로 돌려준다."""
+    only, tree = set(), set()
+    if not os.path.exists(SKIP_FILE):
+        return only, tree
+    with open(SKIP_FILE, encoding="utf-8-sig") as f:
+        for line in f:
+            line = line.strip().strip('"')
+            if not line or line.startswith("#"):
+                continue
+            if line.endswith("\\*"):
+                tree.add(norm(line[:-2]))
+            else:
+                only.add(norm(line))
+    return only, tree
+
+
+def collect_folders(root, skip_only, skip_tree):
+    folders = []
+    if norm(root) in skip_tree:
+        return folders
     for dirpath, dirnames, _ in os.walk(root, onerror=lambda e: None):
-        dirnames[:] = [d for d in dirnames if d not in SKIP_NAMES and not d.startswith("$")]
-        folders.extend(os.path.join(dirpath, d) for d in dirnames)
+        if norm(dirpath) not in skip_only:
+            folders.append(dirpath)
+        dirnames[:] = [d for d in dirnames
+                       if d not in SKIP_NAMES and not d.startswith("$")
+                       and norm(os.path.join(dirpath, d)) not in skip_tree]
     return folders
 
 
@@ -110,9 +144,12 @@ def main():
 
     root = os.path.abspath(args.root)
     print(f"폴더 목록 수집 중: {root}")
-    folders = collect_folders(root)
+    skip_only, skip_tree = load_skip_list()
+    if skip_only or skip_tree:
+        print(f"건너뛸 폴더: 그 폴더만 {len(skip_only)}개, 하위 포함 {len(skip_tree)}개")
+    folders = collect_folders(root, skip_only, skip_tree)
     print(f"대상 폴더: {len(folders)}개")
-    if args.dry_run:
+    if args.dry_run or not folders:
         return
     if not args.yes and input("보기 설정을 바꿀까요? (y/N): ").strip().lower() != "y":
         print("취소했습니다.")
