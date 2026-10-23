@@ -3801,9 +3801,14 @@ def call_llm_with_tools(conn, messages, max_rounds=4):
             return None, "timeout"
         except requests.exceptions.ConnectionError:
             return None, "connection"
-        except requests.exceptions.RequestException:
+        except requests.exceptions.RequestException as e:
+            print(f"[LLM 호출 오류] 예외 발생: {e}")
             return None, "other"
         if res.status_code // 100 != 2:
+            # 진단을 위해 Groq 등 서버가 실제로 뭐라고 거부했는지(상태코드/본문)를
+            # 터미널에 남긴다. 사용자 화면에는 일반화된 메시지만 보여준다.
+            print(f"[LLM 호출 오류] 서버 응답 코드: {res.status_code}")
+            print(f"[LLM 호출 오류] 서버 응답 본문: {res.text[:1000]}")
             return None, "http_error"
         return res, None
 
