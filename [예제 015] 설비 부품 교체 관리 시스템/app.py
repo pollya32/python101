@@ -3634,6 +3634,82 @@ def api_report_ask():
     return jsonify({"answer": answer})
 
 
+CHAT_MAX_HISTORY_MESSAGES = 40
+
+
+@app.route("/chat")
+def chat_page():
+    return render_template("chat.html")
+
+
+@app.route("/api/chat", methods=["POST"])
+def api_chat():
+    data = request.get_json() or {}
+    history = data.get("messages") or []
+    if not isinstance(history, list) or not history:
+        return jsonify({"error": "대화 내용이 비어 있습니다."}), 400
+    if len(history) > CHAT_MAX_HISTORY_MESSAGES:
+        return jsonify({
+            "error": "대화가 너무 길어졌습니다. 새 대화를 시작해주세요.",
+        }), 400
+    cleaned_history = []
+    for m in history:
+        role = m.get("role") if isinstance(m, dict) else None
+        content = m.get("content") if isinstance(m, dict) else None
+        if role not in ("user", "assistant") or not isinstance(content, str) or not content.strip():
+            return jsonify({"error": "대화 형식이 올바르지 않습니다."}), 400
+        cleaned_history.append({"role": role, "content": content})
+
+    conn = get_db()
+    llm_cfg = get_llm_config(conn)
+    if not llm_cfg["server_url"]:
+        conn.close()
+        return jsonify({
+            "error": "LLM 서버가 아직 설정되지 않았습니다. 설정 페이지에서 연결 정보를 입력해주세요.",
+            "not_configured": True,
+        }), 400
+
+    report_data = build_report_data(conn)
+    conn.close()
+    context_block = build_llm_context_block(report_data)
+
+    headers = {"Content-Type": "application/json"}
+    if llm_cfg["api_key"]:
+        headers["Authorization"] = f"Bearer {llm_cfg['api_key']}"
+    system_message = {
+        "role": "system",
+        "content": "당신은 설비 부품 교체 데이터를 분석해주는 도우미입니다. "
+                   "아래 제공된 데이터만 근거로 한국어로 답변하세요. 데이터에 없는 "
+                   "내용은 추측하지 말고 알 수 없다고 답하세요.\n\n" + context_block,
+    }
+    body = {
+        "model": llm_cfg["model_name"] or "default",
+        "messages": [system_message] + cleaned_history,
+    }
+
+    try:
+        res = requests.post(
+            f"{llm_cfg['server_url']}/v1/chat/completions",
+            headers=headers, json=body, timeout=40,
+        )
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "LLM 서버 응답이 너무 오래 걸립니다. 잠시 후 다시 시도해주세요."}), 504
+    except requests.exceptions.ConnectionError:
+        return jsonify({"error": "LLM 서버에 연결할 수 없습니다. 서버 주소나 네트워크 상태를 확인해주세요."}), 502
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"LLM 요청 중 오류가 발생했습니다: {e}"}), 502
+
+    if res.status_code // 100 != 2:
+        return jsonify({"error": f"LLM 서버 오류 (HTTP {res.status_code}): {res.text[:200]}"}), 502
+
+    try:
+        reply = res.json()["choices"][0]["message"]["content"]
+    except (ValueError, KeyError, IndexError, TypeError):
+        return jsonify({"error": "LLM 서버 응답 형식을 해석할 수 없습니다. 모델/서버 설정을 확인해주세요."}), 502
+
+    return jsonify({"reply": reply})
+
+
 @app.route("/api/backup", methods=["POST"])
 def download_backup():
     os.makedirs(BACKUP_DIR, exist_ok=True)
