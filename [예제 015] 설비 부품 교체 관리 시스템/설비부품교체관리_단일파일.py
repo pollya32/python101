@@ -3712,7 +3712,44 @@ def llm_tool_get_cost_summary(conn, start_date=None, end_date=None, **_ignored):
     }
 
 
+def llm_tool_list_all_parts(conn, **_ignored):
+    """시스템에 등록된 전체 부품 종류(이름+규격 기준) 목록과 총 종류 수를 반환한다.
+    "전체 부품 종류가 몇 개야?", "등록된 부품 다 보여줘" 같은 질문에 쓴다.
+    읽기 전용(SELECT만 수행)."""
+    spec_rows = get_part_spec_stats(conn)
+    spec_rows = sorted(spec_rows, key=lambda r: r["name"])
+    LIMIT = 100
+    return {
+        "total_part_types": len(spec_rows),
+        "note": None if len(spec_rows) <= LIMIT else (
+            f"목록이 많아 상위 {LIMIT}개만 표시합니다. 총 종류 수는 total_part_types를 참고하세요."
+        ),
+        "parts": [
+            {
+                "name": r["name"],
+                "spec": r["spec"] or "-",
+                "installed_count": r["instance_count"],
+            }
+            for r in spec_rows[:LIMIT]
+        ],
+    }
+
+
 LLM_TOOL_DEFS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "list_all_parts",
+            "description": "시스템에 등록된 전체 부품의 종류(이름+규격 기준) 목록과 총 종류 수를 "
+                            "조회합니다. '전체 부품 종류가 몇 개야?', '등록된 부품 전부 보여줘' 처럼 "
+                            "개별 부품이 아니라 전체 목록/개수를 물어볼 때 사용하세요.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -3765,6 +3802,7 @@ LLM_TOOL_DEFS = [
 ]
 
 LLM_TOOL_FUNCS = {
+    "list_all_parts": llm_tool_list_all_parts,
     "lookup_part": llm_tool_lookup_part,
     "lookup_equipment": llm_tool_lookup_equipment,
     "get_cost_summary": llm_tool_get_cost_summary,
