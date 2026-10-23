@@ -3602,6 +3602,282 @@ def build_llm_context_block(data):
     return "\n".join(lines)
 
 
+def llm_tool_lookup_part(conn, part_name=None, **_ignored):
+    """부품명(부분 일치)으로 검색해서 규격/설정 주기/실제 평균 간격과, 그 부품이 설치된
+    설비·유닛별 최근 교체 상태를 반환한다. 읽기 전용(SELECT만 수행)."""
+    part_name = (part_name or "").strip()
+    if not part_name:
+        return {"error": "부품명을 입력해주세요."}
+    rows = conn.execute("""
+        SELECT p.name AS name, COALESCE(p.spec, '') AS spec, p.cycle_days, p.cycle_unit,
+               p.cost, p.last_replaced_date, u.name AS unit_name, e.name AS equipment_name
+        FROM parts p
+        JOIN units u ON p.unit_id = u.id
+        JOIN equipments e ON u.equipment_id = e.id
+        WHERE p.deleted_at IS NULL AND u.deleted_at IS NULL AND e.deleted_at IS NULL
+          AND p.name LIKE ?
+        ORDER BY e.id, u.id
+        LIMIT 30
+    """, (f"%{part_name}%",)).fetchall()
+    if not rows:
+        return {"found": False, "message": f"'{part_name}'(으)로 일치하는 부품을 찾을 수 없습니다."}
+
+    spec_rows = get_part_spec_stats(conn)
+    interval_lookup = {(r["name"], r["spec"]): r["avg_actual_interval_days"] for r in spec_rows}
+
+    groups = {}
+    for r in rows:
+        key = (r["name"], r["spec"])
+        g = groups.setdefault(key, {
+            "part_name": r["name"],
+            "spec": r["spec"] or "-",
+            "set_cycle_days": r["cycle_days"],
+            "avg_actual_interval_days": interval_lookup.get(key),
+            "installations": [],
+        })
+        status = part_status(r["cycle_days"], r["last_replaced_date"])
+        g["installations"].append({
+            "equipment_name": r["equipment_name"],
+            "unit_name": r["unit_name"],
+            "cost": r["cost"],
+            "last_replaced_date": r["last_replaced_date"] or "기록 없음",
+            "status": status["label"],
+            "days_left": status["days_left"],
+        })
+    return {"found": True, "matched_parts": list(groups.values())}
+
+
+def llm_tool_lookup_equipment(conn, equipment_name=None, **_ignored):
+    """설비명(부분 일치)으로 검색해서 현재 상태/유닛 수/임박·필요 부품 수를 반환한다.
+    읽기 전용(SELECT만 수행)."""
+    equipment_name = (equipment_name or "").strip()
+    if not equipment_name:
+        return {"error": "설비명을 입력해주세요."}
+    rows = conn.execute(
+        "SELECT * FROM equipments WHERE deleted_at IS NULL AND name LIKE ? ORDER BY id LIMIT 10",
+        (f"%{equipment_name}%",),
+    ).fetchall()
+    if not rows:
+        return {"found": False, "message": f"'{equipment_name}'(으)로 일치하는 설비를 찾을 수 없습니다."}
+    statuses = equipments_with_status_bulk(conn, rows)
+    return {
+        "found": True,
+        "matched_equipments": [
+            {
+                "equipment_name": e["name"],
+                "status": e["overall_status"],
+                "unit_count": e["unit_count"],
+                "overdue_count": e["overdue_count"],
+                "soon_count": e["soon_count"],
+            }
+            for e in statuses
+        ],
+    }
+
+
+def llm_tool_get_cost_summary(conn, start_date=None, end_date=None, **_ignored):
+    """지정한 기간(생략 시 전체 기간)의 총 교체 건수/비용과 비용 상위 부품을 반환한다.
+    보고서 기본 60일 범위와 다른 임의 기간을 물어볼 때 쓴다. 읽기 전용(SELECT만 수행)."""
+    def _valid_date(s):
+        if not s or not isinstance(s, str):
+            return None
+        try:
+            datetime.strptime(s, "%Y-%m-%d")
+            return s
+        except ValueError:
+            return None
+
+    start_date = _valid_date(start_date)
+    end_date = _valid_date(end_date)
+
+    spec_rows = get_part_spec_stats(conn, start_date=start_date, end_date=end_date)
+    cost_rows = sorted(
+        (r for r in spec_rows if r["usage_count"] > 0),
+        key=lambda r: r["replacement_cost_total"], reverse=True
+    )[:10]
+    total_row = conn.execute(
+        "SELECT COALESCE(SUM(cost), 0) AS total, COUNT(*) AS cnt FROM replacement_history "
+        "WHERE (? IS NULL OR replaced_date >= ?) AND (? IS NULL OR replaced_date <= ?)",
+        (start_date, start_date, end_date, end_date),
+    ).fetchone()
+    return {
+        "start_date": start_date or "전체 기간",
+        "end_date": end_date or "전체 기간",
+        "total_replacement_count": total_row["cnt"],
+        "total_cost": total_row["total"],
+        "top_cost_parts": [
+            {"name": r["name"], "spec": r["spec"] or "-", "cost": r["replacement_cost_total"], "count": r["usage_count"]}
+            for r in cost_rows
+        ],
+    }
+
+
+LLM_TOOL_DEFS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "lookup_part",
+            "description": "부품 이름으로 검색해서 규격, 설정 교체 주기, 실제 평균 교체 간격, "
+                            "각 설비별 최근 교체일과 상태를 조회합니다. 사용자가 보고서 요약에 "
+                            "없는 특정 부품에 대해 물어볼 때 사용하세요.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "part_name": {"type": "string", "description": "검색할 부품 이름 (부분 일치 가능, 예: '그리퍼')"},
+                },
+                "required": ["part_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "lookup_equipment",
+            "description": "설비 이름으로 검색해서 현재 상태(정상/임박/필요/미기록), 유닛 수, "
+                            "교체 필요·임박 부품 수를 조회합니다. 사용자가 특정 설비에 대해 "
+                            "물어볼 때 사용하세요.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "equipment_name": {"type": "string", "description": "검색할 설비 이름 (부분 일치 가능, 예: 'TEAG01')"},
+                },
+                "required": ["equipment_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_cost_summary",
+            "description": "지정한 기간 동안의 전체 교체 건수, 총 비용, 비용 상위 부품을 조회합니다. "
+                            "보고서의 기본 60일 범위가 아닌 다른 기간(예: 올해 전체, 특정 달)을 "
+                            "물어볼 때 사용하세요. 날짜를 지정하지 않으면 전체 기간을 조회합니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "start_date": {"type": "string", "description": "조회 시작일 (YYYY-MM-DD 형식), 생략 가능"},
+                    "end_date": {"type": "string", "description": "조회 종료일 (YYYY-MM-DD 형식), 생략 가능"},
+                },
+                "required": [],
+            },
+        },
+    },
+]
+
+LLM_TOOL_FUNCS = {
+    "lookup_part": llm_tool_lookup_part,
+    "lookup_equipment": llm_tool_lookup_equipment,
+    "get_cost_summary": llm_tool_get_cost_summary,
+}
+
+LLM_SYSTEM_PROMPT_PREFIX = (
+    "당신은 설비 부품 교체 데이터를 분석해주는 도우미입니다. 아래 제공된 요약 데이터를 "
+    "참고하고, 요약에 없는 더 구체적인 정보가 필요하면 제공된 도구(함수)를 사용해 정확한 "
+    "데이터를 조회한 뒤 답변하세요. 데이터에 없는 내용은 추측하지 말고 알 수 없다고 답하세요."
+)
+
+
+def call_llm_with_tools(conn, messages, max_rounds=4):
+    """공통 LLM 호출 + 함수 호출(tool calling) 루프.
+
+    서버/모델이 tools 파라미터를 이해하지 못하거나 그 요청이 실패하면, tools 없이 기존
+    방식(고정 요약 컨텍스트만 사용)으로 자동 재시도한다 - 어떤 LLM 서버를 연결하든
+    프로그램이 항상 정상 동작해야 한다는 요구사항에 따른 것이다 (함수 호출은 "지원되면
+    더 정확해지는" 선택적 개선이지, 필수 전제조건이 아니다).
+
+    반환값: (답변문자열, None) 성공 시 / (None, (에러dict, HTTP상태코드)) 실패 시.
+    """
+    llm_cfg = get_llm_config(conn)
+    headers = {"Content-Type": "application/json"}
+    if llm_cfg["api_key"]:
+        headers["Authorization"] = f"Bearer {llm_cfg['api_key']}"
+    model = llm_cfg["model_name"] or "default"
+    server_url = llm_cfg["server_url"]
+
+    def post(body):
+        try:
+            res = requests.post(f"{server_url}/v1/chat/completions", headers=headers, json=body, timeout=40)
+        except requests.exceptions.Timeout:
+            return None, "timeout"
+        except requests.exceptions.ConnectionError:
+            return None, "connection"
+        except requests.exceptions.RequestException:
+            return None, "other"
+        if res.status_code // 100 != 2:
+            return None, "http_error"
+        return res, None
+
+    working_messages = list(messages)
+    tools_supported = True
+
+    for _ in range(max_rounds):
+        body = {"model": model, "messages": working_messages}
+        if tools_supported:
+            body["tools"] = LLM_TOOL_DEFS
+            body["tool_choice"] = "auto"
+
+        res, err = post(body)
+        if err is not None:
+            if tools_supported:
+                # 함수 호출을 이해하지 못하는 서버일 수 있으므로, tools 없이 한 번 더
+                # 시도한다 (이 시점에는 아직 tool 관련 메시지가 대화에 섞이지 않았으므로
+                # 깨끗하게 기존 방식으로 넘어간다).
+                tools_supported = False
+                continue
+            if err == "timeout":
+                return None, ({"error": "LLM 서버 응답이 너무 오래 걸립니다. 잠시 후 다시 시도해주세요."}, 504)
+            if err == "connection":
+                return None, ({"error": "LLM 서버에 연결할 수 없습니다. 서버 주소나 네트워크 상태를 확인해주세요."}, 502)
+            return None, ({"error": "LLM 서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."}, 502)
+
+        try:
+            msg = res.json()["choices"][0]["message"]
+        except (ValueError, KeyError, IndexError, TypeError):
+            return None, ({"error": "LLM 서버 응답 형식을 해석할 수 없습니다. 모델/서버 설정을 확인해주세요."}, 502)
+
+        tool_calls = msg.get("tool_calls") if tools_supported else None
+        if not tool_calls:
+            content = msg.get("content")
+            if not isinstance(content, str):
+                return None, ({"error": "LLM 서버 응답 형식을 해석할 수 없습니다. 모델/서버 설정을 확인해주세요."}, 502)
+            return content, None
+
+        # 모델이 도구 호출을 요청함 -> 서버에서 직접 실행(읽기 전용)하고 결과를 대화에
+        # 추가한 뒤 다음 라운드에서 다시 호출한다.
+        working_messages.append({
+            "role": "assistant",
+            "content": msg.get("content") or "",
+            "tool_calls": tool_calls,
+        })
+        for tc in tool_calls:
+            fn_name = (tc.get("function") or {}).get("name")
+            fn = LLM_TOOL_FUNCS.get(fn_name)
+            if fn is None:
+                result = {"error": f"알 수 없는 도구 요청입니다: {fn_name}"}
+            else:
+                raw_args = (tc.get("function") or {}).get("arguments") or "{}"
+                try:
+                    args = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
+                    if not isinstance(args, dict):
+                        args = {}
+                except (ValueError, TypeError):
+                    args = {}
+                try:
+                    result = fn(conn, **args)
+                except TypeError:
+                    result = {"error": "도구 호출 인자가 올바르지 않습니다."}
+                except Exception:
+                    result = {"error": "데이터 조회 중 오류가 발생했습니다."}
+            working_messages.append({
+                "role": "tool",
+                "tool_call_id": tc.get("id", ""),
+                "content": json.dumps(result, ensure_ascii=False),
+            })
+        # 루프 계속: 다음 라운드에서 도구 결과를 반영해 다시 LLM을 호출한다.
+
+    return "요청이 너무 복잡하여 답변을 완료하지 못했습니다. 질문을 더 구체적으로 나눠서 다시 시도해주세요.", None
+
+
 @app.route("/api/report/ask", methods=["POST"])
 def api_report_ask():
     data = request.get_json() or {}
@@ -3619,45 +3895,16 @@ def api_report_ask():
         }), 400
 
     report_data = build_report_data(conn)
-    conn.close()
     context_block = build_llm_context_block(report_data)
-
-    headers = {"Content-Type": "application/json"}
-    if llm_cfg["api_key"]:
-        headers["Authorization"] = f"Bearer {llm_cfg['api_key']}"
-    body = {
-        "model": llm_cfg["model_name"] or "default",
-        "messages": [
-            {
-                "role": "system",
-                "content": "당신은 설비 부품 교체 데이터를 분석해주는 도우미입니다. "
-                           "아래 제공된 데이터만 근거로 한국어로 답변하세요. 데이터에 없는 "
-                           "내용은 추측하지 말고 알 수 없다고 답하세요.",
-            },
-            {"role": "user", "content": f"{context_block}\n\n질문: {question}"},
-        ],
-    }
-
-    try:
-        res = requests.post(
-            f"{llm_cfg['server_url']}/v1/chat/completions",
-            headers=headers, json=body, timeout=40,
-        )
-    except requests.exceptions.Timeout:
-        return jsonify({"error": "LLM 서버 응답이 너무 오래 걸립니다. 잠시 후 다시 시도해주세요."}), 504
-    except requests.exceptions.ConnectionError:
-        return jsonify({"error": "LLM 서버에 연결할 수 없습니다. 서버 주소나 네트워크 상태를 확인해주세요."}), 502
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"LLM 요청 중 오류가 발생했습니다: {e}"}), 502
-
-    if res.status_code // 100 != 2:
-        return jsonify({"error": f"LLM 서버 오류 (HTTP {res.status_code}): {res.text[:200]}"}), 502
-
-    try:
-        answer = res.json()["choices"][0]["message"]["content"]
-    except (ValueError, KeyError, IndexError, TypeError):
-        return jsonify({"error": "LLM 서버 응답 형식을 해석할 수 없습니다. 모델/서버 설정을 확인해주세요."}), 502
-
+    messages = [
+        {"role": "system", "content": f"{LLM_SYSTEM_PROMPT_PREFIX}\n\n{context_block}"},
+        {"role": "user", "content": question},
+    ]
+    answer, error = call_llm_with_tools(conn, messages)
+    conn.close()
+    if error:
+        err_body, status = error
+        return jsonify(err_body), status
     return jsonify({"answer": answer})
 
 
@@ -3697,43 +3944,14 @@ def api_chat():
         }), 400
 
     report_data = build_report_data(conn)
-    conn.close()
     context_block = build_llm_context_block(report_data)
-
-    headers = {"Content-Type": "application/json"}
-    if llm_cfg["api_key"]:
-        headers["Authorization"] = f"Bearer {llm_cfg['api_key']}"
-    system_message = {
-        "role": "system",
-        "content": "당신은 설비 부품 교체 데이터를 분석해주는 도우미입니다. "
-                   "아래 제공된 데이터만 근거로 한국어로 답변하세요. 데이터에 없는 "
-                   "내용은 추측하지 말고 알 수 없다고 답하세요.\n\n" + context_block,
-    }
-    body = {
-        "model": llm_cfg["model_name"] or "default",
-        "messages": [system_message] + cleaned_history,
-    }
-
-    try:
-        res = requests.post(
-            f"{llm_cfg['server_url']}/v1/chat/completions",
-            headers=headers, json=body, timeout=40,
-        )
-    except requests.exceptions.Timeout:
-        return jsonify({"error": "LLM 서버 응답이 너무 오래 걸립니다. 잠시 후 다시 시도해주세요."}), 504
-    except requests.exceptions.ConnectionError:
-        return jsonify({"error": "LLM 서버에 연결할 수 없습니다. 서버 주소나 네트워크 상태를 확인해주세요."}), 502
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"LLM 요청 중 오류가 발생했습니다: {e}"}), 502
-
-    if res.status_code // 100 != 2:
-        return jsonify({"error": f"LLM 서버 오류 (HTTP {res.status_code}): {res.text[:200]}"}), 502
-
-    try:
-        reply = res.json()["choices"][0]["message"]["content"]
-    except (ValueError, KeyError, IndexError, TypeError):
-        return jsonify({"error": "LLM 서버 응답 형식을 해석할 수 없습니다. 모델/서버 설정을 확인해주세요."}), 502
-
+    system_message = {"role": "system", "content": f"{LLM_SYSTEM_PROMPT_PREFIX}\n\n{context_block}"}
+    messages = [system_message] + cleaned_history
+    reply, error = call_llm_with_tools(conn, messages)
+    conn.close()
+    if error:
+        err_body, status = error
+        return jsonify(err_body), status
     return jsonify({"reply": reply})
 
 
