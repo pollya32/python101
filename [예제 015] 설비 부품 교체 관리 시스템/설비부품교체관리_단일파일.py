@@ -43,7 +43,18 @@ try:
     _base = os.path.dirname(os.path.abspath(__file__))
 except NameError:
     _base = os.getcwd()
-DB_PATH = os.path.join(_base, "equipment_data.db")
+
+# DB 파일명은 기본적으로 프로그램이 들어있는 폴더 이름을 그대로 쓴다(예: "공장A" 폴더에서
+# 실행하면 "공장A.db") - 폴더별로 프로그램을 따로 돌려 여러 사이트를 운영할 때 어느 DB가
+# 어느 폴더(사이트) 것인지 파일명만 보고 바로 구분할 수 있게 하기 위해서다. 다만 이미
+# "equipment_data.db"라는 이름으로 운영 중이던 기존 설치(이 변경 이전 버전)가 있다면, 그
+# 파일을 그대로 계속 쓴다 - 폴더 이름 기준으로 새 이름을 쓰기 시작하면 기존 데이터가 담긴
+# 파일을 못 찾아 빈 DB로 새로 시작해버리는 사고로 이어지기 때문이다. 새 이름은 "이 폴더에서
+# 처음 실행하는 경우"에만 적용된다.
+_folder_db_name = os.path.basename(_base) or "equipment"
+_legacy_db_path = os.path.join(_base, "equipment_data.db")
+_folder_db_path = os.path.join(_base, f"{_folder_db_name}.db")
+DB_PATH = _legacy_db_path if os.path.exists(_legacy_db_path) and not os.path.exists(_folder_db_path) else _folder_db_path
 BACKUP_DIR = os.path.join(_base, "backups")
 
 
