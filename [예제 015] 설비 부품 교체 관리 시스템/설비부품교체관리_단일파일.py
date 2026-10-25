@@ -3845,7 +3845,9 @@ def call_llm_with_tools(conn, messages, max_rounds=4):
 
     def post(body):
         try:
-            res = requests.post(f"{server_url}/v1/chat/completions", headers=headers, json=body, timeout=40)
+            # 40초는 Groq 같은 빠른 클라우드 서비스 기준 - Ollama 등 로컬 PC에서 돌리는
+            # 모델은 하드웨어 성능에 따라 응답까지 훨씬 오래 걸릴 수 있어 120초로 넉넉하게 둔다.
+            res = requests.post(f"{server_url}/v1/chat/completions", headers=headers, json=body, timeout=120)
         except requests.exceptions.Timeout:
             return None, "timeout"
         except requests.exceptions.ConnectionError:
