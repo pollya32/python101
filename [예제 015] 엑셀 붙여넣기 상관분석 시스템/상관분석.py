@@ -1158,17 +1158,102 @@ def fdc_analysis(df, num_cols, cat_cols, date_cols, extra_sheets, unit="LOT", lo
 
 # ── 모드: 부품 비용 분석 ─────────────────────────────────────────────────────
 
-COST_ROLES = {  # 역할: (이름 키워드, 필수 여부)
-    "날짜": (("사용일", "교체일", "일자", "날짜", "date"), True),
-    "설비": (CHAMBER_KEYS, False),
-    "부품": (("부품명", "품명", "품목", "part", "item", "부품"), True),
-    "부품코드": (("코드", "code", "p/n"), False),
-    "구분": (("구분", "유형", "type", "작업"), False),
-    "수량": (("수량", "qty", "quantity", "개수"), False),
-    "단가": (("단가", "unit", "price"), False),
-    "금액": (("금액", "amount", "비용", "cost", "합계"), False),
+COST_ROLES = {  # 역할: (이름 키워드 — 앞쪽 우선, 필수 여부)
+    "날짜": (("사용일", "교체일", "출고일", "일자", "날짜", "일시", "date", "day"), True),
+    "설비": (("설비", "장비", "호기", "챔버", "eqp", "equip", "tool", "machine", "chamber"), False),
+    "부품": (("부품명", "품명", "자재명", "품목", "part name", "description", "desc", "부품", "자재", "part", "item"), True),
+    "부품코드": (("부품코드", "자재코드", "품번", "코드", "code", "p/n", "part no", "pn"), False),
+    "구분": (("구분", "유형", "작업", "type", "kind", "category"), False),
+    "수량": (("수량", "q'ty", "qty", "quantity", "개수", "count"), False),
+    "단가": (("단가", "unit price", "u/p", "unit", "price"), False),
+    "금액": (("금액", "총액", "amount", "total", "비용", "cost", "합계", "sum"), False),
 }
 WON = "{:,.0f}"
+KIND_WORDS = ("교체", "교환", "수리", "점검", "보수", "정비", "replace", "repair", "pm", "rework")
+
+
+def _share(s: pd.Series, pattern: str) -> float:
+    v = s.dropna().astype(str).str.strip()
+    return v.str.fullmatch(pattern).mean() if len(v) else 0.0
+
+
+def _looks_tool(s) -> bool:   # ETCH-01, CVD02, EQ_3A
+    return _share(s, r"[A-Za-z가-힣]{2,}[-_ ]?\d{1,3}[A-Za-z]?") >= 0.8 and s.nunique() <= 100
+
+
+def _looks_code(s) -> bool:   # P-1001, 12345-678, AB1234
+    return _share(s, r"[A-Za-z]{0,4}[-_]?\d[\w\-./]{2,}") >= 0.8
+
+
+def _looks_kind(s) -> bool:   # 교체 / 수리 / 점검
+    vals = s.dropna().astype(str).str.lower().unique()
+    return len(vals) <= 6 and any(w in v for v in vals for w in KIND_WORDS)
+
+
+def auto_map_cost(df, num_cols, date_cols):
+    """열 이름 키워드로 먼저 찾고, 못 찾거나 이름과 값이 안 맞으면 값 패턴으로 추정.
+    반환: (역할 → 열, 역할 → 찾은 방법)"""
+    m, how, used = {r: None for r in COST_ROLES}, {}, set()
+
+    def take(role, col, why):
+        m[role], how[role] = col, why
+        used.add(col)
+
+    def free(pool):
+        return [c for c in pool if c not in used]
+
+    if date_cols:
+        take("날짜", guess(date_cols, COST_ROLES["날짜"][0], date_cols[0]), "이름" if guess(date_cols, COST_ROLES["날짜"][0]) else "값 패턴")
+
+    # 숫자 열: 금액 = 수량 × 단가 관계가 있으면 가장 확실
+    nums = [c for c in num_cols if df[c].notna().sum() >= 3]
+    for a, b in combinations(nums, 2):
+        for t in nums:
+            if t in (a, b) or m["금액"]:
+                continue
+            prod = df[a] * df[b]
+            ok = ((df[t] - prod).abs() <= df[t].abs() * 0.01 + 1).mean()
+            if ok >= 0.8:
+                qa = (df[a].dropna() % 1 == 0).all() and df[a].median() <= df[b].median()
+                q, u = (a, b) if qa else (b, a)
+                for role, col in (("금액", t), ("수량", q), ("단가", u)):
+                    # 이름도 같은 결론이면 '이름'으로 표시
+                    take(role, col, "이름" if guess([col], COST_ROLES[role][0]) else "금액 = 수량 × 단가 관계")
+    for role in ("금액", "수량", "단가"):
+        if not m[role]:
+            col = guess(free(nums), COST_ROLES[role][0])
+            if col:
+                take(role, col, "이름")
+    if not m["수량"]:
+        small_int = [c for c in free(nums) if (df[c].dropna() % 1 == 0).all() and df[c].median() <= 50]
+        if small_int:
+            take("수량", small_int[0], "값 패턴 (작은 정수)")
+    if not m["금액"] and free(nums):
+        take("금액", max(free(nums), key=lambda c: df[c].median()), "값 패턴 (가장 큰 금액)")
+
+    # 글자 열
+    texts = [c for c in df.columns if c not in num_cols + date_cols]
+
+    def pick(role, check):
+        named = guess(free(texts), COST_ROLES[role][0])
+        by_value = [c for c in free(texts) if check(df[c])]
+        if named and (check(df[named]) or not by_value):
+            take(role, named, "이름")
+        elif by_value:
+            take(role, by_value[0], "값 패턴")
+
+    pick("구분", _looks_kind)
+    pick("설비", _looks_tool)
+    pick("부품코드", _looks_code)
+    named = guess(free(texts), COST_ROLES["부품"][0])
+    plain = [c for c in free(texts) if not _looks_code(df[c]) and df[c].nunique() > 1]
+    if named and not _looks_code(df[named]):
+        take("부품", named, "이름")
+    elif plain:  # 이름이 없거나 코드처럼 생겼으면 값 종류가 가장 많은 글자 열
+        take("부품", max(plain, key=lambda c: df[c].nunique()), "값 패턴")
+    elif m["부품코드"]:
+        m["부품"], how["부품"] = m["부품코드"], "부품코드로 대체"
+    return m, how
 
 
 def _num(s: pd.Series) -> pd.Series:
@@ -1548,19 +1633,33 @@ def parts_excel(R, headline) -> bytes:
 def page_parts(df, num_cols, cat_cols, date_cols):
     st.subheader("🔧 부품 비용 분석")
     cols = list(df.columns)
-    with st.expander("🧭 열 매핑 (자동 인식 — 다르면 바꾸세요)", expanded=False):
+    auto, how = auto_map_cost(df, num_cols, date_cols)
+    ok = auto["날짜"] and auto["부품"] and (auto["금액"] or (auto["수량"] and auto["단가"]))
+    # 데이터(열 구성)가 바뀌면 이전 선택이 남지 않도록 키에 열 구성을 넣음
+    sig = abs(hash(tuple(cols))) % 10 ** 8
+    with st.expander("✏️ 열 매핑 바꾸기", expanded=not ok):
         m, boxes = {}, st.columns(4)
-        for i, (role, (keys, required)) in enumerate(COST_ROLES.items()):
+        for i, (role, (_, required)) in enumerate(COST_ROLES.items()):
             pool = date_cols if role == "날짜" else (num_cols if role in ("수량", "단가", "금액") else
                                                     [x for x in cols if x not in num_cols + date_cols])
             options = ([] if required else ["(없음)"]) + (pool or cols)
-            default = guess(pool, keys, pool[0] if required and pool else "(없음)")
+            default = auto[role] or "(없음)"
             pick = boxes[i % 4].selectbox(role + (" *" if required else ""), options,
-                                          index=options.index(default) if default in options else 0, key=f"cost_{role}")
+                                          index=options.index(default) if default in options else 0,
+                                          key=f"cost_{role}_{sig}", help=f"자동 인식: {how.get(role, '못 찾음')}")
             m[role] = None if pick == "(없음)" else pick
+    shown = [f"{r} = `{m[r]}`" + (" *" if how.get(r, "이름") != "이름" and m[r] == auto[r] else "")
+             for r in COST_ROLES if m[r]]
+    missing = [r for r in COST_ROLES if not m[r]]
+    st.caption("🧭 열 자동 인식: " + " · ".join(shown)
+               + (f" · 없음: {', '.join(missing)}" if missing else "")
+               + "  (* = 열 이름이 아니라 값 모양으로 추정 — 틀리면 '열 매핑 바꾸기'에서 수정)")
     if not m["날짜"] or not m["부품"] or not (m["금액"] or (m["수량"] and m["단가"])):
-        st.warning("날짜 · 부품 열, 그리고 금액(또는 수량+단가) 열이 필요합니다. '열 매핑'을 확인하세요.")
+        st.warning("날짜 · 부품 열, 그리고 금액(또는 수량+단가) 열이 필요합니다. '열 매핑 바꾸기'에서 지정하세요.")
         return
+    if not m["구분"]:
+        st.info("구분(교체/수리) 열이 없어 교체와 수리가 함께 계산됩니다. 수리 건이 섞여 있으면 "
+                "조기 교체·단가 이상이 실제보다 많이 잡힐 수 있습니다.")
     c = cost_frame(df, m)
     if c.empty:
         st.warning("분석할 비용 데이터가 없습니다.")
