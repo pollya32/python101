@@ -1,13 +1,14 @@
 """
-엑셀 붙여넣기 상관분석 시스템
-==============================
+엑셀 붙여넣기 분석 시스템 (상관 · FDC LOT · 월별 비용 추이 · 그룹 평균 비교)
+==========================================================================
 설치: pip install -r requirements.txt
 실행: streamlit run 상관분석.py
-사용: 엑셀에서 표(머리글 포함)를 복사(Ctrl+C) → 입력창에 붙여넣기(Ctrl+V) → 끝!
+사용: 엑셀에서 표(머리글 포함)를 복사(Ctrl+C) → 입력창에 붙여넣기(Ctrl+V) → 왼쪽에서 분석 모드 선택
 """
 
 import io
 import re
+import warnings
 from itertools import combinations
 
 import numpy as np
@@ -17,12 +18,14 @@ import plotly.graph_objects as go
 import streamlit as st
 from scipy import stats
 
-st.set_page_config(page_title="상관분석 시스템", page_icon="📊", layout="wide")
+st.set_page_config(page_title="엑셀 분석 시스템", page_icon="📊", layout="wide")
+
+MODES = ["🔗 상관분석", "🧪 FDC LOT 분석", "📅 월별 비용 추이", "⚖️ 그룹 평균 비교"]
 
 
 # ── 샘플 데이터 ──────────────────────────────────────────────────────────────
 
-SAMPLE = """일자\t온도(℃)\t습도(%)\t광고비\t방문자수\t매출\t불량률
+SAMPLE_BASIC = """일자\t온도(℃)\t습도(%)\t광고비\t방문자수\t매출\t불량률
 2024-01-01\t-2.1\t45%\t1,200,000\t320\t4,150,000\t3.2%
 2024-01-02\t-0.5\t50%\t1,500,000\t410\t5,020,000\t2.9%
 2024-01-03\t1.2\t48%\t900,000\t280\t3,610,000\t3.5%
@@ -38,6 +41,57 @@ SAMPLE = """일자\t온도(℃)\t습도(%)\t광고비\t방문자수\t매출\t불
 2024-01-13\t-1.8\t44%\t1,300,000\t350\t4,400,000\t3.3%
 2024-01-14\t10.5\t75%\t2,200,000\t610\t7,300,000\t1.8%
 2024-01-15\t11.2\t78%\t2,600,000\t690\t8,350,000\t1.7%"""
+
+
+def sample_fdc() -> str:
+    """식각 설비 LOT별 FDC 요약값 + 수율 (ETCH-03 압력 오프셋, LOT 46~50 온도 드리프트 포함)."""
+    rng = np.random.default_rng(7)
+    n = 60
+    eq = rng.choice(["ETCH-01", "ETCH-02", "ETCH-03"], n)
+    rf = rng.normal(1500, 15, n)
+    press = rng.normal(30, 0.8, n) + np.where(eq == "ETCH-03", 1.2, 0)
+    temp = rng.normal(60, 1.0, n)
+    temp[45:50] += 5
+    gas = rng.normal(200, 3, n)
+    ept = rng.normal(45, 2, n) + 0.02 * (rf - 1500)
+    yld = 97 - 0.6 * (temp - 60) - 1.1 * (press - 30) + rng.normal(0, 0.6, n)
+    df = pd.DataFrame({
+        "LOT_ID": [f"LOT{2403001 + i}" for i in range(n)],
+        "진행일시": pd.date_range("2024-03-01", periods=n, freq="8h").strftime("%Y-%m-%d %H:%M"),
+        "설비": eq,
+        "챔버": rng.choice(["A", "B"], n),
+        "RF_Power(W)": rf.round(1),
+        "Chamber_Press(mTorr)": press.round(2),
+        "ESC_Temp(℃)": temp.round(2),
+        "Gas_Flow(sccm)": gas.round(1),
+        "EPD_Time(s)": ept.round(1),
+        "수율(%)": yld.round(2),
+    })
+    return df.to_csv(sep="\t", index=False)
+
+
+def sample_cost() -> str:
+    """부품 사용/수리 내역 (월별 상승 추세, ETCH-03 수리비 고가)."""
+    rng = np.random.default_rng(11)
+    n = 160
+    price = {"O-Ring": 80_000, "Heater": 1_800_000, "ESC": 12_000_000,
+             "Showerhead": 4_500_000, "Valve": 650_000}
+    day = pd.Timestamp("2024-01-01") + pd.to_timedelta(rng.integers(0, 366, n), "D")
+    part = rng.choice(list(price), n, p=[0.4, 0.15, 0.05, 0.15, 0.25])
+    eq = rng.choice(["ETCH-01", "ETCH-02", "ETCH-03", "CVD-01", "CVD-02"], n)
+    kind = rng.choice(["교체", "수리"], n, p=[0.7, 0.3])
+    qty = np.where(part == "ESC", 1, rng.integers(1, 5, n))
+    amt = np.array([price[p] for p in part]) * qty * rng.normal(1, 0.08, n)
+    amt *= np.where(kind == "수리", 0.35, 1) * (1 + 0.03 * day.month.to_numpy())
+    amt *= np.where((kind == "수리") & (eq == "ETCH-03"), 1.6, 1)
+    df = pd.DataFrame({"사용일": day.strftime("%Y-%m-%d"), "설비": eq, "부품명": part,
+                       "구분": kind, "수량": qty, "금액(원)": [f"{a:,.0f}" for a in amt]})
+    return df.sort_values("사용일").to_csv(sep="\t", index=False)
+
+
+def load_sample(text: str, mode: str):
+    st.session_state["raw"] = text
+    st.session_state["mode"] = mode
 
 
 # ── 데이터 파싱 ──────────────────────────────────────────────────────────────
@@ -71,6 +125,11 @@ def read_uploaded(file) -> pd.DataFrame:
 
 
 _NUM_JUNK = re.compile(r"[,\s₩$€¥원%]")
+# 연도 19xx/20xx, 월 1~12 만 날짜로 인정 (1512.3 같은 수치가 날짜로 오인되지 않도록)
+_YM = r"((?:19|20)\d{2})"
+_M = r"(0?[1-9]|1[0-2])"
+_DATE_KO = re.compile(rf"^{_YM}\s*년\s*{_M}\s*월(?:\s*(\d{{1,2}})\s*일)?")
+_DATE_NUM = re.compile(rf"^{_YM}[-./]{_M}(?:[-./](\d{{1,2}}))?\.?(?=\s|$)")
 
 
 def to_number(s: pd.Series) -> pd.Series:
@@ -83,23 +142,50 @@ def to_number(s: pd.Series) -> pd.Series:
     return pd.to_numeric(t, errors="coerce")
 
 
+def to_date(s: pd.Series) -> pd.Series:
+    """'2024-01-05' · '2024.01.05' · '2024/1/5 13:20' · '2024-01' · '2024년 1월' 을 날짜로 변환."""
+    def norm(m):
+        return f"{m[1]}-{int(m[2]):02d}-{int(m[3] or 1):02d}"
+    t = s.astype(str).str.strip()
+    t = t.str.replace(_DATE_KO, norm, regex=True).str.replace(_DATE_NUM, norm, regex=True)
+    t = t.where(t.str.match(r"^\d{4}-\d{2}-\d{2}"))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return pd.to_datetime(t, errors="coerce", format="mixed")
+
+
+def unique_names(cols) -> list:
+    """같은 이름의 항목이 여러 개면 '이름_2', '이름_3' 으로 구분."""
+    seen, out = {}, []
+    for c in map(str, cols):
+        seen[c] = seen.get(c, 0) + 1
+        out.append(c if seen[c] == 1 else f"{c}_{seen[c]}")
+    return out
+
+
 def classify_columns(df: pd.DataFrame, threshold: float = 0.8):
-    """값의 80% 이상이 숫자로 바뀌면 수치형, 아니면 범주형."""
-    numeric, categorical, out = [], [], pd.DataFrame(index=df.index)
+    """값의 80% 이상이 날짜/숫자로 바뀌면 날짜형/수치형, 나머지 중 반복값이 있으면 범주형."""
+    numeric, categorical, dates, out = [], [], [], pd.DataFrame(index=df.index)
     for c in df.columns:
         nonblank = df[c].notna() & (df[c].astype(str).str.strip() != "")
+        if not nonblank.any():
+            continue
+        as_date = to_date(df[c])
+        if as_date[nonblank].notna().mean() >= threshold:
+            out[c] = as_date
+            dates.append(c)
+            continue
         conv = to_number(df[c])
-        ratio = conv[nonblank].notna().mean() if nonblank.any() else 0
-        if ratio >= threshold and conv.nunique() > 1:
+        if conv[nonblank].notna().mean() >= threshold and conv.nunique() > 1:
             out[c] = conv
             numeric.append(c)
-        else:
-            out[c] = df[c]
-            n_unique = df[c].nunique()
-            # 값이 모두 다른 열(ID·날짜)은 범주로 보지 않음
-            if 1 < n_unique < nonblank.sum() and n_unique <= max(20, len(df) // 2):
-                categorical.append(c)
-    return out, numeric, categorical
+            continue
+        out[c] = df[c].where(nonblank).astype(str).str.strip().where(nonblank)
+        n_unique = out[c].nunique()
+        # 값이 모두 다른 열(LOT ID 등)은 범주로 보지 않음
+        if 1 < n_unique < nonblank.sum() and n_unique <= max(30, len(df) // 2):
+            categorical.append(c)
+    return out, numeric, categorical, dates
 
 
 # ── 통계 ─────────────────────────────────────────────────────────────────────
@@ -117,6 +203,11 @@ def strength(r: float) -> str:
     return f"{level} {'양(+)' if r > 0 else '음(-)'}의 상관"
 
 
+def bh(p: pd.Series) -> np.ndarray:
+    """여러 항목을 동시에 검정할 때의 Benjamini-Hochberg 보정 p값."""
+    return stats.false_discovery_control(p.fillna(1))
+
+
 def pair_table(num: pd.DataFrame, method: str) -> pd.DataFrame:
     rows = []
     for a, b in combinations(num.columns, 2):
@@ -129,8 +220,7 @@ def pair_table(num: pd.DataFrame, method: str) -> pd.DataFrame:
     res = pd.DataFrame(rows)
     if res.empty:
         return res
-    # 여러 쌍을 동시에 검정하므로 Benjamini-Hochberg 보정 p값도 함께 제공
-    res["보정 p-value"] = stats.false_discovery_control(res["p-value"].fillna(1))
+    res["보정 p-value"] = bh(res["p-value"])
     res["유의(5%)"] = np.where(res["보정 p-value"] < 0.05, "✅", "")
     return res.reindex(res["상관계수"].abs().sort_values(ascending=False).index)
 
@@ -146,6 +236,11 @@ def correlation_ratio(cat: pd.Series, val: pd.Series) -> float:
     return float(np.sqrt(ss_between / ss_total)) if ss_total else np.nan
 
 
+def parse_float(text: str):
+    v = to_number(pd.Series([text])).iloc[0]
+    return None if pd.isna(v) else float(v)
+
+
 def to_excel(sheets: dict) -> bytes:
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as w:
@@ -154,26 +249,433 @@ def to_excel(sheets: dict) -> bytes:
     return buf.getvalue()
 
 
+def download(sheets: dict, filename: str):
+    st.divider()
+    st.download_button("📥 분석 결과 엑셀 다운로드", to_excel(sheets), file_name=filename,
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                       key=f"dl_{filename}")
+
+
+# ── 모드 1: 상관분석 ─────────────────────────────────────────────────────────
+
+def page_corr(df, num_cols, cat_cols):
+    with st.sidebar:
+        st.subheader("상관분석 옵션")
+        method_label = st.radio("상관계수 방법", list(METHODS), help=(
+            "피어슨: 직선 관계 / 스피어만: 한쪽이 늘면 다른 쪽도 늘어나는 단조 관계, 이상치에 강함 / "
+            "켄달: 표본이 적을 때 안정적"))
+        method = METHODS[method_label]
+        min_abs = st.slider("표시할 최소 |상관계수|", 0.0, 1.0, 0.0, 0.05)
+        only_sig = st.checkbox("유의한 쌍만 보기 (보정 p < 0.05)")
+
+    selected = st.multiselect("분석할 수치형 항목", num_cols, default=num_cols)
+    if len(selected) < 2:
+        st.warning("상관분석에는 수치형 항목이 2개 이상 필요합니다.")
+        return
+
+    num = df[selected]
+    corr = num.corr(method=method)
+    pairs = pair_table(num, method)
+
+    tab_heat, tab_rank, tab_target, tab_scatter, tab_cat = st.tabs(
+        ["🟥 상관 히트맵", "🏆 상관 순위", "🎯 타깃 분석", "📈 산점도", "🏷️ 범주형"])
+
+    with tab_heat:
+        fig = px.imshow(corr, text_auto=".2f", zmin=-1, zmax=1, aspect="auto",
+                        color_continuous_scale="RdBu_r")
+        fig.update_layout(height=max(400, 45 * len(selected)), margin=dict(l=0, r=0, t=30, b=0))
+        st.plotly_chart(fig, width="stretch")
+        st.caption("빨강 = 양(+)의 상관 · 파랑 = 음(-)의 상관 · 흰색 = 상관 없음")
+
+    with tab_rank:
+        view = pairs[pairs["상관계수"].abs() >= min_abs] if not pairs.empty else pairs
+        if only_sig and not view.empty:
+            view = view[view["유의(5%)"] == "✅"]
+        if view.empty:
+            st.info("조건에 맞는 항목 쌍이 없습니다.")
+        else:
+            st.dataframe(view.style.format({"상관계수": "{:+.3f}", "p-value": "{:.4f}",
+                                            "보정 p-value": "{:.4f}"})
+                         .background_gradient(subset=["상관계수"], cmap="RdBu_r", vmin=-1, vmax=1),
+                         width="stretch", hide_index=True)
+            top = view.iloc[0]
+            st.success(f"가장 강한 관계: **{top['항목 A']} ↔ {top['항목 B']}** "
+                       f"(r = {top['상관계수']:+.2f}, {top['해석']})")
+        st.caption("※ 상관관계는 인과관계가 아닙니다. 보정 p-value는 여러 쌍을 동시에 검정한 것을 감안한 값(BH-FDR)입니다.")
+
+    with tab_target:
+        target = st.selectbox("결과(타깃) 항목", selected, index=len(selected) - 1)
+        t = corr[target].drop(target).sort_values(key=abs, ascending=True)
+        fig = go.Figure(go.Bar(x=t.values, y=t.index, orientation="h",
+                               marker_color=np.where(t.values >= 0, "#d6604d", "#4393c3"),
+                               text=[f"{v:+.2f}" for v in t.values], textposition="outside"))
+        fig.update_layout(xaxis=dict(range=[-1.1, 1.1], title="상관계수"),
+                          height=max(300, 40 * len(t)), margin=dict(l=0, r=0, t=30, b=0),
+                          title=f"'{target}'와(과) 함께 움직이는 항목")
+        st.plotly_chart(fig, width="stretch")
+
+    with tab_scatter:
+        a_col, b_col = st.columns(2)
+        x = a_col.selectbox("X축", selected, index=0)
+        y = b_col.selectbox("Y축", selected, index=1)
+        color = st.selectbox("색상 구분 (범주형, 선택)", ["(없음)"] + cat_cols)
+        d = df[[x, y] + ([color] if color != "(없음)" else [])].dropna(subset=[x, y])
+        fig = px.scatter(d, x=x, y=y, color=None if color == "(없음)" else color)
+        if len(d) >= 2 and x != y:
+            slope, intercept = np.polyfit(d[x], d[y], 1)
+            xs = np.linspace(d[x].min(), d[x].max(), 50)
+            fig.add_trace(go.Scatter(x=xs, y=slope * xs + intercept, mode="lines",
+                                     name="추세선", line=dict(dash="dash", color="gray")))
+            r = d[x].corr(d[y], method=method)
+            st.markdown(f"**r = {r:+.3f}** ({strength(r)}) · 추세선: `{y} = {slope:.4g} × {x} + {intercept:.4g}`")
+        st.plotly_chart(fig, width="stretch")
+
+    with tab_cat:
+        if not cat_cols:
+            st.info("범주형 항목(예: 설비, 라인, 부품명)이 있으면 그룹별 차이를 분석합니다.")
+        else:
+            eta = pd.DataFrame({c: [correlation_ratio(df[c], df[v]) for v in selected] for c in cat_cols},
+                               index=selected)
+            st.write("**범주형 ↔ 수치형 연관도 η (0 = 무관, 1 = 범주가 값을 완전히 결정)**")
+            st.dataframe(eta.style.format("{:.2f}").background_gradient(cmap="Reds", vmin=0, vmax=1),
+                         width="stretch")
+            g1, g2 = st.columns(2)
+            cat = g1.selectbox("범주 항목", cat_cols)
+            val = g2.selectbox("값 항목", selected)
+            st.plotly_chart(px.box(df, x=cat, y=val, points="all"), width="stretch")
+
+    download({"상관행렬": corr, "상관순위": pairs.set_index(["항목 A", "항목 B"]), "원본(정제)": df},
+             "상관분석_결과.xlsx")
+
+
+# ── 모드 2: FDC LOT 분석 ─────────────────────────────────────────────────────
+
+def control_chart(df, param, xcol, group, usl, lsl):
+    """I-관리도: σ = 평균 이동범위 / 1.128. 관리한계 이탈 + 중심선 한쪽 연속 7점(드리프트) 표시."""
+    d = df.dropna(subset=[param]).copy()
+    if xcol != "LOT 순서":
+        d = d.dropna(subset=[xcol]).sort_values(xcol)
+        d["_x"] = d[xcol]
+    else:
+        d["_x"] = np.arange(1, len(d) + 1)
+    v = d[param]
+    center = v.mean()
+    sigma = v.diff().abs().mean() / 1.128
+    ucl, lcl = center + 3 * sigma, center - 3 * sigma
+
+    side = np.sign(v - center)
+    run = side.groupby((side != side.shift()).cumsum()).cumcount() + 1
+    d["판정"] = ""
+    d.loc[run >= 7, "판정"] = "드리프트(연속 7점)"
+    d.loc[(v > ucl) | (v < lcl), "판정"] = "관리한계 이탈"
+    if usl is not None:
+        d.loc[v > usl, "판정"] = "SPEC 이탈"
+    if lsl is not None:
+        d.loc[v < lsl, "판정"] = "SPEC 이탈"
+
+    fig = go.Figure(go.Scatter(x=d["_x"], y=v, mode="lines", line=dict(color="lightgray"),
+                               showlegend=False, hoverinfo="skip"))
+    if group != "(없음)":
+        for g, gd in d.groupby(group):
+            fig.add_trace(go.Scatter(x=gd["_x"], y=gd[param], mode="markers", name=str(g)))
+    else:
+        fig.add_trace(go.Scatter(x=d["_x"], y=v, mode="markers", name=param,
+                                 marker=dict(color="#4393c3")))
+    for label, color, symbol in [("드리프트(연속 7점)", "orange", "diamond"),
+                                 ("관리한계 이탈", "red", "x"), ("SPEC 이탈", "darkred", "x")]:
+        hit = d[d["판정"] == label]
+        if len(hit):
+            fig.add_trace(go.Scatter(x=hit["_x"], y=hit[param], mode="markers", name=label,
+                                     marker=dict(color=color, symbol=symbol, size=13)))
+    lines = [("CL", center, "green", "solid"), ("UCL", ucl, "red", "dash"), ("LCL", lcl, "red", "dash")]
+    lines += [("USL", usl, "darkred", "dot")] if usl is not None else []
+    lines += [("LSL", lsl, "darkred", "dot")] if lsl is not None else []
+    for name, val, color, dash in lines:
+        fig.add_hline(y=val, line=dict(color=color, dash=dash, width=1),
+                      annotation_text=f"{name} {val:.4g}", annotation_position="right")
+    fig.update_layout(height=450, xaxis_title=xcol, yaxis_title=param, margin=dict(l=0, r=80, t=30, b=0))
+    return fig, d[d["판정"] != ""].drop(columns="_x"), (center, sigma, ucl, lcl)
+
+
+def page_fdc(df, num_cols, cat_cols, date_cols):
+    st.subheader("🧪 FDC LOT 분석")
+    st.caption("한 행 = 한 LOT. FDC 요약값(평균·최대 등)과 결과값(수율·CD·두께·불량 등)을 함께 붙여넣으세요.")
+    if len(num_cols) < 2:
+        st.warning("FDC 파라미터와 결과값, 수치형 항목이 2개 이상 필요합니다.")
+        return
+
+    c1, c2, c3 = st.columns(3)
+    target = c1.selectbox("결과 항목 (수율·계측값)", num_cols, index=len(num_cols) - 1)
+    good_high = c2.radio("양호 방향", ["높을수록 양호", "낮을수록 양호"], horizontal=True) == "높을수록 양호"
+    group = c3.selectbox("설비/챔버 구분", ["(없음)"] + cat_cols)
+    params = st.multiselect("FDC 파라미터", [c for c in num_cols if c != target],
+                            default=[c for c in num_cols if c != target])
+    if not params:
+        st.warning("FDC 파라미터를 1개 이상 선택하세요.")
+        return
+
+    y = df[target]
+    thr = st.number_input("Good / Bad 기준값 (기본: 중앙값)", value=float(y.median()), format="%.4g",
+                          help="이 값 이상(또는 이하)인 LOT를 Good으로 분류합니다.")
+    good = (y >= thr) if good_high else (y <= thr)
+    bad = ~good & y.notna()
+    st.caption(f"Good **{int(good.sum())}** LOT · Bad **{int(bad.sum())}** LOT")
+
+    tab_gb, tab_eq, tab_cc = st.tabs(["🔎 Good vs Bad 원인 파라미터", "🏭 설비별 상관", "📉 트렌드·관리도"])
+
+    with tab_gb:
+        rows = []
+        for p in params:
+            g, b = df.loc[good, p].dropna(), df.loc[bad, p].dropna()
+            if len(g) < 2 or len(b) < 2:
+                continue
+            _, pv = stats.ttest_ind(g, b, equal_var=False)
+            sd = np.sqrt((g.var() + b.var()) / 2)
+            pair = df[[p, target]].dropna()
+            rows.append({"파라미터": p, "Good 평균": g.mean(), "Bad 평균": b.mean(),
+                         "차이(%)": (b.mean() / g.mean() - 1) * 100 if g.mean() else np.nan,
+                         "효과크기 d": (b.mean() - g.mean()) / sd if sd else 0.0,
+                         "p-value": pv, "결과와 상관 r": pair[p].corr(pair[target], method="spearman")})
+        res = pd.DataFrame(rows)
+        if res.empty:
+            st.info("Good/Bad 그룹에 각각 2 LOT 이상이 있어야 비교할 수 있습니다.")
+        else:
+            res["보정 p-value"] = bh(res["p-value"])
+            ad = res["효과크기 d"].abs()
+            res["판정"] = np.select([(ad >= 0.8) & (res["보정 p-value"] < 0.05), ad >= 0.5],
+                                  ["🔴 주요 의심", "🟡 관찰"], "")
+            res = res.reindex(ad.sort_values(ascending=False).index)
+            st.dataframe(res.style.format({"Good 평균": "{:.4g}", "Bad 평균": "{:.4g}", "차이(%)": "{:+.2f}",
+                                           "효과크기 d": "{:+.2f}", "p-value": "{:.4f}",
+                                           "보정 p-value": "{:.4f}", "결과와 상관 r": "{:+.2f}"})
+                         .background_gradient(subset=["효과크기 d"], cmap="RdBu_r", vmin=-2, vmax=2),
+                         width="stretch", hide_index=True)
+            st.caption("효과크기 d: Bad가 Good보다 표준편차 몇 배만큼 다른지 (|d| ≥ 0.8 큼, 0.5 중간). "
+                       "상관 r은 이상치에 강한 스피어만 순위상관.")
+            top = st.selectbox("분포 비교할 파라미터", res["파라미터"])
+            d = df.loc[y.notna(), [top]].assign(판정=np.where(good[y.notna()], "Good", "Bad"))
+            st.plotly_chart(px.box(d, x="판정", y=top, color="판정", points="all",
+                                   color_discrete_map={"Good": "#4393c3", "Bad": "#d6604d"}),
+                            width="stretch")
+
+    with tab_eq:
+        if group == "(없음)":
+            st.info("위에서 '설비/챔버 구분' 열을 선택하면 설비별로 따로 상관을 계산합니다.")
+        else:
+            groups = [g for g, n in df[group].value_counts().items() if n >= 5]
+            mat = pd.DataFrame(index=params)
+            mat["전체"] = [df[[p, target]].dropna().corr(method="spearman").iloc[0, 1] for p in params]
+            for g in groups:
+                sub = df[df[group] == g]
+                mat[str(g)] = [sub[[p, target]].dropna().corr(method="spearman").iloc[0, 1] for p in params]
+            fig = px.imshow(mat, text_auto=".2f", zmin=-1, zmax=1, aspect="auto",
+                            color_continuous_scale="RdBu_r", title=f"파라미터 ↔ {target} 상관 (설비별)")
+            fig.update_layout(height=max(350, 45 * len(params)))
+            st.plotly_chart(fig, width="stretch")
+            st.caption("전체로 보면 상관이 있는데 설비별로는 없다면 → 설비 간 오프셋(설비 차이) 때문일 수 있습니다. "
+                       "설비마다 부호가 다르면 설비별로 따로 관리해야 합니다. (5 LOT 이상인 설비만 표시)")
+            summary = df.groupby(group)[[target] + params].mean().T
+            st.write("**설비별 평균**")
+            st.dataframe(summary.style.format("{:.4g}").background_gradient(axis=1, cmap="RdBu_r"),
+                         width="stretch")
+
+    with tab_cc:
+        c1, c2, c3, c4 = st.columns(4)
+        param = c1.selectbox("항목", params + [target])
+        xcol = c2.selectbox("X축", ["LOT 순서"] + date_cols, index=1 if date_cols else 0)
+        usl = parse_float(c3.text_input("USL (선택)"))
+        lsl = parse_float(c4.text_input("LSL (선택)"))
+        fig, flagged, (center, sigma, ucl, lcl) = control_chart(df, param, xcol, group, usl, lsl)
+        st.plotly_chart(fig, width="stretch")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("평균(CL)", f"{center:.4g}")
+        m2.metric("σ (이동범위)", f"{sigma:.4g}")
+        m3.metric("관리한계", f"{lcl:.4g} ~ {ucl:.4g}")
+        m4.metric("이상 LOT", len(flagged))
+        if len(flagged):
+            st.dataframe(flagged, width="stretch", hide_index=True)
+        if usl is not None and lsl is not None and sigma:
+            cpk = min(usl - center, center - lsl) / (3 * sigma)
+            st.write(f"**Cpk = {cpk:.2f}** ({'양호' if cpk >= 1.33 else '주의' if cpk >= 1 else '부족'})")
+
+    download({"원본(정제)": df}, "FDC_분석_원본.xlsx")
+
+
+# ── 모드 3: 월별 비용 추이 ───────────────────────────────────────────────────
+
+PERIODS = {"월": "M", "분기": "Q", "주": "W"}
+AGGS = {"합계": "sum", "평균": "mean", "건수": "count"}
+
+
+def page_trend(df, num_cols, cat_cols, date_cols):
+    st.subheader("📅 기간별 비용 추이")
+    if not date_cols or not num_cols:
+        st.warning("날짜 열(예: 사용일 2024-01-05)과 금액 같은 수치 열이 필요합니다.")
+        return
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    dcol = c1.selectbox("날짜 열", date_cols)
+    vcol = c2.selectbox("값 열", num_cols, index=len(num_cols) - 1)
+    agg = c3.selectbox("집계", list(AGGS))
+    period = c4.selectbox("기간 단위", list(PERIODS))
+    group = c5.selectbox("구분 (선택)", ["(없음)"] + cat_cols)
+
+    d = df.dropna(subset=[dcol, vcol]).copy()
+    d["기간"] = d[dcol].dt.to_period(PERIODS[period]).astype(str)
+    if group == "(없음)":
+        pivot = d.groupby("기간")[vcol].agg(AGGS[agg]).to_frame(vcol)
+    else:
+        pivot = d.pivot_table(index="기간", columns=group, values=vcol, aggfunc=AGGS[agg],
+                              fill_value=None if agg == "평균" else 0)
+    if pivot.empty:
+        st.info("집계할 데이터가 없습니다.")
+        return
+
+    total = d.groupby("기간")[vcol].agg(AGGS[agg])
+    m1, m2, m3 = st.columns(3)
+    m1.metric(f"전체 {agg}", f"{d[vcol].agg(AGGS[agg]):,.0f}")
+    m2.metric(f"최근 {period} ({total.index[-1]})", f"{total.iloc[-1]:,.0f}",
+              f"{(total.iloc[-1] / total.iloc[-2] - 1) * 100:+.1f}% (전{period} 대비)"
+              if len(total) > 1 and total.iloc[-2] else None, delta_color="inverse")
+    m3.metric(f"{period}평균", f"{total.mean():,.0f}")
+
+    chart = st.radio("그래프", ["선", "누적 막대"], horizontal=True)
+    long = pivot.reset_index().melt(id_vars="기간", var_name="구분", value_name="_값")
+    fig = (px.line(long, x="기간", y="_값", color="구분", markers=True) if chart == "선"
+           else px.bar(long, x="기간", y="_값", color="구분"))
+    fig.update_yaxes(title=f"{vcol} {agg}")
+    if group == "(없음)" and len(pivot) >= 3:
+        xs = np.arange(len(pivot))
+        slope, intercept = np.polyfit(xs, pivot[vcol].fillna(0), 1)
+        fig.add_trace(go.Scatter(x=pivot.index, y=slope * xs + intercept, mode="lines", name="추세선",
+                                 line=dict(dash="dash", color="gray")))
+        st.caption(f"추세: {period}당 평균 **{slope:+,.0f}** 변화")
+    fig.update_layout(height=420, margin=dict(l=0, r=0, t=30, b=0))
+    st.plotly_chart(fig, width="stretch")
+
+    tab_tbl, tab_chg, tab_pareto = st.tabs(["📋 집계표", "📈 전기 대비 증감", "📊 파레토"])
+    with tab_tbl:
+        shown = pivot.copy()
+        if group != "(없음)":
+            shown["합계"] = shown.sum(axis=1)
+        st.dataframe(shown.style.format("{:,.0f}"), width="stretch")
+    with tab_chg:
+        chg = pivot.pct_change(fill_method=None).replace([np.inf, -np.inf], np.nan) * 100
+        st.dataframe(chg.style.format("{:+.1f}%", na_rep="-")
+                     .background_gradient(cmap="RdBu_r", vmin=-50, vmax=50), width="stretch")
+        if group != "(없음)" and len(pivot) > 1:
+            delta = (pivot.iloc[-1] - pivot.iloc[-2]).sort_values(ascending=False)
+            st.write(f"**{pivot.index[-2]} → {pivot.index[-1]} 증가 상위**")
+            st.dataframe(delta.head(5).to_frame("증감").style.format("{:+,.0f}"), width="stretch")
+        st.caption("※ 마지막 기간이 아직 진행 중이면 증감이 작게 보일 수 있습니다.")
+    with tab_pareto:
+        pcol = st.selectbox("파레토 기준", cat_cols) if cat_cols else None
+        if pcol is None:
+            st.info("범주형 열(부품명·설비 등)이 있으면 비용 파레토를 그립니다.")
+        else:
+            tot = d.groupby(pcol)[vcol].sum().sort_values(ascending=False)
+            cum = tot.cumsum() / tot.sum() * 100
+            fig = go.Figure(go.Bar(x=tot.index, y=tot.values, name=f"{vcol} 합계"))
+            fig.add_trace(go.Scatter(x=cum.index, y=cum.values, name="누적 %", yaxis="y2",
+                                     mode="lines+markers", line=dict(color="#d6604d")))
+            fig.update_layout(yaxis2=dict(overlaying="y", side="right", range=[0, 105], ticksuffix="%"),
+                              height=420, margin=dict(l=0, r=0, t=30, b=0))
+            st.plotly_chart(fig, width="stretch")
+            n80 = int((cum < 80).sum()) + 1
+            st.write(f"상위 **{min(n80, len(tot))}개** {pcol}이(가) 전체 {vcol}의 80%를 차지합니다: "
+                     + ", ".join(map(str, tot.index[:n80])))
+
+    download({"기간별 집계": pivot}, "기간별_추이.xlsx")
+
+
+# ── 모드 4: 그룹 평균 비교 ───────────────────────────────────────────────────
+
+def page_group(df, num_cols, cat_cols):
+    st.subheader("⚖️ 그룹 평균 비교 (예: 설비별 수리비)")
+    if not cat_cols or not num_cols:
+        st.warning("그룹 열(설비·부품명 등)과 수치 열(수리비 등)이 필요합니다.")
+        return
+
+    c1, c2, c3 = st.columns(3)
+    gcol = c1.selectbox("그룹 열", cat_cols)
+    vcol = c2.selectbox("값 열", num_cols, index=len(num_cols) - 1)
+    sort_by = c3.selectbox("정렬", ["평균", "중앙값", "합계", "건수"])
+
+    d = df[[gcol, vcol]].dropna()
+    tbl = d.groupby(gcol)[vcol].agg(["count", "mean", "median", "std", "sum", "min", "max"])
+    tbl.columns = ["건수", "평균", "중앙값", "표준편차", "합계", "최소", "최대"]
+    tbl["95% 신뢰구간 ±"] = stats.t.ppf(0.975, (tbl["건수"] - 1).clip(lower=1)) * tbl["표준편차"] / np.sqrt(tbl["건수"])
+    overall = d[vcol].mean()
+    tbl["전체평균 대비(%)"] = (tbl["평균"] / overall - 1) * 100
+    tbl = tbl.sort_values(sort_by, ascending=False)
+
+    fig = px.bar(tbl.reset_index(), x=gcol, y="평균", error_y="95% 신뢰구간 ±", text_auto=",.0f")
+    fig.add_hline(y=overall, line=dict(dash="dash", color="gray"),
+                  annotation_text=f"전체 평균 {overall:,.0f}")
+    fig.update_layout(height=400, margin=dict(l=0, r=0, t=30, b=0))
+    st.plotly_chart(fig, width="stretch")
+    st.dataframe(tbl.style.format("{:,.0f}").format({"전체평균 대비(%)": "{:+.1f}%", "건수": "{:,.0f}"})
+                 .background_gradient(subset=["전체평균 대비(%)"], cmap="RdBu_r", vmin=-100, vmax=100),
+                 width="stretch")
+
+    samples = [g[vcol].to_numpy() for _, g in d.groupby(gcol) if len(g) >= 2]
+    if len(samples) >= 2:
+        _, p_anova = stats.f_oneway(*samples)
+        _, p_kw = stats.kruskal(*samples)
+        verdict = "있습니다 ✅" if min(p_anova, p_kw) < 0.05 else "있다고 보기 어렵습니다"
+        st.info(f"그룹 간 차이가 통계적으로 **{verdict}**  ·  ANOVA p = {p_anova:.4f}  ·  "
+                f"Kruskal-Wallis p = {p_kw:.4f} (이상치·고액 건에 강한 검정)")
+
+        rows = []
+        valid = [g for g, n in tbl["건수"].items() if n >= 2]
+        for a, b in combinations(valid, 2):
+            _, pv = stats.ttest_ind(d.loc[d[gcol] == a, vcol], d.loc[d[gcol] == b, vcol], equal_var=False)
+            rows.append({"그룹 A": a, "그룹 B": b, "평균 차이": tbl.at[a, "평균"] - tbl.at[b, "평균"],
+                         "p-value": pv})
+        pw = pd.DataFrame(rows)
+        if not pw.empty:
+            pw["보정 p-value"] = bh(pw["p-value"])
+            sig = pw[pw["보정 p-value"] < 0.05].sort_values("보정 p-value")
+            with st.expander(f"쌍별 비교: 유의한 차이 {len(sig)}쌍 / 전체 {len(pw)}쌍"):
+                st.dataframe(sig.style.format({"평균 차이": "{:+,.0f}", "p-value": "{:.4f}",
+                                               "보정 p-value": "{:.4f}"}), width="stretch", hide_index=True)
+    st.caption("※ 수리비처럼 고액 건이 섞인 데이터는 평균이 왜곡되기 쉬우니 중앙값과 Kruskal-Wallis 결과도 함께 보세요.")
+
+    tab_box, tab_cross = st.tabs(["📦 분포", "🧩 교차 비교"])
+    with tab_box:
+        st.plotly_chart(px.box(d, x=gcol, y=vcol, points="all",
+                               category_orders={gcol: list(tbl.index)}), width="stretch")
+    with tab_cross:
+        others = [c for c in cat_cols if c != gcol]
+        if not others:
+            st.info("범주 열이 2개 이상이면 교차 평균표(예: 설비 × 부품명)를 볼 수 있습니다.")
+        else:
+            ccol = st.selectbox("교차할 열", others)
+            cross = df.pivot_table(index=gcol, columns=ccol, values=vcol, aggfunc="mean")
+            fig = px.imshow(cross, text_auto=",.0f", aspect="auto", color_continuous_scale="Reds")
+            st.plotly_chart(fig, width="stretch")
+            st.caption("빈 칸 = 해당 조합의 데이터 없음")
+
+    download({"그룹별 통계": tbl}, "그룹_평균비교.xlsx")
+
+
 # ── 화면: 입력 ───────────────────────────────────────────────────────────────
 
-st.title("📊 엑셀 붙여넣기 상관분석")
+st.title("📊 엑셀 붙여넣기 분석 시스템")
 st.caption("엑셀에서 머리글 포함 범위를 복사(Ctrl+C) → 아래에 붙여넣기(Ctrl+V). 첫 행은 항목명으로 사용합니다.")
 
 with st.sidebar:
     st.header("⚙️ 설정")
-    method_label = st.radio("상관계수 방법", list(METHODS), help=(
-        "피어슨: 직선 관계 / 스피어만: 한쪽이 늘면 다른 쪽도 늘어나는 단조 관계, 이상치에 강함 / "
-        "켄달: 표본이 적을 때 안정적"))
-    method = METHODS[method_label]
+    mode = st.radio("분석 모드", MODES, key="mode")
     orient = st.radio("항목 방향", ["열 = 항목 (기본)", "행 = 항목 (전치)"],
                       help="항목이 행 방향(첫 열에 항목명)으로 나열된 표라면 '행 = 항목'을 선택하세요.")
-    min_abs = st.slider("표시할 최소 |상관계수|", 0.0, 1.0, 0.0, 0.05)
-    only_sig = st.checkbox("유의한 쌍만 보기 (보정 p < 0.05)")
 
 tab_paste, tab_file = st.tabs(["📋 붙여넣기", "📁 파일 업로드"])
 with tab_paste:
-    if st.button("샘플 데이터 넣기"):
-        st.session_state["raw"] = SAMPLE
+    b1, b2, b3 = st.columns(3)
+    b1.button("샘플: 일반 데이터", on_click=load_sample, args=(SAMPLE_BASIC, MODES[0]), width="stretch")
+    b2.button("샘플: FDC LOT", on_click=load_sample, args=(sample_fdc(), MODES[1]), width="stretch")
+    b3.button("샘플: 부품 비용/수리비", on_click=load_sample, args=(sample_cost(), MODES[2]), width="stretch")
     raw = st.text_area("데이터 붙여넣기", key="raw", height=200,
                        placeholder="여기에 엑셀 표를 붙여넣으세요…")
 with tab_file:
@@ -185,7 +687,7 @@ try:
     elif raw and raw.strip():
         df_raw = read_pasted(raw)
     else:
-        st.info("👆 데이터를 붙여넣거나 '샘플 데이터 넣기'를 눌러 시작하세요.")
+        st.info("👆 데이터를 붙여넣거나 샘플 버튼을 눌러 시작하세요.")
         st.stop()
 except Exception as e:  # noqa: BLE001 — 사용자 입력 오류는 화면에 안내
     st.error(f"데이터를 읽지 못했습니다: {e}")
@@ -195,110 +697,53 @@ df_raw = df_raw.dropna(how="all").dropna(axis=1, how="all")
 df_raw.columns = [str(c).strip() for c in df_raw.columns]
 if orient.startswith("행"):
     df_raw = df_raw.set_index(df_raw.columns[0]).T.reset_index(names="구분")
+df_raw.columns = unique_names(df_raw.columns)
 
-df, num_cols, cat_cols = classify_columns(df_raw)
+df, num_cols, cat_cols, date_cols = classify_columns(df_raw.reset_index(drop=True))
 
-# ── 화면: 데이터 요약 ────────────────────────────────────────────────────────
+# ── 필터 (모든 모드 공통) ──
+with st.sidebar:
+    st.subheader("🔽 필터")
+    fcol = st.selectbox("필터 열 (선택)", ["(없음)"] + cat_cols,
+                        help="예: 구분 = '수리'만, 설비 = ETCH 계열만")
+    if fcol != "(없음)":
+        opts = sorted(df[fcol].dropna().unique(), key=str)
+        keep = st.multiselect("포함할 값", opts, default=opts)
+        df = df[df[fcol].isin(keep)]
+    if date_cols:
+        dcol = date_cols[0]
+        lo, hi = df[dcol].min(), df[dcol].max()
+        if pd.notna(lo) and pd.notna(hi) and lo < hi:
+            rng = st.date_input(f"{dcol} 범위", (lo.date(), hi.date()), min_value=lo.date(), max_value=hi.date())
+            if isinstance(rng, tuple) and len(rng) == 2:
+                df = df[df[dcol].isna() | df[dcol].between(pd.Timestamp(rng[0]),
+                                                          pd.Timestamp(rng[1]) + pd.Timedelta(days=1),
+                                                          inclusive="left")]
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("행(관측치)", len(df))
+# ── 데이터 요약 ──
+c1, c2, c3, c4, c5 = st.columns(5)
+c1.metric("행", len(df))
 c2.metric("전체 항목", len(df.columns))
-c3.metric("수치형 항목", len(num_cols))
-c4.metric("범주형 항목", len(cat_cols))
+c3.metric("수치형", len(num_cols))
+c4.metric("범주형", len(cat_cols))
+c5.metric("날짜형", len(date_cols))
 
 with st.expander("🔍 데이터 미리보기 · 항목 인식 결과", expanded=False):
     st.dataframe(df, width="stretch", height=250)
     st.write("**수치형:**", ", ".join(num_cols) or "없음")
     st.write("**범주형:**", ", ".join(cat_cols) or "없음")
-    skipped = [c for c in df.columns if c not in num_cols + cat_cols]
+    st.write("**날짜형:**", ", ".join(date_cols) or "없음")
+    skipped = [c for c in df.columns if c not in num_cols + cat_cols + date_cols]
     if skipped:
-        st.write("**분석 제외 (ID·날짜·고유값 등):**", ", ".join(skipped))
+        st.write("**분석 제외 (LOT ID 등 고유값):**", ", ".join(skipped))
 
-selected = st.multiselect("분석할 수치형 항목", num_cols, default=num_cols)
-if len(selected) < 2:
-    st.warning("상관분석에는 수치형 항목이 2개 이상 필요합니다.")
-    st.stop()
-
-num = df[selected]
-corr = num.corr(method=method)
-pairs = pair_table(num, method)
-
-tab_heat, tab_rank, tab_target, tab_scatter, tab_cat = st.tabs(
-    ["🟥 상관 히트맵", "🏆 상관 순위", "🎯 타깃 분석", "📈 산점도", "🏷️ 범주형"])
-
-# ── 히트맵 ──
-with tab_heat:
-    fig = px.imshow(corr, text_auto=".2f", zmin=-1, zmax=1, aspect="auto",
-                    color_continuous_scale="RdBu_r")
-    fig.update_layout(height=max(400, 45 * len(selected)), margin=dict(l=0, r=0, t=30, b=0))
-    st.plotly_chart(fig, width="stretch")
-    st.caption("빨강 = 양(+)의 상관 · 파랑 = 음(-)의 상관 · 흰색 = 상관 없음")
-
-# ── 순위 ──
-with tab_rank:
-    view = pairs[pairs["상관계수"].abs() >= min_abs] if not pairs.empty else pairs
-    if only_sig and not view.empty:
-        view = view[view["유의(5%)"] == "✅"]
-    if view.empty:
-        st.info("조건에 맞는 항목 쌍이 없습니다.")
-    else:
-        st.dataframe(view.style.format({"상관계수": "{:+.3f}", "p-value": "{:.4f}",
-                                        "보정 p-value": "{:.4f}"})
-                     .background_gradient(subset=["상관계수"], cmap="RdBu_r", vmin=-1, vmax=1),
-                     width="stretch", hide_index=True)
-        top = view.iloc[0]
-        st.success(f"가장 강한 관계: **{top['항목 A']} ↔ {top['항목 B']}** "
-                   f"(r = {top['상관계수']:+.2f}, {top['해석']})")
-    st.caption("※ 상관관계는 인과관계가 아닙니다. 보정 p-value는 여러 쌍을 동시에 검정한 것을 감안한 값(BH-FDR)입니다.")
-
-# ── 타깃 ──
-with tab_target:
-    target = st.selectbox("결과(타깃) 항목", selected, index=len(selected) - 1)
-    t = corr[target].drop(target).sort_values(key=abs, ascending=True)
-    fig = go.Figure(go.Bar(x=t.values, y=t.index, orientation="h",
-                           marker_color=np.where(t.values >= 0, "#d6604d", "#4393c3"),
-                           text=[f"{v:+.2f}" for v in t.values], textposition="outside"))
-    fig.update_layout(xaxis=dict(range=[-1.1, 1.1], title="상관계수"),
-                      height=max(300, 40 * len(t)), margin=dict(l=0, r=0, t=30, b=0),
-                      title=f"'{target}'에 영향을 주는(함께 움직이는) 항목")
-    st.plotly_chart(fig, width="stretch")
-
-# ── 산점도 ──
-with tab_scatter:
-    a_col, b_col = st.columns(2)
-    x = a_col.selectbox("X축", selected, index=0)
-    y = b_col.selectbox("Y축", selected, index=1)
-    color = st.selectbox("색상 구분 (범주형, 선택)", ["(없음)"] + cat_cols)
-    d = df[[x, y] + ([color] if color != "(없음)" else [])].dropna(subset=[x, y])
-    fig = px.scatter(d, x=x, y=y, color=None if color == "(없음)" else color)
-    if len(d) >= 2 and x != y:
-        slope, intercept = np.polyfit(d[x], d[y], 1)
-        xs = np.linspace(d[x].min(), d[x].max(), 50)
-        fig.add_trace(go.Scatter(x=xs, y=slope * xs + intercept, mode="lines",
-                                 name="추세선", line=dict(dash="dash", color="gray")))
-        r = d[x].corr(d[y], method=method)
-        st.markdown(f"**r = {r:+.3f}** ({strength(r)}) · 추세선: `{y} = {slope:.4g} × {x} + {intercept:.4g}`")
-    st.plotly_chart(fig, width="stretch")
-
-# ── 범주형 ──
-with tab_cat:
-    if not cat_cols:
-        st.info("범주형 항목(예: 라인, 지역, 제품군)이 있으면 그룹별 차이를 분석합니다.")
-    else:
-        eta = pd.DataFrame({c: [correlation_ratio(df[c], df[v]) for v in selected] for c in cat_cols},
-                           index=selected)
-        st.write("**범주형 ↔ 수치형 연관도 η (0 = 무관, 1 = 범주가 값을 완전히 결정)**")
-        st.dataframe(eta.style.format("{:.2f}").background_gradient(cmap="Reds", vmin=0, vmax=1),
-                     width="stretch")
-        g1, g2 = st.columns(2)
-        cat = g1.selectbox("범주 항목", cat_cols)
-        val = g2.selectbox("값 항목", selected)
-        st.plotly_chart(px.box(df, x=cat, y=val, points="all"), width="stretch")
-
-# ── 다운로드 ──
-st.divider()
-st.download_button("📥 분석 결과 엑셀 다운로드",
-                   to_excel({"상관행렬": corr, "상관순위": pairs.set_index(["항목 A", "항목 B"]),
-                             "원본(정제)": df}),
-                   file_name="상관분석_결과.xlsx",
-                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+if df.empty:
+    st.warning("필터 조건에 맞는 데이터가 없습니다.")
+elif mode == MODES[0]:
+    page_corr(df, num_cols, cat_cols)
+elif mode == MODES[1]:
+    page_fdc(df, num_cols, cat_cols, date_cols)
+elif mode == MODES[2]:
+    page_trend(df, num_cols, cat_cols, date_cols)
+else:
+    page_group(df, num_cols, cat_cols)
