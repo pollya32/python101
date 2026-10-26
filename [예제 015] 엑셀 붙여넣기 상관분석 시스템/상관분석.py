@@ -43,31 +43,39 @@ SAMPLE_BASIC = """일자\t온도(℃)\t습도(%)\t광고비\t방문자수\t매�
 2024-01-15\t11.2\t78%\t2,600,000\t690\t8,350,000\t1.7%"""
 
 
-def sample_fdc() -> str:
-    """식각 설비 LOT별 FDC 요약값 + 수율 (ETCH-03 압력 오프셋, LOT 46~50 온도 드리프트 포함)."""
+def sample_fdc() -> tuple[str, str]:
+    """세로형 FDC (LOT|Step|설비|진행일시|파라미터|값, 파라미터당 3회 측정) + 별도 수율표.
+    ETCH-03 압력 오프셋, LOT 46~50 ESC 온도 드리프트 포함."""
     rng = np.random.default_rng(7)
     n = 60
-    eq = rng.choice(["ETCH-01", "ETCH-02", "ETCH-03"], n)
-    rf = rng.normal(1500, 15, n)
-    press = rng.normal(30, 0.8, n) + np.where(eq == "ETCH-03", 1.2, 0)
+    lots = [f"LOT{2403001 + i}" for i in range(n)]
+    t0 = pd.date_range("2024-03-01", periods=n, freq="8h")
+    etch_eq = rng.choice(["ETCH-01", "ETCH-02", "ETCH-03"], n)
     temp = rng.normal(60, 1.0, n)
     temp[45:50] += 5
-    gas = rng.normal(200, 3, n)
-    ept = rng.normal(45, 2, n) + 0.02 * (rf - 1500)
+    rf = rng.normal(1500, 15, n)
+    params = {
+        "ETCH": {"RF_Power": (rf, 3),
+                 "Chamber_Press": (rng.normal(30, 0.8, n) + np.where(etch_eq == "ETCH-03", 1.2, 0), 0.2),
+                 "ESC_Temp": (temp, 0.3),
+                 "Gas_Flow": (rng.normal(200, 3, n), 1),
+                 "EPD_Time": (rng.normal(45, 2, n) + 0.02 * (rf - 1500), 0.5)},
+        "DEP": {"Heater_Temp": (rng.normal(400, 2, n), 0.5),
+                "Dep_Rate": (rng.normal(50, 1, n), 0.3)},
+    }
+    tools = {"ETCH": etch_eq, "DEP": rng.choice(["CVD-01", "CVD-02"], n)}
+    rows = []
+    for i, lot in enumerate(lots):
+        for k, (step, plist) in enumerate(params.items()):
+            when = (t0[i] + pd.Timedelta(hours=3 * k)).strftime("%Y-%m-%d %H:%M")
+            for name, (base, noise) in plist.items():
+                for v in base[i] + rng.normal(0, noise, 3):
+                    rows.append((lot, step, tools[step][i], when, name, round(v, 3)))
+    long = pd.DataFrame(rows, columns=["LOT_ID", "Step", "설비", "진행일시", "파라미터", "값"])
+    press = params["ETCH"]["Chamber_Press"][0]
     yld = 97 - 0.6 * (temp - 60) - 1.1 * (press - 30) + rng.normal(0, 0.6, n)
-    df = pd.DataFrame({
-        "LOT_ID": [f"LOT{2403001 + i}" for i in range(n)],
-        "진행일시": pd.date_range("2024-03-01", periods=n, freq="8h").strftime("%Y-%m-%d %H:%M"),
-        "설비": eq,
-        "챔버": rng.choice(["A", "B"], n),
-        "RF_Power(W)": rf.round(1),
-        "Chamber_Press(mTorr)": press.round(2),
-        "ESC_Temp(℃)": temp.round(2),
-        "Gas_Flow(sccm)": gas.round(1),
-        "EPD_Time(s)": ept.round(1),
-        "수율(%)": yld.round(2),
-    })
-    return df.to_csv(sep="\t", index=False)
+    result = pd.DataFrame({"LOT_ID": lots, "수율(%)": yld.round(2)}).iloc[:-2]  # 마지막 2 LOT은 결과 미입력
+    return long.to_csv(sep="\t", index=False), result.to_csv(sep="\t", index=False)
 
 
 def sample_cost() -> str:
@@ -89,8 +97,9 @@ def sample_cost() -> str:
     return df.sort_values("사용일").to_csv(sep="\t", index=False)
 
 
-def load_sample(text: str, mode: str):
+def load_sample(text: str, mode: str, result: str = ""):
     st.session_state["raw"] = text
+    st.session_state["result_raw"] = result
     st.session_state["mode"] = mode
 
 
@@ -397,9 +406,135 @@ def control_chart(df, param, xcol, group, usl, lsl):
     return fig, d[d["판정"] != ""].drop(columns="_x"), (center, sigma, ucl, lcl)
 
 
+FDC_STATS = {"평균": "mean", "최대": "max", "최소": "min", "표준편차": "std",
+             "범위": lambda v: v.max() - v.min(), "중앙값": "median", "마지막": "last"}
+LOT_KEYS = ("lot",)
+STEP_KEYS = ("step", "스텝", "공정", "oper", "process")
+PARAM_KEYS = ("param", "파라미터", "항목", "item", "sensor", "센서", "svid")
+VALUE_KEYS = ("value", "값", "val", "data")
+
+
+def guess(cols, keywords, default=None):
+    """열 이름에 키워드가 들어 있는 첫 열."""
+    return next((c for c in cols if any(k in str(c).lower() for k in keywords)), default)
+
+
+def as_label(s: pd.Series) -> pd.Series:
+    """1010.0 → '1010' 처럼 열 이름으로 쓸 문자열로 변환."""
+    return s.map(lambda v: f"{v:g}" if isinstance(v, (int, float, np.number)) else str(v).strip())
+
+
+def pivot_long(df, lot, step, param, val, stat_names):
+    """세로형(LOT|Step|파라미터|값) → 한 행 = 한 LOT, 열 = 'Step:파라미터'."""
+    d = df.dropna(subset=[lot, param]).copy()
+    d[val] = to_number(d[val]) if not pd.api.types.is_numeric_dtype(d[val]) else d[val]
+    d = d.dropna(subset=[val])
+    d[lot] = as_label(d[lot])
+    d["_열"] = as_label(d[param])
+    if step:
+        d[step] = as_label(d[step])
+        d["_열"] = d[step] + ":" + d["_열"]
+
+    parts = []
+    for name in stat_names:
+        p = d.pivot_table(index=lot, columns="_열", values=val, aggfunc=FDC_STATS[name])
+        if len(stat_names) > 1:
+            p.columns = [f"{c}[{name}]" for c in p.columns]
+        parts.append(p)
+    wide = pd.concat(parts, axis=1)
+    wide = wide[sorted(wide.columns)]
+
+    # 설비·진행일시 같은 나머지 열: Step마다 다르면 'Step:열'로, 같으면 하나로
+    key = [lot] + ([step] if step else [])
+    carry = []
+    for c in [c for c in df.columns if c not in (lot, step, param, val)]:
+        per = d.groupby(key)[c].first()
+        if step and per.groupby(level=0).nunique().max() > 1:
+            u = per.unstack(step)
+            u.columns = [f"{x}:{c}" for x in u.columns]
+            carry.append(u)
+        else:
+            carry.append(per.groupby(level=0).first().rename(c))
+    out = pd.concat(carry + [wide], axis=1)
+    out.index.name = lot
+    return out.reset_index()
+
+
+def merge_result(wide, lot, text):
+    """별도로 붙여넣은 결과표(LOT | 수율 …)를 LOT 기준으로 합침."""
+    res = read_pasted(text)
+    res.columns = unique_names(str(c).strip() for c in res.columns)
+    rkey = lot if lot in res.columns else guess(res.columns, LOT_KEYS, res.columns[0])
+    res[rkey] = res[rkey].astype(str).str.strip()
+    res = res.drop_duplicates(rkey).rename(columns={rkey: lot})
+    merged = wide.merge(res, on=lot, how="left", suffixes=("", "_결과"))
+    return merged, int(wide[lot].isin(res[lot]).sum())
+
+
 def page_fdc(df, num_cols, cat_cols, date_cols):
     st.subheader("🧪 FDC LOT 분석")
-    st.caption("한 행 = 한 LOT. FDC 요약값(평균·최대 등)과 결과값(수율·CD·두께·불량 등)을 함께 붙여넣으세요.")
+    cols = list(df.columns)
+    param_guess = guess(cols, PARAM_KEYS)
+    is_long = param_guess is not None and param_guess not in num_cols
+    shape = st.radio("데이터 형태", ["세로형 (LOT | Step | 파라미터 | 값)", "가로형 (한 행 = 한 LOT)"],
+                     index=0 if is_long else 1, horizontal=True)
+    if shape.startswith("가로"):
+        st.caption("한 행 = 한 LOT. FDC 요약값(평균·최대 등)과 결과값(수율·CD·두께·불량 등)을 함께 붙여넣으세요.")
+        fdc_analysis(df, num_cols, cat_cols, date_cols, {})
+        return
+
+    st.caption("세로형 FDC를 LOT별 한 행으로 펼칩니다. 수율·계측값은 위 '🎯 결과 데이터' 탭에 따로 붙여넣으면 LOT 기준으로 합쳐집니다.")
+    c1, c2, c3, c4 = st.columns(4)
+
+    def pick(box, label, keys, fallback, optional=False):
+        options = (["(없음)"] if optional else []) + cols
+        default = guess(cols, keys, fallback)
+        return box.selectbox(label, options, index=options.index(default) if default in options else 0)
+
+    lot = pick(c1, "LOT 열", LOT_KEYS, cols[0])
+    step = pick(c2, "Step 열", STEP_KEYS, "(없음)", optional=True)
+    param = pick(c3, "파라미터 열", PARAM_KEYS, cols[min(2, len(cols) - 1)])
+    val = pick(c4, "값 열", VALUE_KEYS, num_cols[-1] if num_cols else cols[-1])
+    step = None if step == "(없음)" else step
+    if len({lot, step, param, val} - {None}) < (4 if step else 3):
+        st.warning("LOT · Step · 파라미터 · 값 열은 서로 달라야 합니다.")
+        return
+
+    c1, c2, c3 = st.columns(3)
+    stat_names = c1.multiselect("LOT 요약 방법 (한 LOT·Step·파라미터에 값이 여러 개일 때)",
+                                list(FDC_STATS), default=["평균"])
+    steps = sorted(as_label(df[step].dropna()).unique()) if step else []
+    keep_steps = c2.multiselect("Step 선택", steps, default=steps) if step else []
+    all_params = sorted(as_label(df[param].dropna()).unique())
+    keep_params = c3.multiselect("파라미터 선택", all_params, default=all_params)
+    if not stat_names or not keep_params or (step and not keep_steps):
+        st.warning("요약 방법 · Step · 파라미터를 1개 이상 선택하세요.")
+        return
+
+    d = df[as_label(df[param]).isin(keep_params)]
+    if step:
+        d = d[as_label(d[step]).isin(keep_steps)]
+    wide = pivot_long(d, lot, step, param, val, stat_names)
+
+    result_text = st.session_state.get("result_raw", "")
+    if result_text.strip():
+        try:
+            wide, matched = merge_result(wide, lot, result_text)
+            (st.caption if matched == len(wide) else st.warning)(
+                f"결과 데이터 매칭: **{matched} / {len(wide)} LOT**")
+        except Exception as e:  # noqa: BLE001
+            st.error(f"결과 데이터를 읽지 못했습니다: {e}")
+    else:
+        st.info("결과값(수율 등)이 없으면 FDC 파라미터끼리만 분석됩니다. '🎯 결과 데이터' 탭에 붙여넣어 보세요.")
+
+    wdf, wnum, wcat, wdate = classify_columns(wide)
+    wnum = [c for c in wnum if c != lot]  # 숫자로 된 LOT 번호는 파라미터가 아님
+    with st.expander(f"🔄 변환 결과: {len(wdf)} LOT × {len(wnum)} 수치 항목", expanded=False):
+        st.dataframe(wdf, width="stretch", height=250)
+    fdc_analysis(wdf, wnum, wcat, wdate, {"LOT별 변환표": wdf.set_index(lot)})
+
+
+def fdc_analysis(df, num_cols, cat_cols, date_cols, extra_sheets):
     if len(num_cols) < 2:
         st.warning("FDC 파라미터와 결과값, 수치형 항목이 2개 이상 필요합니다.")
         return
@@ -465,15 +600,16 @@ def page_fdc(df, num_cols, cat_cols, date_cols):
             groups = [g for g, n in df[group].value_counts().items() if n >= 5]
             mat = pd.DataFrame(index=params)
             mat["전체"] = [df[[p, target]].dropna().corr(method="spearman").iloc[0, 1] for p in params]
+            mat = mat.reindex(mat["전체"].abs().sort_values(ascending=False).index[:30])
             for g in groups:
                 sub = df[df[group] == g]
-                mat[str(g)] = [sub[[p, target]].dropna().corr(method="spearman").iloc[0, 1] for p in params]
+                mat[str(g)] = [sub[[p, target]].dropna().corr(method="spearman").iloc[0, 1] for p in mat.index]
             fig = px.imshow(mat, text_auto=".2f", zmin=-1, zmax=1, aspect="auto",
                             color_continuous_scale="RdBu_r", title=f"파라미터 ↔ {target} 상관 (설비별)")
-            fig.update_layout(height=max(350, 45 * len(params)))
+            fig.update_layout(height=max(350, 45 * len(mat)))
             st.plotly_chart(fig, width="stretch")
             st.caption("전체로 보면 상관이 있는데 설비별로는 없다면 → 설비 간 오프셋(설비 차이) 때문일 수 있습니다. "
-                       "설비마다 부호가 다르면 설비별로 따로 관리해야 합니다. (5 LOT 이상인 설비만 표시)")
+                       "설비마다 부호가 다르면 설비별로 따로 관리해야 합니다. (5 LOT 이상인 설비, 전체 상관 상위 30개 파라미터)")
             summary = df.groupby(group)[[target] + params].mean().T
             st.write("**설비별 평균**")
             st.dataframe(summary.style.format("{:.4g}").background_gradient(axis=1, cmap="RdBu_r"),
@@ -498,7 +634,7 @@ def page_fdc(df, num_cols, cat_cols, date_cols):
             cpk = min(usl - center, center - lsl) / (3 * sigma)
             st.write(f"**Cpk = {cpk:.2f}** ({'양호' if cpk >= 1.33 else '주의' if cpk >= 1 else '부족'})")
 
-    download({"원본(정제)": df}, "FDC_분석_원본.xlsx")
+    download({**extra_sheets, "원본(정제)": df}, "FDC_분석.xlsx")
 
 
 # ── 모드 3: 월별 비용 추이 ───────────────────────────────────────────────────
@@ -670,16 +806,21 @@ with st.sidebar:
     orient = st.radio("항목 방향", ["열 = 항목 (기본)", "행 = 항목 (전치)"],
                       help="항목이 행 방향(첫 열에 항목명)으로 나열된 표라면 '행 = 항목'을 선택하세요.")
 
-tab_paste, tab_file = st.tabs(["📋 붙여넣기", "📁 파일 업로드"])
+tab_paste, tab_file, tab_result = st.tabs(["📋 붙여넣기", "📁 파일 업로드", "🎯 결과 데이터 (FDC 세로형용, 선택)"])
 with tab_paste:
     b1, b2, b3 = st.columns(3)
     b1.button("샘플: 일반 데이터", on_click=load_sample, args=(SAMPLE_BASIC, MODES[0]), width="stretch")
-    b2.button("샘플: FDC LOT", on_click=load_sample, args=(sample_fdc(), MODES[1]), width="stretch")
+    fdc_long, fdc_result = sample_fdc()
+    b2.button("샘플: FDC 세로형 + 수율", on_click=load_sample, args=(fdc_long, MODES[1], fdc_result),
+              width="stretch")
     b3.button("샘플: 부품 비용/수리비", on_click=load_sample, args=(sample_cost(), MODES[2]), width="stretch")
     raw = st.text_area("데이터 붙여넣기", key="raw", height=200,
                        placeholder="여기에 엑셀 표를 붙여넣으세요…")
 with tab_file:
     up = st.file_uploader("엑셀/CSV 파일", type=["xlsx", "xlsm", "xls", "csv", "txt", "tsv"])
+with tab_result:
+    st.text_area("LOT별 결과값 붙여넣기 (예: LOT_ID | 수율 | CD …)", key="result_raw", height=150,
+                 placeholder="FDC가 세로형일 때 수율·계측값 표를 여기에 붙여넣으면 LOT 기준으로 합쳐집니다.")
 
 try:
     if up is not None:
