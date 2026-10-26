@@ -20,7 +20,7 @@ from scipy import stats
 
 st.set_page_config(page_title="엑셀 분석 시스템", page_icon="📊", layout="wide")
 
-MODES = ["🔗 상관분석", "🧪 FDC LOT 분석", "📅 월별 비용 추이", "⚖️ 그룹 평균 비교"]
+MODES = ["🔗 상관분석", "🧪 FDC LOT/Wafer 분석", "📅 월별 비용 추이", "⚖️ 그룹 평균 비교"]
 
 
 # ── 샘플 데이터 ──────────────────────────────────────────────────────────────
@@ -44,37 +44,41 @@ SAMPLE_BASIC = """일자\t온도(℃)\t습도(%)\t광고비\t방문자수\t매�
 
 
 def sample_fdc() -> tuple[str, str]:
-    """세로형 FDC (LOT|Step|설비|진행일시|파라미터|값, 파라미터당 3회 측정) + 별도 수율표.
-    ETCH-03 압력 오프셋, LOT 46~50 ESC 온도 드리프트 포함."""
+    """세로형 Wafer FDC (LOT|WAFER|Step|설비|진행일시|파라미터|값) + 별도 Wafer 수율표.
+    LOT 단위 원인: ETCH-03 압력 오프셋, LOT 23~25 ESC 온도 드리프트
+    Wafer 단위 원인: 1~2번 슬롯 Dep_Rate 저하 (first wafer effect)"""
     rng = np.random.default_rng(7)
-    n = 60
-    lots = [f"LOT{2403001 + i}" for i in range(n)]
-    t0 = pd.date_range("2024-03-01", periods=n, freq="8h")
-    etch_eq = rng.choice(["ETCH-01", "ETCH-02", "ETCH-03"], n)
-    temp = rng.normal(60, 1.0, n)
-    temp[45:50] += 5
-    rf = rng.normal(1500, 15, n)
-    params = {
-        "ETCH": {"RF_Power": (rf, 3),
-                 "Chamber_Press": (rng.normal(30, 0.8, n) + np.where(etch_eq == "ETCH-03", 1.2, 0), 0.2),
-                 "ESC_Temp": (temp, 0.3),
-                 "Gas_Flow": (rng.normal(200, 3, n), 1),
-                 "EPD_Time": (rng.normal(45, 2, n) + 0.02 * (rf - 1500), 0.5)},
-        "DEP": {"Heater_Temp": (rng.normal(400, 2, n), 0.5),
-                "Dep_Rate": (rng.normal(50, 1, n), 0.3)},
-    }
-    tools = {"ETCH": etch_eq, "DEP": rng.choice(["CVD-01", "CVD-02"], n)}
-    rows = []
+    n_lot, n_wf = 30, 10
+    lots = [f"LOT{2403001 + i}" for i in range(n_lot)]
+    t0 = pd.date_range("2024-03-01", periods=n_lot, freq="8h")
+    etch_eq = rng.choice(["ETCH-01", "ETCH-02", "ETCH-03"], n_lot)
+    dep_eq = rng.choice(["CVD-01", "CVD-02"], n_lot)
+    lot_temp = rng.normal(60, 1.0, n_lot)
+    lot_temp[22:25] += 5
+    lot_press = rng.normal(30, 0.8, n_lot) + np.where(etch_eq == "ETCH-03", 1.2, 0)
+    lot_rf = rng.normal(1500, 15, n_lot)
+    slot = np.arange(1, n_wf + 1)
+    rows, res = [], []
     for i, lot in enumerate(lots):
-        for k, (step, plist) in enumerate(params.items()):
-            when = (t0[i] + pd.Timedelta(hours=3 * k)).strftime("%Y-%m-%d %H:%M")
-            for name, (base, noise) in plist.items():
-                for v in base[i] + rng.normal(0, noise, 3):
-                    rows.append((lot, step, tools[step][i], when, name, round(v, 3)))
-    long = pd.DataFrame(rows, columns=["LOT_ID", "Step", "설비", "진행일시", "파라미터", "값"])
-    press = params["ETCH"]["Chamber_Press"][0]
-    yld = 97 - 0.6 * (temp - 60) - 1.1 * (press - 30) + rng.normal(0, 0.6, n)
-    result = pd.DataFrame({"LOT_ID": lots, "수율(%)": yld.round(2)}).iloc[:-2]  # 마지막 2 LOT은 결과 미입력
+        rf = lot_rf[i] + rng.normal(0, 3, n_wf)
+        press = lot_press[i] + rng.normal(0, 0.2, n_wf)
+        temp = lot_temp[i] + rng.normal(0, 0.3, n_wf)
+        dep = rng.normal(50, 0.5, n_wf) - np.where(slot <= 2, 2.5, 0)
+        values = {"ETCH": {"RF_Power": rf, "Chamber_Press": press, "ESC_Temp": temp,
+                           "Gas_Flow": rng.normal(200, 3, n_wf),
+                           "EPD_Time": 45 + 0.02 * (rf - 1500) + rng.normal(0, 1, n_wf)},
+                  "DEP": {"Heater_Temp": rng.normal(400, 2, n_wf), "Dep_Rate": dep}}
+        tools = {"ETCH": etch_eq[i], "DEP": dep_eq[i]}
+        yld = 97 - 0.6 * (temp - 60) - 1.1 * (press - 30) + 0.5 * (dep - 50) + rng.normal(0, 0.5, n_wf)
+        for w in range(n_wf):
+            wid = f"W{w + 1:02d}"
+            for k, (step, plist) in enumerate(values.items()):
+                when = (t0[i] + pd.Timedelta(hours=3 * k, minutes=6 * w)).strftime("%Y-%m-%d %H:%M")
+                for name, v in plist.items():
+                    rows.append((lot, wid, step, tools[step], when, name, round(float(v[w]), 3)))
+            res.append((lot, wid, round(float(yld[w]), 2)))
+    long = pd.DataFrame(rows, columns=["LOT_ID", "WAFER", "Step", "설비", "진행일시", "파라미터", "값"])
+    result = pd.DataFrame(res, columns=["LOT_ID", "WAFER", "수율(%)"]).iloc[:-3]  # 마지막 3장은 결과 미입력
     return long.to_csv(sep="\t", index=False), result.to_csv(sep="\t", index=False)
 
 
@@ -359,10 +363,13 @@ def page_corr(df, num_cols, cat_cols):
 
 # ── 모드 2: FDC LOT 분석 ─────────────────────────────────────────────────────
 
+SEQ = "진행 순서"
+
+
 def control_chart(df, param, xcol, group, usl, lsl):
     """I-관리도: σ = 평균 이동범위 / 1.128. 관리한계 이탈 + 중심선 한쪽 연속 7점(드리프트) 표시."""
     d = df.dropna(subset=[param]).copy()
-    if xcol != "LOT 순서":
+    if xcol != SEQ:
         d = d.dropna(subset=[xcol]).sort_values(xcol)
         d["_x"] = d[xcol]
     else:
@@ -409,9 +416,11 @@ def control_chart(df, param, xcol, group, usl, lsl):
 FDC_STATS = {"평균": "mean", "최대": "max", "최소": "min", "표준편차": "std",
              "범위": lambda v: v.max() - v.min(), "중앙값": "median", "마지막": "last"}
 LOT_KEYS = ("lot",)
+WAFER_KEYS = ("wafer", "웨이퍼", "slot", "슬롯", "wf")
 STEP_KEYS = ("step", "스텝", "공정", "oper", "process")
 PARAM_KEYS = ("param", "파라미터", "항목", "item", "sensor", "센서", "svid")
 VALUE_KEYS = ("value", "값", "val", "data")
+SLOT = "Slot번호"
 
 
 def guess(cols, keywords, default=None):
@@ -419,17 +428,25 @@ def guess(cols, keywords, default=None):
     return next((c for c in cols if any(k in str(c).lower() for k in keywords)), default)
 
 
+def _fmt(v) -> str:
+    v = float(v)
+    return str(int(v)) if v.is_integer() else f"{v:g}"
+
+
 def as_label(s: pd.Series) -> pd.Series:
-    """1010.0 → '1010' 처럼 열 이름으로 쓸 문자열로 변환."""
-    return s.map(lambda v: f"{v:g}" if isinstance(v, (int, float, np.number)) else str(v).strip())
+    """키·열 이름용 문자열. 숫자는 1010.0 → '1010', '07' → '7' 로 통일해 두 표의 키가 맞도록 함."""
+    t = s.map(lambda v: _fmt(v) if isinstance(v, (int, float, np.number)) else str(v).strip())
+    num = pd.to_numeric(t, errors="coerce")
+    return t.where(num.isna(), num.map(lambda v: _fmt(v) if pd.notna(v) else v))
 
 
-def pivot_long(df, lot, step, param, val, stat_names):
-    """세로형(LOT|Step|파라미터|값) → 한 행 = 한 LOT, 열 = 'Step:파라미터'."""
-    d = df.dropna(subset=[lot, param]).copy()
+def pivot_long(df, keys, step, param, val, stat_names):
+    """세로형(LOT|Wafer|Step|파라미터|값) → 한 행 = 한 LOT(또는 Wafer), 열 = 'Step:파라미터'."""
+    d = df.dropna(subset=keys + [param]).copy()
     d[val] = to_number(d[val]) if not pd.api.types.is_numeric_dtype(d[val]) else d[val]
     d = d.dropna(subset=[val])
-    d[lot] = as_label(d[lot])
+    for k in keys:
+        d[k] = as_label(d[k])
     d["_열"] = as_label(d[param])
     if step:
         d[step] = as_label(d[step])
@@ -437,7 +454,7 @@ def pivot_long(df, lot, step, param, val, stat_names):
 
     parts = []
     for name in stat_names:
-        p = d.pivot_table(index=lot, columns="_열", values=val, aggfunc=FDC_STATS[name])
+        p = d.pivot_table(index=keys, columns="_열", values=val, aggfunc=FDC_STATS[name])
         if len(stat_names) > 1:
             p.columns = [f"{c}[{name}]" for c in p.columns]
         parts.append(p)
@@ -445,68 +462,79 @@ def pivot_long(df, lot, step, param, val, stat_names):
     wide = wide[sorted(wide.columns)]
 
     # 설비·진행일시 같은 나머지 열: Step마다 다르면 'Step:열'로, 같으면 하나로
-    key = [lot] + ([step] if step else [])
+    by = keys + ([step] if step else [])
     carry = []
-    for c in [c for c in df.columns if c not in (lot, step, param, val)]:
-        per = d.groupby(key)[c].first()
-        if step and per.groupby(level=0).nunique().max() > 1:
+    for c in [c for c in df.columns if c not in keys + [step, param, val]]:
+        per = d.groupby(by)[c].first()
+        if step and per.groupby(level=keys).nunique().max() > 1:
             u = per.unstack(step)
             u.columns = [f"{x}:{c}" for x in u.columns]
             carry.append(u)
         else:
-            carry.append(per.groupby(level=0).first().rename(c))
+            carry.append(per.groupby(level=keys).first().rename(c))
     out = pd.concat(carry + [wide], axis=1)
-    out.index.name = lot
+    out.index.names = keys
     return out.reset_index()
 
 
-def merge_result(wide, lot, text):
-    """별도로 붙여넣은 결과표(LOT | 수율 …)를 LOT 기준으로 합침."""
+def merge_result(wide, keys, text):
+    """별도로 붙여넣은 결과표(LOT | Wafer | 수율 …)를 키 기준으로 합침."""
     res = read_pasted(text)
     res.columns = unique_names(str(c).strip() for c in res.columns)
-    rkey = lot if lot in res.columns else guess(res.columns, LOT_KEYS, res.columns[0])
-    res[rkey] = res[rkey].astype(str).str.strip()
-    res = res.drop_duplicates(rkey).rename(columns={rkey: lot})
-    merged = wide.merge(res, on=lot, how="left", suffixes=("", "_결과"))
-    return merged, int(wide[lot].isin(res[lot]).sum())
+    for pos, (k, words) in enumerate(zip(keys, (LOT_KEYS, WAFER_KEYS))):
+        rk = k if k in res.columns else guess(res.columns, words, res.columns[pos])
+        res = res.rename(columns={rk: k})
+        res[k] = as_label(res[k])
+    res = res.drop_duplicates(keys)
+    merged = wide.merge(res, on=keys, how="left", suffixes=("", "_결과"))
+    matched = int(wide.set_index(keys).index.isin(res.set_index(keys).index).sum())
+    return merged, matched
 
 
 def page_fdc(df, num_cols, cat_cols, date_cols):
-    st.subheader("🧪 FDC LOT 분석")
+    st.subheader("🧪 FDC LOT / Wafer 분석")
     cols = list(df.columns)
     param_guess = guess(cols, PARAM_KEYS)
     is_long = param_guess is not None and param_guess not in num_cols
-    shape = st.radio("데이터 형태", ["세로형 (LOT | Step | 파라미터 | 값)", "가로형 (한 행 = 한 LOT)"],
+    shape = st.radio("데이터 형태", ["세로형 (LOT | Wafer | Step | 파라미터 | 값)", "가로형 (한 행 = 한 LOT/Wafer)"],
                      index=0 if is_long else 1, horizontal=True)
     if shape.startswith("가로"):
-        st.caption("한 행 = 한 LOT. FDC 요약값(평균·최대 등)과 결과값(수율·CD·두께·불량 등)을 함께 붙여넣으세요.")
+        st.caption("한 행 = 한 LOT(또는 Wafer). FDC 요약값과 결과값(수율·CD·두께·불량 등)을 함께 붙여넣으세요.")
         fdc_analysis(df, num_cols, cat_cols, date_cols, {})
         return
 
-    st.caption("세로형 FDC를 LOT별 한 행으로 펼칩니다. 수율·계측값은 위 '🎯 결과 데이터' 탭에 따로 붙여넣으면 LOT 기준으로 합쳐집니다.")
-    c1, c2, c3, c4 = st.columns(4)
+    st.caption("세로형 FDC를 Wafer(또는 LOT)별 한 행으로 펼칩니다. "
+               "수율·계측값은 위 '🎯 결과 데이터' 탭에 따로 붙여넣으면 LOT·Wafer 기준으로 합쳐집니다.")
 
     def pick(box, label, keys, fallback, optional=False):
         options = (["(없음)"] if optional else []) + cols
         default = guess(cols, keys, fallback)
         return box.selectbox(label, options, index=options.index(default) if default in options else 0)
 
+    c1, c2, c3, c4, c5 = st.columns(5)
     lot = pick(c1, "LOT 열", LOT_KEYS, cols[0])
-    step = pick(c2, "Step 열", STEP_KEYS, "(없음)", optional=True)
-    param = pick(c3, "파라미터 열", PARAM_KEYS, cols[min(2, len(cols) - 1)])
-    val = pick(c4, "값 열", VALUE_KEYS, num_cols[-1] if num_cols else cols[-1])
+    wafer = pick(c2, "Wafer 열", WAFER_KEYS, "(없음)", optional=True)
+    step = pick(c3, "Step 열", STEP_KEYS, "(없음)", optional=True)
+    param = pick(c4, "파라미터 열", PARAM_KEYS, cols[min(2, len(cols) - 1)])
+    val = pick(c5, "값 열", VALUE_KEYS, num_cols[-1] if num_cols else cols[-1])
+    wafer = None if wafer == "(없음)" else wafer
     step = None if step == "(없음)" else step
-    if len({lot, step, param, val} - {None}) < (4 if step else 3):
-        st.warning("LOT · Step · 파라미터 · 값 열은 서로 달라야 합니다.")
+    chosen = [c for c in (lot, wafer, step, param, val) if c]
+    if len(set(chosen)) < len(chosen):
+        st.warning("LOT · Wafer · Step · 파라미터 · 값 열은 서로 달라야 합니다.")
         return
+    keys = [lot] + ([wafer] if wafer else [])
 
-    c1, c2, c3 = st.columns(3)
-    stat_names = c1.multiselect("LOT 요약 방법 (한 LOT·Step·파라미터에 값이 여러 개일 때)",
+    c1, c2, c3, c4 = st.columns(4)
+    stat_names = c1.multiselect("요약 방법 (같은 키·Step·파라미터에 값이 여러 개일 때)",
                                 list(FDC_STATS), default=["평균"])
     steps = sorted(as_label(df[step].dropna()).unique()) if step else []
     keep_steps = c2.multiselect("Step 선택", steps, default=steps) if step else []
     all_params = sorted(as_label(df[param].dropna()).unique())
     keep_params = c3.multiselect("파라미터 선택", all_params, default=all_params)
+    level = c4.radio("분석 단위", ["Wafer", "LOT 평균"], horizontal=True,
+                     help="Wafer: 웨이퍼별 FDC ↔ 웨이퍼별 결과 (권장) / LOT 평균: LOT 단위로 평균 낸 뒤 분석"
+                     ) if wafer else "LOT"
     if not stat_names or not keep_params or (step and not keep_steps):
         st.warning("요약 방법 · Step · 파라미터를 1개 이상 선택하세요.")
         return
@@ -514,27 +542,38 @@ def page_fdc(df, num_cols, cat_cols, date_cols):
     d = df[as_label(df[param]).isin(keep_params)]
     if step:
         d = d[as_label(d[step]).isin(keep_steps)]
-    wide = pivot_long(d, lot, step, param, val, stat_names)
+    wide = pivot_long(d, keys, step, param, val, stat_names)
+    if wafer:
+        # W07 · 7 · LOT001-07 → 슬롯 번호 7 (슬롯 위치 효과 분석용)
+        slot = pd.to_numeric(wide[wafer].str.extract(r"(\d+)\D*$")[0], errors="coerce")
+        if 1 < slot.nunique() <= 50:
+            wide.insert(len(keys), SLOT, slot)
 
+    unit_word = "Wafer" if wafer else "LOT"
     result_text = st.session_state.get("result_raw", "")
     if result_text.strip():
         try:
-            wide, matched = merge_result(wide, lot, result_text)
+            wide, matched = merge_result(wide, keys, result_text)
             (st.caption if matched == len(wide) else st.warning)(
-                f"결과 데이터 매칭: **{matched} / {len(wide)} LOT**")
+                f"결과 데이터 매칭: **{matched} / {len(wide)} {unit_word}**")
         except Exception as e:  # noqa: BLE001
             st.error(f"결과 데이터를 읽지 못했습니다: {e}")
     else:
         st.info("결과값(수율 등)이 없으면 FDC 파라미터끼리만 분석됩니다. '🎯 결과 데이터' 탭에 붙여넣어 보세요.")
 
     wdf, wnum, wcat, wdate = classify_columns(wide)
-    wnum = [c for c in wnum if c != lot]  # 숫자로 된 LOT 번호는 파라미터가 아님
-    with st.expander(f"🔄 변환 결과: {len(wdf)} LOT × {len(wnum)} 수치 항목", expanded=False):
+    if level == "LOT 평균":
+        agg = {c: ("mean" if c in wnum else "first") for c in wdf.columns if c not in (lot, wafer, SLOT)}
+        wdf, wnum, wcat, wdate = classify_columns(wdf.groupby(lot, sort=False).agg(agg).reset_index())
+    unit = "Wafer" if level == "Wafer" else "LOT"
+    wnum = [c for c in wnum if c not in keys]  # 숫자로 된 LOT·Wafer 번호는 파라미터가 아님
+    with st.expander(f"🔄 변환 결과: {len(wdf)} {unit} × {len(wnum)} 수치 항목", expanded=False):
         st.dataframe(wdf, width="stretch", height=250)
-    fdc_analysis(wdf, wnum, wcat, wdate, {"LOT별 변환표": wdf.set_index(lot)})
+    fdc_analysis(wdf, wnum, wcat, wdate, {f"{unit}별 변환표": wdf.set_index(lot)},
+                 unit=unit, lot_col=lot if unit == "Wafer" else None)
 
 
-def fdc_analysis(df, num_cols, cat_cols, date_cols, extra_sheets):
+def fdc_analysis(df, num_cols, cat_cols, date_cols, extra_sheets, unit="LOT", lot_col=None):
     if len(num_cols) < 2:
         st.warning("FDC 파라미터와 결과값, 수치형 항목이 2개 이상 필요합니다.")
         return
@@ -551,12 +590,15 @@ def fdc_analysis(df, num_cols, cat_cols, date_cols, extra_sheets):
 
     y = df[target]
     thr = st.number_input("Good / Bad 기준값 (기본: 중앙값)", value=float(y.median()), format="%.4g",
-                          help="이 값 이상(또는 이하)인 LOT를 Good으로 분류합니다.")
+                          help=f"이 값 이상(또는 이하)인 {unit}를 Good으로 분류합니다.")
     good = (y >= thr) if good_high else (y <= thr)
     bad = ~good & y.notna()
-    st.caption(f"Good **{int(good.sum())}** LOT · Bad **{int(bad.sum())}** LOT")
+    st.caption(f"Good **{int(good.sum())}** {unit} · Bad **{int(bad.sum())}** {unit}")
 
-    tab_gb, tab_eq, tab_cc = st.tabs(["🔎 Good vs Bad 원인 파라미터", "🏭 설비별 상관", "📉 트렌드·관리도"])
+    names = ["🔎 Good vs Bad 원인 파라미터", "🏭 설비별 상관", "📉 트렌드·관리도"]
+    if lot_col:
+        names.append("🧩 LOT 간 · LOT 내 변동")
+    tab_gb, tab_eq, tab_cc, *tab_var = st.tabs(names)
 
     with tab_gb:
         rows = []
@@ -573,7 +615,7 @@ def fdc_analysis(df, num_cols, cat_cols, date_cols, extra_sheets):
                          "p-value": pv, "결과와 상관 r": pair[p].corr(pair[target], method="spearman")})
         res = pd.DataFrame(rows)
         if res.empty:
-            st.info("Good/Bad 그룹에 각각 2 LOT 이상이 있어야 비교할 수 있습니다.")
+            st.info(f"Good/Bad 그룹에 각각 2 {unit} 이상이 있어야 비교할 수 있습니다.")
         else:
             res["보정 p-value"] = bh(res["p-value"])
             ad = res["효과크기 d"].abs()
@@ -609,30 +651,58 @@ def fdc_analysis(df, num_cols, cat_cols, date_cols, extra_sheets):
             fig.update_layout(height=max(350, 45 * len(mat)))
             st.plotly_chart(fig, width="stretch")
             st.caption("전체로 보면 상관이 있는데 설비별로는 없다면 → 설비 간 오프셋(설비 차이) 때문일 수 있습니다. "
-                       "설비마다 부호가 다르면 설비별로 따로 관리해야 합니다. (5 LOT 이상인 설비, 전체 상관 상위 30개 파라미터)")
+                       f"설비마다 부호가 다르면 설비별로 따로 관리해야 합니다. (5 {unit} 이상인 설비, 전체 상관 상위 30개 파라미터)")
             summary = df.groupby(group)[[target] + params].mean().T
             st.write("**설비별 평균**")
             st.dataframe(summary.style.format("{:.4g}").background_gradient(axis=1, cmap="RdBu_r"),
                          width="stretch")
 
     with tab_cc:
-        c1, c2, c3, c4 = st.columns(4)
-        param = c1.selectbox("항목", params + [target])
-        xcol = c2.selectbox("X축", ["LOT 순서"] + date_cols, index=1 if date_cols else 0)
+        c1, c2, c3, c4, c5 = st.columns(5)
+        param = c1.selectbox("항목", [p for p in params if p != SLOT] + [target])
+        xcol = c2.selectbox("X축", [SEQ] + date_cols, index=1 if date_cols else 0)
         usl = parse_float(c3.text_input("USL (선택)"))
         lsl = parse_float(c4.text_input("LSL (선택)"))
-        fig, flagged, (center, sigma, ucl, lcl) = control_chart(df, param, xcol, group, usl, lsl)
+        cd, cc_unit = df, unit
+        if lot_col and c5.radio("관리도 점", ["LOT 평균", "Wafer"], help=(
+                "같은 LOT 안의 Wafer끼리는 값이 비슷해서, Wafer 점으로 그리면 관리한계가 좁게 잡혀 "
+                "LOT이 바뀔 때마다 이탈로 보이기 쉽습니다. 기본은 LOT 평균.")) == "LOT 평균":
+            agg = {param: "mean"}
+            agg.update({c: "first" for c in {xcol, group} - {SEQ, "(없음)", lot_col}})
+            cd, cc_unit = df.groupby(lot_col, sort=False).agg(agg).reset_index(), "LOT"
+        fig, flagged, (center, sigma, ucl, lcl) = control_chart(cd, param, xcol, group, usl, lsl)
         st.plotly_chart(fig, width="stretch")
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("평균(CL)", f"{center:.4g}")
         m2.metric("σ (이동범위)", f"{sigma:.4g}")
         m3.metric("관리한계", f"{lcl:.4g} ~ {ucl:.4g}")
-        m4.metric("이상 LOT", len(flagged))
+        m4.metric(f"이상 {cc_unit}", len(flagged))
         if len(flagged):
             st.dataframe(flagged, width="stretch", hide_index=True)
         if usl is not None and lsl is not None and sigma:
             cpk = min(usl - center, center - lsl) / (3 * sigma)
             st.write(f"**Cpk = {cpk:.2f}** ({'양호' if cpk >= 1.33 else '주의' if cpk >= 1 else '부족'})")
+
+    if tab_var:
+        with tab_var[0]:
+            items = [target] + [p for p in params if p != SLOT]
+            share = pd.Series({c: correlation_ratio(df[lot_col], df[c]) ** 2 * 100 for c in items}
+                              ).dropna().sort_values()
+            fig = go.Figure(go.Bar(x=share.values, y=share.index, orientation="h",
+                                   text=[f"{v:.0f}%" for v in share.values], textposition="outside"))
+            fig.update_layout(xaxis=dict(range=[0, 110], title="전체 변동 중 LOT 간 차이로 설명되는 비율 (%)"),
+                              height=max(300, 35 * len(share)), margin=dict(l=0, r=0, t=30, b=0))
+            st.plotly_chart(fig, width="stretch")
+            st.caption("높을수록(→100%) LOT 단위 원인: 설비·챔버 상태, PM 시점, 레시피 / "
+                       "낮을수록 같은 LOT 안 Wafer끼리 차이: 슬롯 위치, First wafer effect, Wafer 순서")
+            if SLOT in df.columns:
+                sel = st.selectbox("슬롯별 프로파일", items)
+                st.plotly_chart(px.box(df, x=SLOT, y=sel, points="all", title=f"슬롯 번호별 {sel}"),
+                                width="stretch")
+                r = df[[SLOT, sel]].dropna().corr(method="spearman").iloc[0, 1]
+                eta = correlation_ratio(df[SLOT], df[sel])
+                st.write(f"슬롯 효과: 슬롯별 차이로 설명되는 비율 **{eta ** 2 * 100:.0f}%** · "
+                         f"슬롯 번호와 순위상관 **{r:+.2f}** (특정 슬롯만 튀면 상관은 작고 비율은 큼)")
 
     download({**extra_sheets, "원본(정제)": df}, "FDC_분석.xlsx")
 
@@ -811,7 +881,7 @@ with tab_paste:
     b1, b2, b3 = st.columns(3)
     b1.button("샘플: 일반 데이터", on_click=load_sample, args=(SAMPLE_BASIC, MODES[0]), width="stretch")
     fdc_long, fdc_result = sample_fdc()
-    b2.button("샘플: FDC 세로형 + 수율", on_click=load_sample, args=(fdc_long, MODES[1], fdc_result),
+    b2.button("샘플: Wafer FDC + 수율", on_click=load_sample, args=(fdc_long, MODES[1], fdc_result),
               width="stretch")
     b3.button("샘플: 부품 비용/수리비", on_click=load_sample, args=(sample_cost(), MODES[2]), width="stretch")
     raw = st.text_area("데이터 붙여넣기", key="raw", height=200,
@@ -819,8 +889,8 @@ with tab_paste:
 with tab_file:
     up = st.file_uploader("엑셀/CSV 파일", type=["xlsx", "xlsm", "xls", "csv", "txt", "tsv"])
 with tab_result:
-    st.text_area("LOT별 결과값 붙여넣기 (예: LOT_ID | 수율 | CD …)", key="result_raw", height=150,
-                 placeholder="FDC가 세로형일 때 수율·계측값 표를 여기에 붙여넣으면 LOT 기준으로 합쳐집니다.")
+    st.text_area("결과값 붙여넣기 (예: LOT_ID | WAFER | 수율 | CD …)", key="result_raw", height=150,
+                 placeholder="FDC가 세로형일 때 수율·계측값 표를 여기에 붙여넣으면 LOT·Wafer 기준으로 합쳐집니다.")
 
 try:
     if up is not None:
