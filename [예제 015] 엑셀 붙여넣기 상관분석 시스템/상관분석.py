@@ -795,7 +795,8 @@ def fdc_analysis(df, num_cols, cat_cols, date_cols, extra_sheets, unit="LOT", lo
             st.info(f"Good/Bad 그룹에 각각 2 {unit} 이상이 있어야 리포트를 만들 수 있습니다.")
         else:
             c1, c2 = st.columns(2)
-            top_n = c1.slider("리포트에 담을 상위 파라미터 수", 1, min(10, len(res)), min(5, len(res)))
+            top_n = (c1.slider("리포트에 담을 상위 파라미터 수", 1, min(10, len(res)), min(5, len(res)))
+                     if len(res) > 1 else 1)
             xcol = c2.selectbox("관리도 X축", [SEQ] + date_cols, index=1 if date_cols else 0, key="rep_x")
             if id_col is None and len(df.columns) and df.columns[0] not in num_cols:
                 id_col = df.columns[0]
