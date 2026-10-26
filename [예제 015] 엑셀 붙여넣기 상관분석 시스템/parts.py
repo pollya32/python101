@@ -201,8 +201,8 @@ def waterfall(total):
     fig = go.Figure(go.Waterfall(
         x=keys, y=list(total.values()), measure=["absolute"] + ["relative"] * (len(keys) - 2) + ["total"],
         text=[won(v) for v in total.values()], textposition="outside",
-        increasing=dict(marker_color="#d6604d"), decreasing=dict(marker_color="#4393c3"),
-        totals=dict(marker_color="#888")))
+        increasing=dict(marker_color="#EF7B6E"), decreasing=dict(marker_color="#5B8DEF"),
+        totals=dict(marker_color="#AEB5C2")))
     fig.update_layout(height=400, showlegend=False, margin=dict(l=0, r=0, t=40, b=0))
     return fig
 
@@ -278,10 +278,10 @@ def year_forecast(c, year, budget):
         info["예산 대비(%)"] = info["추세 예측 연간"] / budget * 100
         info["초과 예상 월"] = int(over.iloc[0]) if len(over) else None
     fig = go.Figure()
-    fig.add_bar(x=plan["월"], y=plan["실적"], name="월 실적", marker_color="#4393c3")
-    fig.add_bar(x=plan["월"], y=plan["예측"], name="월 예측", marker_color="#bbbbbb")
+    fig.add_bar(x=plan["월"], y=plan["실적"], name="월 실적", marker_color="#5B8DEF")
+    fig.add_bar(x=plan["월"], y=plan["예측"], name="월 예측", marker_color="#D5DAE3")
     fig.add_scatter(x=plan["월"], y=plan["누적"], name="누적 (실적+예측)", yaxis="y2", mode="lines+markers",
-                    line=dict(color="#d6604d"))
+                    line=dict(color="#EF7B6E"))
     if budget:
         fig.add_scatter(x=[1, 12], y=[budget, budget], name="연간 예산", yaxis="y2", mode="lines",
                         line=dict(color="black", dash="dash"))
@@ -591,7 +591,7 @@ def page_parts(df, num_cols, cat_cols, date_cols):
         day = pd.Timestamp(when).normalize()
         s = s[(s["시각"] >= day - pd.Timedelta(days=days)) & (s["시각"] < day + pd.Timedelta(days=days + 1))]
         fig = px.scatter(s, x="시각", y="값", template=REPORT_THEME)
-        fig.add_vline(x=day, line=dict(color="#d6604d", dash="dash"))
+        fig.add_vline(x=day, line=dict(color="#EF7B6E", dash="dash"))
         fig.add_annotation(x=day, y=1, yref="paper", text="교체일", showarrow=False, yanchor="bottom")
         return fig.update_layout(yaxis_title=param)
 
@@ -645,7 +645,7 @@ def page_parts(df, num_cols, cat_cols, date_cols):
         st.write("**설비별 증감**")
         st.plotly_chart(px.bar(R.eq_delta.reset_index(), x="설비", y="금액", text_auto=",.0f",
                                color=np.where(R.eq_delta.values > 0, "증가", "감소"),
-                               color_discrete_map={"증가": "#d6604d", "감소": "#4393c3"})
+                               color_discrete_map={"증가": "#EF7B6E", "감소": "#5B8DEF"})
                         .update_layout(showlegend=False, yaxis_title="증감 (원)"), width="stretch")
 
     with tabs[2]:
@@ -675,7 +675,7 @@ def page_parts(df, num_cols, cat_cols, date_cols):
             pick = st.selectbox("교체 이력 보기 (부품)", sorted(R.events["부품"].unique()))
             evp = R.events[R.events["부품"] == pick]
             st.plotly_chart(px.scatter(evp, x="교체일", y="설비", color="조기 교체", size="금액",
-                                       color_discrete_map={True: "#d6604d", False: "#4393c3"},
+                                       color_discrete_map={True: "#EF7B6E", False: "#5B8DEF"},
                                        title=f"{pick} 교체 이력 (빨강 = 조기 교체)"), width="stretch")
 
     with tabs[3]:

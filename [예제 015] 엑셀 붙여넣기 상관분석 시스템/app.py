@@ -24,6 +24,25 @@ from samples import SAMPLE_BASIC, sample_cost, sample_fdc
 
 st.set_page_config(page_title="엑셀 분석 시스템", page_icon="📊", layout="wide")
 
+# 부드러운 라운드 디자인: 색·모서리는 .streamlit/config.toml [theme], 여기서는 카드·탭 모양만 (고정 CSS, 데이터 없음)
+st.html("""<style>
+[data-testid="stMetric"], [data-testid="stPlotlyChart"] {
+  box-sizing: border-box; background: #fff; border: 1px solid #E6EAF2; border-radius: 18px;
+  box-shadow: 0 4px 14px rgba(40, 60, 120, .05);
+}
+[data-testid="stMetric"] { padding: 12px 16px; }
+[data-testid="stPlotlyChart"] { padding: 0; overflow: hidden; }
+[data-testid="stExpander"] details { background: #fff; border-radius: 18px; border-color: #E6EAF2; }
+[data-testid="stDataFrame"] { border-radius: 14px; overflow: hidden; }
+[data-testid="stAlert"] { border-radius: 14px; }
+[data-testid="stTabs"] [role="tablist"] { gap: 6px; flex-wrap: wrap; height: auto; }
+[data-testid="stTabs"] [role="tablist"]::before, [data-testid="stTabs"] [role="tablist"]::after,
+[data-testid="stTab"]::before, [data-testid="stTab"]::after { display: none; }
+[data-testid="stTab"] { border-radius: 999px; padding: 4px 16px; background: #EEF1F8; height: auto; border: none; }
+[data-testid="stTab"][aria-selected="true"] { background: #5B7CFA; }
+[data-testid="stTab"][aria-selected="true"] p { color: #fff; }
+</style>""")
+
 MODES = ["🔗 상관분석", "🧪 FDC LOT/Wafer 분석", "🔧 부품 비용 분석", "📅 월별 비용 추이", "⚖️ 그룹 평균 비교"]
 
 

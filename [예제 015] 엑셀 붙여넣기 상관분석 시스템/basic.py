@@ -80,7 +80,7 @@ def page_corr(df, num_cols, cat_cols):
         target = st.selectbox("결과(타깃) 항목", selected, index=len(selected) - 1)
         t = corr[target].drop(target).sort_values(key=abs, ascending=True)
         fig = go.Figure(go.Bar(x=t.values, y=t.index, orientation="h",
-                               marker_color=np.where(t.values >= 0, "#d6604d", "#4393c3"),
+                               marker_color=np.where(t.values >= 0, "#EF7B6E", "#5B8DEF"),
                                text=[f"{v:+.2f}" for v in t.values], textposition="outside"))
         fig.update_layout(xaxis=dict(range=[-1.1, 1.1], title="상관계수"),
                           height=max(300, 40 * len(t)), margin=dict(l=0, r=0, t=30, b=0),
@@ -199,7 +199,7 @@ def page_trend(df, num_cols, cat_cols, date_cols):
             cum = tot.cumsum() / tot.sum() * 100
             fig = go.Figure(go.Bar(x=tot.index, y=tot.values, name=f"{vcol} 합계"))
             fig.add_trace(go.Scatter(x=cum.index, y=cum.values, name="누적 %", yaxis="y2",
-                                     mode="lines+markers", line=dict(color="#d6604d")))
+                                     mode="lines+markers", line=dict(color="#EF7B6E")))
             fig.update_layout(yaxis2=dict(overlaying="y", side="right", range=[0, 105], ticksuffix="%"),
                               height=420, margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig, width="stretch")

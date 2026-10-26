@@ -60,14 +60,14 @@ def control_chart(df, param, xcol, group, usl, lsl):
     if lsl is not None:
         d.loc[v < lsl, "판정"] = "SPEC 이탈"
 
-    fig = go.Figure(go.Scatter(x=d["_x"], y=v, mode="lines", line=dict(color="lightgray"),
+    fig = go.Figure(go.Scatter(x=d["_x"], y=v, mode="lines", line=dict(color="#D5DAE3"),
                                showlegend=False, hoverinfo="skip"))
     if group != "(없음)":
         for g, gd in d.groupby(group):
             fig.add_trace(go.Scatter(x=gd["_x"], y=gd[param], mode="markers", name=str(g)))
     else:
         fig.add_trace(go.Scatter(x=d["_x"], y=v, mode="markers", name=param,
-                                 marker=dict(color="#4393c3")))
+                                 marker=dict(color="#5B8DEF")))
     for label, color, symbol in [("드리프트(연속 7점)", "orange", "diamond"),
                                  ("관리한계 이탈", "red", "x"), ("SPEC 이탈", "darkred", "x")]:
         hit = d[d["판정"] == label]
@@ -518,7 +518,7 @@ def analyze_param(ctx, row) -> dict:
 
     label = df.loc[ctx.y.notna(), [p]].assign(판정=np.where(ctx.good[ctx.y.notna()], "Good", "Bad"))
     figs["Good vs Bad 분포"] = px.box(label, x="판정", y=p, color="판정", points="all", template=REPORT_THEME,
-                                     color_discrete_map={"Good": "#4393c3", "Bad": "#d6604d"})
+                                     color_discrete_map={"Good": "#5B8DEF", "Bad": "#EF7B6E"})
     sc = df[[p, ctx.target] + ([ctx.group] if ctx.group in df.columns else [])].dropna(subset=[p, ctx.target])
     figs[f"{p} ↔ {ctx.target}"] = px.scatter(sc, x=p, y=ctx.target,
                                              color=ctx.group if ctx.group in df.columns else None,
@@ -729,7 +729,7 @@ def fdc_analysis(df, num_cols, cat_cols, date_cols, extra_sheets, unit="LOT", lo
             top = st.selectbox("분포 비교할 파라미터", res["파라미터"])
             d = df.loc[y.notna(), [top]].assign(판정=np.where(good[y.notna()], "Good", "Bad"))
             st.plotly_chart(px.box(d, x="판정", y=top, color="판정", points="all",
-                                   color_discrete_map={"Good": "#4393c3", "Bad": "#d6604d"}),
+                                   color_discrete_map={"Good": "#5B8DEF", "Bad": "#EF7B6E"}),
                             width="stretch")
 
     with tab_eq:

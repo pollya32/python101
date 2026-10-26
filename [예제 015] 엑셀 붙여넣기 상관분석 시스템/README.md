@@ -67,6 +67,12 @@ python -m pytest tests
 3. ⚙️ 분석 설정: 비교 기간 A/B, 교체로 볼 구분, 조기 교체 기준(기본: 부품 기준 주기의 50%), 연간 예산, FDC 비교 구간
 4. 📄 자동 리포트 → HTML(인쇄 → PDF) · 엑셀
 
+## 디자인
+부드러운 라운드 형태 (둥근 카드·알약 모양 버튼과 탭·둥근 막대 그래프, 부드러운 색).
+- 색·모서리: `.streamlit/config.toml` 의 `[theme]` (`primaryColor`, `baseRadius`, `buttonRadius` …)
+- 카드·탭 모양: `app.py` 위쪽 CSS
+- 그래프: `common.py` 의 `SOFT_COLORS`, `soft` 템플릿 (HTML 리포트도 같은 스타일)
+
 ## 데이터 보안
 - 프로그램에 외부 통신 코드가 없습니다. 붙여넣은 데이터는 이 PC의 메모리에서만 처리되고 디스크에 저장되지 않습니다 (브라우저 탭을 닫으면 사라짐).
 - `.streamlit/config.toml`: 이 PC에서만 접속(`localhost`), Streamlit 사용 통계 전송 끔. 팀원과 같이 쓰려면 `address = "0.0.0.0"` 으로 바꾸세요 (같은 네트워크 누구나 접속 가능).

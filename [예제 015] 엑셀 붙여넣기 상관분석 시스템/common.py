@@ -8,8 +8,26 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
+import plotly.io as pio
 import streamlit as st
 from scipy import stats
+
+# ── 디자인: 부드러운 라운드 ──
+# 색은 .streamlit/config.toml 의 [theme] 와 맞춤. 빨강 = 나쁨·증가, 파랑 = 좋음·감소 의미는 유지.
+SOFT_COLORS = ["#5B8DEF", "#EF7B6E", "#4CC3A0", "#F5B95F", "#A78BFA", "#4FB8D6", "#F49AC1", "#9AA5B8"]
+pio.templates["soft"] = go.layout.Template(layout=dict(
+    barcornerradius=8,                       # 둥근 막대
+    paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",  # 흰 카드와 같은 배경
+    colorway=SOFT_COLORS,
+    font=dict(family="'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif", color="#2B2F3A"),
+    hoverlabel=dict(bgcolor="white", bordercolor="#E3E7F1", font=dict(color="#2B2F3A")),
+    xaxis=dict(gridcolor="#EEF1F7", zeroline=False, linecolor="#E3E7F1"),
+    yaxis=dict(gridcolor="#EEF1F7", zeroline=False, linecolor="#E3E7F1"),
+    legend=dict(bgcolor="rgba(0,0,0,0)"),
+))
+# Streamlit 이 import 될 때 기본 템플릿을 "streamlit" 으로 바꾸므로 그 위에 얹음 → 모든 그래프에 적용
+pio.templates.default = "streamlit+soft"
 
 
 # ── 데이터 파싱 ──────────────────────────────────────────────────────────────
@@ -200,17 +218,26 @@ TOOL_KEYS = ("설비", "장비", "호기", "챔버", "eqp", "equip", "tool", "ma
 
 # ── 자동 리포트 ──
 
-REPORT_THEME = "plotly_white"  # Streamlit 테마는 HTML 파일로 내보내면 색이 빠짐
+REPORT_THEME = "plotly_white+soft"  # Streamlit 테마는 HTML 파일로 내보내면 색이 빠지므로 표준 테마 + 라운드
 
 
-REPORT_CSS = """body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;max-width:1200px;margin:24px auto;
-padding:0 16px;color:#222}h1{border-bottom:3px solid #d6604d;padding-bottom:8px}h2{margin-top:32px;color:#333}
-.meta,.note{color:#666;font-size:13px}.judge{font-size:16px}li{margin:4px 0}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:12px}.grid.one{grid-template-columns:1fr}
-.fig{min-width:0;overflow:hidden}
-table{border-collapse:collapse;font-size:13px}td,th{border:1px solid #ddd;padding:4px 8px;text-align:right}
-th{background:#f4f4f4}section{page-break-inside:avoid}
-@media print{.grid{grid-template-columns:1fr 1fr}.grid.one{grid-template-columns:1fr}body{margin:0}}"""
+REPORT_CSS = """body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;max-width:1200px;margin:0 auto;
+padding:28px 20px;color:#2B2F3A;background:#F7F8FC;line-height:1.55}
+h1{margin:0 0 4px;font-size:28px}h2{margin:0 0 12px;font-size:19px;color:#2B2F3A}
+.card,section{background:#fff;border:1px solid #E6EAF2;border-radius:20px;padding:20px 24px;margin:16px 0;
+box-shadow:0 4px 16px rgba(40,60,120,.06)}
+.hero{background:linear-gradient(135deg,#EEF3FF,#FDF1EF);border:none}
+.meta,.note{color:#6B7385;font-size:13px}li{margin:5px 0}ul{padding-left:20px}
+.judge{display:inline-block;font-size:13px;padding:2px 12px;border-radius:999px;background:#F2F4FA;margin-left:6px;
+vertical-align:middle}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:14px}.grid.one{grid-template-columns:1fr}
+.fig{min-width:0;overflow:hidden;border:1px solid #EEF1F7;border-radius:16px;padding:6px;background:#fff}
+.table-wrap{overflow-x:auto;border:1px solid #E6EAF2;border-radius:14px;margin:12px 0}
+table{border-collapse:collapse;font-size:13px;width:100%}td,th{border-bottom:1px solid #EEF1F7;padding:7px 10px;
+text-align:right;white-space:nowrap}th{background:#F2F4FA;color:#4A5163;font-weight:600}tr:last-child td{border-bottom:none}
+section{page-break-inside:avoid}
+@media print{body{background:#fff;padding:0}.card,section{box-shadow:none}.grid{grid-template-columns:1fr 1fr}
+.grid.one{grid-template-columns:1fr}}"""
 
 
 def html_safe(df: pd.DataFrame) -> pd.DataFrame:
@@ -237,15 +264,16 @@ def html_page(title, meta, headline, sections, note="") -> str:
         first[0] = False
         return f'<div class="fig">{h}</div>'
 
-    parts = [f"<h1>{esc(title)}</h1>", f'<p class="meta">생성 {datetime.now():%Y-%m-%d %H:%M} · {esc(meta)}</p>',
-             "<h2>핵심 요약</h2><ul>" + "".join(f"<li>{esc(t)}</li>" for t in headline) + "</ul>"]
+    parts = [f'<div class="card hero"><h1>{esc(title)}</h1>'
+             f'<p class="meta">생성 {datetime.now():%Y-%m-%d %H:%M} · {esc(meta)}</p></div>',
+             '<div class="card"><h2>핵심 요약</h2><ul>' + "".join(f"<li>{esc(t)}</li>" for t in headline) + "</ul></div>"]
     for sec in sections:
         judge = f' <span class="judge">{esc(sec["judge"])}</span>' if sec.get("judge") else ""
         lines = "<ul>" + "".join(f"<li>{esc(t)}</li>" for t in sec["lines"]) + "</ul>" if sec.get("lines") else ""
         figs = sec.get("figs") or {}
         cls = "grid" if len(figs) > 1 else "grid one"  # 그래프 하나면 전체 폭
         grid = (f'<div class="{cls}">' + "".join(fig_html(t, f) for t, f in figs.items()) + "</div>") if figs else ""
-        tables = "".join(sec.get("tables") or [])
+        tables = "".join(f'<div class="table-wrap">{t}</div>' for t in sec.get("tables") or [])
         sec_note = f"<p class='note'>{esc(sec['note'])}</p>" if sec.get("note") else ""
         parts.append(f"<section><h2>{esc(sec['title'])}{judge}</h2>{lines}{grid}{tables}{sec_note}</section>")
     if note:

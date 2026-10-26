@@ -1,4 +1,4 @@
-# 이 폴더에서 실행할 때 적용되는 Streamlit 설정 (보안 기본값)
+# 이 폴더에서 실행할 때 적용되는 Streamlit 설정
 
 [server]
 # 이 PC에서만 접속 가능. 팀원과 같이 쓰려면 "0.0.0.0" 으로 바꾸세요 (같은 네트워크의 누구나 접속 가능해짐).
@@ -9,3 +9,21 @@ enableXsrfProtection = true
 [browser]
 # Streamlit 사용 통계 전송 끄기 (데이터 내용은 원래 보내지 않지만 통신 자체를 없앰)
 gatherUsageStats = false
+
+[theme]
+# 부드러운 라운드 디자인 (색은 common.py 의 SOFT_COLORS 와 맞춤)
+base = "light"
+primaryColor = "#5B7CFA"
+backgroundColor = "#F7F8FC"
+secondaryBackgroundColor = "#EEF1F8"
+textColor = "#2B2F3A"
+borderColor = "#E3E7F1"
+showWidgetBorder = true
+baseRadius = "1rem"
+buttonRadius = "full"
+dataframeHeaderBackgroundColor = "#F2F4FA"
+chartCategoricalColors = ["#5B8DEF", "#EF7B6E", "#4CC3A0", "#F5B95F", "#A78BFA", "#4FB8D6", "#F49AC1", "#9AA5B8"]
+
+[theme.sidebar]
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F2F4FA"
