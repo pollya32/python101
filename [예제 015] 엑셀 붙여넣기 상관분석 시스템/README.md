@@ -10,8 +10,29 @@
 직접 실행:
 ```bash
 pip install -r requirements.txt
-streamlit run 상관분석.py
+streamlit run app.py
 ```
+
+## 파일 구성
+| 파일 | 내용 |
+|---|---|
+| `실행.bat` | 더블클릭 실행 (Windows) |
+| `app.py` | 시작점 — 화면(입력 탭, 필터, 모드 선택). **이 파일만 실행** |
+| `common.py` | 붙여넣기·정제·열 분류·통계 도우미·엑셀/HTML 리포트 |
+| `samples.py` | 샘플 데이터 (분석마다 '심어 둔 사실' 포함) |
+| `basic.py` | 상관분석 · 월별 비용 추이 · 그룹 평균 비교 |
+| `fdc.py` | FDC LOT/Wafer 분석 · 챔버 매칭 |
+| `parts.py` | 부품 비용 분석 |
+| `tests/` | 자동 테스트 |
+
+의존 방향: `common` ← `basic` · `fdc` ← `parts` ← `app` (거꾸로 import 하지 않음)
+
+## 기능 추가 후 확인 (테스트)
+```bash
+pip install -r requirements-dev.txt
+python -m pytest tests
+```
+샘플 데이터의 '심어 둔 사실'(원인 파라미터, 챔버 불일치, 단가 인상, 조기 교체, 입력 오류 등)을 각 분석이 그대로 찾는지, 모든 화면과 리포트가 오류 없이 만들어지는지 확인합니다 (약 30초).
 
 ## 분석 모드
 | 모드 | 용도 | 주요 기능 |

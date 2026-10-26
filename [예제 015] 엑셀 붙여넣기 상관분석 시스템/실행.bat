@@ -5,11 +5,10 @@ setlocal EnableExtensions
 cd /d "%~dp0"
 title 엑셀 붙여넣기 분석 시스템
 
-rem ---- 1. App file: the only .py file in this folder ----
-set "APP="
-for %%F in ("%~dp0*.py") do set "APP=%%~fF"
-if defined APP goto :find_python
-echo [오류] 이 폴더에서 실행할 .py 파일을 찾지 못했습니다.
+rem ---- 1. App file: app.py (other .py files are modules it imports) ----
+set "APP=%~dp0app.py"
+if exist "%APP%" goto :find_python
+echo [오류] app.py 파일을 찾지 못했습니다. 압축을 푼 폴더 안의 파일을 그대로 두고 실행하세요.
 goto :fail
 
 rem ---- 2. Python 3.9+ (py launcher first, then python) ----

@@ -10,3 +10,7 @@ node_modules/
 dist/
 # Python 가상환경 (실행.bat 이 만듦)
 .venv/
+
+# Python 캐시·테스트
+__pycache__/
+.pytest_cache/
