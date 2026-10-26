@@ -6,10 +6,13 @@
 사용: 엑셀에서 표(머리글 포함)를 복사(Ctrl+C) → 입력창에 붙여넣기(Ctrl+V) → 왼쪽에서 분석 모드 선택
 """
 
+import html as html_lib
 import io
 import re
 import warnings
+from datetime import datetime
 from itertools import combinations
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -570,10 +573,196 @@ def page_fdc(df, num_cols, cat_cols, date_cols):
     with st.expander(f"🔄 변환 결과: {len(wdf)} {unit} × {len(wnum)} 수치 항목", expanded=False):
         st.dataframe(wdf, width="stretch", height=250)
     fdc_analysis(wdf, wnum, wcat, wdate, {f"{unit}별 변환표": wdf.set_index(lot)},
-                 unit=unit, lot_col=lot if unit == "Wafer" else None)
+                 unit=unit, lot_col=lot if unit == "Wafer" else None, id_col=lot)
 
 
-def fdc_analysis(df, num_cols, cat_cols, date_cols, extra_sheets, unit="LOT", lot_col=None):
+def gb_table(df, params, target, good, bad) -> pd.DataFrame:
+    """Good vs Bad 파라미터 비교표 (|효과크기 d| 큰 순)."""
+    rows = []
+    for p in params:
+        g, b = df.loc[good, p].dropna(), df.loc[bad, p].dropna()
+        if len(g) < 2 or len(b) < 2:
+            continue
+        _, pv = stats.ttest_ind(g, b, equal_var=False)
+        sd = np.sqrt((g.var() + b.var()) / 2)
+        pair = df[[p, target]].dropna()
+        rows.append({"파라미터": p, "Good 평균": g.mean(), "Bad 평균": b.mean(),
+                     "차이(%)": (b.mean() / g.mean() - 1) * 100 if g.mean() else np.nan,
+                     "효과크기 d": (b.mean() - g.mean()) / sd if sd else 0.0,
+                     "p-value": pv, "결과와 상관 r": pair[p].corr(pair[target], method="spearman")})
+    res = pd.DataFrame(rows)
+    if res.empty:
+        return res
+    res["보정 p-value"] = bh(res["p-value"])
+    ad = res["효과크기 d"].abs()
+    res["판정"] = np.select([(ad >= 0.8) & (res["보정 p-value"] < 0.05), ad >= 0.5],
+                          ["🔴 주요 의심", "🟡 관찰"], "")
+    return res.reindex(ad.sort_values(ascending=False).index).reset_index(drop=True)
+
+
+GB_FORMAT = {"Good 평균": "{:.4g}", "Bad 평균": "{:.4g}", "차이(%)": "{:+.2f}", "효과크기 d": "{:+.2f}",
+             "p-value": "{:.4f}", "보정 p-value": "{:.4f}", "결과와 상관 r": "{:+.2f}"}
+
+
+def gb_styled(res):
+    return (res.style.format(GB_FORMAT)
+            .background_gradient(subset=["효과크기 d"], cmap="RdBu_r", vmin=-2, vmax=2))
+
+
+def lot_average(df, lot_col, cols, keep):
+    """Wafer 행을 LOT 평균으로 묶음 (keep 열은 LOT의 첫 값)."""
+    agg = {c: "mean" for c in cols}
+    agg.update({c: "first" for c in keep if c in df.columns and c not in agg and c != lot_col})
+    return df.groupby(lot_col, sort=False).agg(agg).reset_index()
+
+
+def lot_share(df, lot_col, col) -> float:
+    """전체 변동 중 LOT 간 차이로 설명되는 비율 (%)."""
+    return correlation_ratio(df[lot_col], df[col]) ** 2 * 100
+
+
+def origin_text(share: float) -> str:
+    if share >= 60:
+        return f"변동의 {share:.0f}%가 LOT 간 차이 → LOT 단위 원인 (설비·챔버 상태, PM 시점, 레시피) 점검"
+    if share <= 30:
+        return f"LOT 간 차이는 {share:.0f}%뿐 → 같은 LOT 안 Wafer 단위 원인 (슬롯 위치, Wafer 순서) 점검"
+    return f"LOT 간 차이 {share:.0f}% → LOT 단위와 Wafer 단위 원인이 섞여 있음"
+
+
+# ── 자동 리포트 ──
+
+def analyze_param(ctx, row) -> dict:
+    """원인 후보 파라미터 하나에 대한 해석 문장 + 그래프."""
+    df, p = ctx.df, row["파라미터"]
+    d = row["효과크기 d"]
+    if p == SLOT:
+        lines = [f"Bad {ctx.unit}가 {'뒤쪽' if d > 0 else '앞쪽'} 슬롯에 몰려 있음 "
+                 f"(효과크기 d {d:+.2f}) → 슬롯 위치와 관련된 파라미터를 함께 확인"]
+    else:
+        lines = [f"Bad {ctx.unit}에서 평균이 {row['차이(%)']:+.2f}% {'높음' if d > 0 else '낮음'} "
+                 f"(효과크기 d {d:+.2f}, 결과와 상관 r {row['결과와 상관 r']:+.2f})"]
+    info = {"파라미터": p, "판정": row["판정"] or "-", "효과크기 d": d, "차이(%)": row["차이(%)"]}
+    figs = {}
+
+    label = df.loc[ctx.y.notna(), [p]].assign(판정=np.where(ctx.good[ctx.y.notna()], "Good", "Bad"))
+    figs["Good vs Bad 분포"] = px.box(label, x="판정", y=p, color="판정", points="all",
+                                     color_discrete_map={"Good": "#4393c3", "Bad": "#d6604d"})
+    sc = df[[p, ctx.target] + ([ctx.group] if ctx.group in df.columns else [])].dropna(subset=[p, ctx.target])
+    figs[f"{p} ↔ {ctx.target}"] = px.scatter(sc, x=p, y=ctx.target,
+                                             color=ctx.group if ctx.group in df.columns else None)
+
+    if ctx.lot_col and p != SLOT:
+        share = lot_share(df, ctx.lot_col, p)
+        info["LOT 간 변동(%)"] = share
+        lines.append(origin_text(share))
+    if SLOT in df.columns and p != SLOT:
+        eta2 = correlation_ratio(df[SLOT], df[p]) ** 2 * 100
+        info["슬롯 효과(%)"] = eta2
+        if eta2 >= 20:
+            z = (df.groupby(SLOT)[p].mean() - df[p].mean()) / df[p].std()
+            worst = z.reindex(z.abs().sort_values(ascending=False).index[:2])
+            lines.append(f"슬롯 효과 {eta2:.0f}%: " + ", ".join(f"{_fmt(k)}번 슬롯 {v:+.1f}σ" for k, v in worst.items()))
+        figs["슬롯 번호별"] = px.box(df, x=SLOT, y=p, points="all")
+    if ctx.group in df.columns:
+        z = (df.groupby(ctx.group)[p].mean() - df[p].mean()) / df[p].std()
+        if z.notna().any():
+            k = z.abs().idxmax()
+            info["가장 다른 설비"] = f"{k} ({z[k]:+.1f}σ)"
+            if abs(z[k]) >= 0.5:
+                lines.append(f"{ctx.group} = {k} 평균이 전체보다 {z[k]:+.1f}σ {'높음' if z[k] > 0 else '낮음'}")
+
+    flagged = pd.DataFrame()
+    if p != SLOT:
+        cd = lot_average(df, ctx.lot_col, [p], {ctx.xcol, ctx.group}) if ctx.lot_col else df
+        fig, flagged, _ = control_chart(cd, p, ctx.xcol, ctx.group, None, None)
+        figs["관리도" + (" (LOT 평균)" if ctx.lot_col else "")] = fig
+        info["관리도 이상"] = len(flagged)
+        if len(flagged):
+            kinds = ", ".join(f"{k} {v}건" for k, v in flagged["판정"].value_counts().items())
+            ids = flagged[ctx.id_col].astype(str).tolist() if ctx.id_col in flagged.columns else []
+            lines.append(f"관리도 이상 {len(flagged)}건 ({kinds})"
+                         + (f": {', '.join(ids[:5])}{' …' if len(ids) > 5 else ''}" if ids else ""))
+        flagged = flagged.assign(파라미터=p)
+    return {"param": p, "judge": row["판정"], "lines": lines, "info": info, "figs": figs, "flagged": flagged}
+
+
+def summarize(ctx, details) -> list:
+    """리포트 맨 위 핵심 요약 문장."""
+    out = [f"{ctx.target}: Good {int(ctx.good.sum())} / Bad {int(ctx.bad.sum())} {ctx.unit} "
+           f"(기준 {ctx.thr:.4g} {'이상' if ctx.good_high else '이하'} = Good)"]
+    res = ctx.res
+    red = res[res["판정"] == "🔴 주요 의심"]
+    yellow = res[res["판정"] == "🟡 관찰"]
+    if len(red):
+        out.append(f"주요 의심 파라미터 {len(red)}개: "
+                   + ", ".join(f"{p} (d {d:+.2f})" for p, d in zip(red["파라미터"], red["효과크기 d"])))
+    elif len(yellow):
+        out.append("뚜렷한 주요 의심은 없고, 관찰 대상: " + ", ".join(yellow["파라미터"]))
+    else:
+        out.append("Good / Bad 사이에 뚜렷한 차이를 보이는 파라미터가 없습니다. 기준값이나 결과 항목을 바꿔 보세요.")
+    for det in details[:3]:
+        if det["judge"]:
+            out.append(f"{det['param']}: " + " · ".join(det["lines"][1:3] or det["lines"][:1]))
+    if ctx.lot_col:
+        out.append(f"{ctx.target} 자체는 " + origin_text(lot_share(ctx.df, ctx.lot_col, ctx.target)))
+    return out
+
+
+def render_html(ctx, headline, details) -> str:
+    esc = html_lib.escape
+    first = [True]
+
+    def fig_html(title, fig):
+        fig.update_layout(height=340, margin=dict(l=60, t=50, b=50), title=title)
+        h = fig.to_html(full_html=False, include_plotlyjs=first[0], default_width="100%",
+                        config={"displaylogo": False, "responsive": True})
+        first[0] = False
+        return f'<div class="fig">{h}</div>'
+
+    parts = [f"<h1>FDC 자동 분석 리포트</h1>",
+             f'<p class="meta">생성 {datetime.now():%Y-%m-%d %H:%M} · 분석 단위 {ctx.unit} {len(ctx.df)}개 · '
+             f"결과 항목 {esc(ctx.target)} · 파라미터 {len(ctx.res)}개</p>",
+             "<h2>핵심 요약</h2><ul>" + "".join(f"<li>{esc(t)}</li>" for t in headline) + "</ul>",
+             "<h2>원인 파라미터 순위</h2>",
+             gb_styled(ctx.res).hide(axis="index").to_html()]
+    for i, det in enumerate(details, 1):
+        parts.append(f'<section><h2>{i}. {esc(det["param"])} <span class="judge">{esc(det["judge"])}</span></h2>'
+                     "<ul>" + "".join(f"<li>{esc(t)}</li>" for t in det["lines"]) + "</ul>"
+                     '<div class="grid">' + "".join(fig_html(t, f) for t, f in det["figs"].items()) + "</div></section>")
+    if ctx.lot_col:
+        items = [ctx.target] + [d["param"] for d in details if d["param"] != SLOT]
+        share = pd.Series({c: lot_share(ctx.df, ctx.lot_col, c) for c in items}).dropna().sort_values()
+        bar = go.Figure(go.Bar(x=share.values, y=share.index, orientation="h",
+                               text=[f"{v:.0f}%" for v in share.values], textposition="outside"))
+        bar.update_xaxes(range=[0, 110])
+        parts.append("<section><h2>LOT 간 · LOT 내 변동</h2>" + fig_html("LOT 간 차이로 설명되는 비율 (%)", bar)
+                     + "<p class='note'>높을수록 LOT 단위 원인, 낮을수록 Wafer 단위 원인</p></section>")
+    parts.append("<p class='note'>※ 통계적 연관성이며 인과관계를 보장하지 않습니다. 효과크기 d: |d| ≥ 0.8 큼, ≥ 0.5 중간. "
+                 "보정 p-value: 여러 파라미터 동시 검정 보정(BH-FDR). 관리도: I-관리도(이동범위 σ), 연속 7점 드리프트 규칙.</p>")
+    css = """body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;max-width:1200px;margin:24px auto;
+padding:0 16px;color:#222}h1{border-bottom:3px solid #d6604d;padding-bottom:8px}h2{margin-top:32px;color:#333}
+.meta,.note{color:#666;font-size:13px}.judge{font-size:16px}li{margin:4px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:12px}.fig{min-width:0;overflow:hidden}
+table{border-collapse:collapse;font-size:13px}td,th{border:1px solid #ddd;padding:4px 8px;text-align:right}
+th{background:#f4f4f4}section{page-break-inside:avoid}
+@media print{.grid{grid-template-columns:1fr 1fr}body{margin:0}}"""
+    return (f"<!doctype html><html lang='ko'><head><meta charset='utf-8'><title>FDC 분석 리포트</title>"
+            f"<style>{css}</style></head><body>{''.join(parts)}</body></html>")
+
+
+def render_excel(ctx, headline, details) -> bytes:
+    flagged = [d["flagged"] for d in details if len(d["flagged"])]
+    sheets = {"요약": pd.DataFrame({"핵심 요약": headline}),
+              "원인 순위": ctx.res.set_index("파라미터"),
+              "파라미터별 해석": pd.DataFrame([{**d["info"], "해석": " / ".join(d["lines"])} for d in details]
+                                       ).set_index("파라미터")}
+    if flagged:
+        sheets["관리도 이상"] = pd.concat(flagged).set_index("파라미터")
+    sheets["데이터"] = ctx.df
+    return to_excel(sheets)
+
+
+def fdc_analysis(df, num_cols, cat_cols, date_cols, extra_sheets, unit="LOT", lot_col=None, id_col=None):
     if len(num_cols) < 2:
         st.warning("FDC 파라미터와 결과값, 수치형 항목이 2개 이상 필요합니다.")
         return
@@ -594,39 +783,58 @@ def fdc_analysis(df, num_cols, cat_cols, date_cols, extra_sheets, unit="LOT", lo
     good = (y >= thr) if good_high else (y <= thr)
     bad = ~good & y.notna()
     st.caption(f"Good **{int(good.sum())}** {unit} · Bad **{int(bad.sum())}** {unit}")
+    res = gb_table(df, params, target, good, bad)
 
-    names = ["🔎 Good vs Bad 원인 파라미터", "🏭 설비별 상관", "📉 트렌드·관리도"]
+    names = ["📄 자동 리포트", "🔎 Good vs Bad 원인 파라미터", "🏭 설비별 상관", "📉 트렌드·관리도"]
     if lot_col:
         names.append("🧩 LOT 간 · LOT 내 변동")
-    tab_gb, tab_eq, tab_cc, *tab_var = st.tabs(names)
+    tab_rep, tab_gb, tab_eq, tab_cc, *tab_var = st.tabs(names)
+
+    with tab_rep:
+        if res.empty:
+            st.info(f"Good/Bad 그룹에 각각 2 {unit} 이상이 있어야 리포트를 만들 수 있습니다.")
+        else:
+            c1, c2 = st.columns(2)
+            top_n = c1.slider("리포트에 담을 상위 파라미터 수", 1, min(10, len(res)), min(5, len(res)))
+            xcol = c2.selectbox("관리도 X축", [SEQ] + date_cols, index=1 if date_cols else 0, key="rep_x")
+            if id_col is None and len(df.columns) and df.columns[0] not in num_cols:
+                id_col = df.columns[0]
+            ctx = SimpleNamespace(df=df, res=res, target=target, y=y, good=good, bad=bad, thr=thr,
+                                  good_high=good_high, unit=unit, lot_col=lot_col, id_col=id_col,
+                                  group=group, xcol=xcol)
+            details = [analyze_param(ctx, row) for _, row in res.head(top_n).iterrows()]
+            headline = summarize(ctx, details)
+
+            st.markdown("#### 핵심 요약\n" + "\n".join(f"- {t}" for t in headline))
+            for i, det in enumerate(details, 1):
+                with st.expander(f"{i}. {det['param']} {det['judge']}", expanded=i == 1):
+                    st.markdown("\n".join(f"- {t}" for t in det["lines"]))
+                    cols = st.columns(2)
+                    for j, (title, fig) in enumerate(det["figs"].items()):
+                        cols[j % 2].plotly_chart(fig.update_layout(title=title, height=320), width="stretch",
+                                                 key=f"rep_{i}_{j}")
+
+            sig = (target, thr, good_high, group, tuple(params), top_n, xcol, len(df), unit)
+            if st.button("📄 리포트 파일 만들기", type="primary"):
+                with st.spinner("리포트 만드는 중…"):
+                    st.session_state["fdc_report"] = (sig, render_html(ctx, headline, details),
+                                                      render_excel(ctx, headline, details))
+            saved = st.session_state.get("fdc_report")
+            if saved and saved[0] == sig:
+                stamp = f"{datetime.now():%Y%m%d_%H%M}"
+                d1, d2 = st.columns(2)
+                d1.download_button("🌐 HTML 리포트 (그래프 포함 · 인쇄 → PDF 저장)", saved[1],
+                                   file_name=f"FDC_리포트_{stamp}.html", mime="text/html", width="stretch")
+                d2.download_button("📊 엑셀 리포트", saved[2], file_name=f"FDC_리포트_{stamp}.xlsx",
+                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                   width="stretch")
+                st.caption("HTML은 인터넷 없이 열리며, 브라우저에서 Ctrl+P → 'PDF로 저장' 하면 PDF 보고서가 됩니다.")
 
     with tab_gb:
-        rows = []
-        for p in params:
-            g, b = df.loc[good, p].dropna(), df.loc[bad, p].dropna()
-            if len(g) < 2 or len(b) < 2:
-                continue
-            _, pv = stats.ttest_ind(g, b, equal_var=False)
-            sd = np.sqrt((g.var() + b.var()) / 2)
-            pair = df[[p, target]].dropna()
-            rows.append({"파라미터": p, "Good 평균": g.mean(), "Bad 평균": b.mean(),
-                         "차이(%)": (b.mean() / g.mean() - 1) * 100 if g.mean() else np.nan,
-                         "효과크기 d": (b.mean() - g.mean()) / sd if sd else 0.0,
-                         "p-value": pv, "결과와 상관 r": pair[p].corr(pair[target], method="spearman")})
-        res = pd.DataFrame(rows)
         if res.empty:
             st.info(f"Good/Bad 그룹에 각각 2 {unit} 이상이 있어야 비교할 수 있습니다.")
         else:
-            res["보정 p-value"] = bh(res["p-value"])
-            ad = res["효과크기 d"].abs()
-            res["판정"] = np.select([(ad >= 0.8) & (res["보정 p-value"] < 0.05), ad >= 0.5],
-                                  ["🔴 주요 의심", "🟡 관찰"], "")
-            res = res.reindex(ad.sort_values(ascending=False).index)
-            st.dataframe(res.style.format({"Good 평균": "{:.4g}", "Bad 평균": "{:.4g}", "차이(%)": "{:+.2f}",
-                                           "효과크기 d": "{:+.2f}", "p-value": "{:.4f}",
-                                           "보정 p-value": "{:.4f}", "결과와 상관 r": "{:+.2f}"})
-                         .background_gradient(subset=["효과크기 d"], cmap="RdBu_r", vmin=-2, vmax=2),
-                         width="stretch", hide_index=True)
+            st.dataframe(gb_styled(res), width="stretch", hide_index=True)
             st.caption("효과크기 d: Bad가 Good보다 표준편차 몇 배만큼 다른지 (|d| ≥ 0.8 큼, 0.5 중간). "
                        "상관 r은 이상치에 강한 스피어만 순위상관.")
             top = st.selectbox("분포 비교할 파라미터", res["파라미터"])
@@ -667,9 +875,7 @@ def fdc_analysis(df, num_cols, cat_cols, date_cols, extra_sheets, unit="LOT", lo
         if lot_col and c5.radio("관리도 점", ["LOT 평균", "Wafer"], help=(
                 "같은 LOT 안의 Wafer끼리는 값이 비슷해서, Wafer 점으로 그리면 관리한계가 좁게 잡혀 "
                 "LOT이 바뀔 때마다 이탈로 보이기 쉽습니다. 기본은 LOT 평균.")) == "LOT 평균":
-            agg = {param: "mean"}
-            agg.update({c: "first" for c in {xcol, group} - {SEQ, "(없음)", lot_col}})
-            cd, cc_unit = df.groupby(lot_col, sort=False).agg(agg).reset_index(), "LOT"
+            cd, cc_unit = lot_average(df, lot_col, [param], {xcol, group}), "LOT"
         fig, flagged, (center, sigma, ucl, lcl) = control_chart(cd, param, xcol, group, usl, lsl)
         st.plotly_chart(fig, width="stretch")
         m1, m2, m3, m4 = st.columns(4)
@@ -686,8 +892,7 @@ def fdc_analysis(df, num_cols, cat_cols, date_cols, extra_sheets, unit="LOT", lo
     if tab_var:
         with tab_var[0]:
             items = [target] + [p for p in params if p != SLOT]
-            share = pd.Series({c: correlation_ratio(df[lot_col], df[c]) ** 2 * 100 for c in items}
-                              ).dropna().sort_values()
+            share = pd.Series({c: lot_share(df, lot_col, c) for c in items}).dropna().sort_values()
             fig = go.Figure(go.Bar(x=share.values, y=share.index, orientation="h",
                                    text=[f"{v:.0f}%" for v in share.values], textposition="outside"))
             fig.update_layout(xaxis=dict(range=[0, 110], title="전체 변동 중 LOT 간 차이로 설명되는 비율 (%)"),
