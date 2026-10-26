@@ -298,11 +298,19 @@ def parse_float(text: str):
     return None if pd.isna(v) else float(v)
 
 
+_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _no_formula(v):
+    """'=HYPERLINK(…)' 같은 값이 엑셀에서 수식으로 실행되지 않도록 앞에 ' 를 붙여 글자로 저장."""
+    return "'" + v if isinstance(v, str) and v.startswith(_FORMULA_START) else v
+
+
 def to_excel(sheets: dict) -> bytes:
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as w:
         for name, d in sheets.items():
-            d.to_excel(w, sheet_name=name[:31])
+            d.map(_no_formula).rename(index=_no_formula, columns=_no_formula).to_excel(w, sheet_name=name[:31])
     return buf.getvalue()
 
 
@@ -891,6 +899,13 @@ th{background:#f4f4f4}section{page-break-inside:avoid}
 @media print{.grid{grid-template-columns:1fr 1fr}.grid.one{grid-template-columns:1fr}body{margin:0}}"""
 
 
+def html_safe(df: pd.DataFrame) -> pd.DataFrame:
+    """리포트 HTML 표에 넣기 전에 글자 값의 <, >, & 등을 이스케이프 (데이터 속 태그·스크립트가 실행되지 않도록)."""
+    def esc(v):
+        return html_lib.escape(v) if isinstance(v, str) else v
+    return df.map(esc).rename(index=esc, columns=esc)
+
+
 def html_page(title, meta, headline, sections, note="") -> str:
     """오프라인으로 열리는 단일 HTML 리포트.
     sections: [{"title", "judge", "lines", "figs": {제목: fig}, "tables": [html], "note"}]"""
@@ -1012,7 +1027,7 @@ def summarize(ctx, details) -> list:
 
 
 def render_html(ctx, headline, details) -> str:
-    sections = [{"title": "원인 파라미터 순위", "tables": [gb_styled(ctx.res).hide(axis="index").to_html()]}]
+    sections = [{"title": "원인 파라미터 순위", "tables": [gb_styled(html_safe(ctx.res)).hide(axis="index").to_html()]}]
     sections += [{"title": f"{i}. {det['param']}", "judge": det["judge"], "lines": det["lines"], "figs": det["figs"]}
                  for i, det in enumerate(details, 1)]
     if ctx.lot_col:
@@ -1029,7 +1044,7 @@ def render_html(ctx, headline, details) -> str:
         sections.append({
             "title": f"챔버 매칭 ({ctx.group})",
             "figs": {"챔버별 평균 오프셋 (σ) · 산포비": match_heatmap(ctx.match)},
-            "tables": [bad_rows.style.format({"평균": "{:.4g}", "표준편차": "{:.3g}", "기준 평균": "{:.4g}",
+            "tables": [html_safe(bad_rows).style.format({"평균": "{:.4g}", "표준편차": "{:.3g}", "기준 평균": "{:.4g}",
                                               "오프셋(σ)": "{:+.2f}", "산포비": "{:.2f}"}).hide(axis="index").to_html()
                        if len(bad_rows) else "<p>불일치 항목 없음</p>"],
             "note": "오프셋: 전체 챔버 중앙값과의 차이를 챔버 내부 산포(σ)로 나눈 값. |오프셋| ≥ 1σ 또는 산포비 ≥ 1.5배면 불일치."})
@@ -1706,11 +1721,11 @@ def parts_report(R, headline):
     fmt_parts.update({"수량_A": "{:,.0f}", "수량_B": "{:,.0f}"})
     sections = [
         {"title": f"비용 증감 원인 ({R.pa} → {R.pb})", "figs": {"증감 분해": waterfall(R.total)},
-         "tables": [R.parts.head(10).style.format(fmt_parts, na_rep="-").to_html()],
+         "tables": [html_safe(R.parts.head(10)).style.format(fmt_parts, na_rep="-").to_html()],
          "note": "단가 효과: 같은 부품의 단가 변화 / 수량 효과: 전체 사용량 변화 / 구성 효과: 비싼 부품 비중 변화"},
         {"title": "교체 주기",
-         "tables": [R.cycle_summary.sort_values(["조기 교체", "주기 비율(%)"], ascending=[False, True]).head(15)
-                    .style.format({"평균 주기(일)": "{:.0f}", "부품 기준 주기(일)": "{:.0f}", "조기 교체 비용": WON,
+         "tables": [html_safe(R.cycle_summary.sort_values(["조기 교체", "주기 비율(%)"], ascending=[False, True])
+                              .head(15)).style.format({"평균 주기(일)": "{:.0f}", "부품 기준 주기(일)": "{:.0f}", "조기 교체 비용": WON,
                                    "주기 비율(%)": "{:.0f}", "마지막 교체": "{:%Y-%m-%d}", "다음 예상일": "{:%Y-%m-%d}"},
                                   na_rep="-").hide(axis="index").to_html()],
          "note": f"조기 교체: 교체 간격이 부품 기준 주기(전체 설비 중앙값)의 {R.early_pct}% 미만"},
@@ -1718,14 +1733,14 @@ def parts_report(R, headline):
     ]
     if len(R.anom):
         sections.insert(2, {"title": f"이상 비용 건 {len(R.anom)}건",
-                            "tables": [R.anom.style.format({"날짜": "{:%Y-%m-%d}", "단가": WON, "금액": WON,
+                            "tables": [html_safe(R.anom).style.format({"날짜": "{:%Y-%m-%d}", "단가": WON, "금액": WON,
                                                             "부품 중앙 단가": WON, "수량": "{:,.0f}"})
                                        .hide(axis="index").to_html()]})
     if R.wafer is not None and len(R.wafer):
         bar = px.bar(R.wafer.reset_index(), x="설비", y="원/Wafer", text_auto=",.0f", template=REPORT_THEME)
         sections.append({"title": "Wafer당 부품비", "figs": {"설비별 원/Wafer": bar}})
     if R.fdc_ev is not None and len(R.fdc_ev):
-        sec = {"title": "FDC 연계 (교체 전후 변화)", "tables": [R.fdc_ev.style.format({"교체일": "{:%Y-%m-%d}"})
+        sec = {"title": "FDC 연계 (교체 전후 변화)", "tables": [html_safe(R.fdc_ev).style.format({"교체일": "{:%Y-%m-%d}"})
                                                               .hide(axis="index").to_html()]}
         if R.fdc_fig is not None:
             sec["figs"] = {R.fdc_fig_title: R.fdc_fig}

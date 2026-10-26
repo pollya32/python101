@@ -60,7 +60,7 @@ echo   안 열리면 아래 Local URL 을 브라우저 주소창에 입력하세
 echo   끝내려면 이 창을 닫거나 Ctrl+C 를 누르세요.
 echo ============================================================
 echo.
-"%VPY%" -m streamlit run "%APP%" --server.headless false --browser.gatherUsageStats false
+"%VPY%" -m streamlit run "%APP%" --server.headless false --server.address localhost --browser.gatherUsageStats false
 if errorlevel 1 goto :fail
 goto :eof
 

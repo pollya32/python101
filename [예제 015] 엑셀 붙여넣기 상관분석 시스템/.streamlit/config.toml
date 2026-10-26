@@ -1,0 +1,11 @@
+# 이 폴더에서 실행할 때 적용되는 Streamlit 설정 (보안 기본값)
+
+[server]
+# 이 PC에서만 접속 가능. 팀원과 같이 쓰려면 "0.0.0.0" 으로 바꾸세요 (같은 네트워크의 누구나 접속 가능해짐).
+address = "localhost"
+# 다른 사이트에서 이 앱으로 요청을 보내는 것(CSRF) 차단 (기본값 유지)
+enableXsrfProtection = true
+
+[browser]
+# Streamlit 사용 통계 전송 끄기 (데이터 내용은 원래 보내지 않지만 통신 자체를 없앰)
+gatherUsageStats = false
