@@ -459,11 +459,13 @@ def control_chart(df, param, xcol, group, usl, lsl):
 
 FDC_STATS = {"평균": "mean", "최대": "max", "최소": "min", "표준편차": "std",
              "범위": lambda v: v.max() - v.min(), "중앙값": "median", "마지막": "last"}
-LOT_KEYS = ("lot",)
-WAFER_KEYS = ("wafer", "웨이퍼", "slot", "슬롯", "wf")
-STEP_KEYS = ("step", "스텝", "공정", "oper", "process")
-PARAM_KEYS = ("param", "파라미터", "항목", "item", "sensor", "센서", "svid")
-VALUE_KEYS = ("value", "값", "val", "data")
+LOT_KEYS = ("lot_id", "lotid", "lot no", "lot", "로트")
+WAFER_KEYS = ("wafer_id", "waferid", "wafer", "웨이퍼", "slot", "슬롯", "wf")
+STEP_KEYS = ("step", "스텝", "공정", "oper", "process", "stage", "단계")
+PARAM_KEYS = ("파라미터", "parameter", "param", "항목", "sensor", "센서", "svid", "item", "tag", "변수")
+VALUE_KEYS = ("value", "측정값", "값", "val", "data", "reading")
+RESULT_KEYS = ("수율", "yield", "불량", "defect", "두께", "thickness", "thk", "cd", "결과", "계측", "measure")
+FDC_ROLES = {"LOT": LOT_KEYS, "Wafer": WAFER_KEYS, "Step": STEP_KEYS, "파라미터": PARAM_KEYS, "값": VALUE_KEYS}
 SLOT = "Slot번호"
 
 
@@ -521,25 +523,128 @@ def pivot_long(df, keys, step, param, val, stat_names):
     return out.reset_index()
 
 
+def _digit_ratio(s: pd.Series) -> float:
+    v = s.dropna().astype(str)
+    return float((v.str.count(r"\d") / v.str.len().clip(lower=1)).mean()) if len(v) else 0.0
+
+
+def wafer_key(s: pd.Series) -> pd.Series:
+    """W07 · 07 · 7 · LOT001-07 → '7' (두 표의 Wafer 표기가 달라도 맞도록 끝 번호만 사용)."""
+    lab = as_label(s)
+    num = lab.str.extract(r"(\d+)\D*$")[0]
+    return num.map(lambda v: str(int(v)), na_action="ignore").fillna(lab)
+
+
+def _looks_wafer(df, col, lot=None) -> bool:
+    lab = as_label(df[col].dropna())
+    if not (2 <= lab.nunique() <= 50 and lab.str.fullmatch(r"(?:[A-Za-z]{1,3}[-_#]?)?\d{1,2}").mean() >= 0.9):
+        return False
+    return lot is None or df.groupby(lot)[col].nunique().median() >= 2  # 한 LOT 안에 여러 장
+
+
+def auto_map_fdc(df, num_cols, date_cols):
+    """세로형 FDC 열 역할(LOT·Wafer·Step·파라미터·값)을 이름 → 값 모양 → 구조 순으로 추정.
+    반환: (역할 → 열 또는 None, 역할 → 찾은 방법)"""
+    m, how, used = dict.fromkeys(FDC_ROLES), {}, set(date_cols)
+    cols = list(df.columns)
+    n = len(df)
+
+    def take(role, col, why):
+        m[role], how[role] = col, why
+        used.add(col)
+
+    def free(pool):
+        return [c for c in pool if c not in used]
+
+    texts = [c for c in cols if c not in num_cols + date_cols]
+    ints = [c for c in num_cols if (df[c].dropna() % 1 == 0).all()]
+    repeated = [c for c in free(texts) + ints if df[c].nunique() >= 2 and n / max(df[c].nunique(), 1) >= 2]
+
+    # LOT: 이름 ('slot' 은 제외) → 숫자가 많이 섞인 반복 ID 열
+    named = guess([c for c in free(cols) if not any(w in str(c).lower() for w in ("slot", "슬롯"))], LOT_KEYS)
+    ids = [c for c in repeated if c not in used and _digit_ratio(df[c]) >= 0.3 and not _looks_tool(df[c])
+           and not _looks_wafer(df, c)]
+    if named:
+        take("LOT", named, "이름")
+    elif ids:
+        take("LOT", max(ids, key=lambda c: (df[c].nunique(), _digit_ratio(df[c]))), "값 패턴 (반복되는 ID)")
+
+    # Wafer: 이름 → 1~2자리 번호 모양이면서 한 LOT 안에 여러 장
+    named = guess(free(cols), WAFER_KEYS)
+    by_value = [c for c in free(texts + ints) if _looks_wafer(df, c, m["LOT"])]
+    if named and (_looks_wafer(df, named) or not by_value):
+        take("Wafer", named, "이름")
+    elif by_value:
+        take("Wafer", by_value[0], "값 패턴 (W01·1~25 번호)")
+
+    # 파라미터: 이름 → 글자 위주이면서 값 종류가 가장 많은 반복 열
+    named = guess(free(texts), PARAM_KEYS)
+    words = [c for c in free(texts) if c in repeated and _digit_ratio(df[c]) < 0.3 and not _looks_tool(df[c])]
+    if named:
+        take("파라미터", named, "이름")
+    elif words:
+        take("파라미터", max(words, key=lambda c: df[c].nunique()), "값 패턴 (반복되는 항목 이름)")
+
+    # Step: 이름 → 구조로 추정 (설비 모양 열은 제외)
+    #   ① 같은 LOT·Wafer·파라미터 안에서 값이 바뀜 (같은 파라미터가 여러 Step에 있음)
+    #   ② 파라미터를 몇 묶음으로 나눔 (Step마다 파라미터가 다름)
+    named = guess(free(texts + ints), STEP_KEYS)
+    if named:
+        take("Step", named, "이름")
+    elif m["LOT"] and m["파라미터"]:
+        key = [m["LOT"]] + ([m["Wafer"]] if m["Wafer"] else []) + [m["파라미터"]]
+        n_param = df[m["파라미터"]].nunique()
+        cand = [c for c in free(texts + ints) if 2 <= df[c].nunique() <= 50 and not _looks_tool(df[c])]
+        varying = {c: (df.groupby(key)[c].nunique() > 1).mean() for c in cand}
+        best = max(varying, key=varying.get) if varying else None
+        if best and varying[best] >= 0.5:
+            take("Step", best, "구조 (같은 LOT·파라미터 안에서 바뀌는 열)")
+        else:
+            splits = [c for c in cand if df[c].nunique() < n_param
+                      and (df.groupby(m["파라미터"])[c].nunique() == 1).mean() >= 0.9]
+            if splits:
+                take("Step", min(splits, key=lambda c: df[c].nunique()), "구조 (파라미터를 묶음으로 나누는 열)")
+
+    # 값: 이름 → 남은 숫자 열 중 값 종류가 가장 많은 열
+    named = guess(free(num_cols), VALUE_KEYS)
+    if named:
+        take("값", named, "이름")
+    elif free(num_cols):
+        take("값", max(free(num_cols), key=lambda c: df[c].nunique()), "값 패턴 (연속 측정값)")
+    return m, how
+
+
 def merge_result(wide, keys, text):
-    """별도로 붙여넣은 결과표(LOT | Wafer | 수율 …)를 키 기준으로 합침."""
+    """별도로 붙여넣은 결과표(LOT | Wafer | 수율 …)를 키 기준으로 합침.
+    결과표의 키 열은 이름이 아니라 FDC 쪽 값과 가장 많이 겹치는 열로 찾음 (Wafer는 끝 번호로 비교)."""
     res = read_pasted(text)
     res.columns = unique_names(str(c).strip() for c in res.columns)
-    for pos, (k, words) in enumerate(zip(keys, (LOT_KEYS, WAFER_KEYS))):
-        rk = k if k in res.columns else guess(res.columns, words, res.columns[pos])
-        res = res.rename(columns={rk: k})
-        res[k] = as_label(res[k])
-    res = res.drop_duplicates(keys)
-    merged = wide.merge(res, on=keys, how="left", suffixes=("", "_결과"))
-    matched = int(wide.set_index(keys).index.isin(res.set_index(keys).index).sum())
-    return merged, matched
+    norm = [as_label, wafer_key]
+    rename = {}
+    for pos, k in enumerate(keys):
+        target = set(norm[pos](wide[k]))
+        overlap = {c: norm[pos](res[c]).isin(target).mean() for c in res.columns if c not in rename}
+        best = max(overlap, key=overlap.get)
+        if overlap[best] < 0.3:  # 겹치는 열이 없으면 이름·위치로
+            best = k if k in res.columns else guess([c for c in res.columns if c not in rename],
+                                                    (LOT_KEYS, WAFER_KEYS)[pos], res.columns[pos])
+        rename[best] = k
+    res = res.rename(columns=rename)
+    left = wide.assign(**{f"_k{i}": norm[i](wide[k]) for i, k in enumerate(keys)})
+    res = res.assign(**{f"_k{i}": norm[i](res[k]) for i, k in enumerate(keys)}).drop(columns=keys)
+    kk = [f"_k{i}" for i in range(len(keys))]
+    res = res.drop_duplicates(kk)
+    merged = left.merge(res, on=kk, how="left", suffixes=("", "_결과"))
+    matched = int(left.set_index(kk).index.isin(res.set_index(kk).index).sum())
+    return merged.drop(columns=kk), matched
 
 
 def page_fdc(df, num_cols, cat_cols, date_cols):
     st.subheader("🧪 FDC LOT / Wafer 분석")
     cols = list(df.columns)
-    param_guess = guess(cols, PARAM_KEYS)
-    is_long = param_guess is not None and param_guess not in num_cols
+    auto, how = auto_map_fdc(df, num_cols, date_cols)
+    # 반복되는 글자 파라미터 열 + 측정값 열이 있으면 세로형
+    is_long = bool(auto["파라미터"] and auto["값"])
     shape = st.radio("데이터 형태", ["세로형 (LOT | Wafer | Step | 파라미터 | 값)", "가로형 (한 행 = 한 LOT/Wafer)"],
                      index=0 if is_long else 1, horizontal=True)
     if shape.startswith("가로"):
@@ -550,19 +655,28 @@ def page_fdc(df, num_cols, cat_cols, date_cols):
     st.caption("세로형 FDC를 Wafer(또는 LOT)별 한 행으로 펼칩니다. "
                "수율·계측값은 위 '🎯 결과 데이터' 탭에 따로 붙여넣으면 LOT·Wafer 기준으로 합쳐집니다.")
 
-    def pick(box, label, keys, fallback, optional=False):
-        options = (["(없음)"] if optional else []) + cols
-        default = guess(cols, keys, fallback)
-        return box.selectbox(label, options, index=options.index(default) if default in options else 0)
+    sig = abs(hash(tuple(cols))) % 10 ** 8  # 열 구성이 바뀌면 이전 선택이 남지 않도록
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    lot = pick(c1, "LOT 열", LOT_KEYS, cols[0])
-    wafer = pick(c2, "Wafer 열", WAFER_KEYS, "(없음)", optional=True)
-    step = pick(c3, "Step 열", STEP_KEYS, "(없음)", optional=True)
-    param = pick(c4, "파라미터 열", PARAM_KEYS, cols[min(2, len(cols) - 1)])
-    val = pick(c5, "값 열", VALUE_KEYS, num_cols[-1] if num_cols else cols[-1])
-    wafer = None if wafer == "(없음)" else wafer
-    step = None if step == "(없음)" else step
+    def pick(box, role, fallback, optional=False):
+        options = (["(없음)"] if optional else []) + cols
+        default = auto[role] or fallback
+        val = box.selectbox(f"{role} 열", options, index=options.index(default) if default in options else 0,
+                            key=f"fdc_{role}_{sig}", help=f"자동 인식: {how.get(role, '못 찾음')}")
+        return None if val == "(없음)" else val
+
+    with st.expander("✏️ 열 매핑 바꾸기", expanded=not (auto["LOT"] and auto["파라미터"] and auto["값"])):
+        c1, c2, c3, c4, c5 = st.columns(5)
+        lot = pick(c1, "LOT", cols[0])
+        wafer = pick(c2, "Wafer", "(없음)", optional=True)
+        step = pick(c3, "Step", "(없음)", optional=True)
+        param = pick(c4, "파라미터", cols[min(2, len(cols) - 1)])
+        val = pick(c5, "값", num_cols[-1] if num_cols else cols[-1])
+    chosen_map = {"LOT": lot, "Wafer": wafer, "Step": step, "파라미터": param, "값": val}
+    st.caption("🧭 열 자동 인식: " + " · ".join(
+        f"{r} = `{c}`" + (" *" if how.get(r, "이름") != "이름" and c == auto[r] else "")
+        for r, c in chosen_map.items() if c)
+        + "".join(f" · {r} 없음" for r, c in chosen_map.items() if not c)
+        + "  (* = 열 이름이 아니라 값 모양·구조로 추정 — 틀리면 '열 매핑 바꾸기'에서 수정)")
     chosen = [c for c in (lot, wafer, step, param, val) if c]
     if len(set(chosen)) < len(chosen):
         st.warning("LOT · Wafer · Step · 파라미터 · 값 열은 서로 달라야 합니다.")
@@ -946,9 +1060,19 @@ def fdc_analysis(df, num_cols, cat_cols, date_cols, extra_sheets, unit="LOT", lo
         return
 
     c1, c2, c3 = st.columns(3)
-    target = c1.selectbox("결과 항목 (수율·계측값)", num_cols, index=len(num_cols) - 1)
-    good_high = c2.radio("양호 방향", ["높을수록 양호", "낮을수록 양호"], horizontal=True) == "높을수록 양호"
-    group = c3.selectbox("설비/챔버 구분", ["(없음)"] + cat_cols)
+    # 결과 항목: 이름(수율·CD·두께·불량 …) → 없으면 마지막 숫자 열 (결과표는 FDC 뒤에 붙음)
+    target_default = guess([c for c in num_cols if c != SLOT], RESULT_KEYS, num_cols[-1])
+    target = c1.selectbox("결과 항목 (수율·계측값)", num_cols, index=num_cols.index(target_default))
+    lower_better = any(w in str(target).lower() for w in ("불량", "defect", "loss", "fail", "particle"))
+    good_high = c2.radio("양호 방향", ["높을수록 양호", "낮을수록 양호"], horizontal=True,
+                         index=1 if lower_better else 0) == "높을수록 양호"
+    # 설비/챔버: 이름 또는 'ETCH-01' 같은 설비 모양 열 중, 여러 개면 결과값과 가장 관련 큰 열
+    tools = [c for c in cat_cols if guess([c], COST_ROLES["설비"][0]) or _looks_tool(df[c])]
+    tool_default = max(tools, key=lambda c: correlation_ratio(df[c], df[target]) if df[target].notna().any() else 0,
+                       default=None)
+    group_opts = ["(없음)"] + cat_cols
+    group = c3.selectbox("설비/챔버 구분", group_opts,
+                         index=group_opts.index(tool_default) if tool_default in group_opts else 0)
     params = st.multiselect("FDC 파라미터", [c for c in num_cols if c != target],
                             default=[c for c in num_cols if c != target])
     if not params:
@@ -1461,19 +1585,19 @@ def parse_fdc_aux(text) -> pd.DataFrame:
     raw = read_pasted(text)
     raw.columns = unique_names(str(x).strip() for x in raw.columns)
     f, num, cat, dates = classify_columns(raw)
-    cols = list(f.columns)
-    eq = guess([x for x in cols if x not in num], CHAMBER_KEYS)
+    texts = [x for x in f.columns if x not in num + dates]
+    eq = guess(texts, COST_ROLES["설비"][0]) or next((x for x in texts if _looks_tool(f[x])), None)
     if not dates or not eq:
         raise ValueError("FDC 표에 날짜/시각 열과 설비 열이 필요합니다.")
-    param = guess([x for x in cols if x not in num], PARAM_KEYS)
-    if param:
-        step = guess([x for x in cols if x not in num], STEP_KEYS)
-        val = guess(num, VALUE_KEYS, num[-1])
+    fm, _ = auto_map_fdc(f.drop(columns=[eq]), num, dates)
+    param, step, val = fm["파라미터"], fm["Step"], fm["값"]
+    if param and val:
         label = as_label(f[param])
         if step:
             label = as_label(f[step]) + ":" + label
         out = pd.DataFrame({"시각": f[dates[0]], "설비": f[eq].astype(str), "파라미터": label, "값": f[val]})
     else:
+        num = [x for x in num if x not in (fm["LOT"], fm["Wafer"])]
         out = (f[[dates[0], eq] + num].rename(columns={dates[0]: "시각", eq: "설비"})
                .melt(id_vars=["시각", "설비"], var_name="파라미터", value_name="값"))
         out["설비"] = out["설비"].astype(str)
