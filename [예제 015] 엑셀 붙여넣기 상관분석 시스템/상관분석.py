@@ -49,7 +49,8 @@ SAMPLE_BASIC = """일자\t온도(℃)\t습도(%)\t광고비\t방문자수\t매�
 def sample_fdc() -> tuple[str, str]:
     """세로형 Wafer FDC (LOT|WAFER|Step|설비|진행일시|파라미터|값) + 별도 Wafer 수율표.
     LOT 단위 원인: ETCH-03 압력 오프셋, LOT 23~25 ESC 온도 드리프트
-    Wafer 단위 원인: 1~2번 슬롯 Dep_Rate 저하 (first wafer effect)"""
+    Wafer 단위 원인: 1~2번 슬롯 Dep_Rate 저하 (first wafer effect)
+    챔버 불일치(수율 무관): CVD-02 Heater_Temp 산포 큼"""
     rng = np.random.default_rng(7)
     n_lot, n_wf = 30, 10
     lots = [f"LOT{2403001 + i}" for i in range(n_lot)]
@@ -70,7 +71,8 @@ def sample_fdc() -> tuple[str, str]:
         values = {"ETCH": {"RF_Power": rf, "Chamber_Press": press, "ESC_Temp": temp,
                            "Gas_Flow": rng.normal(200, 3, n_wf),
                            "EPD_Time": 45 + 0.02 * (rf - 1500) + rng.normal(0, 1, n_wf)},
-                  "DEP": {"Heater_Temp": rng.normal(400, 2, n_wf), "Dep_Rate": dep}}
+                  "DEP": {"Heater_Temp": 400 + rng.normal(0, 1, n_wf) * (5 if dep_eq[i] == "CVD-02" else 2),
+                          "Dep_Rate": dep}}
         tools = {"ETCH": etch_eq[i], "DEP": dep_eq[i]}
         yld = 97 - 0.6 * (temp - 60) - 1.1 * (press - 30) + 0.5 * (dep - 50) + rng.normal(0, 0.5, n_wf)
         for w in range(n_wf):
@@ -629,7 +631,103 @@ def origin_text(share: float) -> str:
     return f"LOT 간 차이 {share:.0f}% → LOT 단위와 Wafer 단위 원인이 섞여 있음"
 
 
+# ── 챔버 매칭 ──
+
+MATCH_ORDER = {"🔴 불일치": 0, "🟡 주의": 1, "✅ 일치": 2}
+CHAMBER_KEYS = ("설비", "챔버", "장비", "chamber", "tool", "eqp", "ch")
+
+
+def chamber_key(df, cols) -> pd.Series:
+    """챔버 구분 열이 여러 개면 '설비 / 챔버' 처럼 조합."""
+    if len(cols) == 1:
+        return df[cols[0]]
+    return df[cols].astype(str).agg(" / ".join, axis=1).where(df[cols].notna().all(axis=1))
+
+
+def step_params(col, params) -> list:
+    """'ETCH:설비' 로 매칭하면 같은 Step의 'ETCH:…' 파라미터만 비교."""
+    params = [p for p in params if p != SLOT]
+    if ":" in str(col):
+        own = [p for p in params if p.startswith(str(col).split(":")[0] + ":")]
+        if own:
+            return own
+    return params
+
+
+def _pooled_sd(st_) -> float:
+    dof = (st_["count"] - 1).clip(lower=0)
+    return float(np.sqrt((st_["std"].fillna(0) ** 2 * dof).sum() / dof.sum())) if dof.sum() else np.nan
+
+
+def match_judge(offset: float, ratio: float) -> str:
+    # 산포가 기준보다 작은 것은 문제가 아니므로 최대 '주의'
+    if abs(offset) >= 1 or ratio >= 1.5:
+        return "🔴 불일치"
+    if abs(offset) >= 0.5 or not (0.8 < ratio < 1.25):
+        return "🟡 주의"
+    return "✅ 일치"
+
+
+def chamber_matching(df, key, params, golden=None, min_n=3) -> pd.DataFrame:
+    """챔버별 평균 오프셋(σ 단위)과 산포비를 기준(전체 챔버 중앙값 또는 골든 챔버)과 비교.
+    중앙값 기준은 튀는 챔버 하나가 기준을 끌고 가서 정상 챔버까지 불일치로 보이는 것을 막음."""
+    rows = []
+    for p in params:
+        sub = pd.DataFrame({"c": key, "v": df[p]}).dropna()
+        st_ = sub.groupby("c")["v"].agg(["count", "mean", "std"])
+        st_ = st_[st_["count"] >= min_n]
+        if len(st_) < 2 or (golden is not None and golden not in st_.index):
+            continue
+        sigma = _pooled_sd(st_)  # 챔버 내부 산포를 공통 잣대로 사용
+        if not sigma:
+            continue
+        if golden is not None:
+            ref_mean, ref_sd = st_.at[golden, "mean"], st_.at[golden, "std"]
+        else:
+            ref_mean, ref_sd = st_["mean"].median(), st_["std"].median()
+        for c, r in st_.iterrows():
+            offset = (r["mean"] - ref_mean) / sigma
+            ratio = r["std"] / ref_sd if ref_sd else np.nan
+            if golden is not None and c == golden:
+                offset, ratio = 0.0, 1.0
+            reason = [f"평균 {offset:+.1f}σ"] if abs(offset) >= 0.5 else []
+            reason += [f"산포 ×{ratio:.1f}"] if not (0.8 < ratio < 1.25) else []
+            rows.append({"챔버": c, "파라미터": p, "건수": int(r["count"]), "평균": r["mean"], "표준편차": r["std"],
+                         "기준 평균": ref_mean, "오프셋(σ)": offset, "산포비": ratio,
+                         "판정": match_judge(offset, ratio), "차이": ", ".join(reason)})
+    return pd.DataFrame(rows)
+
+
+def prioritize(m: pd.DataFrame) -> pd.DataFrame:
+    """불일치 우선, 그중 수율 영향 파라미터 우선, 오프셋 큰 순."""
+    order = m["판정"].map(MATCH_ORDER) * 10 + m["수율 영향"].map({"🔴 주요 의심": 0, "🟡 관찰": 1}).fillna(2)
+    return m.assign(_o=order, _a=-m["오프셋(σ)"].abs()).sort_values(["_o", "_a"]).drop(columns=["_o", "_a"])
+
+
+def match_heatmap(m: pd.DataFrame):
+    off = m.pivot(index="파라미터", columns="챔버", values="오프셋(σ)")
+    ratio = m.pivot(index="파라미터", columns="챔버", values="산포비").reindex_like(off)
+    text = off.map(lambda v: "" if pd.isna(v) else f"{v:+.1f}σ") + ratio.map(
+        lambda v: "" if pd.isna(v) or 0.8 < v < 1.25 else f"<br>산포×{v:.1f}")
+    fig = px.imshow(off.clip(-3, 3), zmin=-3, zmax=3, aspect="auto", color_continuous_scale="RdBu_r")
+    fig.update_traces(text=text.values, texttemplate="%{text}")
+    fig.update_layout(height=max(300, 40 * len(off)), coloraxis_colorbar=dict(title="평균 오프셋"))
+    return fig
+
+
+def match_scores(m: pd.DataFrame, key, df, target) -> pd.DataFrame:
+    sc = m.groupby("챔버")["판정"].value_counts().unstack(fill_value=0)
+    for col in MATCH_ORDER:
+        sc[col] = sc[col] if col in sc else 0
+    sc = sc[list(MATCH_ORDER)]
+    sc["매칭률(%)"] = sc["✅ 일치"] / sc.sum(axis=1) * 100
+    sc[f"{target} 평균"] = df.groupby(key)[target].mean()
+    return sc.sort_values("매칭률(%)")
+
+
 # ── 자동 리포트 ──
+
+REPORT_THEME = "plotly_white"  # Streamlit 테마는 HTML 파일로 내보내면 색이 빠짐
 
 def analyze_param(ctx, row) -> dict:
     """원인 후보 파라미터 하나에 대한 해석 문장 + 그래프."""
@@ -645,11 +743,12 @@ def analyze_param(ctx, row) -> dict:
     figs = {}
 
     label = df.loc[ctx.y.notna(), [p]].assign(판정=np.where(ctx.good[ctx.y.notna()], "Good", "Bad"))
-    figs["Good vs Bad 분포"] = px.box(label, x="판정", y=p, color="판정", points="all",
+    figs["Good vs Bad 분포"] = px.box(label, x="판정", y=p, color="판정", points="all", template=REPORT_THEME,
                                      color_discrete_map={"Good": "#4393c3", "Bad": "#d6604d"})
     sc = df[[p, ctx.target] + ([ctx.group] if ctx.group in df.columns else [])].dropna(subset=[p, ctx.target])
     figs[f"{p} ↔ {ctx.target}"] = px.scatter(sc, x=p, y=ctx.target,
-                                             color=ctx.group if ctx.group in df.columns else None)
+                                             color=ctx.group if ctx.group in df.columns else None,
+                                             template=REPORT_THEME)
 
     if ctx.lot_col and p != SLOT:
         share = lot_share(df, ctx.lot_col, p)
@@ -662,7 +761,7 @@ def analyze_param(ctx, row) -> dict:
             z = (df.groupby(SLOT)[p].mean() - df[p].mean()) / df[p].std()
             worst = z.reindex(z.abs().sort_values(ascending=False).index[:2])
             lines.append(f"슬롯 효과 {eta2:.0f}%: " + ", ".join(f"{_fmt(k)}번 슬롯 {v:+.1f}σ" for k, v in worst.items()))
-        figs["슬롯 번호별"] = px.box(df, x=SLOT, y=p, points="all")
+        figs["슬롯 번호별"] = px.box(df, x=SLOT, y=p, points="all", template=REPORT_THEME)
     if ctx.group in df.columns:
         z = (df.groupby(ctx.group)[p].mean() - df[p].mean()) / df[p].std()
         if z.notna().any():
@@ -705,6 +804,15 @@ def summarize(ctx, details) -> list:
             out.append(f"{det['param']}: " + " · ".join(det["lines"][1:3] or det["lines"][:1]))
     if ctx.lot_col:
         out.append(f"{ctx.target} 자체는 " + origin_text(lot_share(ctx.df, ctx.lot_col, ctx.target)))
+    if ctx.match is not None and len(ctx.match):
+        red = prioritize(ctx.match)
+        red = red[red["판정"] == "🔴 불일치"]
+        if len(red):
+            out.append(f"챔버 매칭 불일치 {len(red)}건: " + "; ".join(
+                f"{r['챔버']} {r['파라미터']} {r['차이']}" + (" (수율 영향)" if r["수율 영향"] else "")
+                for _, r in red.head(3).iterrows()))
+        else:
+            out.append("챔버 매칭: 모든 챔버가 기준 범위 안에 있습니다.")
     return out
 
 
@@ -713,7 +821,11 @@ def render_html(ctx, headline, details) -> str:
     first = [True]
 
     def fig_html(title, fig):
-        fig.update_layout(height=340, margin=dict(l=60, t=50, b=50), title=title)
+        # Streamlit 전용 테마는 HTML 파일에서 색이 빠지므로 표준 테마로 고정, 긴 축 이름은 여백 자동 확장
+        fig.update_layout(height=max(340, fig.layout.height or 0), margin=dict(l=60, t=50, b=50), title=title,
+                          template=REPORT_THEME)
+        fig.update_xaxes(automargin=True)
+        fig.update_yaxes(automargin=True)
         h = fig.to_html(full_html=False, include_plotlyjs=first[0], default_width="100%",
                         config={"displaylogo": False, "responsive": True})
         first[0] = False
@@ -737,6 +849,16 @@ def render_html(ctx, headline, details) -> str:
         bar.update_xaxes(range=[0, 110])
         parts.append("<section><h2>LOT 간 · LOT 내 변동</h2>" + fig_html("LOT 간 차이로 설명되는 비율 (%)", bar)
                      + "<p class='note'>높을수록 LOT 단위 원인, 낮을수록 Wafer 단위 원인</p></section>")
+    if ctx.match is not None and len(ctx.match):
+        mm = prioritize(ctx.match)
+        bad_rows = mm[mm["판정"] != "✅ 일치"].head(15)
+        parts.append(f"<section><h2>챔버 매칭 ({esc(str(ctx.group))})</h2>"
+                     + fig_html("챔버별 평균 오프셋 (σ) · 산포비", match_heatmap(ctx.match))
+                     + (bad_rows.style.format({"평균": "{:.4g}", "표준편차": "{:.3g}", "기준 평균": "{:.4g}",
+                                               "오프셋(σ)": "{:+.2f}", "산포비": "{:.2f}"})
+                        .hide(axis="index").to_html() if len(bad_rows) else "<p>불일치 항목 없음</p>")
+                     + "<p class='note'>오프셋: 전체 챔버 중앙값과의 차이를 챔버 내부 산포(σ)로 나눈 값. "
+                       "|오프셋| ≥ 1σ 또는 산포비 ≥ 1.5배면 불일치.</p></section>")
     parts.append("<p class='note'>※ 통계적 연관성이며 인과관계를 보장하지 않습니다. 효과크기 d: |d| ≥ 0.8 큼, ≥ 0.5 중간. "
                  "보정 p-value: 여러 파라미터 동시 검정 보정(BH-FDR). 관리도: I-관리도(이동범위 σ), 연속 7점 드리프트 규칙.</p>")
     css = """body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;max-width:1200px;margin:24px auto;
@@ -758,6 +880,8 @@ def render_excel(ctx, headline, details) -> bytes:
                                        ).set_index("파라미터")}
     if flagged:
         sheets["관리도 이상"] = pd.concat(flagged).set_index("파라미터")
+    if ctx.match is not None and len(ctx.match):
+        sheets["챔버 매칭"] = prioritize(ctx.match).set_index(["챔버", "파라미터"])
     sheets["데이터"] = ctx.df
     return to_excel(sheets)
 
@@ -785,10 +909,16 @@ def fdc_analysis(df, num_cols, cat_cols, date_cols, extra_sheets, unit="LOT", lo
     st.caption(f"Good **{int(good.sum())}** {unit} · Bad **{int(bad.sum())}** {unit}")
     res = gb_table(df, params, target, good, bad)
 
-    names = ["📄 자동 리포트", "🔎 Good vs Bad 원인 파라미터", "🏭 설비별 상관", "📉 트렌드·관리도"]
+    impact = dict(zip(res["파라미터"], res["판정"])) if not res.empty else {}
+
+    def matching(key, mparams, golden=None):
+        m = chamber_matching(df, key, mparams, golden)
+        return m.assign(**{"수율 영향": m["파라미터"].map(impact).fillna("")}) if len(m) else m
+
+    names = ["📄 자동 리포트", "🔎 Good vs Bad 원인 파라미터", "🏭 설비별 상관", "⚖️ 챔버 매칭", "📉 트렌드·관리도"]
     if lot_col:
         names.append("🧩 LOT 간 · LOT 내 변동")
-    tab_rep, tab_gb, tab_eq, tab_cc, *tab_var = st.tabs(names)
+    tab_rep, tab_gb, tab_eq, tab_match, tab_cc, *tab_var = st.tabs(names)
 
     with tab_rep:
         if res.empty:
@@ -802,7 +932,8 @@ def fdc_analysis(df, num_cols, cat_cols, date_cols, extra_sheets, unit="LOT", lo
                 id_col = df.columns[0]
             ctx = SimpleNamespace(df=df, res=res, target=target, y=y, good=good, bad=bad, thr=thr,
                                   good_high=good_high, unit=unit, lot_col=lot_col, id_col=id_col,
-                                  group=group, xcol=xcol)
+                                  group=group, xcol=xcol,
+                                  match=matching(df[group], step_params(group, params)) if group != "(없음)" else None)
             details = [analyze_param(ctx, row) for _, row in res.head(top_n).iterrows()]
             headline = summarize(ctx, details)
 
@@ -865,6 +996,64 @@ def fdc_analysis(df, num_cols, cat_cols, date_cols, extra_sheets, unit="LOT", lo
             st.write("**설비별 평균**")
             st.dataframe(summary.style.format("{:.4g}").background_gradient(axis=1, cmap="RdBu_r"),
                          width="stretch")
+
+    with tab_match:
+        if not cat_cols:
+            st.info("챔버·설비를 구분하는 열이 있어야 챔버 매칭을 할 수 있습니다.")
+        else:
+            c1, c2 = st.columns(2)
+            default = group if group in cat_cols else guess(cat_cols, CHAMBER_KEYS, None)
+            if default is None:  # 이름으로 못 찾으면 값 종류가 가장 적은 열
+                default = min(cat_cols, key=lambda c: df[c].nunique())
+            mcols = c1.multiselect("챔버 구분 열 (여러 개면 조합, 예: 설비 + 챔버)", cat_cols, default=[default])
+            if not mcols:
+                st.warning("챔버 구분 열을 선택하세요.")
+            else:
+                key = chamber_key(df, mcols)
+                chambers = sorted(key.dropna().unique(), key=str)
+                ref = c2.selectbox("비교 기준", ["전체 챔버 중앙값"] + [f"골든 챔버: {c}" for c in chambers],
+                                   help="전체 챔버 중앙값: 튀는 챔버 하나에 기준이 끌려가지 않음 / "
+                                        "골든 챔버: 기준 챔버 하나와 비교")
+                golden = None if ref == "전체 챔버 중앙값" else ref.split(": ", 1)[1]
+                if golden is None and len(chambers) == 2:
+                    st.caption("⚠️ 챔버가 2개면 어느 쪽이 벗어났는지 구분할 수 없어 둘 다 표시됩니다. 골든 챔버를 지정해 보세요.")
+                mparams = st.multiselect("매칭할 파라미터", [p for p in params if p != SLOT],
+                                         default=step_params(mcols[0], params),
+                                         help="'ETCH:설비' 로 매칭하면 ETCH Step 파라미터만 기본 선택됩니다.")
+                m = matching(key, mparams, golden) if mparams else pd.DataFrame()
+                if m.empty:
+                    st.info("챔버 2개 이상, 챔버마다 3건 이상의 데이터가 필요합니다.")
+                else:
+                    st.write("**챔버별 매칭 점수**")
+                    st.dataframe(match_scores(m, key, df, target).style
+                                 .format({"매칭률(%)": "{:.0f}", f"{target} 평균": "{:.4g}"})
+                                 .background_gradient(subset=["매칭률(%)"], cmap="RdYlGn", vmin=0, vmax=100),
+                                 width="stretch")
+                    st.plotly_chart(match_heatmap(m).update_layout(title="챔버별 평균 오프셋 (σ) · 산포비"),
+                                    width="stretch")
+                    st.caption("오프셋 = (챔버 평균 − 기준 평균) ÷ 챔버 내부 산포(σ). "
+                               "|오프셋| ≥ 1σ 또는 산포비 ≥ 1.5배면 🔴 불일치, ≥ 0.5σ 또는 산포비 1.25배 이상·0.8배 이하면 🟡 주의. "
+                               "기준은 전체 챔버 중앙값(또는 골든 챔버).")
+                    mm = prioritize(m)
+                    issues = mm[mm["판정"] != "✅ 일치"]
+                    st.write(f"**불일치·주의 항목 {len(issues)}건** (수율 영향 파라미터 우선)")
+                    st.dataframe(issues.style.format({"평균": "{:.4g}", "표준편차": "{:.3g}", "기준 평균": "{:.4g}",
+                                                      "오프셋(σ)": "{:+.2f}", "산포비": "{:.2f}"}),
+                                 width="stretch", hide_index=True)
+                    sel = st.selectbox("챔버별 분포 보기", mparams,
+                                       index=mparams.index(issues["파라미터"].iloc[0]) if len(issues) else 0)
+                    view = df.assign(챔버=key).dropna(subset=["챔버"])
+                    d1, d2 = st.columns(2)
+                    fig = px.box(view, x="챔버", y=sel, color="챔버", points="all",
+                                 category_orders={"챔버": chambers}, title=f"챔버별 {sel}")
+                    if golden is not None:
+                        fig.add_hline(y=view.loc[view["챔버"] == golden, sel].mean(), line=dict(dash="dash"),
+                                      annotation_text="골든 평균")
+                    d1.plotly_chart(fig.update_layout(showlegend=False), width="stretch")
+                    d2.plotly_chart(px.box(view, x="챔버", y=target, color="챔버", points="all",
+                                           category_orders={"챔버": chambers}, title=f"챔버별 {target}")
+                                    .update_layout(showlegend=False), width="stretch")
+                    st.caption("오른쪽 결과값 분포로 '불일치 챔버가 실제로 결과도 나쁜지' 함께 확인하세요.")
 
     with tab_cc:
         c1, c2, c3, c4, c5 = st.columns(5)
