@@ -8,3 +8,5 @@
 node_modules/
 .astro/
 dist/
+# Python 가상환경 (실행.bat 이 만듦)
+.venv/

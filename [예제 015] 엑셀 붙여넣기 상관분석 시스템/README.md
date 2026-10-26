@@ -2,6 +2,12 @@
 
 엑셀에서 표를 복사해 붙여넣기만 하면 자동으로 분석합니다. 왼쪽 사이드바에서 **분석 모드**를 고르세요.
 
+**Windows: `실행.bat` 더블클릭** (Python 3.9+ 설치 필요 — 설치 시 "Add python.exe to PATH" 체크)
+- 첫 실행 때 이 폴더에 전용 환경(`.venv`)을 만들고 패키지를 설치합니다 (몇 분). 이후에는 바로 실행됩니다.
+- `requirements.txt` 가 바뀌면 다음 실행 때 자동으로 다시 설치합니다.
+- 회사망에서 설치가 막히면 `실행.bat` 위쪽에 `set HTTPS_PROXY=http://프록시주소:포트` 를 추가하세요.
+
+직접 실행:
 ```bash
 pip install -r requirements.txt
 streamlit run 상관분석.py
